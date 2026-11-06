@@ -3,7 +3,7 @@
 # In an OpenWRT SDK or buildroot, add to feeds.conf:
 #   src-link aigw /path/to/aigw/platform/openwrt
 # or
-#   src-git aigw https://github.com/<org>/aigw.git;main
+#   src-git aigw https://github.com/sudeepksingh/aigw.git;main
 # then: ./scripts/feeds update aigw && ./scripts/feeds install aigw
 #       make package/aigw/compile
 #

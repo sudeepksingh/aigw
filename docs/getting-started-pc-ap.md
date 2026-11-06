@@ -22,7 +22,7 @@ must list `* AP`.
 ## Install
 
 ```bash
-git clone https://github.com/<your-org>/aigw.git
+git clone https://github.com/sudeepksingh/aigw.git
 cd aigw
 sudo ./install.sh
 ```

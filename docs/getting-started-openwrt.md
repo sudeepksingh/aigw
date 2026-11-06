@@ -20,7 +20,7 @@ On any Linux PC (or WSL2), as a normal user:
 
 ```bash
 sudo apt install build-essential curl rsync unzip file gawk python3 python3-setuptools zstd libncurses-dev
-git clone https://github.com/<your-org>/aigw.git
+git clone https://github.com/sudeepksingh/aigw.git
 cd aigw
 TARGET=mediatek/filogic VERSION=24.10 platform/openwrt/build-sdk.sh
 ```

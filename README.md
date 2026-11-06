@@ -1,5 +1,7 @@
 # AIGW: AI-native home gateway
 
+[![ci](https://github.com/sudeepksingh/aigw/actions/workflows/ci.yml/badge.svg)](https://github.com/sudeepksingh/aigw/actions/workflows/ci.yml)
+
 **The gateway that understands the home, not just the network.**
 
 AIGW is a small AI core that turns an **OpenWRT router**, or **any Linux PC
@@ -29,7 +31,7 @@ or another adapter, and a Wi-Fi adapter that supports AP mode (most USB
 adapters with Realtek rtw88 or MediaTek mt76 chips do).
 
 ```bash
-git clone https://github.com/<your-org>/aigw.git
+git clone https://github.com/sudeepksingh/aigw.git
 cd aigw
 sudo ./install.sh
 sudo aigw-ap up
@@ -54,7 +56,7 @@ OpenWRT 23.05 or newer. Build the package for your router's CPU (on any Linux
 PC, takes about 10 minutes the first time):
 
 ```bash
-git clone https://github.com/<your-org>/aigw.git
+git clone https://github.com/sudeepksingh/aigw.git
 cd aigw
 TARGET=mediatek/filogic platform/openwrt/build-sdk.sh   # your router's target
 ```
