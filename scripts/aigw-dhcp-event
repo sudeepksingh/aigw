@@ -1,0 +1,24 @@
+#!/bin/sh
+# dnsmasq DHCP hook: tells the AIGW brain about each lease with the client's
+# DHCP fingerprint (requested options, vendor class), which identifies the
+# device type better than the leases file alone.
+#
+# PC as AP: dnsmasq --dhcp-script=<this>      args: action mac ip [hostname]
+# OpenWRT:  /etc/hotplug.d/dhcp/90-aigw       env:  ACTION MACADDR IPADDR HOSTNAME
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+if [ $# -ge 3 ]; then
+	action=$1 mac=$2 ip=$3 host=${4:-}
+else
+	action=${ACTION:-} mac=${MACADDR:-} ip=${IPADDR:-} host=${HOSTNAME:-}
+fi
+
+case "$action" in
+add|old|update) ;;
+*) exit 0 ;;
+esac
+
+# values come from the network: keep only safe characters for the JSON below
+clean() { printf '%s' "$1" | tr -cd 'A-Za-z0-9._:,+ -' | cut -c1-90; }
+
+exec ubus send ag.dhcp "{\"action\":\"$(clean "$action")\",\"mac\":\"$(clean "$mac")\",\"ip\":\"$(clean "$ip")\",\"hostname\":\"$(clean "$host")\",\"vendor_class\":\"$(clean "${DNSMASQ_VENDOR_CLASS:-}")\",\"options\":\"$(clean "${DNSMASQ_REQUESTED_OPTIONS:-}")\"}" 2>/dev/null

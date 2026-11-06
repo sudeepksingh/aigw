@@ -16,7 +16,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
-            build-essential cmake pkg-config git libjson-c-dev dnsutils nftables
+            build-essential cmake pkg-config git libjson-c-dev libnetfilter-conntrack-dev \
+            dnsutils nftables dnsmasq-base curl python3
       - name: OpenWRT libraries
         run: sudo ./scripts/build-deps.sh
       - name: Build
@@ -27,8 +28,10 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Smoke test
         run: sudo UPSTREAM=1.1.1.1 tests/smoke.sh build
+      - name: Flow sensor test (network namespaces)
+        run: sudo tests/flow-test.sh build
       - name: nft rules render
-        run: sh -n scripts/aigw-nft && sh -n platform/pc-ap/aigw-ap && sh -n platform/pc-ap/install.sh
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh; do sh -n "$f"; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}

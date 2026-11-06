@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.1.1 LANGUAGES C)
+project(aigw VERSION 0.2.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -29,14 +29,24 @@ foreach(v UBOX_INCLUDE_DIR UBUS_INCLUDE_DIR UCI_INCLUDE_DIR UBOX_LIBRARY UBUS_LI
   endif()
 endforeach()
 
-include_directories(${PROJECT_SOURCE_DIR}/include ${UBOX_INCLUDE_DIR} ${UBUS_INCLUDE_DIR} ${UCI_INCLUDE_DIR})
+# connection tracking (flow sensor)
+find_path(NFCT_INCLUDE_DIR libnetfilter_conntrack/libnetfilter_conntrack.h)
+find_library(NFCT_LIBRARY netfilter_conntrack)
+find_library(NFNETLINK_LIBRARY nfnetlink)
+foreach(v NFCT_INCLUDE_DIR NFCT_LIBRARY NFNETLINK_LIBRARY)
+  if(NOT ${v})
+    message(FATAL_ERROR "${v} not found. Debian/Ubuntu: apt install libnetfilter-conntrack-dev")
+  endif()
+endforeach()
+
+include_directories(${PROJECT_SOURCE_DIR}/include ${UBOX_INCLUDE_DIR} ${UBUS_INCLUDE_DIR} ${UCI_INCLUDE_DIR} ${NFCT_INCLUDE_DIR})
 
 add_subdirectory(core/libag)
 add_subdirectory(agd)
 add_subdirectory(agdns)
 add_subdirectory(agctl)
 
-install(PROGRAMS scripts/aigw-nft DESTINATION sbin)
+install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event DESTINATION sbin)
 
 if(AIGW_TESTS)
   enable_testing()

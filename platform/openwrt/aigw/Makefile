@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.1.1
+PKG_VERSION:=0.2.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -33,8 +33,8 @@ define Package/aigw
   CATEGORY:=Network
   TITLE:=AIGW AI-native gateway core (agd, agdns, agctl)
   # nft and its kernel modules come with firewall4, the default firewall
-  # since OpenWRT 22.03.
-  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json
+  # since OpenWRT 22.03. The flow sensor needs conntrack netlink.
+  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libnetfilter-conntrack +kmod-nf-conntrack-netlink
 endef
 
 define Package/aigw/description
@@ -58,10 +58,13 @@ define Build/Prepare
 endef
 
 define Package/aigw/install
-	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults \
+		$(1)/etc/hotplug.d/dhcp
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agd $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agdns $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-nft $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-dhcp-event $(1)/usr/sbin/
+	$(INSTALL_DATA) ./files/aigw.hotplug-dhcp $(1)/etc/hotplug.d/dhcp/90-aigw
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/agctl $(1)/usr/bin/
 	$(INSTALL_BIN) ./files/aigw.init $(1)/etc/init.d/aigw
 	$(INSTALL_CONF) $(AIGW_SRC)/config/aigw $(1)/etc/config/aigw

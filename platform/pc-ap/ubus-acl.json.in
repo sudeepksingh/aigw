@@ -3,7 +3,8 @@
 	"access": {
 		"ag": { "methods": [ "status" ] },
 		"ag.device": { "methods": [ "list" ] },
-		"ag.dns": { "methods": [ "log" ] }
+		"ag.dns": { "methods": [ "log" ] },
+		"ag.flow": { "methods": [ "recent" ] }
 	},
-	"listen": [ "ag.dns" ]
+	"listen": [ "ag.dns", "ag.flow", "ag.wifi" ]
 }

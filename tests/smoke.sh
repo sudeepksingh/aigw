@@ -28,11 +28,15 @@ cat > "$T/config/aigw" <<EOF
 config aigw 'main'
 	option log_level 'debug'
 	option leases '$T/leases'
+	option state_file '$T/state.json'
 
 config dns 'dns'
 	option listen '127.0.0.1'
 	option port '15353'
 	option upstream '${UPSTREAM:-auto}'
+
+config wifi 'wifi'
+	option ctrl_dir '$T/hostapd'
 EOF
 echo "1999999999 aa:bb:cc:dd:ee:ff 192.0.2.10 smoke-host *" > "$T/leases"
 

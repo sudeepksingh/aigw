@@ -6,6 +6,9 @@ config aigw 'main'
 	option log_level 'info'
 	# DHCP leases file; leave unset for the platform default
 	# option leases '/tmp/dhcp.leases'
+	# device history; '' turns saving off. OpenWRT saves hourly to spare flash.
+	# option state_file '/etc/aigw/agd-state.json'
+	# option state_interval '3600'
 
 config dns 'dns'
 	# agdns listens here; client DNS on the LAN interfaces is redirected to it
@@ -15,6 +18,18 @@ config dns 'dns'
 	# Or an address: '1.1.1.1' / '9.9.9.9#53'
 	option upstream 'auto'
 	option intercept '1'
+
+config flow 'flow'
+	# what devices connect to and how much they transfer (conntrack)
+	option enabled '1'
+	# seconds between traffic counter refreshes
+	option poll '30'
+	# seconds after start before flagging "connection without a DNS lookup"
+	option warmup '600'
+
+config wifi 'wifi'
+	# hostapd control sockets; leave unset for the platform default
+	# option ctrl_dir '/var/run/hostapd'
 
 config lan 'lan'
 	# interfaces whose clients AIGW looks after

@@ -11,7 +11,10 @@
 #endif
 
 /* ubus event names published by AIGW sensors */
-#define AG_EV_DNS "ag.dns"
+#define AG_EV_DNS  "ag.dns"
+#define AG_EV_FLOW "ag.flow"
+#define AG_EV_WIFI "ag.wifi"
+#define AG_EV_DHCP "ag.dhcp"
 
 enum ag_log_level {
 	AG_LOG_ERR,
@@ -41,6 +44,12 @@ struct ag_config {
 	char dns_listen[64];
 	int dns_port;
 	char dns_upstream[128];   /* "auto", "ip" or "ip#port" */
+	char state_file[256];     /* device history; "" = don't save */
+	int state_interval;       /* seconds between saves */
+	int flow_enabled;         /* conntrack flow sensor */
+	int flow_poll;            /* seconds between traffic counter refreshes */
+	int flow_warmup;          /* seconds after start before flagging "no DNS" */
+	char wifi_ctrl[128];      /* hostapd control socket directory */
 };
 
 /* Fills defaults, then overrides from UCI. Never fails hard: a missing
