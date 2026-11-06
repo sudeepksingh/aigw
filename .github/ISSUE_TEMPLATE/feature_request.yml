@@ -1,0 +1,37 @@
+name: Idea or feature request
+description: A use case, plug-in or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: The situation in a home or office, not the solution yet.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - DNS sensor (agdns)
+        - Brain (agd), models, policies
+        - IoT
+        - Plug-ins / SDK
+        - Cloud (cortex)
+        - OpenWRT packaging
+        - PC as AP
+        - Docs
+        - Other
+  - type: checkboxes
+    id: fit
+    attributes:
+      label: Fit with the design
+      description: See docs/ARCHITECTURE.md
+      options:
+        - label: Works on both OpenWRT and PC as AP
+        - label: Keeps the network working if AIGW stops (fail-open)

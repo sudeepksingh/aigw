@@ -1,0 +1,4 @@
+# Reviewers requested automatically on pull requests.
+# Add people per area as the project grows, e.g.:
+#   /platform/openwrt/  @someone
+*   @sudeepksingh

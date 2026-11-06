@@ -1,0 +1,53 @@
+name: Bug report
+description: Something doesn't work as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Security problems go through
+        [private reporting](https://github.com/sudeepksingh/aigw/security/advisories/new), not here.
+  - type: dropdown
+    id: host
+    attributes:
+      label: Where does AIGW run?
+      options:
+        - OpenWRT router
+        - PC as AP (native Linux)
+        - PC as AP (Windows + WSL2)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versions
+      description: "Output of `agd --version`, plus your OpenWRT release or Linux distribution"
+      placeholder: "agd 0.1.0, OpenWRT 24.10.8"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware
+      description: Router model, or the Wi-Fi adapter used for PC as AP
+      placeholder: "OpenWRT One / RTL8821CU USB adapter"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. sudo aigw-ap up
+        2. join from a phone
+        3. ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "OpenWRT: `logread -e agd -e agdns`. PC: `journalctl -u aigw -u aigw-agd -u aigw-agdns`. Remove anything private."
+      render: text
