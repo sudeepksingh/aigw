@@ -1,0 +1,9 @@
+{
+	"user": "@USER@",
+	"access": {
+		"ag": { "methods": [ "status" ] },
+		"ag.device": { "methods": [ "list" ] },
+		"ag.dns": { "methods": [ "log" ] }
+	},
+	"listen": [ "ag.dns" ]
+}

@@ -77,6 +77,24 @@ static uint64_t fnum(struct blob_attr *tbl, const char *name)
 	}
 }
 
+/* What to show when a lookup returned no IP address. */
+static const char *no_address_text(uint64_t rcode, const char *qtype, char *tmp, size_t n)
+{
+	switch (rcode) {
+	case 0:
+		if (!strcmp(qtype, "A") || !strcmp(qtype, "AAAA"))
+			return "(no address)";
+		snprintf(tmp, n, "(%s record)", qtype);
+		return tmp;
+	case 2: return "SERVFAIL";
+	case 3: return "NXDOMAIN";
+	case 5: return "REFUSED";
+	default:
+		snprintf(tmp, n, "RCODE %llu", (unsigned long long)rcode);
+		return tmp;
+	}
+}
+
 static void print_json(struct blob_attr *msg)
 {
 	char *s = blobmsg_format_json_indent(msg, true, 0);
@@ -146,13 +164,14 @@ static void show_dns(struct ubus_request *req, int type, struct blob_attr *msg)
 	blobmsg_for_each_attr(e, arr, rem) {
 		time_t ts = (time_t)fnum(e, "ts");
 		struct tm tm;
-		char hhmmss[16];
+		char hhmmss[16], tmp[32];
 
 		localtime_r(&ts, &tm);
 		strftime(hhmmss, sizeof(hhmmss), "%H:%M:%S", &tm);
 		printf("%-8s %-16s %-16.16s %-5s %-44.44s %s\n", hhmmss, fstr(e, "client"),
 		       *fstr(e, "hostname") ? fstr(e, "hostname") : "-", fstr(e, "qtype"),
-		       fstr(e, "qname"), *fstr(e, "answer") ? fstr(e, "answer") : (fnum(e, "rcode") == 3 ? "NXDOMAIN" : "-"));
+		       fstr(e, "qname"), *fstr(e, "answer") ? fstr(e, "answer") :
+		       no_address_text(fnum(e, "rcode"), fstr(e, "qtype"), tmp, sizeof(tmp)));
 	}
 }
 
@@ -179,14 +198,15 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 		     const char *type, struct blob_attr *msg)
 {
 	struct blob_attr *ans = field(msg, "answers"), *a;
-	char tmp[16];
+	char tmp[16], tmp2[32];
+	const char *qtype;
 	size_t rem;
 	int k = 0;
 
 	if (json_out)
 		return print_json(msg);
-	printf("%-16s %-5s %-44s ->", fstr(msg, "client"),
-	       ag_dns_type_str((uint16_t)fnum(msg, "qtype"), tmp, sizeof(tmp)), fstr(msg, "qname"));
+	qtype = ag_dns_type_str((uint16_t)fnum(msg, "qtype"), tmp, sizeof(tmp));
+	printf("%-16s %-5s %-44s ->", fstr(msg, "client"), qtype, fstr(msg, "qname"));
 	if (ans)
 		blobmsg_for_each_attr(a, ans, rem) {
 			if (k++ == 2)
@@ -194,7 +214,7 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 			printf(" %s", blobmsg_get_string(a));
 		}
 	if (!k)
-		printf(" %s", fnum(msg, "rcode") == 3 ? "NXDOMAIN" : "-");
+		printf(" %s", no_address_text(fnum(msg, "rcode"), qtype, tmp2, sizeof(tmp2)));
 	printf("  (%.1f ms)\n", fnum(msg, "latency_us") / 1000.0);
 	fflush(stdout);
 }

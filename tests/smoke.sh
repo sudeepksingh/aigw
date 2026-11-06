@@ -34,7 +34,7 @@ config dns 'dns'
 	option port '15353'
 	option upstream '${UPSTREAM:-auto}'
 EOF
-echo "1999999999 aa:bb:cc:dd:ee:ff 127.0.0.1 smoke-host *" > "$T/leases"
+echo "1999999999 aa:bb:cc:dd:ee:ff 192.0.2.10 smoke-host *" > "$T/leases"
 
 export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock"
 
@@ -50,15 +50,22 @@ echo "== TCP query through agdns"
 dig +short +tcp +time=3 +tries=2 @127.0.0.1 -p 15353 example.org A | grep -E '^[0-9.]+$' || fail "no TCP answer"
 echo "== NXDOMAIN passes through"
 dig +time=3 +tries=2 @127.0.0.1 -p 15353 does-not-exist.invalid A | grep -q NXDOMAIN || fail "no NXDOMAIN"
+echo "== HTTPS record lookup"
+dig +time=3 +tries=2 @127.0.0.1 -p 15353 cloudflare.com HTTPS > /dev/null || fail "HTTPS lookup failed"
+echo "== TCP query is reported to the brain"
+dig +short +tcp +time=3 +tries=2 @127.0.0.1 -p 15353 example.net A | grep -E '^[0-9.]+$' || fail "no TCP answer"
 
 sleep 0.5
 echo "== agctl status"
 "$BIN/agctl/agctl" status || fail "agctl status"
 echo "== agctl dns"
-"$BIN/agctl/agctl" dns 5 | tee "$T/dns.out"
+"$BIN/agctl/agctl" dns 10 | tee "$T/dns.out"
 grep -q example.com "$T/dns.out" || fail "query missing from the brain's DNS log"
 echo "== agctl devices"
 "$BIN/agctl/agctl" devices | tee "$T/dev.out"
 grep -q smoke-host "$T/dev.out" || fail "lease hostname missing from device list"
+grep -q '^127\.0\.0\.1 ' "$T/dev.out" && fail "the gateway's own address is listed as a device"
+grep -q 'HTTPS record' "$T/dns.out" || fail "HTTPS lookup not shown as a record"
+grep -q 'example.net' "$T/dns.out" || fail "DNS-over-TCP query missing from the brain's DNS log"
 
 echo "SMOKE OK"

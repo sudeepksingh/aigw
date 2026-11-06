@@ -105,7 +105,8 @@ settings: log level, DNS port and upstream resolver.
 | `hostapd could not start` | The message above it shows hostapd's reason. Try `BAND=2.4`, `CHANNEL=6`, or set `COUNTRY` |
 | 5 GHz refused | Set `COUNTRY`. Some adapters can't run an AP on 5 GHz at all |
 | Clients connect but have no internet | `sudo aigw-ap status`; check `UPLINK`; Docker or ufw may block forwarding (`sudo iptables -P FORWARD ACCEPT` or allow `10.42.0.0/24`) |
-| `agctl: cannot connect to ubus` | `sudo systemctl status aigw-ubusd aigw-agd`; run `agctl` with sudo |
+| `agctl: cannot connect to ubus` | `sudo systemctl status aigw-ubusd aigw-agd` |
+| `agctl: ... failed: Not found` as a normal user | The installer gives read access to the user who ran `sudo ./install.sh`. For other users: `sudo AIGW_USERS="alice bob" ./install.sh`, or use `sudo agctl` |
 
 Logs: `journalctl -u aigw-agd -u aigw-agdns -u aigw`.
 

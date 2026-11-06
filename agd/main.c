@@ -14,6 +14,8 @@
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,6 +66,11 @@ static struct dnslog dlog[DNSLOG_MAX];
 static unsigned dlog_head, dlog_count;
 static uint64_t dns_total;
 static int64_t started, last_dns_event;
+
+/* the gateway's own addresses: its queries are logged but it is not a device */
+#define LOCAL_MAX 32
+static char local_ips[LOCAL_MAX][INET6_ADDRSTRLEN];
+static int n_local;
 
 static struct ubus_auto_conn conn;
 static struct ubus_event_handler dns_ev;
@@ -171,8 +178,55 @@ static void poll_arp(void)
 	fclose(f);
 }
 
+static void poll_local_addrs(void)
+{
+	struct ifaddrs *ifa, *i;
+	int n = 0;
+
+	if (getifaddrs(&ifa) < 0)
+		return;
+	for (i = ifa; i && n < LOCAL_MAX; i = i->ifa_next) {
+		const void *a;
+
+		if (!i->ifa_addr)
+			continue;
+		if (i->ifa_addr->sa_family == AF_INET)
+			a = &((struct sockaddr_in *)i->ifa_addr)->sin_addr;
+		else if (i->ifa_addr->sa_family == AF_INET6)
+			a = &((struct sockaddr_in6 *)i->ifa_addr)->sin6_addr;
+		else
+			continue;
+		if (inet_ntop(i->ifa_addr->sa_family, a, local_ips[n], sizeof(local_ips[n])))
+			n++;
+	}
+	n_local = n;
+	freeifaddrs(ifa);
+}
+
+static int is_local(const char *ip)
+{
+	int i;
+
+	for (i = 0; i < n_local; i++)
+		if (!strcmp(local_ips[i], ip))
+			return 1;
+	return 0;
+}
+
+/* drop device entries that turned out to be the gateway itself */
+static void prune_local_devices(void)
+{
+	int i;
+
+	for (i = 0; i < DEV_MAX; i++)
+		if (devs[i].used && is_local(devs[i].ip))
+			devs[i].used = 0;
+}
+
 static void poll_cb(struct uloop_timeout *t)
 {
+	poll_local_addrs();
+	prune_local_devices();
 	poll_leases();
 	poll_arp();
 	uloop_timeout_set(t, POLL_MS);
@@ -209,10 +263,12 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 	dns_total++;
 	last_dns_event = ag_wall_s();
 
-	d = dev_find(client, 1);
-	d->last_seen = last_dns_event;
-	d->queries++;
-	dev_count_domain(d, qname);
+	if (!is_local(client)) {
+		d = dev_find(client, 1);
+		d->last_seen = last_dns_event;
+		d->queries++;
+		dev_count_domain(d, qname);
+	}
 
 	e = &dlog[dlog_head];
 	memset(e, 0, sizeof(*e));

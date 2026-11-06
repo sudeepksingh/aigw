@@ -16,6 +16,7 @@ if [ -d /run/systemd/system ]; then
 	systemctl daemon-reload
 fi
 rm -f "$PREFIX/sbin/agd" "$PREFIX/sbin/agdns" "$PREFIX/sbin/aigw-nft" "$PREFIX/sbin/aigw-ap" "$PREFIX/bin/agctl"
+rm -f /usr/share/acl.d/aigw-*.json
 if [ "${1:-}" = --purge ]; then
 	rm -rf /etc/aigw /etc/config/aigw /var/lib/aigw
 fi
