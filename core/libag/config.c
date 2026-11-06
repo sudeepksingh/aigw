@@ -35,6 +35,13 @@ void ag_config_load(struct ag_config *c)
 	copy(c->dns_listen, sizeof(c->dns_listen), "0.0.0.0");
 	c->dns_port = 5300;
 	copy(c->dns_upstream, sizeof(c->dns_upstream), "auto");
+	/* OpenWRT: flash wears out, so save hourly; PCs: every 5 minutes */
+	copy(c->state_file, sizeof(c->state_file), owrt ? "/etc/aigw/agd-state.json" : "/var/lib/aigw/agd-state.json");
+	c->state_interval = owrt ? 3600 : 300;
+	c->flow_enabled = 1;
+	c->flow_poll = 30;
+	c->flow_warmup = 600;
+	copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), owrt ? "/var/run/hostapd" : "/run/aigw/hostapd");
 
 	ctx = uci_alloc_context();
 	if (!ctx)
@@ -49,6 +56,22 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "dns", "port");
 		if (v && atoi(v) > 0 && atoi(v) < 65536)
 			c->dns_port = atoi(v);
+		v = opt(ctx, p, "main", "state_file");
+		if (v)
+			snprintf(c->state_file, sizeof(c->state_file), "%s", v); /* may be "" */
+		v = opt(ctx, p, "main", "state_interval");
+		if (v && atoi(v) >= 10)
+			c->state_interval = atoi(v);
+		v = opt(ctx, p, "flow", "enabled");
+		if (v)
+			c->flow_enabled = atoi(v) != 0;
+		v = opt(ctx, p, "flow", "poll");
+		if (v && atoi(v) >= 1)
+			c->flow_poll = atoi(v);
+		v = opt(ctx, p, "flow", "warmup");
+		if (v && atoi(v) >= 0)
+			c->flow_warmup = atoi(v);
+		copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), opt(ctx, p, "wifi", "ctrl_dir"));
 	}
 	uci_free_context(ctx);
 }

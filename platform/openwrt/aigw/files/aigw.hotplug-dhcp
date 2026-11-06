@@ -1,0 +1,3 @@
+# OpenWRT runs this for every DHCP lease event (ACTION, MACADDR, IPADDR,
+# HOSTNAME in the environment); hand it to the AIGW brain.
+/usr/sbin/aigw-dhcp-event

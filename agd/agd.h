@@ -1,0 +1,91 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Internal interfaces between agd's modules. */
+#ifndef AGD_H
+#define AGD_H
+
+#include <netinet/in.h>
+#include <stdint.h>
+
+#include <libubox/blobmsg.h>
+
+#include "ag/ag.h"
+
+#define DEV_MAX     256
+#define DEV_DOM_MAX 32
+#define DEV_DST_MAX 16
+#define NAME_LEN    128
+#define IP_LEN      INET6_ADDRSTRLEN
+
+struct top_item {
+	char name[NAME_LEN];
+	uint64_t n;
+};
+
+struct device {
+	int used;
+	char ip[IP_LEN];
+	char mac[18];
+	char hostname[64];
+	char vendor_class[64];
+	char dhcp_options[96];          /* DHCP option 55 list, a device fingerprint */
+	char type[24];                  /* rule-based guess until the device model lands */
+	int64_t first_seen, last_seen;
+
+	/* DNS */
+	uint32_t queries;
+	struct top_item doms[DEV_DOM_MAX];      /* by lookups */
+
+	/* flows */
+	uint32_t flows, flows_no_dns;
+	uint64_t bytes_up, bytes_down;
+	struct top_item dsts[DEV_DST_MAX];      /* by bytes */
+
+	/* Wi-Fi */
+	int wifi_connected;
+	int wifi_signal;                /* dBm */
+	uint32_t wifi_rate_kbps;        /* AP -> device */
+	int64_t wifi_since;
+	char wifi_iface[24];
+	unsigned wifi_seen;             /* poll sequence */
+};
+
+/* main.c */
+extern struct ag_config cfg;
+extern int64_t started;
+void agd_emit(const char *type, struct blob_buf *b);
+
+/* devices.c */
+extern struct device devs[DEV_MAX];
+struct device *dev_find_ip(const char *ip, int create);
+struct device *dev_find_mac(const char *mac, int create);
+struct device *dev_learn(const char *ip, const char *mac, const char *hostname);
+int dev_count(void);
+void dev_guess_type(struct device *d);
+void dev_blob(struct blob_buf *b, const struct device *d);
+void top_add(struct top_item *t, int n, const char *name, uint64_t inc);
+void top_sorted(const struct top_item *t, int n, struct top_item *out);
+void local_addrs_refresh(void);
+int is_local(const char *ip);
+int is_private(const char *ip);
+void dev_poll_leases(void);
+void dev_poll_arp(void);
+int dev_state_save(void);
+int dev_state_load(void);
+
+/* endpoint.c: which name each IP was looked up as (the DNS <-> flow join) */
+void ep_add(const char *ip, const char *domain, const char *client, uint32_t ttl);
+const char *ep_lookup(const char *ip);
+int ep_count(void);
+
+/* flow.c */
+extern uint64_t flows_total, flows_no_dns_total;
+int flow_init(void);
+int flow_active(void);
+void flow_blob_recent(struct blob_buf *b, unsigned limit);
+
+/* wifi.c */
+void wifi_init(void);
+void wifi_poll(void);
+int wifi_station_count(void);
+
+#endif

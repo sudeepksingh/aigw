@@ -65,7 +65,12 @@ echo "==> feeds"
 LOG="$CACHE/feeds-$VERSION.log"
 # the base feed is pinned to the release, so fetch it once; refresh only aigw after that
 if [ -d feeds/base ]; then UPDATE="aigw"; else UPDATE="-a"; fi
-if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install aigw; } > "$LOG" 2>&1; then
+# install the package's library dependencies by name too: "feeds install"
+# doesn't revisit dependencies added to an already-installed package
+# (kernel modules come with the SDK and are not feed packages)
+DEPS=$(sed -n 's/^[[:space:]]*DEPENDS:=//p' "$REPO/platform/openwrt/aigw/Makefile" |
+	tr ' ' '\n' | sed -n 's/^+//p' | grep -v '^kmod-' | tr '\n' ' ')
+if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install $DEPS aigw; } > "$LOG" 2>&1; then
 	tail -40 "$LOG" >&2
 	die "feeds setup failed (full log: $LOG)"
 fi

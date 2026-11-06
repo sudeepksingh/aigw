@@ -20,7 +20,7 @@ step "Installing packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
-	build-essential cmake pkg-config git ca-certificates libjson-c-dev \
+	build-essential cmake pkg-config git ca-certificates libjson-c-dev libnetfilter-conntrack-dev \
 	hostapd dnsmasq-base nftables iw iproute2 wireless-regdb kmod procps \
 	zstd xz-utils dnsutils >/dev/null
 

@@ -2,239 +2,67 @@
 /*
  * agd: the AIGW brain.
  *
- * v0.1 ("observe"): builds the Context Graph's first two tables from sensor
- * events and host data -- devices (DHCP leases, ARP, DNS activity) and the
- * DNS log -- and serves them over ubus:
+ * Phase 1 ("observe"): joins what every sensor reports into one picture of
+ * the home -- devices (DHCP, ARP, Wi-Fi), what they look up (agdns), what
+ * they connect to and how much they transfer (conntrack) -- keeps it across
+ * restarts, and serves it over ubus:
  *
  *   ubus call ag status
  *   ubus call ag.device list
  *   ubus call ag.dns log '{"limit": 50}'
+ *   ubus call ag.flow recent '{"limit": 50}'
+ *   ubus listen ag.dns ag.flow ag.wifi
  *
  * Models, policies and actuators plug into this process in later phases.
  */
 #define _GNU_SOURCE
-#include <arpa/inet.h>
-#include <ifaddrs.h>
-#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <unistd.h>
 
 #include <libubox/blobmsg.h>
 #include <libubox/uloop.h>
 #include <libubus.h>
 
-#include "ag/ag.h"
+#include "agd.h"
 #include "ag/dns.h"
 
-#define DEV_MAX      256
-#define DEV_DOM_MAX  32
-#define DOM_LEN      128
-#define DNSLOG_MAX   512
-#define POLL_MS      5000
-
-struct dom_count {
-	char name[DOM_LEN];
-	uint32_t n;
-};
-
-struct device {
-	int used;
-	char ip[INET6_ADDRSTRLEN];
-	char mac[18];
-	char hostname[64];
-	int64_t first_seen, last_seen;
-	uint32_t queries;
-	struct dom_count doms[DEV_DOM_MAX];
-};
+#define DNSLOG_MAX 512
+#define POLL_MS    5000
 
 struct dnslog {
 	int64_t ts;
-	char client[INET6_ADDRSTRLEN];
-	char qname[DOM_LEN];
-	char answer[INET6_ADDRSTRLEN];
+	char client[IP_LEN];
+	char qname[NAME_LEN];
+	char answer[IP_LEN];
 	uint16_t qtype, rcode;
 	uint32_t latency_us;
 	uint8_t n_ans;
 };
 
-static struct ag_config cfg;
-static struct device devs[DEV_MAX];
+struct ag_config cfg;
+int64_t started;
+
 static struct dnslog dlog[DNSLOG_MAX];
 static unsigned dlog_head, dlog_count;
 static uint64_t dns_total;
-static int64_t started, last_dns_event;
-
-/* the gateway's own addresses: its queries are logged but it is not a device */
-#define LOCAL_MAX 32
-static char local_ips[LOCAL_MAX][INET6_ADDRSTRLEN];
-static int n_local;
+static int64_t last_dns_event;
 
 static struct ubus_auto_conn conn;
-static struct ubus_event_handler dns_ev;
-static struct uloop_timeout poll_timer;
+static struct ubus_event_handler dns_ev, dhcp_ev;
+static struct uloop_timeout poll_timer, save_timer;
 static struct blob_buf b;
 
-/* ---------- device table ---------- */
-
-static struct device *dev_find(const char *ip, int create)
+void agd_emit(const char *type, struct blob_buf *msg)
 {
-	struct device *oldest = NULL;
-	int i;
-
-	for (i = 0; i < DEV_MAX; i++)
-		if (devs[i].used && !strcmp(devs[i].ip, ip))
-			return &devs[i];
-	if (!create)
-		return NULL;
-	for (i = 0; i < DEV_MAX; i++) {
-		if (!devs[i].used) {
-			oldest = &devs[i];
-			break;
-		}
-		if (!oldest || devs[i].last_seen < oldest->last_seen)
-			oldest = &devs[i];
-	}
-	memset(oldest, 0, sizeof(*oldest));
-	oldest->used = 1;
-	snprintf(oldest->ip, sizeof(oldest->ip), "%s", ip);
-	oldest->first_seen = oldest->last_seen = ag_wall_s();
-	return oldest;
-}
-
-static int dev_count(void)
-{
-	int i, n = 0;
-
-	for (i = 0; i < DEV_MAX; i++)
-		n += devs[i].used;
-	return n;
-}
-
-/* Space-saving top-k: keeps the most frequent domains per device in fixed memory. */
-static void dev_count_domain(struct device *d, const char *name)
-{
-	struct dom_count *min = &d->doms[0];
-	int i;
-
-	for (i = 0; i < DEV_DOM_MAX; i++) {
-		if (d->doms[i].n && !strncmp(d->doms[i].name, name, DOM_LEN - 1)) {
-			d->doms[i].n++;
-			return;
-		}
-		if (d->doms[i].n < min->n)
-			min = &d->doms[i];
-	}
-	snprintf(min->name, sizeof(min->name), "%s", name);
-	min->n++;
-}
-
-/* dnsmasq lease lines: "<expiry> <mac> <ip> <hostname|*> <client-id|*>" */
-static void poll_leases(void)
-{
-	FILE *f = fopen(cfg.leases, "r");
-	char line[512];
-
-	if (!f)
-		return;
-	while (fgets(line, sizeof(line), f)) {
-		char mac[32], ip[64], host[128];
-		long long exp;
-		struct device *d;
-
-		if (sscanf(line, "%lld %31s %63s %127s", &exp, mac, ip, host) != 4)
-			continue;
-		d = dev_find(ip, 1);
-		snprintf(d->mac, sizeof(d->mac), "%.17s", mac);
-		if (strcmp(host, "*"))
-			snprintf(d->hostname, sizeof(d->hostname), "%.63s", host);
-	}
-	fclose(f);
-}
-
-/* /proc/net/arp fills in MACs for devices with static addresses */
-static void poll_arp(void)
-{
-	FILE *f = fopen("/proc/net/arp", "r");
-	char line[256];
-
-	if (!f)
-		return;
-	while (fgets(line, sizeof(line), f)) {
-		char ip[64], hw[32], mac[32], mask[32], dev[32];
-		unsigned flags;
-		struct device *d;
-
-		if (sscanf(line, "%63s %31s %x %31s %31s %31s", ip, hw, &flags, mac, mask, dev) != 6)
-			continue;
-		if (!(flags & 0x2))
-			continue;
-		d = dev_find(ip, 0);
-		if (d && !d->mac[0])
-			snprintf(d->mac, sizeof(d->mac), "%.17s", mac);
-	}
-	fclose(f);
-}
-
-static void poll_local_addrs(void)
-{
-	struct ifaddrs *ifa, *i;
-	int n = 0;
-
-	if (getifaddrs(&ifa) < 0)
-		return;
-	for (i = ifa; i && n < LOCAL_MAX; i = i->ifa_next) {
-		const void *a;
-
-		if (!i->ifa_addr)
-			continue;
-		if (i->ifa_addr->sa_family == AF_INET)
-			a = &((struct sockaddr_in *)i->ifa_addr)->sin_addr;
-		else if (i->ifa_addr->sa_family == AF_INET6)
-			a = &((struct sockaddr_in6 *)i->ifa_addr)->sin6_addr;
-		else
-			continue;
-		if (inet_ntop(i->ifa_addr->sa_family, a, local_ips[n], sizeof(local_ips[n])))
-			n++;
-	}
-	n_local = n;
-	freeifaddrs(ifa);
-}
-
-static int is_local(const char *ip)
-{
-	int i;
-
-	for (i = 0; i < n_local; i++)
-		if (!strcmp(local_ips[i], ip))
-			return 1;
-	return 0;
-}
-
-/* drop device entries that turned out to be the gateway itself */
-static void prune_local_devices(void)
-{
-	int i;
-
-	for (i = 0; i < DEV_MAX; i++)
-		if (devs[i].used && is_local(devs[i].ip))
-			devs[i].used = 0;
-}
-
-static void poll_cb(struct uloop_timeout *t)
-{
-	poll_local_addrs();
-	prune_local_devices();
-	poll_leases();
-	poll_arp();
-	uloop_timeout_set(t, POLL_MS);
+	if (conn.ctx.sock.fd >= 0)
+		ubus_send_event(&conn.ctx, type, msg->head);
 }
 
 /* ---------- sensor events ---------- */
 
-enum { EV_CLIENT, EV_QNAME, EV_QTYPE, EV_RCODE, EV_LAT, EV_ANSWERS, __EV_MAX };
+enum { EV_CLIENT, EV_QNAME, EV_QTYPE, EV_RCODE, EV_LAT, EV_ANSWERS, EV_TTL, __EV_MAX };
 
 static const struct blobmsg_policy ev_policy[__EV_MAX] = {
 	[EV_CLIENT]  = { .name = "client", .type = BLOBMSG_TYPE_STRING },
@@ -243,6 +71,7 @@ static const struct blobmsg_policy ev_policy[__EV_MAX] = {
 	[EV_RCODE]   = { .name = "rcode", .type = BLOBMSG_TYPE_INT32 },
 	[EV_LAT]     = { .name = "latency_us", .type = BLOBMSG_TYPE_INT32 },
 	[EV_ANSWERS] = { .name = "answers", .type = BLOBMSG_TYPE_ARRAY },
+	[EV_TTL]     = { .name = "ttl", .type = BLOBMSG_TYPE_INT32 },
 };
 
 static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev,
@@ -250,8 +79,8 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 {
 	struct blob_attr *tb[__EV_MAX], *cur;
 	struct dnslog *e;
-	struct device *d;
 	const char *client, *qname;
+	uint32_t ttl;
 	size_t rem;
 
 	blobmsg_parse(ev_policy, __EV_MAX, tb, blob_data(msg), blob_len(msg));
@@ -259,15 +88,17 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 		return;
 	client = blobmsg_get_string(tb[EV_CLIENT]);
 	qname = blobmsg_get_string(tb[EV_QNAME]);
+	ttl = tb[EV_TTL] ? blobmsg_get_u32(tb[EV_TTL]) : 0;
 
 	dns_total++;
 	last_dns_event = ag_wall_s();
 
 	if (!is_local(client)) {
-		d = dev_find(client, 1);
+		struct device *d = dev_find_ip(client, 1);
+
 		d->last_seen = last_dns_event;
 		d->queries++;
-		dev_count_domain(d, qname);
+		top_add(d->doms, DEV_DOM_MAX, qname, 1);
 	}
 
 	e = &dlog[dlog_head];
@@ -285,6 +116,8 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 			if (!e->n_ans)
 				snprintf(e->answer, sizeof(e->answer), "%s", blobmsg_get_string(cur));
 			e->n_ans++;
+			/* remember which name each address belongs to, for the flow join */
+			ep_add(blobmsg_get_string(cur), qname, client, ttl);
 		}
 	}
 	dlog_head = (dlog_head + 1) % DNSLOG_MAX;
@@ -292,61 +125,80 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 		dlog_count++;
 }
 
+/* from aigw-dhcp-event (dnsmasq hook): richer identity than the leases file */
+enum { DH_ACTION, DH_MAC, DH_IP, DH_HOST, DH_VC, DH_OPTS, __DH_MAX };
+
+static const struct blobmsg_policy dhcp_policy[__DH_MAX] = {
+	[DH_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
+	[DH_MAC] = { .name = "mac", .type = BLOBMSG_TYPE_STRING },
+	[DH_IP] = { .name = "ip", .type = BLOBMSG_TYPE_STRING },
+	[DH_HOST] = { .name = "hostname", .type = BLOBMSG_TYPE_STRING },
+	[DH_VC] = { .name = "vendor_class", .type = BLOBMSG_TYPE_STRING },
+	[DH_OPTS] = { .name = "options", .type = BLOBMSG_TYPE_STRING },
+};
+
+static void on_dhcp_event(struct ubus_context *ctx, struct ubus_event_handler *ev,
+			  const char *type, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__DH_MAX];
+	struct device *d;
+
+	blobmsg_parse(dhcp_policy, __DH_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[DH_MAC] || !tb[DH_IP] || is_local(blobmsg_get_string(tb[DH_IP])))
+		return;
+	d = dev_learn(blobmsg_get_string(tb[DH_IP]), blobmsg_get_string(tb[DH_MAC]),
+		      tb[DH_HOST] ? blobmsg_get_string(tb[DH_HOST]) : NULL);
+	if (!d)
+		return;
+	if (tb[DH_VC] && *blobmsg_get_string(tb[DH_VC]))
+		snprintf(d->vendor_class, sizeof(d->vendor_class), "%s", blobmsg_get_string(tb[DH_VC]));
+	if (tb[DH_OPTS] && *blobmsg_get_string(tb[DH_OPTS]))
+		snprintf(d->dhcp_options, sizeof(d->dhcp_options), "%s", blobmsg_get_string(tb[DH_OPTS]));
+	d->last_seen = ag_wall_s();
+	dev_guess_type(d);
+}
+
 /* ---------- ubus API ---------- */
 
 static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 		    struct ubus_request_data *req, const char *method, struct blob_attr *msg)
 {
+	void *s;
+
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
 	blobmsg_add_string(&b, "phase", "observe");
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
+	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
 	blobmsg_add_u64(&b, "dns_queries", dns_total);
 	blobmsg_add_u64(&b, "dns_last_event", (uint64_t)last_dns_event);
+	blobmsg_add_u64(&b, "flows", flows_total);
+	blobmsg_add_u64(&b, "flows_no_dns", flows_no_dns_total);
+	blobmsg_add_u32(&b, "endpoints", (uint32_t)ep_count());
+	s = blobmsg_open_table(&b, "sensors");
+	blobmsg_add_u8(&b, "dns", last_dns_event ? 1 : 0);
+	blobmsg_add_u8(&b, "flow", flow_active() ? 1 : 0);
+	blobmsg_add_u8(&b, "wifi", wifi_station_count() > 0 ? 1 : 0);
+	blobmsg_close_table(&b, s);
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
-}
-
-static int dom_cmp(const void *a, const void *b2)
-{
-	const struct dom_count *x = a, *y = b2;
-
-	return (y->n > x->n) - (y->n < x->n);
 }
 
 static int m_device_list(struct ubus_context *ctx, struct ubus_object *obj,
 			 struct ubus_request_data *req, const char *method, struct blob_attr *msg)
 {
-	void *arr, *t, *top, *dt;
-	int i, k;
+	void *arr, *t;
+	int i;
 
 	blob_buf_init(&b, 0);
 	arr = blobmsg_open_array(&b, "devices");
 	for (i = 0; i < DEV_MAX; i++) {
-		struct device *d = &devs[i];
-		struct dom_count sorted[DEV_DOM_MAX];
-
-		if (!d->used)
+		if (!devs[i].used)
 			continue;
 		t = blobmsg_open_table(&b, NULL);
-		blobmsg_add_string(&b, "ip", d->ip);
-		blobmsg_add_string(&b, "mac", d->mac);
-		blobmsg_add_string(&b, "hostname", d->hostname);
-		blobmsg_add_u64(&b, "first_seen", (uint64_t)d->first_seen);
-		blobmsg_add_u64(&b, "last_seen", (uint64_t)d->last_seen);
-		blobmsg_add_u32(&b, "queries", d->queries);
-		memcpy(sorted, d->doms, sizeof(sorted));
-		qsort(sorted, DEV_DOM_MAX, sizeof(sorted[0]), dom_cmp);
-		top = blobmsg_open_array(&b, "top_domains");
-		for (k = 0; k < 5 && sorted[k].n; k++) {
-			dt = blobmsg_open_table(&b, NULL);
-			blobmsg_add_string(&b, "domain", sorted[k].name);
-			blobmsg_add_u32(&b, "count", sorted[k].n);
-			blobmsg_close_table(&b, dt);
-		}
-		blobmsg_close_array(&b, top);
+		dev_blob(&b, &devs[i]);
 		blobmsg_close_table(&b, t);
 	}
 	blobmsg_close_array(&b, arr);
@@ -354,30 +206,32 @@ static int m_device_list(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
-enum { LOG_LIMIT, __LOG_MAX };
-static const struct blobmsg_policy log_policy[__LOG_MAX] = {
-	[LOG_LIMIT] = { .name = "limit", .type = BLOBMSG_TYPE_INT32 },
+enum { LIM_LIMIT, __LIM_MAX };
+static const struct blobmsg_policy limit_policy[__LIM_MAX] = {
+	[LIM_LIMIT] = { .name = "limit", .type = BLOBMSG_TYPE_INT32 },
 };
+
+static unsigned get_limit(struct blob_attr *msg, unsigned dflt)
+{
+	struct blob_attr *tb[__LIM_MAX];
+
+	blobmsg_parse(limit_policy, __LIM_MAX, tb, blob_data(msg), blob_len(msg));
+	return tb[LIM_LIMIT] ? blobmsg_get_u32(tb[LIM_LIMIT]) : dflt;
+}
 
 static int m_dns_log(struct ubus_context *ctx, struct ubus_object *obj,
 		     struct ubus_request_data *req, const char *method, struct blob_attr *msg)
 {
-	struct blob_attr *tb[__LOG_MAX];
-	unsigned limit = 50, i;
+	unsigned limit = get_limit(msg, 50), i;
 	void *arr, *t;
 
-	blobmsg_parse(log_policy, __LOG_MAX, tb, blob_data(msg), blob_len(msg));
-	if (tb[LOG_LIMIT])
-		limit = blobmsg_get_u32(tb[LOG_LIMIT]);
 	if (limit > dlog_count)
 		limit = dlog_count;
-
 	blob_buf_init(&b, 0);
 	arr = blobmsg_open_array(&b, "log");
 	for (i = 0; i < limit; i++) {
-		/* newest first */
 		struct dnslog *e = &dlog[(dlog_head + DNSLOG_MAX - 1 - i) % DNSLOG_MAX];
-		struct device *d = dev_find(e->client, 0);
+		struct device *d = dev_find_ip(e->client, 0);
 		char tmp[16];
 
 		t = blobmsg_open_table(&b, NULL);
@@ -393,6 +247,15 @@ static int m_dns_log(struct ubus_context *ctx, struct ubus_object *obj,
 		blobmsg_close_table(&b, t);
 	}
 	blobmsg_close_array(&b, arr);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static int m_flow_recent(struct ubus_context *ctx, struct ubus_object *obj,
+			 struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	blob_buf_init(&b, 0);
+	flow_blob_recent(&b, get_limit(msg, 50));
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
@@ -414,22 +277,54 @@ static struct ubus_object dev_obj = {
 };
 
 static struct ubus_method dns_methods[] = {
-	UBUS_METHOD("log", m_dns_log, log_policy),
+	UBUS_METHOD("log", m_dns_log, limit_policy),
 };
 static struct ubus_object_type dns_type = UBUS_OBJECT_TYPE("ag.dns", dns_methods);
 static struct ubus_object dns_obj = {
 	.name = "ag.dns", .type = &dns_type, .methods = dns_methods, .n_methods = ARRAY_SIZE(dns_methods),
 };
 
+static struct ubus_method flow_methods[] = {
+	UBUS_METHOD("recent", m_flow_recent, limit_policy),
+};
+static struct ubus_object_type flow_type = UBUS_OBJECT_TYPE("ag.flow", flow_methods);
+static struct ubus_object flow_obj = {
+	.name = "ag.flow", .type = &flow_type, .methods = flow_methods, .n_methods = ARRAY_SIZE(flow_methods),
+};
+
 static void on_ubus_connect(struct ubus_context *ctx)
 {
 	if (ubus_add_object(ctx, &ag_obj) || ubus_add_object(ctx, &dev_obj) ||
-	    ubus_add_object(ctx, &dns_obj))
+	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
-	if (ubus_register_event_handler(ctx, &dns_ev, AG_EV_DNS))
-		AG_ERR("failed to subscribe to %s", AG_EV_DNS);
-	AG_INFO("connected to ubus, serving ag, ag.device, ag.dns");
+	dhcp_ev.cb = on_dhcp_event;
+	if (ubus_register_event_handler(ctx, &dns_ev, AG_EV_DNS) ||
+	    ubus_register_event_handler(ctx, &dhcp_ev, AG_EV_DHCP))
+		AG_ERR("failed to subscribe to sensor events");
+	AG_INFO("connected to ubus, serving ag, ag.device, ag.dns, ag.flow");
+}
+
+/* ---------- timers ---------- */
+
+static void poll_cb(struct uloop_timeout *t)
+{
+	int i;
+
+	local_addrs_refresh();
+	for (i = 0; i < DEV_MAX; i++)       /* the gateway is not a device */
+		if (devs[i].used && devs[i].ip[0] && is_local(devs[i].ip))
+			devs[i].used = 0;
+	dev_poll_leases();
+	dev_poll_arp();
+	wifi_poll();
+	uloop_timeout_set(t, POLL_MS);
+}
+
+static void save_cb(struct uloop_timeout *t)
+{
+	dev_state_save();
+	uloop_timeout_set(t, cfg.state_interval * 1000);
 }
 
 int main(int argc, char **argv)
@@ -444,15 +339,25 @@ int main(int argc, char **argv)
 	started = ag_wall_s();
 
 	uloop_init();
+	local_addrs_refresh();
+	dev_state_load();
+	flow_init();
+	wifi_init();
+
 	conn.path = ag_ubus_path();
 	conn.cb = on_ubus_connect;
+	conn.ctx.sock.fd = -1;
 	ubus_auto_connect(&conn);
 
 	poll_timer.cb = poll_cb;
 	uloop_timeout_set(&poll_timer, 100);
+	save_timer.cb = save_cb;
+	uloop_timeout_set(&save_timer, cfg.state_interval * 1000);
 
-	AG_INFO("agd %s started (host %s, leases %s)", AG_VERSION, cfg.host, cfg.leases);
-	uloop_run();
+	AG_INFO("agd %s started (host %s)", AG_VERSION, cfg.host);
+	uloop_run();     /* returns on SIGTERM / SIGINT */
+	dev_state_save();
+	AG_INFO("stopped, state saved");
 	uloop_done();
 	return 0;
 }

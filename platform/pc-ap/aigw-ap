@@ -205,10 +205,13 @@ up() {
 		--dhcp-option=option:router,"$SUBNET.1" \
 		--dhcp-option=option:dns-server,"$SUBNET.1" \
 		--dhcp-leasefile="$STATE/dnsmasq.leases" \
+		--dhcp-script="$(command -v aigw-dhcp-event || echo /usr/local/sbin/aigw-dhcp-event)" \
 		--pid-file="$RUN/dnsmasq.pid" \
 		|| die "dnsmasq (DHCP) failed to start"
 
 	sysctl -qw net.ipv4.ip_forward=1
+	# the flow sensor reads connection events from conntrack
+	modprobe nf_conntrack_netlink 2>/dev/null || true
 	nft -f - <<EOF
 table ip aigw_nat
 delete table ip aigw_nat
@@ -233,7 +236,7 @@ EOF
 	say "  Wi-Fi     $SSID  (password in $CONF)"
 	say "  adapter   $iface, $BAND GHz channel $CHANNEL"
 	say "  clients   $SUBNET.20-250, internet via $up_if"
-	say "Watch it:  agctl watch   |   agctl devices   |   sudo aigw-ap status"
+	say "Watch it:  agctl watch all   |   agctl devices   |   sudo aigw-ap status"
 }
 
 down() {
