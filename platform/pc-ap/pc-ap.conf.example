@@ -1,0 +1,25 @@
+# AIGW "PC as AP" settings. Installed as /etc/aigw/pc-ap.conf
+# (the installer fills in the interface, SSID and a random password).
+# Apply changes: sudo aigw-ap restart
+
+# Wi-Fi interface that becomes the access point ("auto" = first one that
+# supports AP mode and is not your internet connection)
+AP_IFACE=auto
+
+# Network name and WPA2 password (8-63 characters)
+SSID=AIGW
+PASSPHRASE=change-me-please
+
+# Two-letter country code, e.g. US, GB, IN, DE. Required for 5 GHz.
+COUNTRY=
+
+# 2.4 or 5
+BAND=2.4
+# 2.4 GHz: 1, 6 or 11.  5 GHz: 36, 40, 44, 48 (no radar detection needed)
+CHANNEL=6
+
+# Client network: <SUBNET>.1 is this PC, clients get <SUBNET>.20-.250
+SUBNET=10.42.0
+
+# Interface with internet access ("auto" = default route)
+UPLINK=auto

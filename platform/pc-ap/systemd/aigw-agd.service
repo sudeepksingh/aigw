@@ -1,0 +1,9 @@
+[Unit]
+Description=AIGW brain (agd)
+Wants=aigw-ubusd.service
+After=aigw-ubusd.service
+
+[Service]
+ExecStart=@SBINDIR@/agd
+Restart=always
+RestartSec=2

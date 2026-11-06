@@ -1,0 +1,39 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Strict, bounds-checked DNS message parser (untrusted input). */
+#ifndef AG_DNS_H
+#define AG_DNS_H
+
+#include <stdint.h>
+#include <stddef.h>
+
+#define AG_DNS_NAME_MAX 256
+#define AG_DNS_MAX_ANS  8
+#define AG_DNS_HDR_LEN  12
+
+#define AG_DNS_IS_RESPONSE(flags) (((flags) & 0x8000) != 0)
+#define AG_DNS_RCODE(flags)       ((flags) & 0x000f)
+
+struct ag_dns_addr {
+	int family;          /* AF_INET or AF_INET6 */
+	uint8_t addr[16];
+	uint32_t ttl;
+};
+
+struct ag_dns_msg {
+	uint16_t id;
+	uint16_t flags;
+	uint16_t qdcount, ancount;
+	uint16_t qtype, qclass;
+	char qname[AG_DNS_NAME_MAX];        /* lower-case, dotted; "." for root */
+	int n_ans;                          /* A / AAAA records found */
+	struct ag_dns_addr ans[AG_DNS_MAX_ANS];
+};
+
+/* Returns 0 when the header and first question parse cleanly, -1 otherwise.
+ * Answer records are collected best-effort and never cause a failure. */
+int ag_dns_parse(const uint8_t *buf, size_t len, struct ag_dns_msg *m);
+
+/* "A", "AAAA", "HTTPS", ... or the number. */
+const char *ag_dns_type_str(uint16_t type, char *tmp, size_t tmplen);
+
+#endif

@@ -1,0 +1,10 @@
+[Unit]
+Description=AIGW DNS sensor (agdns)
+# agdns forwards DNS even without the bus or the brain (fail-open)
+Wants=aigw-ubusd.service
+After=aigw-ubusd.service
+
+[Service]
+ExecStart=@SBINDIR@/agdns
+Restart=always
+RestartSec=1

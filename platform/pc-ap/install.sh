@@ -1,0 +1,84 @@
+#!/bin/sh
+# Installs AIGW on a Debian/Ubuntu PC (including WSL2) in "PC as AP" mode:
+# packages, OpenWRT libraries, AIGW itself, configuration and services.
+# Safe to run again: it updates the build and keeps your settings.
+#
+#   sudo ./install.sh
+set -eu
+
+REPO=$(cd "$(dirname "$0")/../.." && pwd)
+PREFIX=${PREFIX:-/usr/local}
+BUILD=${BUILD_DIR:-$REPO/build}
+
+step() { printf '\n==> %s\n' "$*"; }
+die() { printf 'install: %s\n' "$*" >&2; exit 1; }
+
+[ "$(id -u)" = 0 ] || die "run with sudo: sudo ./install.sh"
+command -v apt-get >/dev/null || die "this installer supports Debian/Ubuntu. For other distributions see docs/getting-started-pc-ap.md"
+
+step "Installing packages"
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq --no-install-recommends \
+	build-essential cmake pkg-config git ca-certificates libjson-c-dev \
+	hostapd dnsmasq-base nftables iw iproute2 wireless-regdb kmod procps \
+	zstd xz-utils dnsutils >/dev/null
+
+step "Building OpenWRT libraries (libubox, ubus, uci)"
+PREFIX=$PREFIX sh "$REPO/scripts/build-deps.sh"
+
+step "Building AIGW"
+cmake -S "$REPO" -B "$BUILD" -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake --build "$BUILD" -j "$(nproc)" >/dev/null
+(cd "$BUILD" && ctest --output-on-failure) >/dev/null || die "unit tests failed (run: cd $BUILD && ctest --output-on-failure)"
+cmake --install "$BUILD" >/dev/null
+install -m 0755 "$REPO/platform/pc-ap/aigw-ap" "$PREFIX/sbin/aigw-ap"
+ldconfig
+
+step "Configuring"
+mkdir -p /etc/config /etc/aigw /var/lib/aigw
+if [ ! -f /etc/config/aigw ]; then
+	install -m 0644 "$REPO/config/aigw" /etc/config/aigw
+fi
+if [ ! -f /etc/aigw/pc-ap.conf ]; then
+	pass=$(tr -dc 'a-km-zA-HJ-NP-Z2-9' < /dev/urandom | head -c 12)
+	tag=$(tr -dc 'A-Z0-9' < /dev/urandom | head -c 4)
+	cc=$(iw reg get 2>/dev/null | awk '/^country/ { sub(":", "", $2); print $2; exit }')
+	[ "$cc" = 00 ] && cc=""
+	sed -e "s|^SSID=.*|SSID=AIGW-$tag|" \
+	    -e "s|^PASSPHRASE=.*|PASSPHRASE=$pass|" \
+	    -e "s|^COUNTRY=.*|COUNTRY=$cc|" \
+	    "$REPO/platform/pc-ap/pc-ap.conf.example" > /etc/aigw/pc-ap.conf
+	chmod 600 /etc/aigw/pc-ap.conf
+fi
+
+if [ -d /run/systemd/system ]; then
+	for u in "$REPO"/platform/pc-ap/systemd/*.service; do
+		sed "s|@SBINDIR@|$PREFIX/sbin|g" "$u" > "/etc/systemd/system/$(basename "$u")"
+	done
+	systemctl daemon-reload
+else
+	echo "systemd not running: aigw-ap will start the daemons directly"
+fi
+
+. /etc/aigw/pc-ap.conf
+step "Done"
+cat <<EOF
+AIGW $(agd --version | cut -d' ' -f2) is installed.
+
+  Wi-Fi name   $SSID
+  Password     $PASSPHRASE
+  Settings     /etc/aigw/pc-ap.conf (country, band, channel, adapter)
+
+Start the access point:   sudo aigw-ap up
+Start it at every boot:   sudo systemctl enable --now aigw
+See what it sees:         agctl devices   |   agctl watch
+EOF
+if grep -qi microsoft /proc/version 2>/dev/null; then
+	cat <<EOF
+
+You are on WSL2: attach the USB Wi-Fi adapter from Windows first, or simply
+run platform\\pc-ap\\wsl\\aigw-wsl.cmd from Windows. It attaches the adapter
+and starts the access point for you.
+EOF
+fi

@@ -1,0 +1,9 @@
+[Unit]
+Description=AIGW message bus (ubusd)
+Documentation=https://openwrt.org/docs/techref/ubus
+
+[Service]
+ExecStart=@SBINDIR@/ubusd
+RuntimeDirectory=ubus
+Restart=always
+RestartSec=2

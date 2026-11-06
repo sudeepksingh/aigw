@@ -1,0 +1,21 @@
+# AIGW configuration (UCI format, same file on OpenWRT and on a PC as AP).
+# Location: /etc/config/aigw    Apply changes: restart the service.
+
+config aigw 'main'
+	option enabled '1'
+	option log_level 'info'
+	# DHCP leases file; leave unset for the platform default
+	# option leases '/tmp/dhcp.leases'
+
+config dns 'dns'
+	# agdns listens here; client DNS on the LAN interfaces is redirected to it
+	option listen '0.0.0.0'
+	option port '5300'
+	# 'auto' = dnsmasq on OpenWRT, first resolv.conf nameserver elsewhere.
+	# Or an address: '1.1.1.1' / '9.9.9.9#53'
+	option upstream 'auto'
+	option intercept '1'
+
+config lan 'lan'
+	# interfaces whose clients AIGW looks after
+	list iface 'br-lan'

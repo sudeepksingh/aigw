@@ -1,0 +1,275 @@
+#!/bin/sh
+# aigw-ap: runs AIGW on this PC as a Wi-Fi access point.
+#
+#   sudo aigw-ap up        start the access point and the AIGW services
+#   sudo aigw-ap down      stop everything and release the Wi-Fi adapter
+#   sudo aigw-ap restart
+#   sudo aigw-ap status
+#
+# Settings: /etc/aigw/pc-ap.conf
+set -eu
+
+CONF=${AIGW_PCAP_CONF:-/etc/aigw/pc-ap.conf}
+RUN=/run/aigw
+STATE=/var/lib/aigw
+FW=/mnt/wsl/firmware
+SERVICES="aigw-ubusd aigw-agd aigw-agdns"
+
+say() { printf '%s\n' "$*"; }
+die() { printf 'aigw-ap: %s\n' "$*" >&2; exit 1; }
+
+[ "$(id -u)" = 0 ] || die "run as root: sudo aigw-ap ${1:-up}"
+[ -f "$CONF" ] || die "missing $CONF (run the installer first)"
+# shellcheck disable=SC1090
+. "$CONF"
+AP_IFACE=${AP_IFACE:-auto}
+SSID=${SSID:-AIGW}
+PASSPHRASE=${PASSPHRASE:-}
+COUNTRY=${COUNTRY:-}
+BAND=${BAND:-2.4}
+CHANNEL=${CHANNEL:-6}
+SUBNET=${SUBNET:-10.42.0}
+UPLINK=${UPLINK:-auto}
+
+is_wsl() { grep -qi microsoft /proc/version 2>/dev/null; }
+have_systemd() { [ -d /run/systemd/system ]; }
+
+wifi_ifaces() {
+	for d in /sys/class/net/*; do
+		[ -e "$d/phy80211" ] && basename "$d"
+	done
+	return 0
+}
+
+uplink_iface() {
+	if [ "$UPLINK" != auto ]; then
+		echo "$UPLINK"
+		return
+	fi
+	ip -4 route show default | awk '{for (i = 1; i <= NF; i++) if ($i == "dev") { print $(i + 1); exit }}'
+}
+
+supports_ap() {
+	phy=$(basename "$(readlink -f "/sys/class/net/$1/phy80211")")
+	iw phy "$phy" info 2>/dev/null | grep -qE '^[[:space:]]+\* AP$'
+}
+
+# WSL2's kernel cannot read the distro's /lib/firmware (or compressed
+# firmware), so expose uncompressed copies on the shared /mnt/wsl tmpfs and
+# reload the USB Wi-Fi driver. Also makes the regulatory database visible.
+wsl_prepare() {
+	is_wsl || return 0
+	mkdir -p "$FW"
+	for pattern in 'rtw88/*' 'rtw89/*' 'rtlwifi/*' 'rtl_bt/*' 'mediatek/WIFI_*MT79*' \
+		'mediatek/mt76*' 'ath9k_htc/*' 'regulatory.db*'; do
+		for f in /lib/firmware/$pattern; do
+			[ -f "$f" ] || continue
+			rel=${f#/lib/firmware/}
+			out="$FW/${rel%.zst}"
+			out=${out%.xz}
+			[ -f "$out" ] && continue
+			mkdir -p "$(dirname "$out")"
+			case $f in
+			*.zst) zstd -q -d -f "$f" -o "$out" ;;
+			*.xz) xz -dc "$f" > "$out" ;;
+			*) cp "$f" "$out" ;;
+			esac
+		done
+	done
+	printf '%s' "$FW" > /sys/module/firmware_class/parameters/path
+	if [ -z "$(wifi_ifaces)" ]; then
+		for m in rtw88_8821cu rtw88_8822bu rtw88_8822cu rtw88_8723du mt7921u mt76x2u mt76x0u rtl8xxxu ath9k_htc; do
+			if lsmod | grep -q "^$m "; then
+				modprobe -r "$m" 2>/dev/null || true
+				modprobe "$m" || true
+			fi
+		done
+		i=0
+		while [ -z "$(wifi_ifaces)" ] && [ $i -lt 20 ]; do
+			sleep 0.5
+			i=$((i + 1))
+		done
+		sleep 2 # let udev finish renaming wlan0 -> wlx...
+	fi
+	iw reg reload 2>/dev/null || true
+}
+
+pick_iface() {
+	up_if=$1
+	if [ "$AP_IFACE" != auto ]; then
+		echo "$AP_IFACE"
+		return
+	fi
+	for i in $(wifi_ifaces); do
+		[ "$i" = "$up_if" ] && continue
+		if supports_ap "$i"; then
+			echo "$i"
+			return
+		fi
+	done
+}
+
+write_hostapd() {
+	iface=$1
+	if [ "$BAND" = 5 ]; then
+		[ -n "$COUNTRY" ] || die "5 GHz needs COUNTRY set in $CONF"
+		hw_mode=a
+	else
+		hw_mode=g
+	fi
+	umask 077
+	{
+		echo "interface=$iface"
+		echo "driver=nl80211"
+		echo "ctrl_interface=$RUN/hostapd"
+		echo "ssid=$SSID"
+		echo "hw_mode=$hw_mode"
+		echo "channel=$CHANNEL"
+		if [ -n "$COUNTRY" ]; then
+			echo "country_code=$COUNTRY"
+			echo "ieee80211d=1"
+		fi
+		echo "ieee80211n=1"
+		if [ "$BAND" = 5 ]; then echo "ieee80211ac=1"; fi
+		echo "wmm_enabled=1"
+		echo "auth_algs=1"
+		echo "wpa=2"
+		echo "wpa_key_mgmt=WPA-PSK"
+		echo "rsn_pairwise=CCMP"
+		echo "wpa_passphrase=$PASSPHRASE"
+	} > "$RUN/hostapd.conf"
+	umask 022
+}
+
+kill_pidfile() {
+	if [ -f "$1" ]; then
+		kill "$(cat "$1")" 2>/dev/null || true
+		rm -f "$1"
+	fi
+}
+
+start_services() {
+	if have_systemd; then
+		systemctl start $SERVICES
+	else
+		for s in ubusd agd agdns; do
+			bin=$(command -v "$s" || true)
+			[ -n "$bin" ] || die "$s not installed"
+			nohup "$bin" > "$RUN/$s.log" 2>&1 &
+			echo $! > "$RUN/$s.pid"
+			if [ "$s" = ubusd ]; then sleep 0.5; fi
+		done
+	fi
+}
+
+stop_services() {
+	if have_systemd; then
+		systemctl stop aigw-agdns aigw-agd 2>/dev/null || true
+	else
+		for s in agdns agd ubusd; do kill_pidfile "$RUN/$s.pid"; done
+	fi
+}
+
+up() {
+	mkdir -p "$RUN" "$STATE"
+	wsl_prepare
+
+	up_if=$(uplink_iface)
+	[ -n "$up_if" ] || die "no internet connection found (no default route)"
+	iface=$(pick_iface "$up_if")
+	[ -n "$iface" ] || die "no Wi-Fi adapter with AP mode found. On WSL, attach the USB adapter first (platform/pc-ap/wsl/aigw-wsl.cmd)."
+	[ -e "/sys/class/net/$iface" ] || die "interface $iface not found"
+	[ "$iface" != "$up_if" ] || die "$iface is your internet connection; set AP_IFACE to another adapter in $CONF"
+	[ ${#PASSPHRASE} -ge 8 ] || die "PASSPHRASE must be 8-63 characters ($CONF)"
+	for t in hostapd dnsmasq nft iw; do command -v $t >/dev/null || die "$t not installed"; done
+
+	# take the adapter away from other Wi-Fi managers
+	if command -v nmcli >/dev/null; then nmcli device set "$iface" managed no 2>/dev/null || true; fi
+	[ -n "$COUNTRY" ] && iw reg set "$COUNTRY" 2>/dev/null || true
+
+	kill_pidfile "$RUN/hostapd.pid"
+	kill_pidfile "$RUN/dnsmasq.pid"
+	ip addr flush dev "$iface"
+	ip addr add "$SUBNET.1/24" dev "$iface"
+
+	write_hostapd "$iface"
+	if ! hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" > "$RUN/hostapd.log" 2>&1; then
+		cat "$RUN/hostapd.log" >&2
+		die "hostapd could not start the access point on $iface"
+	fi
+	ip link set "$iface" up
+
+	dnsmasq --conf-file=/dev/null --port=0 --interface="$iface" --bind-interfaces \
+		--except-interface=lo --dhcp-authoritative \
+		--dhcp-range="$SUBNET.20,$SUBNET.250,255.255.255.0,12h" \
+		--dhcp-option=option:router,"$SUBNET.1" \
+		--dhcp-option=option:dns-server,"$SUBNET.1" \
+		--dhcp-leasefile="$STATE/dnsmasq.leases" \
+		--pid-file="$RUN/dnsmasq.pid" \
+		|| die "dnsmasq (DHCP) failed to start"
+
+	sysctl -qw net.ipv4.ip_forward=1
+	nft -f - <<EOF
+table ip aigw_nat
+delete table ip aigw_nat
+table ip aigw_nat {
+	chain postrouting {
+		type nat hook postrouting priority srcnat; policy accept;
+		ip saddr $SUBNET.0/24 oifname "$up_if" masquerade
+	}
+}
+EOF
+
+	uci -q delete aigw.lan.iface || true
+	uci add_list aigw.lan.iface="$iface"
+	uci commit aigw
+	echo "$iface" > "$RUN/iface"
+
+	start_services
+	sleep 1
+	aigw-nft apply
+
+	say "AIGW access point is up"
+	say "  Wi-Fi     $SSID  (password in $CONF)"
+	say "  adapter   $iface, $BAND GHz channel $CHANNEL"
+	say "  clients   $SUBNET.20-250, internet via $up_if"
+	say "Watch it:  agctl watch   |   agctl devices   |   sudo aigw-ap status"
+}
+
+down() {
+	aigw-nft remove 2>/dev/null || true
+	stop_services
+	kill_pidfile "$RUN/dnsmasq.pid"
+	kill_pidfile "$RUN/hostapd.pid"
+	nft delete table ip aigw_nat 2>/dev/null || true
+	if [ -f "$RUN/iface" ]; then
+		iface=$(cat "$RUN/iface")
+		ip addr flush dev "$iface" 2>/dev/null || true
+		ip link set "$iface" down 2>/dev/null || true
+		rm -f "$RUN/iface"
+	fi
+	say "AIGW access point is down"
+}
+
+status() {
+	if [ ! -f "$RUN/iface" ]; then
+		say "access point: down"
+		return 0
+	fi
+	iface=$(cat "$RUN/iface")
+	say "access point: $iface"
+	iw dev "$iface" info 2>/dev/null | grep -E 'ssid|type|channel' | sed 's/^[[:space:]]*/  /'
+	say "  clients: $(iw dev "$iface" station dump 2>/dev/null | grep -c '^Station' || true)"
+	if have_systemd; then
+		for s in $SERVICES; do say "service $s: $(systemctl is-active "$s" 2>/dev/null || true)"; done
+	fi
+	agctl status 2>/dev/null || true
+}
+
+case "${1:-}" in
+up) up ;;
+down) down ;;
+restart) down; up ;;
+status) status ;;
+*) echo "usage: sudo aigw-ap up|down|restart|status" >&2; exit 1 ;;
+esac

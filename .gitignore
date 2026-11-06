@@ -1,0 +1,14 @@
+# build output
+/build/
+/build-*/
+/dist/
+
+# OpenWRT SDK cache used by platform/openwrt/build-sdk.sh
+/.sdk/
+
+# editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

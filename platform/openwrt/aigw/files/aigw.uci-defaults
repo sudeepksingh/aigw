@@ -1,0 +1,16 @@
+#!/bin/sh
+# First-boot / install defaults for AIGW on OpenWRT.
+
+# Keep the AIGW table in place across firewall reloads (fw4 include).
+if ! uci -q get firewall.aigw >/dev/null; then
+	uci set firewall.aigw=include
+	uci set firewall.aigw.type='nftables'
+	uci set firewall.aigw.path='/etc/aigw/aigw.nft'
+	uci set firewall.aigw.position='ruleset-post'
+	uci commit firewall
+fi
+
+mkdir -p /etc/aigw
+[ -f /etc/aigw/aigw.nft ] || echo "# aigw is stopped" > /etc/aigw/aigw.nft
+
+exit 0

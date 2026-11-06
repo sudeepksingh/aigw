@@ -1,0 +1,13 @@
+[Unit]
+Description=AIGW access point (PC as AP)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=@SBINDIR@/aigw-ap up
+ExecStop=@SBINDIR@/aigw-ap down
+
+[Install]
+WantedBy=multi-user.target
