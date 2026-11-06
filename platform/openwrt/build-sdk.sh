@@ -54,12 +54,21 @@ fi
 
 cd "$SDK_DIR"
 # only the base feed (libubox, ubus, uci, json-c) plus this repository
-grep -E '^src-git(-full)? base ' feeds.conf.default > feeds.conf
+# 24.10: "src-git base URL"   25.12+: "src-git --root=package base URL"
+grep -E '^src-[a-z-]+ (--[^ ]+ )*base ' feeds.conf.default > feeds.conf || {
+	cat feeds.conf.default >&2
+	die "no 'base' feed in the SDK's feeds.conf.default"
+}
 echo "src-link aigw $REPO/platform/openwrt" >> feeds.conf
 
 echo "==> feeds"
-./scripts/feeds update -a > /dev/null 2>&1
-./scripts/feeds install aigw > /dev/null 2>&1
+LOG="$CACHE/feeds-$VERSION.log"
+# the base feed is pinned to the release, so fetch it once; refresh only aigw after that
+if [ -d feeds/base ]; then UPDATE="aigw"; else UPDATE="-a"; fi
+if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install aigw; } > "$LOG" 2>&1; then
+	tail -40 "$LOG" >&2
+	die "feeds setup failed (full log: $LOG)"
+fi
 
 echo "==> building"
 make defconfig > /dev/null 2>&1

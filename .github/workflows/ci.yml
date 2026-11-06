@@ -11,7 +11,7 @@ jobs:
     name: Linux build, tests, smoke test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Packages
         run: |
           sudo apt-get update -qq
@@ -42,7 +42,7 @@ jobs:
           - { version: "24.10", target: ramips/mt7621 }
           - { version: "25.12", target: x86/64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Packages
         run: |
           sudo apt-get update -qq
