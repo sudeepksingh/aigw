@@ -52,11 +52,27 @@ if [ ! -f /etc/aigw/pc-ap.conf ]; then
 	chmod 600 /etc/aigw/pc-ap.conf
 fi
 
+# Let the user who ran the installer use agctl without sudo (read-only:
+# status, devices, DNS log, live DNS events). More users: AIGW_USERS="a b".
+mkdir -p /usr/share/acl.d
+for u in ${AIGW_USERS:-${SUDO_USER:-}}; do
+	[ "$u" = root ] && continue
+	id "$u" >/dev/null 2>&1 || continue
+	sed "s|@USER@|$u|" "$REPO/platform/pc-ap/ubus-acl.json.in" > "/usr/share/acl.d/aigw-$u.json"
+	chown root:root "/usr/share/acl.d/aigw-$u.json"
+	chmod 0644 "/usr/share/acl.d/aigw-$u.json"
+	acl_users="${acl_users:-}$u "
+done
+
 if [ -d /run/systemd/system ]; then
 	for u in "$REPO"/platform/pc-ap/systemd/*.service; do
 		sed "s|@SBINDIR@|$PREFIX/sbin|g" "$u" > "/etc/systemd/system/$(basename "$u")"
 	done
 	systemctl daemon-reload
+	# pick up new binaries and permission files if AIGW is already running
+	for s in aigw-ubusd aigw-agd aigw-agdns; do
+		systemctl try-restart "$s" 2>/dev/null || true
+	done
 else
 	echo "systemd not running: aigw-ap will start the daemons directly"
 fi
@@ -74,6 +90,9 @@ Start the access point:   sudo aigw-ap up
 Start it at every boot:   sudo systemctl enable --now aigw
 See what it sees:         agctl devices   |   agctl watch
 EOF
+if [ -n "${acl_users:-}" ]; then
+	echo "agctl works without sudo for: $acl_users"
+fi
 if grep -qi microsoft /proc/version 2>/dev/null; then
 	cat <<EOF
 

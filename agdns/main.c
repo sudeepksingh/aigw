@@ -211,9 +211,9 @@ static void sweep_cb(struct uloop_timeout *t)
 
 /* ---------- events to the brain ---------- */
 
-static void emit_event(const struct pending *p, const struct ag_dns_msg *resp, uint64_t lat_us)
+static void emit_event(const char *client, const char *qname, uint16_t qtype,
+		       const struct ag_dns_msg *resp, uint64_t lat_us)
 {
-	char ip[INET6_ADDRSTRLEN];
 	void *arr;
 	int i;
 
@@ -221,10 +221,9 @@ static void emit_event(const struct pending *p, const struct ag_dns_msg *resp, u
 		return; /* not connected: forwarding continues regardless */
 
 	blob_buf_init(&eb, 0);
-	addr_str(&p->client, ip, sizeof(ip));
-	blobmsg_add_string(&eb, "client", ip);
-	blobmsg_add_string(&eb, "qname", p->qname);
-	blobmsg_add_u32(&eb, "qtype", p->qtype);
+	blobmsg_add_string(&eb, "client", client);
+	blobmsg_add_string(&eb, "qname", qname);
+	blobmsg_add_u32(&eb, "qtype", qtype);
 	blobmsg_add_u32(&eb, "rcode", AG_DNS_RCODE(resp->flags));
 	blobmsg_add_u32(&eb, "latency_us", (uint32_t)lat_us);
 	arr = blobmsg_open_array(&eb, "answers");
@@ -308,16 +307,67 @@ static void upstream_cb(struct uloop_fd *u, unsigned int events)
 		sendto(udp_listen.fd, buf, (size_t)n, 0, (struct sockaddr *)&p->client, p->client_len);
 		stats.answers++;
 
-		if (ag_dns_parse(buf, (size_t)n, &r) == 0)
-			emit_event(p, &r, ag_mono_us() - p->t0_us);
+		if (ag_dns_parse(buf, (size_t)n, &r) == 0) {
+			char ip[INET6_ADDRSTRLEN];
+
+			addr_str(&p->client, ip, sizeof(ip));
+			emit_event(ip, p->qname, p->qtype, &r, ag_mono_us() - p->t0_us);
+		}
 		slot_free(p);
 	}
 }
 
 /* ---------- TCP path (rare: truncated answers, zone transfers) ---------- */
 
-static void tcp_relay(int cfd)
+/* A relay child can't use the parent's ubus connection, so it sends each
+ * answer it saw back to the parent over a socketpair; the parent emits it. */
+struct tcp_report {
+	char client[INET6_ADDRSTRLEN];
+	uint32_t latency_us;
+	struct ag_dns_msg msg;
+};
+
+static int report_fds[2] = { -1, -1 };
+static struct uloop_fd report_rx;
+
+static void report_cb(struct uloop_fd *u, unsigned int events)
 {
+	struct tcp_report rep;
+
+	while (recv(u->fd, &rep, sizeof(rep), 0) == (ssize_t)sizeof(rep)) {
+		rep.client[sizeof(rep.client) - 1] = '\0';
+		rep.msg.qname[sizeof(rep.msg.qname) - 1] = '\0';
+		emit_event(rep.client, rep.msg.qname[0] ? rep.msg.qname : "?", rep.msg.qtype,
+			   &rep.msg, rep.latency_us);
+	}
+}
+
+/* DNS over TCP frames each message with a 2-byte length. Parse complete
+ * answers out of the bytes coming back from upstream. */
+static void tcp_scan_answers(uint8_t *acc, size_t *alen, const char *client, uint64_t t0)
+{
+	while (*alen >= 2) {
+		size_t l = ((size_t)acc[0] << 8) | acc[1];
+		struct tcp_report rep;
+
+		if (*alen < l + 2)
+			return;
+		memset(&rep, 0, sizeof(rep));
+		if (ag_dns_parse(acc + 2, l, &rep.msg) == 0 && AG_DNS_IS_RESPONSE(rep.msg.flags)) {
+			snprintf(rep.client, sizeof(rep.client), "%s", client);
+			rep.latency_us = (uint32_t)(ag_mono_us() - t0);
+			send(report_fds[1], &rep, sizeof(rep), MSG_DONTWAIT);
+		}
+		memmove(acc, acc + l + 2, *alen - l - 2);
+		*alen -= l + 2;
+	}
+}
+
+static void tcp_relay(int cfd, const char *client)
+{
+	static uint8_t acc[65536 + 2];
+	size_t alen = 0;
+	uint64_t t0 = ag_mono_us();
 	struct pollfd pfd[2];
 	struct timeval tv = { 3, 0 };
 	int ufd;
@@ -343,6 +393,15 @@ static void tcp_relay(int cfd)
 
 				if (n <= 0 || write(pfd[!i].fd, buf, (size_t)n) != n)
 					_exit(0);
+				if (i == 1) { /* from upstream: report answers */
+					if (alen + (size_t)n > sizeof(acc))
+						alen = 0; /* oversized stream: stop reporting, keep relaying */
+					else {
+						memcpy(acc + alen, buf, (size_t)n);
+						alen += (size_t)n;
+						tcp_scan_answers(acc, &alen, client, t0);
+					}
+				}
 			}
 		}
 	}
@@ -357,11 +416,15 @@ static void tcp_child_done(struct uloop_process *p, int ret)
 static void tcp_accept_cb(struct uloop_fd *u, unsigned int events)
 {
 	for (;;) {
-		int cfd = accept(u->fd, NULL, NULL);
+		struct sockaddr_storage from;
+		socklen_t flen = sizeof(from);
+		char client[INET6_ADDRSTRLEN];
+		int cfd = accept(u->fd, (struct sockaddr *)&from, &flen);
 		pid_t pid;
 
 		if (cfd < 0)
 			return;
+		addr_str(&from, client, sizeof(client));
 		if (tcp_children >= TCP_CHILD_MAX) {
 			close(cfd);
 			continue;
@@ -372,7 +435,8 @@ static void tcp_accept_cb(struct uloop_fd *u, unsigned int events)
 			close(udp_listen.fd);
 			close(udp_up.fd);
 			close(tcp_listen.fd);
-			tcp_relay(cfd);
+			close(report_fds[0]);
+			tcp_relay(cfd, client);
 			_exit(0);
 		}
 		if (pid > 0) {
@@ -466,6 +530,12 @@ int main(int argc, char **argv)
 	if (tcp_listen.fd >= 0) {
 		tcp_listen.cb = tcp_accept_cb;
 		uloop_fd_add(&tcp_listen, ULOOP_READ);
+		if (socketpair(AF_UNIX, SOCK_DGRAM, 0, report_fds) == 0) {
+			set_nonblock(report_fds[0]);
+			report_rx.fd = report_fds[0];
+			report_rx.cb = report_cb;
+			uloop_fd_add(&report_rx, ULOOP_READ);
+		}
 	}
 
 	sweep_timer.cb = sweep_cb;
