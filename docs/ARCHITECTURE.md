@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.6**, phases P0–P3 built (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.7**, phases P0–P4 built (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -468,6 +468,7 @@ aigw/
   agd/                  brain (later: modules/{flow,wifi,disc,sys,act})
   agdns/                AI DNS
   agctl/                CLI
+  plugins/              first-party plug-ins (mqtt connector, iot-guard skill) and examples
   scripts/              aigw-nft (kernel rules), build-deps.sh (OpenWRT libs for PCs)
   config/aigw           default UCI configuration, shared by every host
   platform/pc-ap/       installer, aigw-ap, systemd units, WSL launcher
@@ -476,7 +477,6 @@ aigw/
   docs/                 architecture (md + html), getting-started guides
   -- planned --
   bridge/               ag-bridge (MQTT)            P5
-  plugins/              first-party plug-ins        P4
   cortex/               Python: training, LLM/MCP   P5
 ```
 
@@ -550,6 +550,12 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P1 Observe** | agdns, flow/disc/wifi/sys, Context Graph, agctl, first app screens | Live "who talks to what" per device and person | v0.2 (no app screens yet) |
 | **P2 Understand** | `.agm` runtime, domain-risk + device-type models, baselines, DNS ⇄ flow signals | Correct device types; explained alerts on test cases | v0.3, v0.4 (device type is rule-based) |
 | **P3 Act** | Policy engine, guardrails, nft/tc/dns/wifi actuators, TTL + revert | Quarantine/priority work and auto-revert; DNS/DHCP never blocked | v0.5, completed in v0.6 |
+| **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
+| **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | |
+| **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | |
+| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | |
+
+Real-router testing of every phase so far is planned for the end of the project (P6).
 
 **As built in v0.6 (P3).** Alerts flow through `config policy` sections to *decisions*
 (`ag.decision`: list · request · approve · reject · revert). Modes: `advise` (default; proposals wait
@@ -573,10 +579,32 @@ persist and are re-applied after restarts, firewall reloads and hostapd restarts
 `tests/act-test.sh` against real nft rules in network namespaces, with a bridged LAN and a fake
 hostapd. Not covered: Wi-Fi clients talking directly through the same radio (use `disconnect`
 or AP isolation); band steering needs a multi-band AP and moves to P7 with the rest of steering.
-| **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config |
-| **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads |
-| **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget |
-| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains |
+
+**As built in v0.7 (P4).** The plug-in host in `agd` (`plugin.c`) makes the section 6 lifecycle real:
+
+| Step | As built |
+|------|----------|
+| Discover | `plugins.dir` (packages, trusted) and `plugins.user_dir` (`agctl plugin add`) scanned every 5 s; a changed manifest reloads, a removed folder stops the plug-in |
+| Check | manifest (name = folder, kind, lists, actions, policies, budget), `hosts`, safe file permissions for added plug-ins, `needs` (`bin:`, `file:`, `tcp:host:port` with `${config}` values, `event:<type>` from another running plug-in): unmet → *waiting*, re-checked every scan |
+| Wire | JSON lines on stdin/stdout. In: `emit` (types from the manifest, never `ag.*`; a `mac`/`ip` field attaches telemetry to the device), `alert` (kinds from the manifest → policies), `propose`, `request` (acts for a person: privileged), `done`, `query` (`status`, `devices`/`decisions`: privileged), `log`. Out: `hello` (config from the manifest and `config plugin` UCI sections, granted/denied capabilities), subscribed `event`s (`ag.dns`/`ag.flow`: privileged), `act`/`undo` for its actions, `reply` |
+| Act | a plug-in action `<plugin>.<action>` is a decision like any other: guardrails, TTL, undo, policies; re-sent when the plug-in restarts |
+| Skill | policies (alert → action, optional `zone`) join the policy table after your own; a skill you added only proposes until allowed |
+| Run | child process as `plugins.user` (`nobody`) in its own process group, minimal environment; crash → restart with 1–32 s back-off, 5 crashes in 10 min → failed; RSS above `ram_kb` or CPU above `cpu_pct` (3 checks in a row) → stopped |
+
+Trust is simple: packages are trusted (the package manager installed them as root);
+for plug-ins you added, privileged capabilities wait for `agctl plugin allow`. Signed
+side-loaded plug-ins (ed25519) arrive with model signing in P5; `ujail` sandboxing with P6.
+
+IoT onboarding (`keys.c`): `agctl key add <name> [zone]` → a fresh passphrase with a `keyid`
+in hostapd's `wpa_psk_file` + `RELOAD_WPA_PSK` + a `WIFI:` QR code (encoder in `libag`). The
+station's `keyid` (hostapd `STA` output) binds the key to the first MAC that uses it; the device
+takes the key's name and zone; `revoke` removes the line and deauthenticates. Policies take
+`option zone`. Connector: `ag-mqtt` (MQTT 3.1.1, QoS 0, own client) with Home Assistant
+discovery (device tracker + Quarantine switch per device, alerts and waiting-decision sensors),
+`aigw/sensor/#` → `iot.mqtt` events, `aigw/cmd/<action>` → requests. Shipped as package
+`aigw-mqtt`. Verified by `tests/plug-test.sh` (fake hostapd, private mosquitto).
+Not yet: Wi-Fi Easy Connect (DPP) bootstrapping, IoT zone network isolation (VLAN / client
+isolation; the zone is a label policies use today), Matter/Thread, Zigbee.
 
 ---
 

@@ -18,14 +18,15 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.6, phase 3 "act" complete.** AIGW knows every device (identity, Wi-Fi,
+> **Status: v0.7, phase 4 "plug & IoT".** AIGW knows every device (identity, Wi-Fi,
 > lookups, connections, traffic), learns what is normal for each one, and
 > runs an on-device AI model that recognises machine-generated names used by
-> malware. It explains in plain words what deserves attention, and now it can
-> act: quarantine a device, prioritise one, or block a domain. Every action
-> has a time limit and an undo, guardrails that nothing can override, and by
-> default **nothing changes until you approve it**. See the
-> [roadmap](docs/ARCHITECTURE.md#16-roadmap).
+> malware. It explains in plain words what deserves attention and can act on
+> it: quarantine, prioritise, throttle, block. Every action has a time limit
+> and an undo, guardrails that nothing can override, and by default **nothing
+> changes until you approve it**. New in v0.7: **plug-ins that wire themselves
+> in with no configuration**, skills, **a Wi-Fi key and QR code per device**,
+> and **MQTT / Home Assistant**. See the [roadmap](docs/ARCHITECTURE.md#16-roadmap).
 
 ---
 
@@ -171,7 +172,80 @@ the cloud):
 
 Actions are saved and put back after a restart or a firewall reload.
 
-## What you get in v0.6
+## Plug-ins: zero configuration
+
+Every sensor, actuator, skill and connector around the core can be a
+plug-in: a folder with a `manifest.json` and, unless it is a skill, a program
+in any language that talks JSON lines on stdin/stdout.
+
+```
+drop the folder in ──► found within seconds ──► checked ──► wired ──► running
+(opkg install aigw-mqtt,      manifest, host, trust,    events in and out,
+ or agctl plugin add <dir>)   "needs" met?              actions = decisions,
+                              else "waiting"            skill policies
+```
+
+| Kind | Example in this repo |
+|------|----------------------|
+| Connector | `plugins/mqtt`: MQTT telemetry in, AIGW out, Home Assistant discovery (package `aigw-mqtt`) |
+| Skill | `plugins/iot-guard`: policies for devices in the IoT zone (no program, just rules) |
+| Sensor + actuator | `plugins/examples/door-sensor`: a plain shell script that reports a door and offers `door-sensor.flash` |
+
+```bash
+agctl plugins                        # what is there, its state, and why
+agctl plugin mqtt                    # one plug-in: events, actions, budget, usage
+sudo agctl plugin add plugins/examples/door-sensor
+agctl do door-sensor.flash tv 5m     # a plug-in's action is a decision like any other
+agctl watch plugins                  # plug-in lifecycle and their iot.* events, live
+```
+
+- **Waits for what it needs.** `needs` can name a program (`bin:`), a file
+  (`file:`), a TCP service (`tcp:127.0.0.1:1883`) or another plug-in's events
+  (`event:iot.temp`); the plug-in starts the moment they are there.
+- **Wired in.** Its events reach the brain (telemetry with a `mac` or `ip`
+  lands on that device) and every plug-in that listens for them; its actions
+  go through the same guardrails, time limits and undo as built-in ones; a
+  skill's policies join the policy table, optionally only for one zone.
+- **Least privilege.** Plug-ins run as `nobody`, in their own process group,
+  restarted when they crash (and stopped after 5 crashes in 10 minutes),
+  stopped when they go over their memory or CPU budget. Packaged plug-ins are
+  trusted; for ones you add, privileged capabilities (acting for you, reading
+  the device list, seeing every lookup) wait for `agctl plugin allow <name>`,
+  and their skills only propose.
+
+## Wi-Fi keys per device and QR onboarding
+
+```bash
+sudo agctl key add "Living room plug" iot
+```
+
+prints a QR code. Scan it with the phone or device: it joins with its own
+password, and from then on that key works only for that device (by MAC). It is
+named, placed in the `iot` zone, and can be taken away on its own with
+`agctl key revoke "Living room plug"`, without changing anyone else's password.
+Unused keys expire after a day. `agctl keys` lists them; `agctl key qr <name>`
+shows a code again. Built on hostapd's `wpa_psk_file` (set up by `aigw-ap`; on
+OpenWRT see the guide).
+
+## Home Assistant and MQTT
+
+Install the `aigw-mqtt` plug-in (part of the PC install; `opkg install
+aigw-mqtt` on OpenWRT) and point it at your broker if it isn't on the gateway:
+
+```
+config plugin 'mqtt'
+	option broker '192.168.1.10'
+	option username 'aigw'
+	option password 'secret'
+```
+
+Every device shows up in Home Assistant (MQTT discovery) with presence and a
+**Quarantine** switch; the gateway reports alerts and decisions waiting.
+Anything published under `aigw/sensor/...` becomes context for AIGW (an
+`iot.mqtt` event, tied to a device by a `mac` or `ip` field), and
+`aigw/cmd/<action>` asks for an action with the usual guardrails.
+
+## What you get in v0.7
 
 | Component | What it does |
 |-----------|--------------|
@@ -179,7 +253,10 @@ Actions are saved and put back after a restart or a firewall reload.
 | `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. |
 | Decisions | Policies, proposals, approval, guardrails and six actions (prioritize, deprioritize, throttle, block, quarantine, disconnect), each with a time limit and undo. See above. |
 | Alerts | `dga` (machine-generated lookup), `no-dns` (connection without a lookup), `dns-bypass` (device using its own encrypted DNS), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
-| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect` |
+| Plug-in host | Finds plug-ins by itself, checks manifest, host, trust and needs, wires events, actions and skill policies, runs them unprivileged with restarts and budgets. See above. |
+| Wi-Fi keys | A key and QR code per device, bound to its MAC on first join, zoned, revocable on its own. |
+| `ag-mqtt` | Connector plug-in: MQTT 3.1.1 telemetry in, state out, Home Assistant discovery. |
+| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr` |
 | `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
 
@@ -196,7 +273,10 @@ ubus call ag.decision list
 ubus call ag.decision request '{"action": "block", "target": "example.com", "ttl": 600}'
 ubus call ag.decision request '{"action": "throttle", "target": "tv", "rate": 3000}'
 ubus call ag.decision approve '{"id": 4}'      # also: reject, revert
-ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision
+ubus call ag.plugin list                        # also: rescan, set '{"name": "x", "allow": true}'
+ubus call ag.wifi key_add '{"name": "Doorbell", "zone": "iot"}'   # also: keys, key_revoke
+ubus call ag.device zone '{"device": "tv", "zone": "iot"}'
+ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision ag.plugin 'iot.*'
 ```
 
 ## Repository layout
@@ -205,16 +285,19 @@ ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision
 include/ag/          public headers (events, DNS parser, connection-mark layout)
 core/libag/          shared library: logging, config (UCI), DNS parser
 agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors,
-                     alerts, baselines, decisions (act.c: policies, guardrails, actuators)
+                     alerts, baselines, decisions (act.c: policies, guardrails, actuators),
+                     plug-in host (plugin.c), per-device Wi-Fi keys (keys.c)
 agdns/               the DNS sensor
 agctl/               command line
+plugins/             first-party plug-ins (mqtt, iot-guard) and examples for your own
 scripts/             aigw-nft (kernel rules), aigw-dhcp-event (DHCP hook), build-deps.sh
 config/aigw          default configuration (UCI, used on every host)
 platform/pc-ap/      PC as AP: installer, aigw-ap, systemd units, WSL launcher
 platform/openwrt/    OpenWRT package (feed) and SDK build script
 models/              trained on-device models (.agm)
 cortex/training/     Python training pipelines that produce those models
-tests/               unit tests, model parity test, smoke test, network-namespace tests (flow, baseline, act)
+tests/               unit tests, model parity test, smoke test, network-namespace tests (flow, baseline,
+                     act), plug-in test (plug-ins, skills, Wi-Fi keys, MQTT)
 docs/                architecture and getting-started guides
 ```
 
@@ -228,6 +311,7 @@ sudo tests/smoke.sh build             # runs agd + agdns + DNS queries on loopba
 sudo tests/flow-test.sh build         # client/server namespaces: DNS<->flow join, bytes, alerts
 sudo tests/baseline-test.sh build     # behaviour baselines on a fast clock (1 s = 1 hour)
 sudo tests/act-test.sh build          # decisions, guardrails and actuators against real nft rules
+sudo tests/plug-test.sh build         # plug-ins, skills, budgets, Wi-Fi keys, MQTT + Home Assistant
 ```
 
 The namespace tests are safe to run on a machine that is itself running

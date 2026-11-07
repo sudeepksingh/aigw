@@ -117,7 +117,11 @@ write_hostapd() {
 	else
 		hw_mode=g
 	fi
+	# per-device keys (agctl key add): hostapd refuses to start if the file is missing
+	keys=$(uci -q get aigw.wifi.keys || echo /etc/aigw/wifi-keys)
 	umask 077
+	mkdir -p "$(dirname "$keys")"
+	[ -f "$keys" ] || : > "$keys"
 	{
 		echo "interface=$iface"
 		echo "driver=nl80211"
@@ -137,6 +141,7 @@ write_hostapd() {
 		echo "wpa_key_mgmt=WPA-PSK"
 		echo "rsn_pairwise=CCMP"
 		echo "wpa_passphrase=$PASSPHRASE"
+		echo "wpa_psk_file=$keys"
 	} > "$RUN/hostapd.conf"
 	umask 022
 }

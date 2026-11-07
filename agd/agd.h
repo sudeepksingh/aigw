@@ -64,6 +64,14 @@ struct device {
 	int64_t wifi_since;
 	char wifi_iface[24];
 	unsigned wifi_seen;             /* poll sequence */
+	char wifi_key[32];              /* name of its own Wi-Fi key, if it joined with one */
+
+	char zone[16];                  /* "iot", ... ; policies can be limited to a zone */
+
+	/* plug-ins (MQTT telemetry, ...) that reported about this device */
+	uint32_t plugin_events;
+	char plugin_last[48];           /* last event type */
+	int64_t plugin_last_ts;
 
 	struct baseline bl;
 };
@@ -72,6 +80,8 @@ struct device {
 extern struct ag_config cfg;
 extern int64_t started;
 void agd_emit(const char *type, struct blob_buf *b);
+/* also to plug-ins subscribed to it, except `from` (the plug-in that sent it) */
+void agd_emit_from(const char *type, struct blob_buf *b, const void *from);
 
 /* devices.c */
 extern struct device devs[DEV_MAX];
@@ -126,6 +136,7 @@ void alerts_raise(const char *kind, const char *severity, const char *ip, const 
 struct act_opts {
 	int rate_kbps;              /* throttle */
 	const char *device;         /* block: just this device (IP, MAC or name); NULL = all */
+	const char *origin;         /* who asks; NULL = "you" */
 };
 
 void act_init(void);
@@ -141,6 +152,36 @@ uint64_t act_applied_total(void);
 void act_blob(struct blob_buf *b, unsigned limit, const char *name);
 void act_save(struct blob_buf *b);
 void act_load(struct blob_attr *arr);
+/* plug-ins: a proposal waiting for a person; an actuator plug-in's result; re-send after a restart */
+int act_propose(const char *action, const char *what, int ttl, const char *origin, const char *reason,
+		uint32_t *id, char *err, size_t errlen);
+void act_plugin_result(uint32_t id, int ok, const char *error);
+void act_plugin_started(const char *plugin);
+void act_plugin_gone(const char *plugin);
+struct device *act_find_device(const char *q);
+
+/* plugin.c: plug-in host (discovery, checks, wiring, supervision) */
+void plugin_init(void);
+void plugin_tick(void);
+void plugin_stop_all(void);
+void plugin_dispatch(const char *type, struct blob_attr *msg, const void *from);
+int plugin_action(const char *action, int *device_subject, char *err, size_t errlen);
+int plugin_act(const char *action, uint32_t id, const char *target, const struct device *dv, int ttl,
+	       const char *reason, int undo, char *err, size_t errlen);
+const struct ag_policy *plugin_policy_for(const char *kind, const char *zone, char *origin, size_t n, int *cap_mode);
+int plugin_count(int running);
+void plugin_blob(struct blob_buf *b, const char *name, const char *only);
+int plugin_set(const char *name, const char *what, int on, char *err, size_t errlen);
+void plugin_rescan(void);
+
+/* keys.c: per-device Wi-Fi keys (hostapd wpa_psk_file) and QR onboarding */
+void keys_init(void);
+void keys_tick(void);
+void keys_seen(struct device *d, const char *keyid);
+int keys_add(const char *name, const char *zone, int ttl, struct blob_buf *reply, char *err, size_t errlen);
+int keys_revoke(const char *name, char *err, size_t errlen);
+void keys_blob(struct blob_buf *b, const char *only);
+int keys_count(void);
 
 /* baseline.c */
 void baseline_domain(struct device *d, const char *qname);
@@ -155,5 +196,8 @@ void wifi_init(void);
 void wifi_poll(void);
 int wifi_station_count(void);
 int wifi_ban(const char *mac, int on, char *err, size_t errlen);
+/* every access point: send a command; returns how many answered OK (reply of the first in *reply) */
+int wifi_all(const char *cmd, char *reply, size_t n);
+int wifi_kick(const char *mac);
 
 #endif

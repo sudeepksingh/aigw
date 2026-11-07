@@ -1,11 +1,15 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* agctl: command-line view of the AIGW brain over ubus. */
 #define _GNU_SOURCE
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <libubox/blobmsg.h>
 #include <libubox/blobmsg_json.h>
@@ -14,6 +18,7 @@
 
 #include "ag/ag.h"
 #include "ag/dns.h"
+#include "ag/qr.h"
 
 static struct ubus_context *ctx;
 static int json_out;
@@ -31,7 +36,7 @@ static void usage(void)
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
-		"  watch [dns|flows|wifi|alerts|decisions|all]   follow activity live (Ctrl+C to stop)\n"
+		"  watch [dns|flows|wifi|alerts|decisions|plugins|all]   follow activity live (Ctrl+C to stop)\n"
 		"\n"
 		"  decisions [N]       actions waiting for you, in effect, and past ones\n"
 		"  approve <id> [time] carry out a proposed action (optionally for another time limit)\n"
@@ -44,7 +49,23 @@ static void usage(void)
 		"                                   for every device or just one\n"
 		"  quarantine <device> [time]    cut a device off from everything but the gateway\n"
 		"  disconnect <device> [time]    kick it off Wi-Fi and refuse it until the time is up\n"
+		"  do <plugin.action> <device|target> [time]   an action a plug-in offers (agctl plugins)\n"
 		"                      time: 90s, 30m, 2h, 1d (default from config, 1h)\n"
+		"\n"
+		"  plugins           plug-ins: sensors, actuators, skills, connectors; state and why\n"
+		"  plugin <name>       one plug-in in detail\n"
+		"  plugin add <folder>           install a plug-in folder (needs sudo); it starts by itself\n"
+		"  plugin remove <name>          remove a plug-in you added\n"
+		"  plugin allow|deny <name>      let a plug-in you added use its privileged capabilities\n"
+		"  plugin enable|disable <name>  turn a plug-in on or off\n"
+		"\n"
+		"  keys                Wi-Fi keys of individual devices\n"
+		"  key add <name> [zone] [time]  new key and a QR code to scan; the first device to\n"
+		"                                join with it owns it (zone e.g. iot; time: how long it waits)\n"
+		"  key qr <name>       show a key's QR code again\n"
+		"  key revoke <name>   take a device's key away and disconnect it\n"
+		"  zone <device> <zone|none>     put a device in a zone; policies can be limited to one\n"
+		"  qr <text> [--pbm]   any text as a QR code\n"
 		"  version             agctl version\n"
 		"\n"
 		"  -j                  print raw JSON\n");
@@ -187,6 +208,14 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 			       (unsigned long long)fnum(d, "policies"));
 	}
 	{
+		struct blob_attr *p = field(msg, "plugins");
+
+		if (p)
+			printf("  plug-ins        %llu found, %llu working\n", (unsigned long long)fnum(p, "found"),
+			       (unsigned long long)fnum(p, "working"));
+		printf("  wi-fi keys      %llu per-device keys\n", (unsigned long long)fnum(msg, "wifi_keys"));
+	}
+	{
 		struct blob_attr *m = field(msg, "models"), *e;
 		size_t rem;
 		int k = 0;
@@ -281,6 +310,12 @@ static void show_device(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("%s\n", dev_name(d));
 		printf("  ip / mac        %s / %s\n", orb(fstr(d, "ip"), "-"), orb(fstr(d, "mac"), "-"));
 		printf("  type            %s\n", orb(fstr(d, "type"), "unknown"));
+		if (*fstr(d, "zone") || *fstr(d, "wifi_key"))
+			printf("  zone / key      %s / %s\n", orb(fstr(d, "zone"), "-"), orb(fstr(d, "wifi_key"), "shared password"));
+		if (field(d, "plugins"))
+			printf("  plug-ins        %llu reports, last %s %s\n",
+			       (unsigned long long)fnum(field(d, "plugins"), "events"), fstr(field(d, "plugins"), "last"),
+			       ago(fnum(field(d, "plugins"), "last_ts"), t1, sizeof(t1)));
 		if (*fstr(d, "vendor_class") || *fstr(d, "dhcp_options"))
 			printf("  dhcp            %s  options %s\n", orb(fstr(d, "vendor_class"), "-"),
 			       orb(fstr(d, "dhcp_options"), "-"));
@@ -514,6 +549,313 @@ static void show_change(struct ubus_request *req, int type, struct blob_attr *ms
 		change_failed = 1;
 }
 
+static int call(const char *path, const char *method, struct blob_attr *args, ubus_data_handler_t cb);
+
+/* ---------- QR codes ---------- */
+
+static int qr_pbm;
+
+/* Two modules per character cell, dark on light whatever the terminal's colours. */
+static void print_qr(const char *text)
+{
+	struct ag_qr q;
+	int x, y, quiet = 2, tty = isatty(1);
+
+	if (ag_qr_encode(&q, (const uint8_t *)text, strlen(text), AG_QR_ECC_M) < 0 &&
+	    ag_qr_encode(&q, (const uint8_t *)text, strlen(text), AG_QR_ECC_L) < 0) {
+		fprintf(stderr, "agctl: too long for a QR code\n");
+		return;
+	}
+	if (qr_pbm) {
+		int scale = 8, side;
+
+		quiet = 4;
+		side = (q.size + 2 * quiet) * scale;
+		printf("P1\n%d %d\n", side, side);
+		for (y = 0; y < side; y++) {
+			for (x = 0; x < side; x++) {
+				int mx = x / scale - quiet, my = y / scale - quiet;
+
+				putchar(mx >= 0 && my >= 0 && mx < q.size && my < q.size && q.m[my][mx] ? '1' : '0');
+			}
+			putchar('\n');
+		}
+		return;
+	}
+	for (y = -quiet; y < q.size + quiet; y += 2) {
+		printf("  %s", tty ? "\033[30;47m" : "");
+		for (x = -quiet; x < q.size + quiet; x++) {
+			int top = x >= 0 && y >= 0 && x < q.size && y < q.size && q.m[y][x];
+			int bot = x >= 0 && y + 1 >= 0 && x < q.size && y + 1 < q.size && q.m[y + 1][x];
+
+			fputs(top && bot ? "\u2588" : top ? "\u2580" : bot ? "\u2584" : " ", stdout);
+		}
+		printf("%s\n", tty ? "\033[0m" : "");
+	}
+}
+
+/* ---------- plug-ins ---------- */
+
+static void list_line(const char *label, struct blob_attr *arr)
+{
+	struct blob_attr *e;
+	size_t rem;
+	int k = 0;
+
+	if (!arr)
+		return;
+	blobmsg_for_each_attr(e, arr, rem) {
+		if (!k++)
+			printf("  %-15s ", label);
+		else
+			printf(", ");
+		printf("%s", blobmsg_get_string(e));
+	}
+	if (k)
+		printf("\n");
+}
+
+static void show_plugins(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "plugins"), *p;
+	size_t rem;
+	int n = 0;
+
+	if (json_out)
+		return print_json(msg);
+	if (arr)
+		blobmsg_for_each_attr(p, arr, rem) {
+			if (!n++ && !device_filter)
+				printf("%-16s %-10s %-11s %-8s %-8s %s\n", "NAME", "KIND", "STATE", "FROM", "VERSION", "NOTE");
+			if (!device_filter) {
+				printf("%-16.16s %-10s %-11s %-8s %-8.8s %s\n", fstr(p, "name"), fstr(p, "kind"), fstr(p, "state"),
+				       fstr(p, "source"), fstr(p, "version"), orb(fstr(p, "why"), fstr(p, "description")));
+				continue;
+			}
+			{
+				struct blob_attr *pr = field(p, "process"), *bud = field(p, "budget"), *card = field(p, "card"), *e;
+				size_t r2;
+				char t1[32];
+
+				printf("%s %s (%s)\n", fstr(p, "name"), fstr(p, "version"), fstr(p, "kind"));
+				if (*fstr(p, "description"))
+					printf("  %s\n", fstr(p, "description"));
+				printf("  state           %s%s%s\n", fstr(p, "state"), *fstr(p, "why") ? ": " : "", fstr(p, "why"));
+				printf("  from            %s (%s), %s\n", fstr(p, "source"), fstr(p, "dir"),
+				       fnum(p, "trusted") ? "trusted" : "privileged capabilities need your OK");
+				list_line("emits", field(p, "emits"));
+				list_line("listens to", field(p, "subscribes"));
+				list_line("actions", field(p, "actions"));
+				list_line("alerts", field(p, "alerts"));
+				list_line("needs", field(p, "needs"));
+				list_line("allowed", field(p, "granted"));
+				list_line("waiting for OK", field(p, "waiting_for_ok"));
+				if (field(p, "policies"))
+					blobmsg_for_each_attr(e, field(p, "policies"), r2)
+						printf("  policy          on %s alert%s%s: %s (%s)\n", fstr(e, "alert"),
+						       *fstr(e, "zone") ? " in zone " : "", fstr(e, "zone"), fstr(e, "action"),
+						       fstr(e, "mode"));
+				if (card)
+					printf("  card            %s: %s\n", fstr(card, "title"), fstr(card, "text"));
+				if (bud)
+					printf("  budget          %llu KB memory, %llu%% CPU\n", (unsigned long long)fnum(bud, "ram_kb"),
+					       (unsigned long long)fnum(bud, "cpu_pct"));
+				if (pr)
+					printf("  process         pid %llu since %s, %llu KB, %.1f%% CPU\n",
+					       (unsigned long long)fnum(pr, "pid"), ago(fnum(pr, "started"), t1, sizeof(t1)),
+					       (unsigned long long)fnum(pr, "rss_kb"),
+					       field(pr, "cpu_pct") ? blobmsg_get_double(field(pr, "cpu_pct")) : 0.0);
+				printf("  messages        %llu in, %llu out, %llu dropped, %llu restarts\n",
+				       (unsigned long long)fnum(p, "messages_in"), (unsigned long long)fnum(p, "messages_out"),
+				       (unsigned long long)fnum(p, "dropped"), (unsigned long long)fnum(p, "restarts"));
+			}
+		}
+	if (!n)
+		printf(device_filter ? "No plug-in called '%s'.\n" :
+		       "No plug-ins yet. Packages add them to %s; agctl plugin add <folder> adds your own.\n",
+		       device_filter ? device_filter : fstr(msg, "dir"));
+}
+
+static void show_ok(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	if (json_out)
+		print_json(msg);
+	else if (!fnum(msg, "ok"))
+		fprintf(stderr, "agctl: %s\n", fstr(msg, "error"));
+	else
+		printf("done\n");
+	if (!fnum(msg, "ok"))
+		change_failed = 1;
+}
+
+/* fork/exec without a shell; 0 on success */
+static int run(char *const argv[])
+{
+	pid_t pid = fork();
+	int status = -1;
+
+	if (pid == 0) {
+		execvp(argv[0], argv);
+		_exit(127);
+	}
+	if (pid < 0)
+		return -1;
+	while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+		;
+	return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : -1;
+}
+
+static int plugin_add(const char *folder)
+{
+	struct ag_config c;
+	struct blob_buf m = { 0 };
+	struct blob_attr *cur;
+	char manifest[512], dst[400], name[64] = "";
+	size_t rem;
+	struct stat st;
+
+	ag_config_load(&c);
+	snprintf(manifest, sizeof(manifest), "%s/manifest.json", folder);
+	blob_buf_init(&m, 0);
+	if (!blobmsg_add_json_from_file(&m, manifest)) {
+		fprintf(stderr, "agctl: %s is missing or not valid JSON\n", manifest);
+		blob_buf_free(&m);
+		return 1;
+	}
+	blob_for_each_attr(cur, m.head, rem)
+		if (!strcmp(blobmsg_name(cur), "name") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
+			snprintf(name, sizeof(name), "%s", blobmsg_get_string(cur));
+	blob_buf_free(&m);
+	if (!ag_plugin_name_ok(name)) {
+		fprintf(stderr, "agctl: manifest name '%s' must be 1-31 of a-z, 0-9 and -\n", name);
+		return 1;
+	}
+	if (geteuid() != 0) {
+		fprintf(stderr, "agctl: adding a plug-in needs root: sudo agctl plugin add %s\n", folder);
+		return 1;
+	}
+	snprintf(dst, sizeof(dst), "%s/%s", c.plugin_user_dir, name);
+	{
+		char *mk[] = { "mkdir", "-p", c.plugin_user_dir, NULL };
+		char *rm[] = { "rm", "-rf", dst, NULL };
+		char *cp[] = { "cp", "-R", (char *)folder, dst, NULL };
+		char *own[] = { "chown", "-R", "root:root", dst, NULL };
+		char *mode[] = { "chmod", "-R", "go-w", dst, NULL };
+
+		if (run(mk) || (stat(dst, &st) == 0 && run(rm)) || run(cp) || run(own) || run(mode)) {
+			fprintf(stderr, "agctl: could not copy %s to %s\n", folder, dst);
+			return 1;
+		}
+	}
+	printf("installed %s in %s\n", name, dst);
+	device_filter = name;
+	if (call("ag.plugin", "rescan", NULL, NULL))
+		return 1;
+	{
+		struct blob_buf a = { 0 };
+		int rc;
+
+		blob_buf_init(&a, 0);
+		blobmsg_add_string(&a, "name", name);
+		rc = call("ag.plugin", "list", a.head, show_plugins);
+		blob_buf_free(&a);
+		return rc;
+	}
+}
+
+static int plugin_remove(const char *name)
+{
+	struct ag_config c;
+	char dst[400];
+	struct stat st;
+
+	ag_config_load(&c);
+	if (!ag_plugin_name_ok(name)) {
+		fprintf(stderr, "agctl: no plug-in '%s'\n", name);
+		return 1;
+	}
+	snprintf(dst, sizeof(dst), "%s/%s", c.plugin_user_dir, name);
+	if (stat(dst, &st) != 0) {
+		snprintf(dst, sizeof(dst), "%s/%s", c.plugin_dir, name);
+		fprintf(stderr, stat(dst, &st) == 0 ? "agctl: %s comes from a package; remove the package instead\n" :
+			"agctl: no plug-in '%s' that you added\n", name);
+		return 1;
+	}
+	{
+		char *rm[] = { "rm", "-rf", dst, NULL };
+
+		if (geteuid() != 0 || run(rm)) {
+			fprintf(stderr, "agctl: could not remove %s (sudo?)\n", dst);
+			return 1;
+		}
+	}
+	printf("removed %s\n", name);
+	return call("ag.plugin", "rescan", NULL, NULL);
+}
+
+/* ---------- Wi-Fi keys ---------- */
+
+static void show_keys(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "keys"), *k;
+	size_t rem;
+	int n = 0;
+
+	if (json_out)
+		return print_json(msg);
+	if (arr)
+		blobmsg_for_each_attr(k, arr, rem) {
+			char t1[32];
+
+			if (device_filter) {     /* one key: its QR again */
+				n++;
+				if (!*fstr(k, "qr")) {
+					fprintf(stderr, "agctl: no access point answers, so the Wi-Fi name is unknown\n");
+					continue;
+				}
+				printf("Scan to join \"%s\" as \"%s\":\n\n", fstr(k, "ssid"), fstr(k, "name"));
+				print_qr(fstr(k, "qr"));
+				printf("\n  Wi-Fi     %s\n  password  %s\n  state     %s%s%s\n", fstr(k, "ssid"),
+				       fstr(k, "passphrase"), fstr(k, "state"), *fstr(k, "mac") ? ", bound to " : "", fstr(k, "mac"));
+				continue;
+			}
+			if (!n++)
+				printf("%-22s %-8s %-21s %-18s %s\n", "NAME", "ZONE", "STATE", "DEVICE", "SINCE");
+			printf("%-22.22s %-8s %-21s %-18.18s %s\n", fstr(k, "name"), orb(fstr(k, "zone"), "-"),
+			       fstr(k, "state"), orb(fstr(k, "device"), orb(fstr(k, "mac"), "-")),
+			       ago(fnum(k, "bound") ? fnum(k, "bound") : fnum(k, "created"), t1, sizeof(t1)));
+		}
+	if (!n)
+		printf(device_filter ? "No key called '%s'.\n" :
+		       "No per-device keys. Give a device its own: agctl key add \"Living room plug\" iot\n", device_filter);
+}
+
+static void show_key_added(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	char until[64];
+	time_t t = (time_t)fnum(msg, "expires");
+	struct tm tm;
+
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "ok")) {
+		fprintf(stderr, "agctl: %s\n", fstr(msg, "error"));
+		change_failed = 1;
+		return;
+	}
+	localtime_r(&t, &tm);
+	strftime(until, sizeof(until), "%Y-%m-%d %H:%M", &tm);
+	printf("Scan to join \"%s\" as \"%s\"%s%s%s:\n\n", fstr(msg, "ssid"), fstr(msg, "name"),
+	       *fstr(msg, "zone") ? " (zone " : "", fstr(msg, "zone"), *fstr(msg, "zone") ? ")" : "");
+	print_qr(fstr(msg, "qr"));
+	printf("\n  Wi-Fi     %s\n  password  %s   (for one device only)\n  waits     until %s for a device to join\n",
+	       fstr(msg, "ssid"), fstr(msg, "passphrase"), until);
+	printf("\nThe first device to join owns this key. Take it away any time:\n  agctl key revoke \"%s\"\n",
+	       fstr(msg, "name"));
+	if (*fstr(msg, "error"))
+		printf("\nnote: %s\n", fstr(msg, "error"));
+}
+
 /* "90", "90s", "30m", "2h", "1d" -> seconds; -1 when unreadable */
 static int parse_time(const char *s)
 {
@@ -623,11 +965,24 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 			printf("  -- %s", fstr(msg, "note"));
 		printf("\n");
 	} else if (!strcmp(type, AG_EV_WIFI)) {
-		printf("wifi  %-16s %s on %s", orb(fstr(msg, "hostname"), fstr(msg, "mac")),
-		       fstr(msg, "event"), fstr(msg, "iface"));
-		if (!strcmp(fstr(msg, "event"), "connected"))
-			printf(" (%d dBm)", (int32_t)fnum(msg, "signal"));
-		printf("\n");
+		if (!strcmp(fstr(msg, "event"), "joined-with-key")) {
+			printf("wifi  %-16s joined with its own key \"%s\"%s%s\n", fstr(msg, "mac"), fstr(msg, "key"),
+			       *fstr(msg, "zone") ? ", zone " : "", fstr(msg, "zone"));
+		} else {
+			printf("wifi  %-16s %s on %s", orb(fstr(msg, "hostname"), fstr(msg, "mac")),
+			       fstr(msg, "event"), fstr(msg, "iface"));
+			if (!strcmp(fstr(msg, "event"), "connected"))
+				printf(" (%d dBm)", (int32_t)fnum(msg, "signal"));
+			printf("\n");
+		}
+	} else if (!strcmp(type, AG_EV_PLUGIN)) {
+		printf("PLUG-IN %s (%s): %s%s%s\n", fstr(msg, "plugin"), fstr(msg, "kind"), fstr(msg, "state"),
+		       *fstr(msg, "why") ? " -- " : "", fstr(msg, "why"));
+	} else {
+		char *body = blobmsg_format_json(msg, true);
+
+		printf("%-5.5s %s  %s\n", type, type, body ? body : "");
+		free(body);
 	}
 	fflush(stdout);
 }
@@ -650,6 +1005,9 @@ static int watch(const char *what)
 		rc = 1;
 	if ((all || !strcmp(what, "alerts") || !strcmp(what, "decisions")) &&
 	    ubus_register_event_handler(ctx, &ev, AG_EV_DECISION))
+		rc = 1;
+	if ((all || !strcmp(what, "plugins")) &&
+	    (ubus_register_event_handler(ctx, &ev, AG_EV_PLUGIN) || ubus_register_event_handler(ctx, &ev, "iot.*")))
 		rc = 1;
 	if (rc) {
 		fprintf(stderr, "agctl: cannot subscribe to events (permission?)\n");
@@ -682,6 +1040,11 @@ int main(int argc, char **argv)
 	}
 	if (!strcmp(cmd, "help") || !strcmp(cmd, "-h") || !strcmp(cmd, "--help")) {
 		usage();
+		return 0;
+	}
+	if (!strcmp(cmd, "qr") && i < argc) {      /* no brain needed */
+		qr_pbm = i + 1 < argc && !strcmp(argv[i + 1], "--pbm");
+		print_qr(argv[i]);
 		return 0;
 	}
 
@@ -724,8 +1087,9 @@ int main(int argc, char **argv)
 		rc = call("ag.decision", "list", args.head, show_decisions);
 		blob_buf_free(&args);
 	} else if ((!strcmp(cmd, "quarantine") || !strcmp(cmd, "prioritize") || !strcmp(cmd, "block") ||
-		    !strcmp(cmd, "deprioritize") || !strcmp(cmd, "throttle") || !strcmp(cmd, "disconnect")) &&
-		   i < argc) {
+		    !strcmp(cmd, "deprioritize") || !strcmp(cmd, "throttle") || !strcmp(cmd, "disconnect") ||
+		    (!strcmp(cmd, "do") && i + 1 < argc)) && i < argc) {
+		const char *action = !strcmp(cmd, "do") ? argv[i++] : !strcmp(cmd, "prioritize") ? "priority" : cmd;
 		const char *target = argv[i++], *device = NULL, *bad = NULL;
 		int ttl = 0, rate = 0;
 
@@ -744,7 +1108,7 @@ int main(int argc, char **argv)
 			rc = 1;
 		} else {
 			blob_buf_init(&args, 0);
-			blobmsg_add_string(&args, "action", !strcmp(cmd, "prioritize") ? "priority" : cmd);
+			blobmsg_add_string(&args, "action", action);
 			blobmsg_add_string(&args, "target", target);
 			if (ttl)
 				blobmsg_add_u32(&args, "ttl", (uint32_t)ttl);
@@ -770,6 +1134,75 @@ int main(int argc, char **argv)
 			     change_failed;
 			blob_buf_free(&args);
 		}
+	} else if (!strcmp(cmd, "plugins")) {
+		rc = call("ag.plugin", "list", NULL, show_plugins);
+	} else if (!strcmp(cmd, "plugin") && i < argc) {
+		const char *sub = argv[i++];
+
+		if (!strcmp(sub, "add") && i < argc) {
+			rc = plugin_add(argv[i]);
+		} else if (!strcmp(sub, "remove") && i < argc) {
+			rc = plugin_remove(argv[i]);
+		} else if ((!strcmp(sub, "allow") || !strcmp(sub, "deny") || !strcmp(sub, "enable") ||
+			    !strcmp(sub, "disable")) && i < argc) {
+			int allow = !strcmp(sub, "allow") || !strcmp(sub, "deny");
+
+			blob_buf_init(&args, 0);
+			blobmsg_add_string(&args, "name", argv[i]);
+			blobmsg_add_u8(&args, allow ? "allow" : "enabled", !strcmp(sub, "allow") || !strcmp(sub, "enable"));
+			rc = call("ag.plugin", "set", args.head, show_ok) || change_failed;
+			blob_buf_free(&args);
+		} else if (i == argc || !strcmp(sub, "show")) {
+			device_filter = i < argc ? argv[i] : sub;
+			blob_buf_init(&args, 0);
+			blobmsg_add_string(&args, "name", device_filter);
+			rc = call("ag.plugin", "list", args.head, show_plugins);
+			blob_buf_free(&args);
+		} else {
+			usage();
+			rc = 1;
+		}
+	} else if (!strcmp(cmd, "keys")) {
+		rc = call("ag.wifi", "keys", NULL, show_keys);
+	} else if (!strcmp(cmd, "key") && i + 1 < argc) {
+		const char *sub = argv[i++], *name = argv[i++];
+
+		blob_buf_init(&args, 0);
+		blobmsg_add_string(&args, "name", name);
+		if (!strcmp(sub, "add")) {
+			const char *zone = NULL;
+			int ttl = 0;
+
+			if (i < argc && parse_time(argv[i]) < 0)
+				zone = argv[i++];
+			if (i < argc && (ttl = parse_time(argv[i])) > 0)
+				i++;
+			if (i < argc || ttl < 0) {
+				fprintf(stderr, "agctl: usage: agctl key add <name> [zone] [time]\n");
+				rc = 1;
+			} else {
+				if (zone && strcmp(zone, "none"))
+					blobmsg_add_string(&args, "zone", zone);
+				if (ttl > 0)
+					blobmsg_add_u32(&args, "ttl", (uint32_t)ttl);
+				rc = call("ag.wifi", "key_add", args.head, show_key_added) || change_failed;
+			}
+		} else if (!strcmp(sub, "qr")) {
+			device_filter = name;
+			rc = call("ag.wifi", "keys", args.head, show_keys);
+		} else if (!strcmp(sub, "revoke")) {
+			rc = call("ag.wifi", "key_revoke", args.head, show_ok) || change_failed;
+		} else {
+			usage();
+			rc = 1;
+		}
+		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "zone") && i + 1 < argc) {
+		blob_buf_init(&args, 0);
+		blobmsg_add_string(&args, "device", argv[i]);
+		blobmsg_add_string(&args, "zone", strcmp(argv[i + 1], "none") ? argv[i + 1] : "");
+		rc = call("ag.device", "zone", args.head, show_ok) || change_failed;
+		blob_buf_free(&args);
 	} else {
 		usage();
 		rc = 1;

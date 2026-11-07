@@ -70,7 +70,9 @@ config act 'act'
 
 # Policies: when an alert is raised, which action to propose. A policy's own
 # mode can only be weaker than act.mode. Actions: quarantine, disconnect,
-# throttle (with option rate, kbit/s), deprioritize, priority.
+# throttle (with option rate, kbit/s), deprioritize, priority, or a plug-in's
+# action ("<plugin>.<action>", see agctl plugins). 'option zone iot' limits a
+# policy to devices in that zone. Skills (plug-ins) bring policies of their own.
 # (Blocking a domain is never automatic: run 'agctl block <domain>'.)
 # Without any policy sections, these two are built in.
 config policy 'dga'
@@ -92,6 +94,29 @@ config policy 'iot_new_site'
 config wifi 'wifi'
 	# hostapd control sockets; leave unset for the platform default
 	# option ctrl_dir '/var/run/hostapd'
+	# per-device Wi-Fi keys (agctl key add <name>): agd keeps them in this
+	# hostapd wpa_psk_file. PC as AP sets it up; on OpenWRT add to the Wi-Fi
+	# interface: uci set wireless.default_radio0.wpa_psk_file='/etc/aigw/wifi-keys'
+	# option keys '/etc/aigw/wifi-keys'
+	# an unused key expires after this many seconds
+	# option key_ttl '86400'
+
+config plugins 'plugins'
+	# Plug-ins wire themselves in, no configuration needed: packages put them
+	# in /usr/share/aigw/plugins (trusted); 'agctl plugin add <folder>' puts
+	# yours in /etc/aigw/plugins, whose privileged capabilities wait for
+	# 'agctl plugin allow <name>'. See: agctl plugins
+	option enabled '1'
+	# plug-ins run as this unprivileged user
+	option user 'nobody'
+
+# Settings for one plug-in become its configuration; 'enabled 0' turns it off.
+# config plugin 'mqtt'
+#	option broker '192.168.1.10'
+#	option port '1883'
+#	option username 'aigw'
+#	option password 'secret'
+#	option homeassistant '1'
 
 config lan 'lan'
 	# interfaces whose clients AIGW looks after (DNS interception, and the

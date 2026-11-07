@@ -16,6 +16,10 @@
  *                           "bridge ag quarantine" (LAN-to-LAN through a bridge): the
  *                           device still reaches the gateway (DHCP, DNS), nothing beyond
  *   disconnect <device>     hostapd: kicked off Wi-Fi and refused until the time is up
+ *   <plugin>.<action>       an actuator plug-in carries it out (plugin.c); same rules
+ *
+ * Policies come from /etc/config/aigw first, then from skills (plug-ins);
+ * "option zone" limits a policy to devices in that zone.
  *
  * Guardrails, checked for every action whoever asks (a policy, you, later the cloud):
  *   - never the gateway itself, never a device outside the LAN, never a protected device
@@ -61,7 +65,7 @@ struct decision {
 	int used;
 	uint32_t id;
 	int state;
-	char action[16];
+	char action[48];            /* built-in, or a plug-in's "<plugin>.<action>" */
 	char target[NAME_LEN];      /* MAC (quarantine, disconnect), IP, or domain (block) */
 	char scope[IP_LEN];         /* block: the one device's IP; "" = every device */
 	int rate;                   /* throttle: kbit/s */
@@ -90,6 +94,25 @@ static int is_device_action(const char *a)
 static int by_mac(const char *a)
 {
 	return !strcmp(a, "quarantine") || !strcmp(a, "disconnect");
+}
+
+/* carried out by an actuator plug-in: "<plugin>.<action>" */
+static int is_plugin_action(const char *a)
+{
+	return strchr(a, '.') != NULL;
+}
+
+/* free-text targets of plug-in actions ("everyone", "kitchen light") */
+static int safe_text(const char *s)
+{
+	size_t i, n = strlen(s);
+
+	if (n < 1 || n > 64)
+		return 0;
+	for (i = 0; i < n; i++)
+		if (!isalnum((unsigned char)s[i]) && !strchr(" -_.:@", s[i]))
+			return 0;
+	return 1;
 }
 
 /* ---------- small helpers ---------- */
@@ -237,10 +260,14 @@ static int valid_ip(const char *s)
 	return inet_pton(AF_INET, s, buf) == 1 || inet_pton(AF_INET6, s, buf) == 1;
 }
 
+static struct device *find_device(const char *q);
+
 static int valid_target(const struct decision *d)
 {
 	if (!strcmp(d->action, "block"))
 		return !d->scope[0] || valid_ip(d->scope);
+	if (is_plugin_action(d->action))
+		return valid_ip(d->target) || safe_text(d->target);
 	return by_mac(d->action) ? valid_mac(d->target) : valid_ip(d->target);
 }
 
@@ -335,6 +362,9 @@ static int actuate(struct decision *d, char *err, size_t errlen)
 		return dns_policy_write(err, errlen);
 	if (!strcmp(d->action, "disconnect"))
 		return wifi_ban(d->target, 1, err, errlen);
+	if (is_plugin_action(d->action))
+		return plugin_act(d->action, d->id, d->target, valid_ip(d->target) ? find_device(d->target) : NULL,
+				  (int)left, d->reason, 0, err, errlen);
 
 	/* one nft transaction: (re)set the element with exactly the time it has left
 	 * (a plain "add" would keep an existing element's old timeout) */
@@ -379,6 +409,12 @@ static void unactuate(struct decision *d)
 	if (!strcmp(d->action, "disconnect")) {
 		if (wifi_ban(d->target, 0, err, sizeof(err)))
 			AG_DEBUG("undo disconnect %s: %s", d->target, err);
+		return;
+	}
+	if (is_plugin_action(d->action)) {
+		if (plugin_act(d->action, d->id, d->target, valid_ip(d->target) ? find_device(d->target) : NULL,
+			       0, d->reason, 1, err, sizeof(err)))
+			AG_INFO("undo %s %s: %s", d->action, d->target, err);
 		return;
 	}
 	if (!strcmp(d->action, "quarantine")) {
@@ -514,9 +550,28 @@ static int guard(const char *action, const char *what, const struct act_opts *o,
 		}
 		return 0;
 	}
+	if (is_plugin_action(action)) {
+		int device_subject = 1;
+
+		if (plugin_action(action, &device_subject, err, errlen) < 0)
+			return -1;
+		if (!device_subject) {
+			if (!safe_text(what)) {
+				snprintf(err, errlen, "target '%.40s' must be 1-64 letters, digits, spaces or -_.:@", what);
+				return -1;
+			}
+			snprintf(out->target, sizeof(out->target), "%s", what);
+			snprintf(out->device, sizeof(out->device), "%s", what);
+			return 0;
+		}
+		if (!(dv = guard_device(what, out->device, err, errlen)))
+			return -1;
+		snprintf(out->target, sizeof(out->target), "%s", dv->ip);
+		return 0;
+	}
 	if (!is_device_action(action)) {
 		snprintf(err, errlen, "unknown action '%s' (priority, deprioritize, throttle, block, "
-			 "quarantine or disconnect)", action);
+			 "quarantine, disconnect, or a plug-in's: agctl plugins)", action);
 		return -1;
 	}
 	if (!(dv = guard_device(what, out->device, err, errlen)))
@@ -576,10 +631,11 @@ int act_request(const char *action, const char *what, int ttl, const struct act_
 		const char *reason, uint32_t *id, char *err, size_t errlen)
 {
 	struct decision g = { 0 }, *d;
+	const char *who = o && o->origin ? o->origin : "you";
 	char note[160];
 
 	if (guard(action, what, o, &ttl, &g, note, err, errlen) < 0) {
-		AG_INFO("refused %s %s: %s", action, what, err);
+		AG_INFO("refused %s %s (asked by %s): %s", action, what, who, err);
 		return -1;
 	}
 	if ((d = dec_find(action, g.target, g.scope, D_ACTIVE))) {
@@ -590,13 +646,13 @@ int act_request(const char *action, const char *what, int ttl, const struct act_
 		d->expires = ag_wall_s() + ttl;
 		if (actuate(d, err, errlen) < 0)
 			return -1;
-		snprintf(d->note, sizeof(d->note), "time limit restarted by you%s%.120s", note[0] ? "; " : "", note);
+		snprintf(d->note, sizeof(d->note), "time limit restarted by %.30s%s%.90s", who, note[0] ? "; " : "", note);
 		set_state(d, D_ACTIVE);
 		return 0;
 	}
 	if ((d = dec_find(action, g.target, g.scope, D_PROPOSED))) {
 		/* asking for what AIGW proposed is approving it */
-		snprintf(d->origin + strlen(d->origin), sizeof(d->origin) - strlen(d->origin), ", approved by you");
+		snprintf(d->origin + strlen(d->origin), sizeof(d->origin) - strlen(d->origin), ", approved by %s", who);
 	} else {
 		d = dec_new();
 		if (!d) {
@@ -607,8 +663,11 @@ int act_request(const char *action, const char *what, int ttl, const struct act_
 		snprintf(d->target, sizeof(d->target), "%s", g.target);
 		snprintf(d->scope, sizeof(d->scope), "%s", g.scope);
 		snprintf(d->device, sizeof(d->device), "%s", g.device);
-		snprintf(d->origin, sizeof(d->origin), "you");
-		snprintf(d->reason, sizeof(d->reason), "%s", reason && *reason ? reason : "asked for by you");
+		snprintf(d->origin, sizeof(d->origin), "%s", who);
+		if (reason && *reason)
+			snprintf(d->reason, sizeof(d->reason), "%s", reason);
+		else
+			snprintf(d->reason, sizeof(d->reason), "asked for by %s", who);
 	}
 	d->ttl = ttl;
 	d->rate = g.rate;
@@ -671,33 +730,41 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 	return 0;
 }
 
-static const struct ag_policy *policy_for(const char *kind)
+/* your policies first, then skills' policies; a zone limits a policy to devices in it */
+static const struct ag_policy *policy_for(const char *kind, const char *ip, char *origin, size_t n, int *cap)
 {
+	const struct device *dv = ip && *ip ? find_device(ip) : NULL;
+	const char *zone = dv ? dv->zone : "";
 	int i;
 
+	*cap = AG_MODE_ENFORCE;
 	for (i = 0; i < cfg.n_policies; i++)
-		if (!strcmp(cfg.policies[i].alert, kind))
+		if (!strcmp(cfg.policies[i].alert, kind) && (!cfg.policies[i].zone[0] || !strcmp(cfg.policies[i].zone, zone))) {
+			snprintf(origin, n, "policy %s", cfg.policies[i].name);
 			return &cfg.policies[i];
-	return NULL;
+		}
+	return plugin_policy_for(kind, zone, origin, n, cap);
 }
 
 void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const char *reason)
 {
-	const struct ag_policy *p = policy_for(kind);
 	struct act_opts o = { 0 };
 	struct decision g = { 0 }, *d;
-	char note[160], err[200];
-	int mode, ttl;
+	char note[160], err[200], origin[48];
+	int mode, ttl, cap;
+	const struct ag_policy *p = policy_for(kind, ip, origin, sizeof(origin), &cap);
 
 	if (!p)
 		return;
 	mode = p->mode < cfg.act_mode ? p->mode : cfg.act_mode;
+	if (mode > cap)
+		mode = cap;
 	if (mode == AG_MODE_OFF)
 		return;
 	ttl = p->ttl;
 	o.rate_kbps = p->rate_kbps;
 	if (guard(p->action, ip, &o, &ttl, &g, note, err, sizeof(err)) < 0) {
-		AG_INFO("policy %s: not acting on alert %u: %s", p->name, alert_id, err);
+		AG_INFO("%s: not acting on alert %u: %s", origin, alert_id, err);
 		return;
 	}
 	if (dec_find(p->action, g.target, "", D_ACTIVE) || dec_find(p->action, g.target, "", D_PROPOSED))
@@ -708,7 +775,7 @@ void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const cha
 	snprintf(d->action, sizeof(d->action), "%s", p->action);
 	snprintf(d->target, sizeof(d->target), "%s", g.target);
 	snprintf(d->device, sizeof(d->device), "%s", g.device);
-	snprintf(d->origin, sizeof(d->origin), "policy %s", p->name);
+	snprintf(d->origin, sizeof(d->origin), "%s", origin);
 	snprintf(d->reason, sizeof(d->reason), "%s", reason);
 	snprintf(d->note, sizeof(d->note), "%s", note);
 	d->alert_id = alert_id;
@@ -746,6 +813,8 @@ void act_init(void)
 				unactuate(d);
 			continue;
 		}
+		if (is_plugin_action(d->action))
+			continue;                /* sent to the plug-in once it has started */
 		if (actuate(d, err, sizeof(err)) < 0)
 			AG_WARN("could not restore decision %u (%s %s): %s", d->id, d->action, d->target, err);
 		else
@@ -776,7 +845,7 @@ void act_tick(void)
 			unactuate(d);
 			snprintf(d->note, sizeof(d->note), "time limit reached");
 			set_state(d, D_EXPIRED);
-		} else if (d->state == D_ACTIVE && reassert && strcmp(d->action, "block")) {
+		} else if (d->state == D_ACTIVE && reassert && strcmp(d->action, "block") && !is_plugin_action(d->action)) {
 			if (actuate(d, err, sizeof(err)) < 0)
 				AG_WARN("decision %u: %s", d->id, err);
 		} else if (d->state == D_PROPOSED && now - d->created >= PROPOSAL_SECS) {
@@ -937,4 +1006,103 @@ void act_load(struct blob_attr *arr)
 uint64_t act_applied_total(void)
 {
 	return applied_total;
+}
+
+struct device *act_find_device(const char *q)
+{
+	return q && *q ? find_device(q) : NULL;
+}
+
+/* A plug-in suggests an action: it always waits for a person. */
+int act_propose(const char *action, const char *what, int ttl, const char *origin, const char *reason,
+		uint32_t *id, char *err, size_t errlen)
+{
+	struct act_opts o = { 0 };
+	struct decision g = { 0 }, *d;
+	char note[160];
+
+	if (cfg.act_mode == AG_MODE_OFF) {
+		snprintf(err, errlen, "acting is off (act.mode)");
+		return -1;
+	}
+	if (guard(action, what, &o, &ttl, &g, note, err, errlen) < 0)
+		return -1;
+	if ((d = dec_find(action, g.target, g.scope, D_ACTIVE)) || (d = dec_find(action, g.target, g.scope, D_PROPOSED))) {
+		*id = d->id;
+		return 0;                    /* already in effect or waiting */
+	}
+	if (!(d = dec_new())) {
+		snprintf(err, errlen, "too many live decisions");
+		return -1;
+	}
+	snprintf(d->action, sizeof(d->action), "%s", action);
+	snprintf(d->target, sizeof(d->target), "%s", g.target);
+	snprintf(d->scope, sizeof(d->scope), "%s", g.scope);
+	snprintf(d->device, sizeof(d->device), "%s", g.device);
+	snprintf(d->origin, sizeof(d->origin), "%s", origin);
+	snprintf(d->reason, sizeof(d->reason), "%s", reason && *reason ? reason : "suggested by a plug-in");
+	snprintf(d->note, sizeof(d->note), "%s", note);
+	d->ttl = ttl;
+	d->rate = g.rate;
+	*id = d->id;
+	set_state(d, D_PROPOSED);
+	d->decided = 0;
+	return 0;
+}
+
+static int owned_by(const struct decision *d, const char *plugin)
+{
+	size_t n = strlen(plugin);
+
+	return !strncmp(d->action, plugin, n) && d->action[n] == '.';
+}
+
+/* An actuator plug-in reports how an action went. */
+void act_plugin_result(uint32_t id, int ok, const char *error)
+{
+	struct decision *d = dec_get(id);
+
+	if (!d || d->state != D_ACTIVE || !is_plugin_action(d->action))
+		return;
+	if (!ok) {
+		snprintf(d->note, sizeof(d->note), "plug-in could not do it: %.130s", error && *error ? error : "no reason given");
+		set_state(d, D_FAILED);
+	} else {
+		AG_DEBUG("decision %u: plug-in confirmed", id);
+	}
+}
+
+/* A plug-in (re)started: give it the actions it should be carrying out. */
+void act_plugin_started(const char *plugin)
+{
+	char err[200];
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++) {
+		struct decision *d = &decs[i];
+
+		if (d->used && d->state == D_ACTIVE && owned_by(d, plugin) && d->expires > ag_wall_s() &&
+		    actuate(d, err, sizeof(err)) < 0)
+			AG_WARN("decision %u: %s", d->id, err);
+	}
+}
+
+/* A plug-in was removed, turned off or failed: its actions can't be carried out or undone. */
+void act_plugin_gone(const char *plugin)
+{
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++) {
+		struct decision *d = &decs[i];
+
+		if (!d->used || !owned_by(d, plugin))
+			continue;
+		if (d->state == D_ACTIVE) {
+			snprintf(d->note, sizeof(d->note), "plug-in %s stopped; its action may still be in effect", plugin);
+			set_state(d, D_FAILED);
+		} else if (d->state == D_PROPOSED) {
+			snprintf(d->note, sizeof(d->note), "plug-in %s stopped", plugin);
+			set_state(d, D_LAPSED);
+		}
+	}
 }

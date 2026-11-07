@@ -17,7 +17,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
             build-essential cmake pkg-config git libjson-c-dev libnetfilter-conntrack-dev \
-            dnsutils nftables dnsmasq-base curl python3
+            dnsutils nftables dnsmasq-base curl python3 mosquitto mosquitto-clients zbar-tools
       - name: OpenWRT libraries
         run: sudo ./scripts/build-deps.sh
       - name: Build
@@ -34,8 +34,10 @@ jobs:
         run: sudo tests/baseline-test.sh build
       - name: Act test (decisions, guardrails, nft and DNS actuators)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/act-test.sh build
-      - name: nft rules render
-        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh; do sh -n "$f"; done
+      - name: Plug-in test (plug-ins, skills, Wi-Fi keys, MQTT and Home Assistant)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/plug-test.sh build
+      - name: Shell syntax
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh; do sh -n "$f"; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}

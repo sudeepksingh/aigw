@@ -97,6 +97,36 @@ By default AIGW only *proposes* actions. To let policies act on their own
 /etc/init.d/aigw restart`. Protect devices AIGW must never touch:
 `uci add_list aigw.act.protect='aa:bb:cc:dd:ee:ff'`.
 
+### Plug-ins
+
+Plug-in packages wire themselves in: install one and agd finds it within
+seconds, no configuration. The MQTT / Home Assistant connector:
+
+```bash
+opkg install /tmp/aigw-mqtt_*.ipk                 # or: apk add --allow-untrusted /tmp/aigw-mqtt-*.apk
+agctl plugins                                      # "waiting: nothing answers on 127.0.0.1:1883"
+uci set aigw.mqtt=plugin
+uci set aigw.mqtt.broker='192.168.1.10'            # the broker Home Assistant uses
+uci commit aigw                                    # picked up within seconds
+```
+
+Your own plug-ins: `agctl plugin add <folder>` (they live in
+`/etc/aigw/plugins`, kept across firmware upgrades), and
+`agctl plugin allow <name>` for privileged capabilities.
+
+### Wi-Fi keys per device
+
+Tell hostapd about AIGW's key file once (per Wi-Fi interface you want it on):
+
+```bash
+uci set wireless.default_radio0.wpa_psk_file='/etc/aigw/wifi-keys'
+uci commit wireless && wifi reload
+agctl key add "Living room plug" iot               # prints a QR code to scan
+```
+
+The main password keeps working; each key works for the first device that
+joins with it, and `agctl key revoke <name>` takes it away again.
+
 The same data is on ubus for LuCI, scripts and other tools:
 
 ```bash
@@ -119,7 +149,9 @@ LAN client ──DNS :53──► nft "inet ag" redirect ──► agdns :5300 �
 | Settings | `/etc/config/aigw` (`uci show aigw`) |
 | Kernel rules | table `inet ag`, loaded by `aigw-nft`, kept across firewall reloads by the fw4 include `firewall.aigw`; agd puts active actions back within a minute of a reload |
 | Block list | `/var/run/aigw/dns-policy` (RAM), written by agd, read by agdns |
-| Logs | `logread -e agd -e agdns` |
+| Plug-ins | packages: `/usr/share/aigw/plugins`; yours: `/etc/aigw/plugins`; children of agd, running as `nobody` |
+| Wi-Fi keys | `/etc/aigw/wifi-keys` (hostapd `wpa_psk_file`, written by agd) |
+| Logs | `logread -e agd -e agdns` (plug-ins log through agd) |
 
 The LAN interface defaults to `br-lan`. Change it with
 `uci set aigw.lan.iface='br-lan br-guest' && uci commit aigw && /etc/init.d/aigw restart`.

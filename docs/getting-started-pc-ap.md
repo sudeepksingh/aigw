@@ -74,6 +74,41 @@ and from wired devices; use `disconnect` to keep it off the Wi-Fi entirely.
 Start automatically at boot: `sudo systemctl enable --now aigw`.
 Stop: `sudo aigw-ap down`.
 
+### Give a device its own Wi-Fi key
+
+```bash
+sudo agctl key add "Living room plug" iot     # prints a QR code: scan it with the device or phone
+agctl keys                                    # who joined with which key
+sudo agctl key revoke "Living room plug"      # take it away; disconnects that device only
+```
+
+The first device to join with a key owns it: the key then works only for its
+MAC, the device gets the key's name and zone. `aigw-ap` adds the key file
+(`/etc/aigw/wifi-keys`) to hostapd; the main password keeps working.
+
+### Plug-ins and Home Assistant
+
+```bash
+agctl plugins                                     # what is installed, running or waiting, and why
+sudo agctl plugin add plugins/examples/door-sensor   # your own: starts by itself
+sudo agctl plugin allow <name>                    # privileged capabilities of one you added
+```
+
+The MQTT connector (`mqtt`) comes with the install. It waits until an MQTT
+broker answers on `127.0.0.1:1883` (`sudo apt install mosquitto`), or set
+yours in `/etc/config/aigw`:
+
+```
+config plugin 'mqtt'
+	option broker '192.168.1.10'
+	option username 'aigw'
+	option password 'secret'
+```
+
+With Home Assistant's MQTT integration on the same broker, every device shows
+up with presence and a Quarantine switch. `sudo agctl plugin disable mqtt`
+turns it off.
+
 ## Windows (WSL2)
 
 WSL2 can drive a **USB** Wi-Fi adapter through
@@ -115,8 +150,9 @@ WSL's kernel cannot read the distribution's firmware files directly.
 `/etc/config/aigw` (UCI format, same file as on OpenWRT) holds the AIGW
 settings: log level, DNS port and upstream resolver, alert thresholds,
 baselines, and acting (`act` section: `mode` advise/enforce/off, time limits,
-devices AIGW must never act on, and the `policy` sections). Apply with
-`sudo systemctl restart aigw-agd`.
+devices AIGW must never act on, and the `policy` sections), plug-ins
+(`plugins` section and one `plugin` section per plug-in) and Wi-Fi keys
+(`wifi` section). Apply with `sudo systemctl restart aigw-agd`.
 
 ## Troubleshooting
 

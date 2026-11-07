@@ -18,6 +18,7 @@
  * guardrails, time limits and undo (ag.decision, see act.c).
  */
 #define _GNU_SOURCE
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,10 +58,16 @@ static struct ubus_event_handler dns_ev, dhcp_ev;
 static struct uloop_timeout poll_timer, save_timer;
 static struct blob_buf b;
 
-void agd_emit(const char *type, struct blob_buf *msg)
+void agd_emit_from(const char *type, struct blob_buf *msg, const void *from)
 {
 	if (conn.ctx.sock.fd >= 0)
 		ubus_send_event(&conn.ctx, type, msg->head);
+	plugin_dispatch(type, msg->head, from);
+}
+
+void agd_emit(const char *type, struct blob_buf *msg)
+{
+	agd_emit_from(type, msg, NULL);
 }
 
 /* ---------- sensor events ---------- */
@@ -130,6 +137,7 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 
 	/* DGA malware mostly gets NXDOMAIN, so every answer is judged */
 	alerts_on_dns(client, qname);
+	plugin_dispatch(AG_EV_DNS, msg, NULL);
 }
 
 /* from aigw-dhcp-event (dnsmasq hook): richer identity than the leases file */
@@ -163,6 +171,7 @@ static void on_dhcp_event(struct ubus_context *ctx, struct ubus_event_handler *e
 		snprintf(d->dhcp_options, sizeof(d->dhcp_options), "%s", blobmsg_get_string(tb[DH_OPTS]));
 	d->last_seen = ag_wall_s();
 	dev_guess_type(d);
+	plugin_dispatch(AG_EV_DHCP, msg, NULL);
 }
 
 /* ---------- ubus API ---------- */
@@ -175,7 +184,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
-	blobmsg_add_string(&b, "phase", "act");
+	blobmsg_add_string(&b, "phase", "plug");
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
@@ -192,6 +201,11 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u64(&b, "applied", act_applied_total());
 	blobmsg_add_u32(&b, "policies", (uint32_t)cfg.n_policies);
 	blobmsg_close_table(&b, s);
+	s = blobmsg_open_table(&b, "plugins");
+	blobmsg_add_u32(&b, "found", (uint32_t)plugin_count(0));
+	blobmsg_add_u32(&b, "working", (uint32_t)plugin_count(1));
+	blobmsg_close_table(&b, s);
+	blobmsg_add_u32(&b, "wifi_keys", (uint32_t)keys_count());
 	s = blobmsg_open_table(&b, "models");
 	if (alerts_model_trees())
 		blobmsg_add_u32(&b, alerts_model_name(), (uint32_t)alerts_model_trees());
@@ -413,6 +427,155 @@ static struct ubus_object decision_obj = {
 	.n_methods = ARRAY_SIZE(decision_methods),
 };
 
+/* ---------- plug-ins ---------- */
+
+enum { PL_NAME, PL_ALLOW, PL_ENABLED, __PL_MAX };
+static const struct blobmsg_policy plugin_policy[__PL_MAX] = {
+	[PL_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[PL_ALLOW] = { .name = "allow", .type = BLOBMSG_TYPE_BOOL },
+	[PL_ENABLED] = { .name = "enabled", .type = BLOBMSG_TYPE_BOOL },
+};
+
+static int m_plugin_list(struct ubus_context *ctx, struct ubus_object *obj,
+			 struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__PL_MAX];
+
+	blobmsg_parse(plugin_policy, __PL_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!strcmp(method, "rescan"))
+		plugin_rescan();
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "dir", cfg.plugin_dir);
+	blobmsg_add_string(&b, "user_dir", cfg.plugin_user_dir);
+	blobmsg_add_u8(&b, "enabled", (uint8_t)cfg.plugins_enabled);
+	plugin_blob(&b, "plugins", tb[PL_NAME] ? blobmsg_get_string(tb[PL_NAME]) : NULL);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static int m_plugin_set(struct ubus_context *ctx, struct ubus_object *obj,
+			struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__PL_MAX];
+	char err[256] = "";
+	int rc = 0;
+
+	blobmsg_parse(plugin_policy, __PL_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[PL_NAME] || (!tb[PL_ALLOW] && !tb[PL_ENABLED]))
+		return UBUS_STATUS_INVALID_ARGUMENT;
+	if (tb[PL_ALLOW])
+		rc = plugin_set(blobmsg_get_string(tb[PL_NAME]), "allow", blobmsg_get_bool(tb[PL_ALLOW]), err, sizeof(err));
+	if (!rc && tb[PL_ENABLED])
+		rc = plugin_set(blobmsg_get_string(tb[PL_NAME]), "enabled", blobmsg_get_bool(tb[PL_ENABLED]), err, sizeof(err));
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "ok", rc == 0);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method plugin_methods[] = {
+	UBUS_METHOD("list", m_plugin_list, plugin_policy),
+	UBUS_METHOD("rescan", m_plugin_list, plugin_policy),
+	UBUS_METHOD("set", m_plugin_set, plugin_policy),
+};
+static struct ubus_object_type plugin_type = UBUS_OBJECT_TYPE("ag.plugin", plugin_methods);
+static struct ubus_object plugin_obj = {
+	.name = "ag.plugin", .type = &plugin_type, .methods = plugin_methods, .n_methods = ARRAY_SIZE(plugin_methods),
+};
+
+/* ---------- per-device Wi-Fi keys ---------- */
+
+enum { WK_NAME, WK_ZONE, WK_TTL, __WK_MAX };
+static const struct blobmsg_policy key_policy[__WK_MAX] = {
+	[WK_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[WK_ZONE] = { .name = "zone", .type = BLOBMSG_TYPE_STRING },
+	[WK_TTL] = { .name = "ttl", .type = BLOBMSG_TYPE_INT32 },
+};
+
+static int m_wifi_keys(struct ubus_context *ctx, struct ubus_object *obj,
+		       struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__WK_MAX];
+
+	blobmsg_parse(key_policy, __WK_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "file", cfg.wifi_keys);
+	keys_blob(&b, tb[WK_NAME] ? blobmsg_get_string(tb[WK_NAME]) : NULL);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static int m_wifi_key_change(struct ubus_context *ctx, struct ubus_object *obj,
+			     struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__WK_MAX];
+	char err[256] = "";
+	int rc;
+
+	blobmsg_parse(key_policy, __WK_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[WK_NAME])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+	blob_buf_init(&b, 0);
+	if (!strcmp(method, "key_add"))
+		rc = keys_add(blobmsg_get_string(tb[WK_NAME]), tb[WK_ZONE] ? blobmsg_get_string(tb[WK_ZONE]) : NULL,
+			      tb[WK_TTL] ? (int)blobmsg_get_u32(tb[WK_TTL]) : 0, &b, err, sizeof(err));
+	else
+		rc = keys_revoke(blobmsg_get_string(tb[WK_NAME]), err, sizeof(err));
+	blobmsg_add_u8(&b, "ok", rc == 0);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method wifi_methods[] = {
+	UBUS_METHOD("keys", m_wifi_keys, key_policy),
+	UBUS_METHOD("key_add", m_wifi_key_change, key_policy),
+	UBUS_METHOD("key_revoke", m_wifi_key_change, key_policy),
+};
+static struct ubus_object_type wifi_type = UBUS_OBJECT_TYPE("ag.wifi", wifi_methods);
+static struct ubus_object wifi_obj = {
+	.name = "ag.wifi", .type = &wifi_type, .methods = wifi_methods, .n_methods = ARRAY_SIZE(wifi_methods),
+};
+
+/* ---------- device zone ---------- */
+
+enum { DZ_DEVICE, DZ_ZONE, __DZ_MAX };
+static const struct blobmsg_policy zone_policy[__DZ_MAX] = {
+	[DZ_DEVICE] = { .name = "device", .type = BLOBMSG_TYPE_STRING },
+	[DZ_ZONE] = { .name = "zone", .type = BLOBMSG_TYPE_STRING },
+};
+
+static int m_device_zone(struct ubus_context *ctx, struct ubus_object *obj,
+			 struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__DZ_MAX];
+	struct device *d;
+	const char *z;
+	char err[128] = "";
+	size_t i;
+
+	blobmsg_parse(zone_policy, __DZ_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[DZ_DEVICE] || !tb[DZ_ZONE])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+	z = blobmsg_get_string(tb[DZ_ZONE]);
+	d = act_find_device(blobmsg_get_string(tb[DZ_DEVICE]));
+	for (i = 0; z[i] && !err[0]; i++)
+		if (!((z[i] >= 'a' && z[i] <= 'z') || (z[i] >= '0' && z[i] <= '9') || z[i] == '-') || i >= 15)
+			snprintf(err, sizeof(err), "zone must be up to 15 of a-z, 0-9 and - ('' for none)");
+	if (!err[0] && !d)
+		snprintf(err, sizeof(err), "no device '%s'", blobmsg_get_string(tb[DZ_DEVICE]));
+	if (!err[0]) {
+		snprintf(d->zone, sizeof(d->zone), "%s", z);
+		dev_state_save();
+	}
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "ok", !err[0]);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method alert_methods[] = {
 	UBUS_METHOD("list", m_alert_list, limit_policy),
 };
@@ -439,6 +602,7 @@ static struct ubus_object ag_obj = {
 
 static struct ubus_method dev_methods[] = {
 	UBUS_METHOD_NOARG("list", m_device_list),
+	UBUS_METHOD("zone", m_device_zone, zone_policy),
 };
 static struct ubus_object_type dev_type = UBUS_OBJECT_TYPE("ag.device", dev_methods);
 static struct ubus_object dev_obj = {
@@ -466,7 +630,8 @@ static void on_ubus_connect(struct ubus_context *ctx)
 	if (ubus_add_object(ctx, &ag_obj) || ubus_add_object(ctx, &dev_obj) ||
 	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj) ||
 	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj) ||
-	    ubus_add_object(ctx, &decision_obj))
+	    ubus_add_object(ctx, &decision_obj) || ubus_add_object(ctx, &plugin_obj) ||
+	    ubus_add_object(ctx, &wifi_obj))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;
@@ -491,6 +656,8 @@ static void poll_cb(struct uloop_timeout *t)
 	wifi_poll();
 	baseline_tick();
 	act_tick();
+	keys_tick();
+	plugin_tick();
 	uloop_timeout_set(t, POLL_MS);
 }
 
@@ -512,12 +679,15 @@ int main(int argc, char **argv)
 	started = ag_wall_s();
 
 	uloop_init();
+	signal(SIGPIPE, SIG_IGN);       /* a plug-in that went away must not take the brain with it */
 	local_addrs_refresh();
 	alerts_init();
 	dev_state_load();
 	act_init();
 	flow_init();
 	wifi_init();
+	keys_init();
+	plugin_init();
 
 	conn.path = ag_ubus_path();
 	conn.cb = on_ubus_connect;
@@ -531,6 +701,7 @@ int main(int argc, char **argv)
 
 	AG_INFO("agd %s started (host %s)", AG_VERSION, cfg.host);
 	uloop_run();     /* returns on SIGTERM / SIGINT */
+	plugin_stop_all();
 	dev_state_save();
 	AG_INFO("stopped, state saved");
 	uloop_done();

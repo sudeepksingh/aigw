@@ -38,9 +38,14 @@ config dns 'dns'
 
 config wifi 'wifi'
 	option ctrl_dir '$T/hostapd'
+	option keys '$T/wifi-keys'
 
 config act 'act'
 	option dns_policy '$T/dns-policy'
+
+config plugins 'plugins'
+	# a live AIGW's plug-ins (e.g. MQTT to Home Assistant) stay out of the test
+	option enabled '0'
 EOF
 echo "1999999999 aa:bb:cc:dd:ee:ff 192.0.2.10 smoke-host *" > "$T/leases"
 

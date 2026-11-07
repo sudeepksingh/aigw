@@ -104,11 +104,15 @@ config baseline 'baseline'
 
 config wifi 'wifi'
 	option ctrl_dir '$T/hostapd'
+	option keys '$T/wifi-keys'
 
 config act 'act'
 	# this test is about alerts; acting has its own test (act-test.sh)
 	option mode 'off'
 	option dns_policy '$T/dns-policy'
+
+config plugins 'plugins'
+	option enabled '0'
 
 config lan 'lan'
 	# only the test client: a live AIGW's clients on this host stay out of the test

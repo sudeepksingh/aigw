@@ -1,0 +1,24 @@
+{
+  "name": "mqtt",
+  "kind": "connector",
+  "version": "0.7.0",
+  "description": "MQTT telemetry in, AIGW state out; Home Assistant discovery (presence and a Quarantine switch per device)",
+  "exec": "ag-mqtt",
+  "emits": ["iot.mqtt"],
+  "subscribes": ["ag.wifi", "ag.alert", "ag.decision"],
+  "caps": ["devices.read", "decision.request"],
+  "needs": ["tcp:${broker}:${port}"],
+  "budget": { "ram_kb": 8192, "cpu_pct": 5 },
+  "hosts": ["openwrt", "linux"],
+  "config": {
+    "broker": "127.0.0.1",
+    "port": "1883",
+    "prefix": "aigw",
+    "homeassistant": "1",
+    "discovery_prefix": "homeassistant"
+  },
+  "card": {
+    "title": "Home Assistant and MQTT",
+    "text": "Devices appear in Home Assistant with presence and a Quarantine switch; sensors on MQTT become context for AIGW."
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "door-sensor",
+  "kind": "sensor",
+  "version": "1.0.0",
+  "description": "Example third-party plug-in in plain shell: reports a door contact and flashes a light as an action",
+  "exec": "run.sh",
+  "emits": ["iot.door"],
+  "subscribes": ["ag.wifi"],
+  "actions": [{ "name": "flash", "subject": "device" }],
+  "alerts": ["door-open-long"],
+  "caps": ["decision.propose"],
+  "budget": { "ram_kb": 8192, "cpu_pct": 5 },
+  "hosts": ["openwrt", "linux"],
+  "config": { "interval": "30" }
+}

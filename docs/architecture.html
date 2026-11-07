@@ -275,7 +275,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand">AI<span>GW</span></div>
-  <div class="ver">architecture v0.3 · code v0.6 · 2026-11-07</div>
+  <div class="ver">architecture v0.3 · code v0.7 · 2026-11-07</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1170,7 +1170,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
     <div class="ph"><div class="p">P1<small>observe</small></div><div><h4>Sensors and context</h4><p><code>agdns</code>, flow / disc / wifi / sys modules, Context Graph, <code>agctl</code>, first app screens.</p></div><div class="exit"><b>Exit test</b>Live "who talks to what", per device and person.<br><span class="status-ok">built · v0.2</span> (app screens later)</div></div>
     <div class="ph"><div class="p">P2<small>understand</small></div><div><h4>Models and signals</h4><p><code>.agm</code> runtime, domain-risk and device-type models, baselines, DNS ⇄ flow signals, explained alerts.</p></div><div class="exit"><b>Exit test</b>Correct device types; explained alerts on test cases.<br><span class="status-ok">built · v0.3, v0.4</span> (device type rule-based)</div></div>
     <div class="ph"><div class="p">P3<small>act</small></div><div><h4>Policies and enforcement</h4><p>Policy engine, guardrails, nft / tc / dns / wifi actuators, TTL and revert.</p></div><div class="exit"><b>Exit test</b>Quarantine and priority work and auto-revert; DNS/DHCP never blocked.<br><span class="status-ok">built · v0.5, v0.6</span></div></div>
-    <div class="ph"><div class="p">P4<small>plug &amp; IoT</small></div><div><h4>Plug-ins and IoT</h4><p>Manifest and auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant connector.</p></div><div class="exit"><b>Exit test</b>A third-party plug-in installs and activates with no config.</div></div>
+    <div class="ph"><div class="p">P4<small>plug &amp; IoT</small></div><div><h4>Plug-ins and IoT</h4><p>Manifest and auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant connector.</p></div><div class="exit"><b>Exit test</b>A third-party plug-in installs and activates with no config.<br><span class="status-ok">built · v0.7</span></div></div>
     <div class="ph"><div class="p">P5<small>outside</small></div><div><h4>Cortex and cloud use cases</h4><p>Bridge, fleet history, training loop, OTA models, LLM agent via MCP, remote access.</p></div><div class="exit"><b>Exit test</b>A model retrained from feedback reaches a fleet and is hot-loaded.</div></div>
     <div class="ph"><div class="p">P6<small>hardware</small></div><div><h4>Real routers</h4><p>LuCI app, procd tuning, tests on OpenWRT One and Wi-Fi 7 boards, footprint validation.</p></div><div class="exit"><b>Exit test</b>Same test suite passes on routers within budget.</div></div>
     <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.</div></div>
@@ -1188,6 +1188,20 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Quarantine</td><td>MAC in <code>inet ag quarantine</code> (routed) and <code>bridge ag quarantine</code> (LAN-to-LAN through a bridge); forwarding only, so DHCP and DNS to the gateway keep working.</td></tr>
       <tr><td>Disconnect</td><td>hostapd deny list plus deauthenticate on every access point interface, lifted when the time is up.</td></tr>
       <tr><td>Guardrails</td><td>Never the gateway, off-LAN or protected devices; TTL of 10 s to <code>max_ttl</code> on every action, enforced by the kernel and agdns themselves; blocking is never automatic; only well-formed MACs/IPs reach nft and hostapd; actions are re-applied after restarts, firewall reloads and hostapd restarts.</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:18px">As built in v0.7 (P4 plug &amp; IoT)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Discover</td><td>Plug-in folders in <code>plugins.dir</code> (packages, trusted) and <code>plugins.user_dir</code> (<code>agctl plugin add</code>) are found within 5 s; a changed manifest reloads, a removed folder stops the plug-in.</td></tr>
+      <tr><td>Check</td><td>Manifest, host, safe file permissions, and <code>needs</code>: a program, a file, a TCP service or another plug-in's events. Unmet means <b>waiting</b>, and it starts the moment they are there.</td></tr>
+      <tr><td>Wire</td><td>JSON lines on stdin/stdout. Its events reach the brain (telemetry with a <code>mac</code>/<code>ip</code> lands on the device) and other plug-ins; its alerts feed policies; its actions (<code>&lt;plugin&gt;.&lt;action&gt;</code>) are decisions with the usual guardrails, TTL and undo.</td></tr>
+      <tr><td>Skills</td><td>Policies (alert → action, optionally one zone) join the policy table; a skill you added only proposes until you allow it.</td></tr>
+      <tr><td>Run</td><td>As <code>nobody</code> in its own process group; restarted after a crash, stopped after 5 crashes in 10 minutes or when over its memory or CPU budget. Privileged capabilities of added plug-ins wait for <code>agctl plugin allow</code>.</td></tr>
+      <tr><td>Wi-Fi keys</td><td><code>agctl key add &lt;name&gt; [zone]</code>: a passphrase and QR code per device in hostapd's <code>wpa_psk_file</code>; bound to the first MAC that joins with it, named and zoned; revocable on its own.</td></tr>
+      <tr><td>MQTT / HA</td><td>Plug-in <code>aigw-mqtt</code>: sensors on MQTT become <code>iot.mqtt</code> context; Home Assistant discovery gives every device presence and a Quarantine switch.</td></tr>
+      <tr><td>Not yet</td><td>DPP (Wi-Fi Easy Connect), IoT zone network isolation (the zone is a policy label today), signed side-loaded plug-ins (P5), ujail (P6), Matter/Thread, Zigbee.</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -1230,7 +1244,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.6 (phases P0–P3) · 2026-11-07</footer>
+<footer>AIGW architecture v0.3 · implementation v0.7 (phases P0–P4) · 2026-11-07</footer>
 </main>
 </div>
 

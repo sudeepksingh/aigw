@@ -17,6 +17,7 @@
 #define AG_EV_DHCP "ag.dhcp"
 #define AG_EV_ALERT "ag.alert"
 #define AG_EV_DECISION "ag.decision"
+#define AG_EV_PLUGIN "ag.plugin"   /* plug-in lifecycle; plug-ins' own events use their types (iot.*) */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
 enum ag_mode { AG_MODE_OFF, AG_MODE_ADVISE, AG_MODE_ENFORCE };
@@ -26,12 +27,19 @@ enum ag_mode { AG_MODE_OFF, AG_MODE_ADVISE, AG_MODE_ENFORCE };
 /* "When this alert is raised, propose (advise) or take (enforce) this action." */
 struct ag_policy {
 	char name[32];
-	char alert[16];           /* alert kind: dga, new-destination, upload-spike, ... */
-	char action[16];          /* quarantine, disconnect, throttle, deprioritize, priority */
+	char alert[32];           /* alert kind: dga, new-destination, upload-spike, ... */
+	char action[48];          /* quarantine, disconnect, throttle, deprioritize, priority,
+	                             or a plug-in's action: "<plugin>.<action>" */
+	char zone[16];            /* only devices in this zone ("" = any) */
 	int ttl;                  /* seconds; 0 = the global default */
 	int rate_kbps;            /* throttle; 0 = the global default */
 	int mode;                 /* enum ag_mode, capped by the global mode */
 };
+
+/* Plug-in names: 1-31 of [a-z0-9-], starting with a letter. */
+int ag_plugin_name_ok(const char *name);
+/* Built-in or plug-in ("name.action") action a policy may use. */
+int ag_policy_action_ok(const char *action);
 
 #ifndef AG_DATADIR
 #define AG_DATADIR "/usr/share/aigw"
@@ -94,6 +102,14 @@ struct ag_config {
 	char dns_policy[256];     /* block list file agd writes and agdns reads */
 	int n_policies;
 	struct ag_policy policies[AG_POLICY_MAX];
+	/* plug-ins */
+	int plugins_enabled;
+	char plugin_dir[256];     /* from packages: trusted */
+	char plugin_user_dir[256];/* added with agctl: privileged capabilities need your OK */
+	char plugin_user[32];     /* plug-ins run as this user ("" = as agd) */
+	/* per-device Wi-Fi keys */
+	char wifi_keys[256];      /* hostapd wpa_psk_file that agd manages */
+	int key_ttl;              /* an unused join key expires after this many seconds */
 };
 
 int ag_mode_parse(const char *s, int dflt);

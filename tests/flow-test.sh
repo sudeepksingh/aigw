@@ -96,10 +96,14 @@ config flow 'flow'
 
 config wifi 'wifi'
 	option ctrl_dir '$T/hostapd'
+	option keys '$T/wifi-keys'
 
 config act 'act'
 	# advise: proposals only, no kernel changes in the host's namespace
 	option dns_policy '$T/dns-policy'
+
+config plugins 'plugins'
+	option enabled '0'
 
 config lan 'lan'
 	# only the test client: a live AIGW's clients on this host stay out of the test
