@@ -46,6 +46,28 @@ table inet ag {
 		flags timeout
 	}
 
+	# deprioritized devices (IP): their traffic goes in the Wi-Fi background queue
+	set bulk4 {
+		type ipv4_addr
+		flags timeout
+	}
+	set bulk6 {
+		type ipv6_addr
+		flags timeout
+	}
+
+	# throttled devices (IP); agd writes one rate-limit rule per device into
+	# chain "throttle", and each rule also checks this set, so it goes inert
+	# when the element times out
+	set throttle4 {
+		type ipv4_addr
+		flags timeout
+	}
+	set throttle6 {
+		type ipv6_addr
+		flags timeout
+	}
+
 	# connection-mark action byte -> verdict (see include/ag/mark.h)
 	map action {
 		type mark : verdict
@@ -58,13 +80,21 @@ table inet ag {
 		ct mark & 0x000000ff vmap @action
 	}
 
-	# DSCP CS5 = WMM "video" access category on the radio
+	chain throttle {
+		type filter hook forward priority filter - 4; policy accept;
+	}
+
+	# DSCP CS5 = WMM "video" access category on the radio, CS1 = "background"
 	chain prioritize {
 		type filter hook forward priority mangle; policy accept;
 		ip saddr @priority4 counter ip dscp set cs5
 		ip daddr @priority4 counter ip dscp set cs5
 		ip6 saddr @priority6 counter ip6 dscp set cs5
 		ip6 daddr @priority6 counter ip6 dscp set cs5
+		ip saddr @bulk4 counter ip dscp set cs1
+		ip daddr @bulk4 counter ip dscp set cs1
+		ip6 saddr @bulk6 counter ip6 dscp set cs1
+		ip6 daddr @bulk6 counter ip6 dscp set cs1
 	}
 EOF
 	if [ "$intercept" = "1" ] && [ -n "$ifaces" ]; then
@@ -80,6 +110,28 @@ EOF
 	echo "}"
 }
 
+# Quarantine inside a bridge (e.g. br-lan on OpenWRT): frames between two LAN
+# ports never reach the inet forward hook. Needs nft bridge support in the
+# kernel (kmod-nft-bridge on OpenWRT); skipped where it is missing.
+render_bridge() {
+	cat <<EOF
+table bridge ag
+delete table bridge ag
+table bridge ag {
+	set quarantine {
+		type ether_addr
+		flags timeout
+	}
+
+	chain forward {
+		type filter hook forward priority filter - 5; policy accept;
+		ether saddr @quarantine counter drop
+		ether daddr @quarantine counter drop
+	}
+}
+EOF
+}
+
 case "${1:-}" in
 apply)
 	mkdir -p "$(dirname "$NFT_FILE")"
@@ -87,17 +139,27 @@ apply)
 	nft -c -f "$NFT_FILE.tmp"
 	mv "$NFT_FILE.tmp" "$NFT_FILE"
 	nft -f "$NFT_FILE"
+	render_bridge > "$NFT_FILE.bridge"
+	if nft -c -f "$NFT_FILE.bridge" 2>/dev/null; then
+		nft -f "$NFT_FILE.bridge"
+	else
+		echo "aigw-nft: no nft bridge support; quarantine covers routed traffic only" >&2
+	fi
 	;;
 remove)
 	mkdir -p "$(dirname "$NFT_FILE")"
 	echo "# aigw is stopped" > "$NFT_FILE"
+	rm -f "$NFT_FILE.bridge"
 	nft delete table inet ag 2>/dev/null || true
+	nft delete table bridge ag 2>/dev/null || true
 	;;
 show)
 	nft list table inet ag
+	nft list table bridge ag 2>/dev/null || true
 	;;
 render)
 	render
+	render_bridge
 	;;
 *)
 	echo "usage: aigw-nft apply|remove|show|render" >&2

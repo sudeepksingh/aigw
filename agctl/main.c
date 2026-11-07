@@ -37,9 +37,13 @@ static void usage(void)
 		"  approve <id> [time] carry out a proposed action (optionally for another time limit)\n"
 		"  reject <id>         say no to a proposed action\n"
 		"  undo <id>           end an action now\n"
-		"  quarantine <device> [time]  cut a device off from everything but the gateway\n"
-		"  prioritize <device> [time]  send a device's traffic first (Wi-Fi video queue)\n"
-		"  block <domain> [time]       stop every device resolving a domain and its subdomains\n"
+		"  prioritize <device> [time]    send a device's traffic first (Wi-Fi video queue)\n"
+		"  deprioritize <device> [time]  send it last (Wi-Fi background queue)\n"
+		"  throttle <device> [rate] [time]  limit its speed, e.g. 2mbit, 500kbit (default from config)\n"
+		"  block <domain> [time] [device]   stop resolving a domain and its subdomains,\n"
+		"                                   for every device or just one\n"
+		"  quarantine <device> [time]    cut a device off from everything but the gateway\n"
+		"  disconnect <device> [time]    kick it off Wi-Fi and refuse it until the time is up\n"
 		"                      time: 90s, 30m, 2h, 1d (default from config, 1h)\n"
 		"  version             agctl version\n"
 		"\n"
@@ -441,8 +445,21 @@ static const char *duration(int64_t s, char *out, size_t n)
 
 static const char *action_words(const char *action)
 {
-	return !strcmp(action, "quarantine") ? "quarantine" : !strcmp(action, "priority") ? "prioritize" :
-	       !strcmp(action, "block") ? "block" : action;
+	return !strcmp(action, "priority") ? "prioritize" : action;
+}
+
+/* "block youtube.com (kids-tablet)", "throttle tv  10.0.0.5  2.0 Mbit/s", ... */
+static void decision_subject(struct blob_attr *e, char *out, size_t n)
+{
+	const char *action = fstr(e, "action");
+
+	if (!strcmp(action, "block"))
+		snprintf(out, n, "%s  (%s)", fstr(e, "target"), fstr(e, "device"));
+	else if (!strcmp(action, "throttle"))
+		snprintf(out, n, "%s  %s  to %.1f Mbit/s", fstr(e, "device"), fstr(e, "target"),
+			 fnum(e, "rate") / 1000.0);
+	else
+		snprintf(out, n, "%s  %s", fstr(e, "device"), fstr(e, "target"));
 }
 
 static void show_decisions(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -456,13 +473,12 @@ static void show_decisions(struct ubus_request *req, int type, struct blob_attr 
 	if (arr)
 		blobmsg_for_each_attr(e, arr, rem) {
 			const char *st = fstr(e, "state"), *action = fstr(e, "action");
-			char t1[32], t2[32];
-			int block = !strcmp(action, "block");
+			char t1[32], t2[32], subj[256];
 
 			n++;
-			printf("#%-4llu %-9s %-10s %s%s%s\n", (unsigned long long)fnum(e, "id"), st,
-			       action_words(action), block ? fstr(e, "target") : fstr(e, "device"),
-			       block ? "" : "  ", block ? "" : fstr(e, "target"));
+			decision_subject(e, subj, sizeof(subj));
+			printf("#%-4llu %-9s %-12s %s\n", (unsigned long long)fnum(e, "id"), st,
+			       action_words(action), subj);
 			if (!strcmp(st, "proposed")) {
 				waiting++;
 				printf("      proposed by %s %s, for %s\n", fstr(e, "origin"),
@@ -516,6 +532,23 @@ static int parse_time(const char *s)
 	if (*end && end[1])
 		return -1;
 	return v > 365L * 86400 ? 365 * 86400 : (int)v;
+}
+
+/* "2mbit", "500kbit", "1.5mbit", "800" (kbit/s) -> kbit/s; -1 when it isn't a rate */
+static int parse_rate(const char *s)
+{
+	char *end;
+	double v = strtod(s, &end);
+
+	if (end == s || v <= 0)
+		return -1;
+	if (!*end || !strcasecmp(end, "k") || !strcasecmp(end, "kbit") || !strcasecmp(end, "kbps"))
+		return (int)v;
+	if (!strcasecmp(end, "m") || !strcasecmp(end, "mbit") || !strcasecmp(end, "mbps"))
+		return (int)(v * 1000);
+	if (!strcasecmp(end, "g") || !strcasecmp(end, "gbit") || !strcasecmp(end, "gbps"))
+		return (int)(v * 1000000);
+	return -1;
 }
 
 /* ---------- calls ---------- */
@@ -579,10 +612,11 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 	} else if (!strcmp(type, AG_EV_ALERT)) {
 		printf("ALERT [%s] %s\n", fstr(msg, "kind"), fstr(msg, "reason"));
 	} else if (!strcmp(type, AG_EV_DECISION)) {
-		const char *action = fstr(msg, "action");
+		char subj[256];
 
+		decision_subject(msg, subj, sizeof(subj));
 		printf("DECISION #%llu %s: %s %s", (unsigned long long)fnum(msg, "id"), fstr(msg, "state"),
-		       action_words(action), !strcmp(action, "block") ? fstr(msg, "target") : fstr(msg, "device"));
+		       action_words(fstr(msg, "action")), subj);
 		if (!strcmp(fstr(msg, "state"), "proposed"))
 			printf("  (agctl approve %llu)", (unsigned long long)fnum(msg, "id"));
 		if (*fstr(msg, "note"))
@@ -689,18 +723,35 @@ int main(int argc, char **argv)
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
 		rc = call("ag.decision", "list", args.head, show_decisions);
 		blob_buf_free(&args);
-	} else if ((!strcmp(cmd, "quarantine") || !strcmp(cmd, "prioritize") || !strcmp(cmd, "block")) && i < argc) {
-		int ttl = i + 1 < argc ? parse_time(argv[i + 1]) : 0;
+	} else if ((!strcmp(cmd, "quarantine") || !strcmp(cmd, "prioritize") || !strcmp(cmd, "block") ||
+		    !strcmp(cmd, "deprioritize") || !strcmp(cmd, "throttle") || !strcmp(cmd, "disconnect")) &&
+		   i < argc) {
+		const char *target = argv[i++], *device = NULL, *bad = NULL;
+		int ttl = 0, rate = 0;
 
-		if (ttl < 0) {
-			fprintf(stderr, "agctl: unreadable time '%s' (try 90s, 30m, 2h, 1d)\n", argv[i + 1]);
+		/* optional, in this order: [rate] (throttle) [time] [device] (block) */
+		if (!strcmp(cmd, "throttle") && i < argc && parse_rate(argv[i]) > 0 && parse_time(argv[i]) < 0)
+			rate = parse_rate(argv[i++]);
+		if (i < argc && parse_time(argv[i]) > 0)
+			ttl = parse_time(argv[i++]);
+		if (!strcmp(cmd, "block") && i < argc)
+			device = argv[i++];
+		if (i < argc)
+			bad = argv[i];
+		if (bad) {
+			fprintf(stderr, "agctl: unexpected '%s' (time: 90s, 30m, 2h, 1d%s)\n", bad,
+				!strcmp(cmd, "throttle") ? "; rate: 2mbit, 500kbit" : "");
 			rc = 1;
 		} else {
 			blob_buf_init(&args, 0);
 			blobmsg_add_string(&args, "action", !strcmp(cmd, "prioritize") ? "priority" : cmd);
-			blobmsg_add_string(&args, "target", argv[i]);
+			blobmsg_add_string(&args, "target", target);
 			if (ttl)
 				blobmsg_add_u32(&args, "ttl", (uint32_t)ttl);
+			if (rate)
+				blobmsg_add_u32(&args, "rate", (uint32_t)rate);
+			if (device)
+				blobmsg_add_string(&args, "device", device);
 			rc = call("ag.decision", "request", args.head, show_change) || change_failed;
 			blob_buf_free(&args);
 		}

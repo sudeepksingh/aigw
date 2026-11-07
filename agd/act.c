@@ -6,19 +6,25 @@
  *                                                                       │
  *                                         every action has a TTL and an undo ◄──┘
  *
- * Actions and their actuators:
- *   quarantine <device>   MAC into nft set "inet ag quarantine": the device can
- *                         still reach the gateway (DHCP, DNS) but nothing beyond it
- *   priority <device>     IP into nft set "priority4/6": its traffic is marked
- *                         DSCP CS5, which Wi-Fi (WMM) sends in the video queue
- *   block <domain>        agdns answers "no such name" for it and its subdomains
+ * Actions, from mild to strong, and their actuators:
+ *   priority <device>       IP in nft set priority4/6: DSCP CS5, the Wi-Fi (WMM) video queue
+ *   deprioritize <device>   IP in nft set bulk4/6: DSCP CS1, the Wi-Fi background queue
+ *   throttle <device> rate  IP in nft set throttle4/6 plus a per-device rate limit
+ *   block <domain> [device] agdns answers "no such name" for it and its subdomains,
+ *                           for every device or just one
+ *   quarantine <device>     MAC in nft sets "inet ag quarantine" (routed traffic) and
+ *                           "bridge ag quarantine" (LAN-to-LAN through a bridge): the
+ *                           device still reaches the gateway (DHCP, DNS), nothing beyond
+ *   disconnect <device>     hostapd: kicked off Wi-Fi and refused until the time is up
  *
  * Guardrails, checked for every action whoever asks (a policy, you, later the cloud):
  *   - never the gateway itself, never a device outside the LAN, never a protected device
- *   - always a TTL (10 s .. max_ttl); the kernel and agdns expire actions on their own,
- *     so an action ends on time even if agd stops
- *   - automatic actions only in enforce mode, at most max_auto_per_hour, and never "block"
- *   - DNS and DHCP to the gateway are never affected (quarantine is a forwarding rule)
+ *   - always a TTL (10 s .. max_ttl). nft timeouts and the block list's per-entry
+ *     expiry end actions on their own, even if agd stops (Wi-Fi bans: agd lifts
+ *     them, also after a restart)
+ *   - automatic actions only in enforce mode, at most max_auto_per_hour, never "block"
+ *   - DNS and DHCP to the gateway are never affected
+ *   - only well-formed MACs/IPs ever reach nft and hostapd
  *
  * Modes: off (alerts only) · advise (default: proposals wait for approval) ·
  * enforce (policies act on their own, within the guardrails).
@@ -41,8 +47,10 @@
 
 #define DEC_MAX          128
 #define PROPOSAL_SECS    86400       /* unanswered proposals lapse after a day */
-#define REASSERT_SECS    60          /* re-add active actions in case the nft table was reloaded */
+#define REASSERT_SECS    60          /* re-apply active actions (nft reload, hostapd restart) */
 #define MIN_TTL          10
+#define MIN_RATE         64          /* kbit/s */
+#define MAX_RATE         10000000
 
 enum dec_state { D_PROPOSED, D_ACTIVE, D_REVERTED, D_EXPIRED, D_REJECTED, D_FAILED, D_LAPSED };
 static const char *const state_names[] = {
@@ -54,7 +62,9 @@ struct decision {
 	uint32_t id;
 	int state;
 	char action[16];
-	char target[NAME_LEN];      /* MAC (quarantine), IP (priority) or domain (block) */
+	char target[NAME_LEN];      /* MAC (quarantine, disconnect), IP, or domain (block) */
+	char scope[IP_LEN];         /* block: the one device's IP; "" = every device */
+	int rate;                   /* throttle: kbit/s */
 	char device[64];            /* who it is about, for people */
 	char origin[48];            /* "you" or "policy <name>" */
 	uint32_t alert_id;
@@ -70,6 +80,17 @@ static unsigned head;
 static uint32_t next_id = 1;
 static int64_t last_reassert;
 static uint64_t applied_total;
+
+static int is_device_action(const char *a)
+{
+	return !strcmp(a, "quarantine") || !strcmp(a, "priority") || !strcmp(a, "deprioritize") ||
+	       !strcmp(a, "throttle") || !strcmp(a, "disconnect");
+}
+
+static int by_mac(const char *a)
+{
+	return !strcmp(a, "quarantine") || !strcmp(a, "disconnect");
+}
 
 /* ---------- small helpers ---------- */
 
@@ -96,13 +117,13 @@ static struct decision *dec_get(uint32_t id)
 	return NULL;
 }
 
-static struct decision *dec_find(const char *action, const char *target, int state)
+static struct decision *dec_find(const char *action, const char *target, const char *scope, int state)
 {
 	int i;
 
 	for (i = 0; i < DEC_MAX; i++)
 		if (decs[i].used && decs[i].state == state && !strcmp(decs[i].action, action) &&
-		    !strcasecmp(decs[i].target, target))
+		    !strcasecmp(decs[i].target, target) && !strcmp(decs[i].scope, scope))
 			return &decs[i];
 	return NULL;
 }
@@ -135,6 +156,8 @@ static void dec_event(const struct decision *d)
 	blobmsg_add_u32(&b, "id", d->id);
 	blobmsg_add_string(&b, "action", d->action);
 	blobmsg_add_string(&b, "target", d->target);
+	blobmsg_add_string(&b, "scope", d->scope);
+	blobmsg_add_u32(&b, "rate", (uint32_t)d->rate);
 	blobmsg_add_string(&b, "device", d->device);
 	blobmsg_add_string(&b, "state", state_names[d->state]);
 	blobmsg_add_string(&b, "origin", d->origin);
@@ -150,8 +173,8 @@ static void set_state(struct decision *d, int state)
 {
 	d->state = state;
 	d->decided = ag_wall_s();
-	AG_INFO("decision %u %s %s: %s%s%s", d->id, d->action, d->target, state_names[state],
-		d->note[0] ? " -- " : "", d->note);
+	AG_INFO("decision %u %s %s%s%s: %s%s%s", d->id, d->action, d->target, d->scope[0] ? " for " : "",
+		d->scope, state_names[state], d->note[0] ? " -- " : "", d->note);
 	dec_event(d);
 }
 
@@ -196,7 +219,7 @@ static int nft(const char *command, char *err, size_t errlen)
 	return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
-/* Targets come from DHCP/ARP data; only well-formed addresses ever reach nft. */
+/* Targets come from DHCP/ARP data; only well-formed addresses ever reach nft or hostapd. */
 static int valid_mac(const char *s)
 {
 	int i;
@@ -214,13 +237,25 @@ static int valid_ip(const char *s)
 	return inet_pton(AF_INET, s, buf) == 1 || inet_pton(AF_INET6, s, buf) == 1;
 }
 
-static const char *prio_set(const char *ip)
+static int valid_target(const struct decision *d)
 {
-	return strchr(ip, ':') ? "priority6" : "priority4";
+	if (!strcmp(d->action, "block"))
+		return !d->scope[0] || valid_ip(d->scope);
+	return by_mac(d->action) ? valid_mac(d->target) : valid_ip(d->target);
 }
 
-/* Writes the active block list for agdns: "name expires" per line. agdns
- * re-reads it when it changes and ignores expired lines by itself. */
+/* nft set holding the target of an IP-based action */
+static const char *ip_set(const struct decision *d, char *out, size_t n)
+{
+	const char *base = !strcmp(d->action, "priority") ? "priority" :
+			   !strcmp(d->action, "deprioritize") ? "bulk" : "throttle";
+
+	snprintf(out, n, "%s%s", base, strchr(d->target, ':') ? "6" : "4");
+	return out;
+}
+
+/* Writes the active block list for agdns: "name expires [client-ip]" per
+ * line. agdns re-reads it when it changes and ignores expired lines itself. */
 static int dns_policy_write(char *err, size_t errlen)
 {
 	char tmp[300], dir[256], *slash;
@@ -243,10 +278,11 @@ static int dns_policy_write(char *err, size_t errlen)
 		snprintf(err, errlen, "%s: %s", tmp, strerror(errno));
 		return -1;
 	}
-	fprintf(f, "# AIGW blocked names, written by agd: name expires-epoch\n");
+	fprintf(f, "# AIGW blocked names, written by agd: name expires-epoch [client-ip]\n");
 	for (i = 0; i < DEC_MAX; i++)
 		if (decs[i].used && decs[i].state == D_ACTIVE && !strcmp(decs[i].action, "block"))
-			fprintf(f, "%s %lld\n", decs[i].target, (long long)decs[i].expires);
+			fprintf(f, "%s %lld%s%s\n", decs[i].target, (long long)decs[i].expires,
+				decs[i].scope[0] ? " " : "", decs[i].scope);
 	if (fclose(f) != 0 || rename(tmp, cfg.dns_policy) != 0) {
 		snprintf(err, errlen, "%s: %s", cfg.dns_policy, strerror(errno));
 		return -1;
@@ -254,61 +290,114 @@ static int dns_policy_write(char *err, size_t errlen)
 	return 0;
 }
 
+/* nft commands that rebuild the throttle chain from the active throttle
+ * decisions. Each rule also requires the IP to be in the timed set, so a
+ * rule goes inert by itself when its element expires. */
+static void throttle_rules(char *cmd, size_t n)
+{
+	size_t len = strlen(cmd);
+	int i;
+
+	len += (size_t)snprintf(cmd + len, n - len, "flush chain inet ag throttle; ");
+	for (i = 0; i < DEC_MAX && len < n; i++) {
+		const struct decision *d = &decs[i];
+		const char *fam;
+		long bps, burst;
+		char set[16];
+
+		if (!d->used || d->state != D_ACTIVE || strcmp(d->action, "throttle") || !valid_ip(d->target))
+			continue;
+		fam = strchr(d->target, ':') ? "ip6" : "ip";
+		bps = (long)d->rate * 1000 / 8;
+		burst = bps / 4 > 16000 ? bps / 4 : 16000;
+		ip_set(d, set, sizeof(set));
+		len += (size_t)snprintf(cmd + len, n - len,
+			"add rule inet ag throttle %s daddr @%s %s daddr %s limit rate over %ld bytes/second burst %ld bytes drop; "
+			"add rule inet ag throttle %s saddr @%s %s saddr %s limit rate over %ld bytes/second burst %ld bytes drop; ",
+			fam, set, fam, d->target, bps, burst, fam, set, fam, d->target, bps, burst);
+	}
+}
+
 /* Puts the action into effect for its remaining lifetime. */
 static int actuate(struct decision *d, char *err, size_t errlen)
 {
-	char cmd[1024];
+	char cmd[8192], set[16];
 	long left = (long)(d->expires - ag_wall_s());
 
 	err[0] = '\0';
 	if (left < 1)
 		left = 1;
-	/* one nft transaction: (re)set the element with exactly the time it has left
-	 * (a plain "add" would keep an existing element's old timeout) */
-	if (!strcmp(d->action, "quarantine") || !strcmp(d->action, "priority")) {
-		const char *set = !strcmp(d->action, "quarantine") ? "quarantine" : prio_set(d->target);
-
-		if (!strcmp(d->action, "quarantine") ? !valid_mac(d->target) : !valid_ip(d->target)) {
-			snprintf(err, errlen, "malformed target '%.60s'", d->target);
-			return -1;
-		}
-		snprintf(cmd, sizeof(cmd),
-			 "add element inet ag %s { %s }; delete element inet ag %s { %s }; "
-			 "add element inet ag %s { %s timeout %lds }",
-			 set, d->target, set, d->target, set, d->target, left);
-	} else if (!strcmp(d->action, "block"))
-		return dns_policy_write(err, errlen);
-	else {
-		snprintf(err, errlen, "unknown action");
+	if (!valid_target(d)) {
+		snprintf(err, errlen, "malformed target '%.60s'", d->target);
 		return -1;
 	}
+	if (!strcmp(d->action, "block"))
+		return dns_policy_write(err, errlen);
+	if (!strcmp(d->action, "disconnect"))
+		return wifi_ban(d->target, 1, err, errlen);
+
+	/* one nft transaction: (re)set the element with exactly the time it has left
+	 * (a plain "add" would keep an existing element's old timeout) */
+	if (!strcmp(d->action, "quarantine"))
+		snprintf(set, sizeof(set), "quarantine");
+	else
+		ip_set(d, set, sizeof(set));
+	snprintf(cmd, sizeof(cmd),
+		 "add element inet ag %s { %s }; delete element inet ag %s { %s }; "
+		 "add element inet ag %s { %s timeout %lds }; ",
+		 set, d->target, set, d->target, set, d->target, left);
+	if (!strcmp(d->action, "throttle"))
+		throttle_rules(cmd, sizeof(cmd));
 	if (nft(cmd, err, errlen) != 0) {
 		if (!err[0])
 			snprintf(err, errlen, "nft failed");
 		return -1;
+	}
+	if (!strcmp(d->action, "quarantine")) {
+		/* LAN-to-LAN through a bridge; the table only exists where the kernel has nft bridge */
+		snprintf(cmd, sizeof(cmd),
+			 "add element bridge ag quarantine { %s }; delete element bridge ag quarantine { %s }; "
+			 "add element bridge ag quarantine { %s timeout %lds }",
+			 d->target, d->target, d->target, left);
+		if (nft(cmd, set, sizeof(set)) != 0)
+			AG_DEBUG("quarantine %s: no bridge table, routed traffic only", d->target);
 	}
 	return 0;
 }
 
 static void unactuate(struct decision *d)
 {
-	char cmd[300], err[200];
+	char cmd[8192], err[200], set[16];
 
-	if ((!strcmp(d->action, "quarantine") && !valid_mac(d->target)) ||
-	    (!strcmp(d->action, "priority") && !valid_ip(d->target)))
+	if (!valid_target(d))
 		return;
-	if (!strcmp(d->action, "quarantine"))
-		snprintf(cmd, sizeof(cmd), "delete element inet ag quarantine { %s }", d->target);
-	else if (!strcmp(d->action, "priority"))
-		snprintf(cmd, sizeof(cmd), "delete element inet ag %s { %s }", prio_set(d->target), d->target);
-	else {
-		if (!strcmp(d->action, "block") && dns_policy_write(err, sizeof(err)))
+	if (!strcmp(d->action, "block")) {
+		if (dns_policy_write(err, sizeof(err)))
 			AG_WARN("undo block %s: %s", d->target, err);
 		return;
 	}
+	if (!strcmp(d->action, "disconnect")) {
+		if (wifi_ban(d->target, 0, err, sizeof(err)))
+			AG_DEBUG("undo disconnect %s: %s", d->target, err);
+		return;
+	}
+	if (!strcmp(d->action, "quarantine")) {
+		snprintf(cmd, sizeof(cmd), "delete element bridge ag quarantine { %s }", d->target);
+		nft(cmd, err, sizeof(err));
+		snprintf(set, sizeof(set), "quarantine");
+	} else {
+		ip_set(d, set, sizeof(set));
+	}
 	/* fails harmlessly when the kernel already expired it */
+	snprintf(cmd, sizeof(cmd), "delete element inet ag %s { %s }", set, d->target);
 	if (nft(cmd, err, sizeof(err)) != 0)
 		AG_DEBUG("undo %s %s: %s", d->action, d->target, err);
+	if (!strcmp(d->action, "throttle")) {
+		cmd[0] = '\0';
+		throttle_rules(cmd, sizeof(cmd));
+		if (nft(cmd, err, sizeof(err)) != 0)
+			AG_WARN("throttle rules: %s", err);
+	}
 }
 
 /* ---------- guardrails ---------- */
@@ -361,16 +450,47 @@ static int normalize_domain(const char *in, char *out, size_t n)
 	return -1;
 }
 
+/* A device that may be acted on: known, on the LAN, not the gateway, not protected. */
+static struct device *guard_device(const char *what, char *device, char *err, size_t errlen)
+{
+	struct device *dv = find_device(what);
+
+	if (!dv) {
+		if (is_local(what))
+			snprintf(err, errlen, "%s is the gateway itself; AIGW never acts on the gateway", what);
+		else
+			snprintf(err, errlen, "no device '%s' (use its IP, MAC or name from 'agctl devices')", what);
+		return NULL;
+	}
+	snprintf(device, 64, "%s", dv->hostname[0] ? dv->hostname : dv->mac[0] ? dv->mac : dv->ip);
+	if (dv->ip[0] && is_local(dv->ip)) {
+		snprintf(err, errlen, "%s is the gateway itself; AIGW never acts on the gateway", device);
+		return NULL;
+	}
+	if (in_words(cfg.act_protect, dv->mac) || in_words(cfg.act_protect, dv->ip) ||
+	    in_words(cfg.act_protect, dv->hostname)) {
+		snprintf(err, errlen, "%s is protected (act.protect); AIGW never acts on it", device);
+		return NULL;
+	}
+	if (!dv->ip[0] || !is_lan_client(dv->ip)) {
+		snprintf(err, errlen, "%s is not on a LAN network AIGW looks after", device);
+		return NULL;
+	}
+	return dv;
+}
+
 /*
- * Checks a requested action and fills in its target. Returns 0 when allowed,
- * -1 with a plain-words reason when refused.
+ * Checks a requested action and fills in the decision's target, scope, rate
+ * and device. Returns 0 when allowed, -1 with a plain-words reason when refused.
  */
-static int guard(const char *action, const char *what, int *ttl, char *target, char *device,
-		 char *note, char *err, size_t errlen)
+static int guard(const char *action, const char *what, const struct act_opts *o, int *ttl,
+		 struct decision *out, char *note, char *err, size_t errlen)
 {
 	struct device *dv;
 
 	note[0] = '\0';
+	out->scope[0] = '\0';
+	out->rate = 0;
 	if (*ttl <= 0)
 		*ttl = cfg.act_ttl;
 	if (*ttl < MIN_TTL)
@@ -381,49 +501,42 @@ static int guard(const char *action, const char *what, int *ttl, char *target, c
 	}
 
 	if (!strcmp(action, "block")) {
-		if (normalize_domain(what, target, NAME_LEN) < 0) {
+		if (normalize_domain(what, out->target, sizeof(out->target)) < 0) {
 			snprintf(err, errlen, "'%s' is not a domain AIGW can block (needs a registrable name)", what);
 			return -1;
 		}
-		snprintf(device, 64, "every device");
+		if (o && o->device && *o->device) {
+			if (!(dv = guard_device(o->device, out->device, err, errlen)))
+				return -1;
+			snprintf(out->scope, sizeof(out->scope), "%s", dv->ip);
+		} else {
+			snprintf(out->device, sizeof(out->device), "every device");
+		}
 		return 0;
 	}
-	if (strcmp(action, "quarantine") && strcmp(action, "priority")) {
-		snprintf(err, errlen, "unknown action '%s' (quarantine, priority or block)", action);
+	if (!is_device_action(action)) {
+		snprintf(err, errlen, "unknown action '%s' (priority, deprioritize, throttle, block, "
+			 "quarantine or disconnect)", action);
 		return -1;
 	}
-
-	dv = find_device(what);
-	if (!dv) {
-		if (is_local(what)) {
-			snprintf(err, errlen, "%s is the gateway itself; AIGW never acts on the gateway", what);
-			return -1;
-		}
-		snprintf(err, errlen, "no device '%s' (use its IP, MAC or name from 'agctl devices')", what);
+	if (!(dv = guard_device(what, out->device, err, errlen)))
 		return -1;
-	}
-	snprintf(device, 64, "%s", dv->hostname[0] ? dv->hostname : dv->mac[0] ? dv->mac : dv->ip);
-	if (dv->ip[0] && is_local(dv->ip)) {
-		snprintf(err, errlen, "%s is the gateway itself; AIGW never acts on the gateway", device);
-		return -1;
-	}
-	if (in_words(cfg.act_protect, dv->mac) || in_words(cfg.act_protect, dv->ip) ||
-	    in_words(cfg.act_protect, dv->hostname)) {
-		snprintf(err, errlen, "%s is protected (act.protect); AIGW never acts on it", device);
-		return -1;
-	}
-	if (!dv->ip[0] || !is_lan_client(dv->ip)) {
-		snprintf(err, errlen, "%s is not on a LAN network AIGW looks after", device);
-		return -1;
-	}
-	if (!strcmp(action, "quarantine")) {
+	if (by_mac(action)) {
 		if (!dv->mac[0]) {
-			snprintf(err, errlen, "%s has no known MAC address yet, so it can't be quarantined", device);
+			snprintf(err, errlen, "%s has no known MAC address yet", out->device);
 			return -1;
 		}
-		snprintf(target, NAME_LEN, "%s", dv->mac);
+		snprintf(out->target, sizeof(out->target), "%s", dv->mac);
 	} else {
-		snprintf(target, NAME_LEN, "%s", dv->ip);
+		snprintf(out->target, sizeof(out->target), "%s", dv->ip);
+	}
+	if (!strcmp(action, "throttle")) {
+		out->rate = o && o->rate_kbps > 0 ? o->rate_kbps : cfg.act_rate_kbps;
+		if (out->rate < MIN_RATE || out->rate > MAX_RATE) {
+			snprintf(err, errlen, "rate %d kbit/s is outside %d kbit/s .. %d Gbit/s", out->rate,
+				 MIN_RATE, MAX_RATE / 1000000);
+			return -1;
+		}
 	}
 	return 0;
 }
@@ -444,7 +557,7 @@ static int apply(struct decision *d, int automatic, char *err, size_t errlen)
 	d->applied = ag_wall_s();
 	d->expires = d->applied + d->ttl;
 	d->automatic = automatic;
-	d->state = D_ACTIVE;            /* the block list is written from active decisions */
+	d->state = D_ACTIVE;            /* block list and throttle rules are built from active decisions */
 	if (actuate(d, err, errlen) < 0) {
 		snprintf(d->note, sizeof(d->note), "could not apply: %.140s", err);
 		set_state(d, D_FAILED);
@@ -459,20 +572,21 @@ static int apply(struct decision *d, int automatic, char *err, size_t errlen)
 
 /* ---------- entry points ---------- */
 
-int act_request(const char *action, const char *what, int ttl, const char *reason,
-		uint32_t *id, char *err, size_t errlen)
+int act_request(const char *action, const char *what, int ttl, const struct act_opts *o,
+		const char *reason, uint32_t *id, char *err, size_t errlen)
 {
-	char target[NAME_LEN], device[64], note[160];
-	struct decision *d;
+	struct decision g = { 0 }, *d;
+	char note[160];
 
-	if (guard(action, what, &ttl, target, device, note, err, errlen) < 0) {
+	if (guard(action, what, o, &ttl, &g, note, err, errlen) < 0) {
 		AG_INFO("refused %s %s: %s", action, what, err);
 		return -1;
 	}
-	if ((d = dec_find(action, target, D_ACTIVE))) {
-		/* asking again restarts its time limit */
+	if ((d = dec_find(action, g.target, g.scope, D_ACTIVE))) {
+		/* asking again restarts its time limit (and sets a new rate) */
 		*id = d->id;
 		d->ttl = ttl;
+		d->rate = g.rate;
 		d->expires = ag_wall_s() + ttl;
 		if (actuate(d, err, errlen) < 0)
 			return -1;
@@ -480,9 +594,8 @@ int act_request(const char *action, const char *what, int ttl, const char *reaso
 		set_state(d, D_ACTIVE);
 		return 0;
 	}
-	if ((d = dec_find(action, target, D_PROPOSED))) {
+	if ((d = dec_find(action, g.target, g.scope, D_PROPOSED))) {
 		/* asking for what AIGW proposed is approving it */
-		d->ttl = ttl;
 		snprintf(d->origin + strlen(d->origin), sizeof(d->origin) - strlen(d->origin), ", approved by you");
 	} else {
 		d = dec_new();
@@ -491,12 +604,14 @@ int act_request(const char *action, const char *what, int ttl, const char *reaso
 			return -1;
 		}
 		snprintf(d->action, sizeof(d->action), "%s", action);
-		snprintf(d->target, sizeof(d->target), "%s", target);
-		snprintf(d->device, sizeof(d->device), "%s", device);
+		snprintf(d->target, sizeof(d->target), "%s", g.target);
+		snprintf(d->scope, sizeof(d->scope), "%s", g.scope);
+		snprintf(d->device, sizeof(d->device), "%s", g.device);
 		snprintf(d->origin, sizeof(d->origin), "you");
 		snprintf(d->reason, sizeof(d->reason), "%s", reason && *reason ? reason : "asked for by you");
-		d->ttl = ttl;
 	}
+	d->ttl = ttl;
+	d->rate = g.rate;
 	snprintf(d->note, sizeof(d->note), "%s", note);
 	*id = d->id;
 	return apply(d, 0, err, errlen);
@@ -504,8 +619,9 @@ int act_request(const char *action, const char *what, int ttl, const char *reaso
 
 int act_approve(uint32_t id, int ttl, char *err, size_t errlen)
 {
-	struct decision *d = dec_get(id);
-	char target[NAME_LEN], device[64], note[160];
+	struct decision *d = dec_get(id), g = { 0 };
+	struct act_opts o = { 0 };
+	char note[160];
 
 	if (!d || d->state != D_PROPOSED) {
 		snprintf(err, errlen, "decision %u is not waiting for approval", id);
@@ -513,9 +629,11 @@ int act_approve(uint32_t id, int ttl, char *err, size_t errlen)
 	}
 	if (ttl <= 0)
 		ttl = d->ttl;
+	o.rate_kbps = d->rate;
+	o.device = d->scope[0] ? d->scope : NULL;
 	/* the device may have changed since the proposal: check again */
-	if (guard(d->action, d->target, &ttl, target, device, note, err, errlen) < 0) {
-		snprintf(d->note, sizeof(d->note), "refused: %s", err);
+	if (guard(d->action, d->target, &o, &ttl, &g, note, err, errlen) < 0) {
+		snprintf(d->note, sizeof(d->note), "refused: %.140s", err);
 		set_state(d, D_REJECTED);
 		return -1;
 	}
@@ -546,7 +664,7 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 		snprintf(err, errlen, "decision %u is not active", id);
 		return -1;
 	}
-	d->state = D_REVERTED;          /* first, so the block list no longer has it */
+	d->state = D_REVERTED;          /* first, so rebuilt lists no longer have it */
 	unactuate(d);
 	snprintf(d->note, sizeof(d->note), "undone by you");
 	set_state(d, D_REVERTED);
@@ -566,9 +684,10 @@ static const struct ag_policy *policy_for(const char *kind)
 void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const char *reason)
 {
 	const struct ag_policy *p = policy_for(kind);
-	char target[NAME_LEN], device[64], note[160], err[200];
+	struct act_opts o = { 0 };
+	struct decision g = { 0 }, *d;
+	char note[160], err[200];
 	int mode, ttl;
-	struct decision *d;
 
 	if (!p)
 		return;
@@ -576,23 +695,25 @@ void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const cha
 	if (mode == AG_MODE_OFF)
 		return;
 	ttl = p->ttl;
-	if (guard(p->action, ip, &ttl, target, device, note, err, sizeof(err)) < 0) {
+	o.rate_kbps = p->rate_kbps;
+	if (guard(p->action, ip, &o, &ttl, &g, note, err, sizeof(err)) < 0) {
 		AG_INFO("policy %s: not acting on alert %u: %s", p->name, alert_id, err);
 		return;
 	}
-	if (dec_find(p->action, target, D_ACTIVE) || dec_find(p->action, target, D_PROPOSED))
+	if (dec_find(p->action, g.target, "", D_ACTIVE) || dec_find(p->action, g.target, "", D_PROPOSED))
 		return;     /* already handled */
 	d = dec_new();
 	if (!d)
 		return;
 	snprintf(d->action, sizeof(d->action), "%s", p->action);
-	snprintf(d->target, sizeof(d->target), "%s", target);
-	snprintf(d->device, sizeof(d->device), "%s", device);
+	snprintf(d->target, sizeof(d->target), "%s", g.target);
+	snprintf(d->device, sizeof(d->device), "%s", g.device);
 	snprintf(d->origin, sizeof(d->origin), "policy %s", p->name);
 	snprintf(d->reason, sizeof(d->reason), "%s", reason);
 	snprintf(d->note, sizeof(d->note), "%s", note);
 	d->alert_id = alert_id;
 	d->ttl = ttl;
+	d->rate = g.rate;
 
 	if (mode == AG_MODE_ENFORCE) {
 		if (auto_actions_last_hour() < cfg.act_max_auto) {
@@ -612,7 +733,8 @@ void act_init(void)
 	char err[200];
 	int i, n = 0;
 
-	/* restored actions: put them back for the time they have left */
+	/* restored actions: put them back for the time they have left; lift
+	 * Wi-Fi bans that ran out while agd was not running */
 	for (i = 0; i < DEC_MAX; i++) {
 		struct decision *d = &decs[i];
 
@@ -620,6 +742,8 @@ void act_init(void)
 			continue;
 		if (d->expires <= ag_wall_s()) {
 			d->state = D_EXPIRED;
+			if (!strcmp(d->action, "disconnect"))
+				unactuate(d);
 			continue;
 		}
 		if (actuate(d, err, sizeof(err)) < 0)
@@ -678,6 +802,8 @@ static void dec_blob(struct blob_buf *b, const struct decision *d)
 	blobmsg_add_string(b, "state", state_names[d->state]);
 	blobmsg_add_string(b, "action", d->action);
 	blobmsg_add_string(b, "target", d->target);
+	blobmsg_add_string(b, "scope", d->scope);
+	blobmsg_add_u32(b, "rate", (uint32_t)d->rate);
 	blobmsg_add_string(b, "device", d->device);
 	blobmsg_add_string(b, "origin", d->origin);
 	blobmsg_add_u32(b, "alert", d->alert_id);
@@ -775,6 +901,8 @@ void act_load(struct blob_attr *arr)
 			}
 			else if (!strcmp(key, "action")) snprintf(t.action, sizeof(t.action), "%s", s);
 			else if (!strcmp(key, "target")) snprintf(t.target, sizeof(t.target), "%s", s);
+			else if (!strcmp(key, "scope")) snprintf(t.scope, sizeof(t.scope), "%s", s);
+			else if (!strcmp(key, "rate")) t.rate = (int)num(cur);
 			else if (!strcmp(key, "device")) snprintf(t.device, sizeof(t.device), "%s", s);
 			else if (!strcmp(key, "origin")) snprintf(t.origin, sizeof(t.origin), "%s", s);
 			else if (!strcmp(key, "alert")) t.alert_id = (uint32_t)num(cur);
@@ -795,8 +923,7 @@ void act_load(struct blob_attr *arr)
 		if (d->id >= next_id)
 			next_id = d->id + 1;
 	}
-	/* saved newest first, so the slot after them holds the oldest-to-reuse order:
-	 * reverse to keep oldest .. newest, then continue after the newest */
+	/* saved newest first: reverse to keep oldest .. newest, then continue after the newest */
 	for (int i = 0, j = n - 1; i < j; i++, j--) {
 		struct decision tmp = decs[i];
 

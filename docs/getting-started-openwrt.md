@@ -81,10 +81,16 @@ agctl watch all
 Act yourself; every action ends on its own, `agctl undo <id>` ends it now:
 
 ```bash
-agctl quarantine <device> 30m
 agctl prioritize <device> 2h
-agctl block <domain> 1d
+agctl deprioritize <device> 2h
+agctl throttle <device> 2mbit 1h
+agctl block <domain> 1d [device]
+agctl quarantine <device> 30m      # also cut off from other devices on br-lan
+agctl disconnect <device> 30m      # off the Wi-Fi, on every radio
 ```
+
+Wi-Fi clients on the same radio can talk to each other without the bridge
+seeing it; `disconnect` (or hostapd's `isolate` option) covers that.
 
 By default AIGW only *proposes* actions. To let policies act on their own
 (within the guardrails): `uci set aigw.act.mode=enforce && uci commit aigw &&

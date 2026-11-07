@@ -27,8 +27,9 @@ enum ag_mode { AG_MODE_OFF, AG_MODE_ADVISE, AG_MODE_ENFORCE };
 struct ag_policy {
 	char name[32];
 	char alert[16];           /* alert kind: dga, new-destination, upload-spike, ... */
-	char action[16];          /* quarantine, priority */
+	char action[16];          /* quarantine, disconnect, throttle, deprioritize, priority */
 	int ttl;                  /* seconds; 0 = the global default */
+	int rate_kbps;            /* throttle; 0 = the global default */
 	int mode;                 /* enum ag_mode, capped by the global mode */
 };
 
@@ -88,6 +89,7 @@ struct ag_config {
 	int act_ttl;              /* default life of an action, seconds */
 	int act_max_ttl;          /* no action lives longer */
 	int act_max_auto;         /* automatic actions per hour (enforce mode) */
+	int act_rate_kbps;        /* default throttle rate */
 	char act_protect[512];    /* space-separated MACs/IPs never acted on */
 	char dns_policy[256];     /* block list file agd writes and agdns reads */
 	int n_policies;

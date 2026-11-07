@@ -4,8 +4,11 @@
  * hostapd's control sockets (one per access point interface, in
  * cfg.wifi_ctrl). Works the same on OpenWRT and on a PC acting as AP.
  * Joins and leaves are reported as "ag.wifi" events.
+ *
+ * Also the Wi-Fi actuator (wifi_ban): hostapd's deny list plus a deauth.
  */
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -171,4 +174,58 @@ void wifi_poll(void)
 int wifi_station_count(void)
 {
 	return stations;
+}
+
+/*
+ * Wi-Fi actuator: on = refuse the MAC on every access point (hostapd deny
+ * list) and kick it off; off = let it join again. Returns 0 when at least
+ * one access point did it.
+ */
+int wifi_ban(const char *mac, int on, char *err, size_t errlen)
+{
+	char lmac[18], path[512], cmd[64], reply[4096];
+	DIR *dir;
+	struct dirent *e;
+	int i, done = 0, aps = 0;
+
+	for (i = 0; i < 17 && mac[i]; i++)
+		lmac[i] = (char)tolower((unsigned char)mac[i]);
+	lmac[i] = '\0';
+	if (sock < 0 || !(dir = opendir(cfg.wifi_ctrl))) {
+		snprintf(err, errlen, "no Wi-Fi access point here (hostapd control sockets in %s)", cfg.wifi_ctrl);
+		return -1;
+	}
+	while ((e = readdir(dir))) {
+		struct stat st;
+
+		if (e->d_name[0] == '.' || !strcmp(e->d_name, "global"))
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", cfg.wifi_ctrl, e->d_name);
+		if (stat(path, &st) || !S_ISSOCK(st.st_mode))
+			continue;
+		aps++;
+		if (on) {
+			/* already refused (e.g. re-applied after a minute): leave it be */
+			if (hapd_cmd(path, "DENY_ACL SHOW", reply, sizeof(reply)) >= 0 && strcasestr(reply, lmac)) {
+				done++;
+				continue;
+			}
+			snprintf(cmd, sizeof(cmd), "DENY_ACL ADD_MAC %s", lmac);
+			if (hapd_cmd(path, cmd, reply, sizeof(reply)) <= 0 || strncmp(reply, "OK", 2))
+				continue;
+			snprintf(cmd, sizeof(cmd), "DEAUTHENTICATE %s", lmac);
+			hapd_cmd(path, cmd, reply, sizeof(reply));
+			done++;
+		} else {
+			snprintf(cmd, sizeof(cmd), "DENY_ACL DEL_MAC %s", lmac);
+			if (hapd_cmd(path, cmd, reply, sizeof(reply)) > 0 && !strncmp(reply, "OK", 2))
+				done++;
+		}
+	}
+	closedir(dir);
+	if (done)
+		return 0;
+	snprintf(err, errlen, aps ? "hostapd refused the request" :
+		 "no Wi-Fi access point here (hostapd control sockets in %s)", cfg.wifi_ctrl);
+	return -1;
 }
