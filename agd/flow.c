@@ -232,6 +232,7 @@ static struct aflow *flow_begin(const struct tuple *t, int seen_start)
 			flows_no_dns_total++;
 		}
 		emit("new", f, 0, 0);
+		alerts_on_flow(f->client, f->dst, f->domain, proto_name(f->proto), f->dport, f->no_dns);
 	}
 	return f;
 }

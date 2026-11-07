@@ -29,7 +29,9 @@ static void usage(void)
 		"  device <ip|mac|name>  one device in detail\n"
 		"  dns [N]             last N DNS lookups (default 30)\n"
 		"  flows [N]           last N finished connections (default 30)\n"
-		"  watch [dns|flows|wifi|all]   follow activity live (Ctrl+C to stop)\n"
+		"  alerts [N]          what AIGW thinks you should know, and why\n"
+		"  score <domain>      the domain-risk model's view of a name\n"
+		"  watch [dns|flows|wifi|alerts|all]   follow activity live (Ctrl+C to stop)\n"
 		"  version             agctl version\n"
 		"\n"
 		"  -j                  print raw JSON\n");
@@ -158,6 +160,21 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("  sensors         dns %s, flow %s, wifi %s\n",
 		       fnum(s, "dns") ? "on" : "waiting", fnum(s, "flow") ? "on" : "OFF",
 		       fnum(s, "wifi") ? "on" : "no stations");
+	printf("  alerts          %llu (%s mode: explained, nothing blocked)\n",
+	       (unsigned long long)fnum(msg, "alerts"), orb(fstr(msg, "mode"), "advise"));
+	{
+		struct blob_attr *m = field(msg, "models"), *e;
+		size_t rem;
+		int k = 0;
+
+		printf("  models         ");
+		if (m)
+			blobmsg_for_each_attr(e, m, rem) {
+				printf(" %s (%u trees)", blobmsg_name(e), blobmsg_get_u32(e));
+				k++;
+			}
+		printf("%s\n", k ? "" : " none loaded");
+	}
 }
 
 static void top_line(struct blob_attr *arr, const char *count, int bytes, int max)
@@ -318,6 +335,54 @@ static void show_flows(struct ubus_request *req, int type, struct blob_attr *msg
 	}
 }
 
+static void show_alerts(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "alerts"), *e;
+	size_t rem;
+	int n = 0;
+
+	if (json_out)
+		return print_json(msg);
+	if (arr)
+		blobmsg_for_each_attr(e, arr, rem) {
+			char t1[32];
+
+			n++;
+			printf("#%-4llu %-8s %-10s %-16.16s %s\n", (unsigned long long)fnum(e, "id"),
+			       fstr(e, "severity"), fstr(e, "kind"), fstr(e, "device"),
+			       ago(fnum(e, "last"), t1, sizeof(t1)));
+			if (fnum(e, "count") > 1)
+				printf("      seen %llu times\n", (unsigned long long)fnum(e, "count"));
+			printf("      %s\n\n", fstr(e, "reason"));
+		}
+	if (!n)
+		printf("No alerts. AIGW is watching in advise mode and hasn't seen anything worth flagging.\n");
+}
+
+static void show_score(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s = field(msg, "score"), *f = field(msg, "features"), *e;
+	size_t rem;
+
+	if (json_out)
+		return print_json(msg);
+	printf("%s\n", fstr(msg, "name"));
+	if (!s) {
+		printf("  %s\n", fstr(msg, "verdict"));
+		return;
+	}
+	printf("  label     %s\n", fstr(msg, "label"));
+	printf("  score     %.3f  (alert at %.2f)\n", blobmsg_get_double(s),
+	       field(msg, "threshold") ? blobmsg_get_double(field(msg, "threshold")) : 0);
+	printf("  verdict   %s\n", fstr(msg, "verdict"));
+	if (f) {
+		printf("  features ");
+		blobmsg_for_each_attr(e, f, rem)
+			printf(" %s=%.3g", blobmsg_name(e), blobmsg_get_double(e));
+		printf("\n");
+	}
+}
+
 /* ---------- calls ---------- */
 
 static int call(const char *path, const char *method, struct blob_attr *args, ubus_data_handler_t cb)
@@ -376,6 +441,8 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 			       fstr(msg, "proto"), dst, human_bytes(fnum(msg, "bytes_down"), b1, sizeof(b1)),
 			       human_bytes(fnum(msg, "bytes_up"), b2, sizeof(b2)),
 			       (unsigned long long)fnum(msg, "duration_s"));
+	} else if (!strcmp(type, AG_EV_ALERT)) {
+		printf("ALERT [%s] %s\n", fstr(msg, "kind"), fstr(msg, "reason"));
 	} else if (!strcmp(type, AG_EV_WIFI)) {
 		printf("wifi  %-16s %s on %s", orb(fstr(msg, "hostname"), fstr(msg, "mac")),
 		       fstr(msg, "event"), fstr(msg, "iface"));
@@ -399,6 +466,8 @@ static int watch(const char *what)
 	if ((all || !strcmp(what, "flows")) && ubus_register_event_handler(ctx, &ev, AG_EV_FLOW))
 		rc = 1;
 	if ((all || !strcmp(what, "wifi")) && ubus_register_event_handler(ctx, &ev, AG_EV_WIFI))
+		rc = 1;
+	if ((all || !strcmp(what, "alerts")) && ubus_register_event_handler(ctx, &ev, AG_EV_ALERT))
 		rc = 1;
 	if (rc) {
 		fprintf(stderr, "agctl: cannot subscribe to events (permission?)\n");
@@ -447,6 +516,16 @@ int main(int argc, char **argv)
 	} else if (!strcmp(cmd, "device") && i < argc) {
 		device_filter = argv[i];
 		rc = call("ag.device", "list", NULL, show_device);
+	} else if (!strcmp(cmd, "score") && i < argc) {
+		blob_buf_init(&args, 0);
+		blobmsg_add_string(&args, "name", argv[i]);
+		rc = call("ag.domain", "score", args.head, show_score);
+		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "alerts")) {
+		blob_buf_init(&args, 0);
+		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
+		rc = call("ag.alert", "list", args.head, show_alerts);
+		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "dns") || !strcmp(cmd, "flows")) {
 		blob_buf_init(&args, 0);
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 30);

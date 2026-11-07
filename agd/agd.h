@@ -76,12 +76,27 @@ int dev_state_load(void);
 void ep_add(const char *ip, const char *domain, const char *client, uint32_t ttl);
 const char *ep_lookup(const char *ip);
 int ep_count(void);
+void ep_save(struct blob_buf *b);
+int ep_load(struct blob_attr *arr);
 
 /* flow.c */
 extern uint64_t flows_total, flows_no_dns_total;
 int flow_init(void);
 int flow_active(void);
 void flow_blob_recent(struct blob_buf *b, unsigned limit);
+
+/* alerts.c */
+int alerts_init(void);
+const char *alerts_model_name(void);
+int alerts_model_trees(void);
+double alerts_domain_score(const char *qname, char *label, size_t n, float *features);
+void alerts_on_dns(const char *client, const char *qname);
+void alerts_on_flow(const char *client, const char *dst, const char *domain, const char *proto,
+		    unsigned dport, int no_dns);
+uint64_t alerts_total(void);
+void alerts_blob(struct blob_buf *b, unsigned limit, const char *name);
+void alerts_save(struct blob_buf *b);
+void alerts_load(struct blob_attr *arr);
 
 /* wifi.c */
 void wifi_init(void);

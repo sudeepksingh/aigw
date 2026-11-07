@@ -27,6 +27,7 @@
 
 #include "agd.h"
 #include "ag/dns.h"
+#include "ag/domfeat.h"
 
 #define DNSLOG_MAX 512
 #define POLL_MS    5000
@@ -123,6 +124,9 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 	dlog_head = (dlog_head + 1) % DNSLOG_MAX;
 	if (dlog_count < DNSLOG_MAX)
 		dlog_count++;
+
+	/* DGA malware mostly gets NXDOMAIN, so every answer is judged */
+	alerts_on_dns(client, qname);
 }
 
 /* from aigw-dhcp-event (dnsmasq hook): richer identity than the leases file */
@@ -168,7 +172,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
-	blobmsg_add_string(&b, "phase", "observe");
+	blobmsg_add_string(&b, "phase", "understand");
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
@@ -177,6 +181,12 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u64(&b, "flows", flows_total);
 	blobmsg_add_u64(&b, "flows_no_dns", flows_no_dns_total);
 	blobmsg_add_u32(&b, "endpoints", (uint32_t)ep_count());
+	blobmsg_add_u64(&b, "alerts", alerts_total());
+	blobmsg_add_string(&b, "mode", "advise");
+	s = blobmsg_open_table(&b, "models");
+	if (alerts_model_trees())
+		blobmsg_add_u32(&b, alerts_model_name(), (uint32_t)alerts_model_trees());
+	blobmsg_close_table(&b, s);
 	s = blobmsg_open_table(&b, "sensors");
 	blobmsg_add_u8(&b, "dns", last_dns_event ? 1 : 0);
 	blobmsg_add_u8(&b, "flow", flow_active() ? 1 : 0);
@@ -260,6 +270,77 @@ static int m_flow_recent(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+static int m_alert_list(struct ubus_context *ctx, struct ubus_object *obj,
+			struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	blob_buf_init(&b, 0);
+	alerts_blob(&b, get_limit(msg, 50), "alerts");
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+enum { SC_NAME, __SC_MAX };
+static const struct blobmsg_policy score_policy[__SC_MAX] = {
+	[SC_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+};
+
+/* Explain the domain-risk model's view of one name. */
+static int m_domain_score(struct ubus_context *ctx, struct ubus_object *obj,
+			  struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	static const char *const names[AG_DOMFEAT_N] = {
+		"length", "entropy", "digit_ratio", "vowel_ratio", "max_consonant_run", "hyphens",
+		"labels", "bigram_mean", "bigram_min", "digit_letter_switches", "unique_ratio", "hex_like",
+	};
+	struct blob_attr *tb[__SC_MAX];
+	float x[AG_DOMFEAT_N];
+	char label[256] = "";
+	const char *name;
+	double s;
+	void *t;
+	int i;
+
+	blobmsg_parse(score_policy, __SC_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[SC_NAME])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+	name = blobmsg_get_string(tb[SC_NAME]);
+	s = alerts_domain_score(name, label, sizeof(label), x);
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "name", name);
+	blobmsg_add_string(&b, "label", label);
+	if (s < 0) {
+		blobmsg_add_string(&b, "verdict", alerts_model_trees() ? "not judged" : "model not loaded");
+	} else {
+		blobmsg_add_double(&b, "score", s);
+		blobmsg_add_double(&b, "threshold", cfg.dga_threshold);
+		blobmsg_add_string(&b, "verdict",
+				   s >= cfg.dga_threshold && (int)strlen(label) >= cfg.dga_min_label ?
+				   "looks machine-generated" : "looks normal");
+		t = blobmsg_open_table(&b, "features");
+		for (i = 0; i < AG_DOMFEAT_N; i++)
+			blobmsg_add_double(&b, names[i], x[i]);
+		blobmsg_close_table(&b, t);
+	}
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method alert_methods[] = {
+	UBUS_METHOD("list", m_alert_list, limit_policy),
+};
+static struct ubus_object_type alert_type = UBUS_OBJECT_TYPE("ag.alert", alert_methods);
+static struct ubus_object alert_obj = {
+	.name = "ag.alert", .type = &alert_type, .methods = alert_methods, .n_methods = ARRAY_SIZE(alert_methods),
+};
+
+static struct ubus_method domain_methods[] = {
+	UBUS_METHOD("score", m_domain_score, score_policy),
+};
+static struct ubus_object_type domain_type = UBUS_OBJECT_TYPE("ag.domain", domain_methods);
+static struct ubus_object domain_obj = {
+	.name = "ag.domain", .type = &domain_type, .methods = domain_methods, .n_methods = ARRAY_SIZE(domain_methods),
+};
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 };
@@ -295,7 +376,8 @@ static struct ubus_object flow_obj = {
 static void on_ubus_connect(struct ubus_context *ctx)
 {
 	if (ubus_add_object(ctx, &ag_obj) || ubus_add_object(ctx, &dev_obj) ||
-	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj))
+	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj) ||
+	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;
@@ -340,6 +422,7 @@ int main(int argc, char **argv)
 
 	uloop_init();
 	local_addrs_refresh();
+	alerts_init();
 	dev_state_load();
 	flow_init();
 	wifi_init();

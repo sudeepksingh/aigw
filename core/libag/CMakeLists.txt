@@ -1,2 +1,2 @@
-add_library(ag STATIC log.c dns.c config.c)
-target_link_libraries(ag ${UCI_LIBRARY} ${UBOX_LIBRARY})
+add_library(ag STATIC log.c dns.c config.c agm.c domfeat.c)
+target_link_libraries(ag ${UCI_LIBRARY} ${UBOX_LIBRARY} m)

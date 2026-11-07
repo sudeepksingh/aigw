@@ -27,6 +27,14 @@ config flow 'flow'
 	# seconds after start before flagging "connection without a DNS lookup"
 	option warmup '600'
 
+config alerts 'alerts'
+	# advise mode: alerts explain, nothing is blocked
+	option enabled '1'
+	# domain-risk score (0-1) at which a lookup is called machine-generated
+	option dga_threshold '0.98'
+	# shorter registrable names are not judged
+	option dga_min_label '8'
+
 config wifi 'wifi'
 	# hostapd control sockets; leave unset for the platform default
 	# option ctrl_dir '/var/run/hostapd'
