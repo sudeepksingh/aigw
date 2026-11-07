@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * Alerts (phase 2, advise mode): the brain notices something worth a
- * person's attention and says why, in plain words. Nothing is blocked yet;
- * acting on alerts comes with the policy engine in phase 3.
+ * Alerts: the brain notices something worth a person's attention and says
+ * why, in plain words. Policies (act.c) may turn an alert into a proposed
+ * action, which waits for approval unless the policy is in enforce mode.
  *
  *   dga         a lookup of a name that looks machine-generated (domain-risk model)
  *   no-dns      a connection to a public address the device never looked up
@@ -177,6 +177,9 @@ void alerts_raise(const char *kind, const char *severity, const char *ip, const 
 	blobmsg_add_string(&b, "reason", reason);
 	agd_emit(AG_EV_ALERT, &b);
 	blob_buf_free(&b);
+
+	/* a policy may propose (or, in enforce mode, take) an action */
+	act_on_alert(a->id, kind, ip, reason);
 }
 
 void alerts_on_dns(const char *client, const char *qname)

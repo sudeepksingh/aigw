@@ -122,6 +122,21 @@ void alerts_load(struct blob_attr *arr);
 void alerts_raise(const char *kind, const char *severity, const char *ip, const char *subject,
 		  double score, const char *reason);
 
+/* act.c: decisions, guardrails, actuators */
+void act_init(void);
+void act_tick(void);
+void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const char *reason);
+int act_request(const char *action, const char *what, int ttl, const char *reason,
+		uint32_t *id, char *err, size_t errlen);
+int act_approve(uint32_t id, int ttl, char *err, size_t errlen);
+int act_reject(uint32_t id, char *err, size_t errlen);
+int act_revert(uint32_t id, char *err, size_t errlen);
+int act_count(int active);
+uint64_t act_applied_total(void);
+void act_blob(struct blob_buf *b, unsigned limit, const char *name);
+void act_save(struct blob_buf *b);
+void act_load(struct blob_attr *arr);
+
 /* baseline.c */
 void baseline_domain(struct device *d, const char *qname);
 void baseline_traffic(struct device *d, uint64_t up, uint64_t down);

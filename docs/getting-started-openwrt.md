@@ -73,14 +73,30 @@ already on almost every image).
 ```bash
 agctl status
 agctl devices
-agctl watch
+agctl alerts
+agctl decisions          # proposed actions: agctl approve <id> / agctl reject <id>
+agctl watch all
 ```
+
+Act yourself; every action ends on its own, `agctl undo <id>` ends it now:
+
+```bash
+agctl quarantine <device> 30m
+agctl prioritize <device> 2h
+agctl block <domain> 1d
+```
+
+By default AIGW only *proposes* actions. To let policies act on their own
+(within the guardrails): `uci set aigw.act.mode=enforce && uci commit aigw &&
+/etc/init.d/aigw restart`. Protect devices AIGW must never touch:
+`uci add_list aigw.act.protect='aa:bb:cc:dd:ee:ff'`.
 
 The same data is on ubus for LuCI, scripts and other tools:
 
 ```bash
 ubus call ag.device list
-ubus listen ag.dns
+ubus call ag.decision list
+ubus listen ag.dns ag.decision
 ```
 
 ## How it fits into OpenWRT
@@ -95,7 +111,8 @@ LAN client ──DNS :53──► nft "inet ag" redirect ──► agdns :5300 �
 |-------|-------|
 | Services | `/etc/init.d/aigw` (procd, respawned on crash) |
 | Settings | `/etc/config/aigw` (`uci show aigw`) |
-| Kernel rules | table `inet ag`, loaded by `aigw-nft`, kept across firewall reloads by the fw4 include `firewall.aigw` |
+| Kernel rules | table `inet ag`, loaded by `aigw-nft`, kept across firewall reloads by the fw4 include `firewall.aigw`; agd puts active actions back within a minute of a reload |
+| Block list | `/var/run/aigw/dns-policy` (RAM), written by agd, read by agdns |
 | Logs | `logread -e agd -e agdns` |
 
 The LAN interface defaults to `br-lan`. Change it with

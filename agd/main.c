@@ -13,7 +13,9 @@
  *   ubus call ag.flow recent '{"limit": 50}'
  *   ubus listen ag.dns ag.flow ag.wifi
  *
- * Models, policies and actuators plug into this process in later phases.
+ * Phase 2 ("understand") adds the on-device model, baselines and alerts
+ * (ag.alert, ag.domain); phase 3 ("act") turns alerts into decisions with
+ * guardrails, time limits and undo (ag.decision, see act.c).
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -173,7 +175,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
-	blobmsg_add_string(&b, "phase", "understand");
+	blobmsg_add_string(&b, "phase", "act");
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
@@ -183,7 +185,13 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u64(&b, "flows_no_dns", flows_no_dns_total);
 	blobmsg_add_u32(&b, "endpoints", (uint32_t)ep_count());
 	blobmsg_add_u64(&b, "alerts", alerts_total());
-	blobmsg_add_string(&b, "mode", "advise");
+	blobmsg_add_string(&b, "mode", ag_mode_str(cfg.act_mode));
+	s = blobmsg_open_table(&b, "decisions");
+	blobmsg_add_u32(&b, "waiting", (uint32_t)act_count(0));
+	blobmsg_add_u32(&b, "active", (uint32_t)act_count(1));
+	blobmsg_add_u64(&b, "applied", act_applied_total());
+	blobmsg_add_u32(&b, "policies", (uint32_t)cfg.n_policies);
+	blobmsg_close_table(&b, s);
 	s = blobmsg_open_table(&b, "models");
 	if (alerts_model_trees())
 		blobmsg_add_u32(&b, alerts_model_name(), (uint32_t)alerts_model_trees());
@@ -326,6 +334,79 @@ static int m_domain_score(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+/* ---------- decisions ---------- */
+
+static int m_decision_list(struct ubus_context *ctx, struct ubus_object *obj,
+			   struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "mode", ag_mode_str(cfg.act_mode));
+	act_blob(&b, get_limit(msg, 50), "decisions");
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+enum { DR_ID, DR_ACTION, DR_TARGET, DR_TTL, DR_REASON, __DR_MAX };
+static const struct blobmsg_policy dec_policy[__DR_MAX] = {
+	[DR_ID] = { .name = "id", .type = BLOBMSG_TYPE_INT32 },
+	[DR_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
+	[DR_TARGET] = { .name = "target", .type = BLOBMSG_TYPE_STRING },
+	[DR_TTL] = { .name = "ttl", .type = BLOBMSG_TYPE_INT32 },
+	[DR_REASON] = { .name = "reason", .type = BLOBMSG_TYPE_STRING },
+};
+
+/* request / approve / reject / revert: reply {ok, id, error} so callers can
+ * show the guardrail's reason instead of a bare ubus error code. */
+static int m_decision_change(struct ubus_context *ctx, struct ubus_object *obj,
+			     struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__DR_MAX];
+	char err[256] = "";
+	uint32_t id = 0;
+	int ttl, rc;
+
+	blobmsg_parse(dec_policy, __DR_MAX, tb, blob_data(msg), blob_len(msg));
+	ttl = tb[DR_TTL] ? (int)blobmsg_get_u32(tb[DR_TTL]) : 0;
+	if (tb[DR_ID])
+		id = blobmsg_get_u32(tb[DR_ID]);
+	if (!strcmp(method, "request")) {
+		if (!tb[DR_ACTION] || !tb[DR_TARGET])
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		rc = act_request(blobmsg_get_string(tb[DR_ACTION]), blobmsg_get_string(tb[DR_TARGET]), ttl,
+				 tb[DR_REASON] ? blobmsg_get_string(tb[DR_REASON]) : NULL, &id, err, sizeof(err));
+	} else {
+		if (!tb[DR_ID])
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		if (!strcmp(method, "approve"))
+			rc = act_approve(id, ttl, err, sizeof(err));
+		else if (!strcmp(method, "reject"))
+			rc = act_reject(id, err, sizeof(err));
+		else
+			rc = act_revert(id, err, sizeof(err));
+	}
+	if (rc == 0)
+		dev_state_save();   /* decisions are worth keeping right away */
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "ok", rc == 0);
+	blobmsg_add_u32(&b, "id", id);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method decision_methods[] = {
+	UBUS_METHOD("list", m_decision_list, limit_policy),
+	UBUS_METHOD("request", m_decision_change, dec_policy),
+	UBUS_METHOD("approve", m_decision_change, dec_policy),
+	UBUS_METHOD("reject", m_decision_change, dec_policy),
+	UBUS_METHOD("revert", m_decision_change, dec_policy),
+};
+static struct ubus_object_type decision_type = UBUS_OBJECT_TYPE("ag.decision", decision_methods);
+static struct ubus_object decision_obj = {
+	.name = "ag.decision", .type = &decision_type, .methods = decision_methods,
+	.n_methods = ARRAY_SIZE(decision_methods),
+};
+
 static struct ubus_method alert_methods[] = {
 	UBUS_METHOD("list", m_alert_list, limit_policy),
 };
@@ -378,7 +459,8 @@ static void on_ubus_connect(struct ubus_context *ctx)
 {
 	if (ubus_add_object(ctx, &ag_obj) || ubus_add_object(ctx, &dev_obj) ||
 	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj) ||
-	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj))
+	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj) ||
+	    ubus_add_object(ctx, &decision_obj))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;
@@ -402,6 +484,7 @@ static void poll_cb(struct uloop_timeout *t)
 	dev_poll_arp();
 	wifi_poll();
 	baseline_tick();
+	act_tick();
 	uloop_timeout_set(t, POLL_MS);
 }
 
@@ -426,6 +509,7 @@ int main(int argc, char **argv)
 	local_addrs_refresh();
 	alerts_init();
 	dev_state_load();
+	act_init();
 	flow_init();
 	wifi_init();
 

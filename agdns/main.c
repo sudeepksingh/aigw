@@ -8,6 +8,10 @@
  *
  * UDP is forwarded in-process with randomized upstream query IDs.
  * TCP connections are relayed by a short-lived child process each.
+ *
+ * Actuator: names on the block list agd writes (act.dns_policy) and their
+ * subdomains get an NXDOMAIN answer from here, over UDP and TCP. Each entry
+ * expires by itself, so blocks end on time even without agd.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -22,6 +26,7 @@
 #include <string.h>
 #include <sys/random.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <libubox/blobmsg.h>
@@ -64,8 +69,70 @@ static uint8_t buf[BUF_LEN];
 static int tcp_children;
 
 static struct {
-	uint64_t queries, answers, dropped, timeouts, tcp;
+	uint64_t queries, answers, dropped, timeouts, tcp, blocked;
 } stats;
+
+/* ---------- block list (written by agd, see agd/act.c) ---------- */
+
+#define BLOCK_MAX 512
+
+struct blocked {
+	char name[AG_DNS_NAME_MAX];
+	int64_t expires;
+};
+
+static struct blocked blk[BLOCK_MAX];
+static int n_blk;
+static struct stat blk_st;
+
+/* Re-reads the block list when the file changes. A missing file means
+ * nothing is blocked. Each line carries its own expiry, so blocks end on
+ * time even if agd is not running. */
+static void block_reload(void)
+{
+	struct stat st;
+	char line[512];
+	FILE *f;
+	int n = 0;
+
+	if (!cfg.dns_policy[0] || stat(cfg.dns_policy, &st) < 0) {
+		if (n_blk)
+			AG_INFO("block list gone: nothing blocked");
+		n_blk = 0;
+		memset(&blk_st, 0, sizeof(blk_st));
+		return;
+	}
+	if (st.st_ino == blk_st.st_ino && st.st_size == blk_st.st_size &&
+	    st.st_mtim.tv_sec == blk_st.st_mtim.tv_sec && st.st_mtim.tv_nsec == blk_st.st_mtim.tv_nsec)
+		return;
+	blk_st = st;
+	f = fopen(cfg.dns_policy, "r");
+	while (f && n < BLOCK_MAX && fgets(line, sizeof(line), f)) {
+		char name[AG_DNS_NAME_MAX];
+		long long exp;
+
+		if (line[0] == '#' || sscanf(line, "%255s %lld", name, &exp) != 2)
+			continue;
+		snprintf(blk[n].name, sizeof(blk[n].name), "%s", name);
+		blk[n].expires = exp;
+		n++;
+	}
+	if (f)
+		fclose(f);
+	n_blk = n;
+	AG_INFO("block list: %d name%s", n, n == 1 ? "" : "s");
+}
+
+static int is_blocked(const char *qname)
+{
+	int64_t now = ag_wall_s();
+	int i;
+
+	for (i = 0; i < n_blk; i++)
+		if (blk[i].expires > now && ag_dns_name_under(qname, blk[i].name))
+			return 1;
+	return 0;
+}
 
 /* ---------- helpers ---------- */
 
@@ -206,13 +273,14 @@ static void sweep_cb(struct uloop_timeout *t)
 			slot_free(&pend[i]);
 		}
 	}
+	block_reload();
 	uloop_timeout_set(t, 1000);
 }
 
 /* ---------- events to the brain ---------- */
 
 static void emit_event(const char *client, const char *qname, uint16_t qtype,
-		       const struct ag_dns_msg *resp, uint64_t lat_us)
+		       const struct ag_dns_msg *resp, uint64_t lat_us, int blocked)
 {
 	void *arr;
 	int i;
@@ -226,6 +294,8 @@ static void emit_event(const char *client, const char *qname, uint16_t qtype,
 	blobmsg_add_u32(&eb, "qtype", qtype);
 	blobmsg_add_u32(&eb, "rcode", AG_DNS_RCODE(resp->flags));
 	blobmsg_add_u32(&eb, "latency_us", (uint32_t)lat_us);
+	if (blocked)
+		blobmsg_add_u8(&eb, "blocked", 1);
 	arr = blobmsg_open_array(&eb, "answers");
 	for (i = 0; i < resp->n_ans; i++) {
 		char a[INET6_ADDRSTRLEN];
@@ -260,6 +330,22 @@ static void client_cb(struct uloop_fd *u, unsigned int events)
 		stats.queries++;
 		if (ag_dns_parse(buf, (size_t)n, &q) < 0)
 			q.qname[0] = '\0'; /* still forward: upstream decides */
+
+		if (q.qname[0] && n_blk && is_blocked(q.qname)) {
+			int rl = ag_dns_make_nxdomain(buf, (size_t)n, &q);
+			struct ag_dns_msg r;
+			char ip[INET6_ADDRSTRLEN];
+
+			if (rl > 0) {
+				sendto(u->fd, buf, (size_t)rl, 0, (struct sockaddr *)&from, flen);
+				stats.blocked++;
+				if (ag_dns_parse(buf, (size_t)rl, &r) == 0) {
+					addr_str(&from, ip, sizeof(ip));
+					emit_event(ip, q.qname, q.qtype, &r, 0, 1);
+				}
+				continue;
+			}
+		}
 
 		p = slot_alloc();
 		if (!p) {
@@ -311,7 +397,7 @@ static void upstream_cb(struct uloop_fd *u, unsigned int events)
 			char ip[INET6_ADDRSTRLEN];
 
 			addr_str(&p->client, ip, sizeof(ip));
-			emit_event(ip, p->qname, p->qtype, &r, ag_mono_us() - p->t0_us);
+			emit_event(ip, p->qname, p->qtype, &r, ag_mono_us() - p->t0_us, 0);
 		}
 		slot_free(p);
 	}
@@ -324,6 +410,7 @@ static void upstream_cb(struct uloop_fd *u, unsigned int events)
 struct tcp_report {
 	char client[INET6_ADDRSTRLEN];
 	uint32_t latency_us;
+	uint8_t blocked;
 	struct ag_dns_msg msg;
 };
 
@@ -338,8 +425,45 @@ static void report_cb(struct uloop_fd *u, unsigned int events)
 		rep.client[sizeof(rep.client) - 1] = '\0';
 		rep.msg.qname[sizeof(rep.msg.qname) - 1] = '\0';
 		emit_event(rep.client, rep.msg.qname[0] ? rep.msg.qname : "?", rep.msg.qtype,
-			   &rep.msg, rep.latency_us);
+			   &rep.msg, rep.latency_us, rep.blocked);
 	}
+}
+
+/* Client -> upstream: whole framed queries only, so blocked names can be
+ * answered here. Partial frames wait in acc for the rest. Returns -1 when
+ * the connection should end. */
+static int tcp_from_client(uint8_t *acc, size_t *alen, int cfd, int ufd, const char *client)
+{
+	while (*alen >= 2) {
+		size_t l = ((size_t)acc[0] << 8) | acc[1];
+		struct ag_dns_msg q;
+		uint8_t *m = acc + 2;
+
+		if (*alen < l + 2)
+			return 0;
+		if (n_blk && ag_dns_parse(m, l, &q) == 0 && q.qname[0] && is_blocked(q.qname)) {
+			int rl = ag_dns_make_nxdomain(m, l, &q);
+			struct tcp_report rep;
+
+			if (rl > 0) {
+				acc[0] = (uint8_t)(rl >> 8);
+				acc[1] = (uint8_t)(rl & 0xff);
+				if (write(cfd, acc, (size_t)rl + 2) != rl + 2)
+					return -1;
+				memset(&rep, 0, sizeof(rep));
+				if (ag_dns_parse(m, (size_t)rl, &rep.msg) == 0) {
+					snprintf(rep.client, sizeof(rep.client), "%s", client);
+					rep.blocked = 1;
+					send(report_fds[1], &rep, sizeof(rep), MSG_DONTWAIT);
+				}
+			}
+		} else if (write(ufd, acc, l + 2) != (ssize_t)(l + 2)) {
+			return -1;
+		}
+		memmove(acc, acc + l + 2, *alen - l - 2);
+		*alen -= l + 2;
+	}
+	return 0;
 }
 
 /* DNS over TCP frames each message with a 2-byte length. Parse complete
@@ -365,8 +489,8 @@ static void tcp_scan_answers(uint8_t *acc, size_t *alen, const char *client, uin
 
 static void tcp_relay(int cfd, const char *client)
 {
-	static uint8_t acc[65536 + 2];
-	size_t alen = 0;
+	static uint8_t acc[65536 + 2], cacc[65536 + 2];
+	size_t alen = 0, clen = 0;
 	uint64_t t0 = ag_mono_us();
 	struct pollfd pfd[2];
 	struct timeval tv = { 3, 0 };
@@ -391,9 +515,20 @@ static void tcp_relay(int cfd, const char *client)
 			if (pfd[i].revents & (POLLIN | POLLHUP | POLLERR)) {
 				ssize_t n = read(pfd[i].fd, buf, sizeof(buf));
 
-				if (n <= 0 || write(pfd[!i].fd, buf, (size_t)n) != n)
+				if (n <= 0)
 					_exit(0);
-				if (i == 1) { /* from upstream: report answers */
+				if (i == 0) { /* from the client: queries, maybe blocked */
+					if (clen + (size_t)n > sizeof(cacc))
+						_exit(0);
+					memcpy(cacc + clen, buf, (size_t)n);
+					clen += (size_t)n;
+					if (tcp_from_client(cacc, &clen, cfd, ufd, client) < 0)
+						_exit(0);
+					continue;
+				}
+				if (write(cfd, buf, (size_t)n) != n)
+					_exit(0);
+				{ /* from upstream: report answers */
 					if (alen + (size_t)n > sizeof(acc))
 						alen = 0; /* oversized stream: stop reporting, keep relaying */
 					else {
@@ -538,6 +673,7 @@ int main(int argc, char **argv)
 		}
 	}
 
+	block_reload();
 	sweep_timer.cb = sweep_cb;
 	uloop_timeout_set(&sweep_timer, 1000);
 
@@ -550,10 +686,10 @@ int main(int argc, char **argv)
 	AG_INFO("listening on %s#%d", cfg.dns_listen, cfg.dns_port);
 	uloop_run();
 
-	AG_INFO("stopping: %llu queries, %llu answers, %llu timeouts, %llu dropped, %llu tcp",
+	AG_INFO("stopping: %llu queries, %llu answers, %llu timeouts, %llu dropped, %llu tcp, %llu blocked",
 		(unsigned long long)stats.queries, (unsigned long long)stats.answers,
 		(unsigned long long)stats.timeouts, (unsigned long long)stats.dropped,
-		(unsigned long long)stats.tcp);
+		(unsigned long long)stats.tcp, (unsigned long long)stats.blocked);
 	uloop_done();
 	return 0;
 }

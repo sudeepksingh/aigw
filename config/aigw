@@ -28,7 +28,7 @@ config flow 'flow'
 	option warmup '600'
 
 config alerts 'alerts'
-	# advise mode: alerts explain, nothing is blocked
+	# alerts explain what AIGW noticed; acting on them is set in 'act' below
 	option enabled '1'
 	# domain-risk score (0-1) at which a lookup is called machine-generated
 	option dga_threshold '0.98'
@@ -48,6 +48,42 @@ config baseline 'baseline'
 	option spike_min_mb '50'
 	# days of history before "active at an unusual hour" alerts
 	option unusual_min_days '7'
+
+config act 'act'
+	# What AIGW may do about what it notices:
+	#   off      alerts only, no actions proposed
+	#   advise   policies propose actions; nothing changes until you approve
+	#            (agctl decisions / agctl approve <id>)
+	#   enforce  policies act on their own, within the guardrails below
+	option mode 'advise'
+	# every action ends by itself: default and maximum life, in seconds
+	option ttl '3600'
+	option max_ttl '86400'
+	# enforce mode: at most this many automatic actions per hour, then they wait for you
+	option max_auto_per_hour '3'
+	# devices AIGW never acts on (MAC, IP or name), e.g. your own laptop
+	# list protect 'aa:bb:cc:dd:ee:ff'
+	# block list agdns reads; leave unset for the platform default (in RAM)
+	# option dns_policy '/run/aigw/dns-policy'
+
+# Policies: when an alert is raised, which action to propose. A policy's own
+# mode can only be weaker than act.mode. Actions: quarantine, priority.
+# (Blocking a domain is never automatic: run 'agctl block <domain>'.)
+# Without any policy sections, these two are built in.
+config policy 'dga'
+	option alert 'dga'
+	option action 'quarantine'
+	option ttl '3600'
+
+config policy 'iot_new_site'
+	# only "stable" devices (cameras, plugs, TVs) raise new-destination alerts
+	option alert 'new-destination'
+	option action 'quarantine'
+
+# config policy 'upload_spike'
+#	option alert 'upload-spike'
+#	option action 'quarantine'
+#	option mode 'advise'
 
 config wifi 'wifi'
 	# hostapd control sockets; leave unset for the platform default

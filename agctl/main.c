@@ -31,7 +31,16 @@ static void usage(void)
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
-		"  watch [dns|flows|wifi|alerts|all]   follow activity live (Ctrl+C to stop)\n"
+		"  watch [dns|flows|wifi|alerts|decisions|all]   follow activity live (Ctrl+C to stop)\n"
+		"\n"
+		"  decisions [N]       actions waiting for you, in effect, and past ones\n"
+		"  approve <id> [time] carry out a proposed action (optionally for another time limit)\n"
+		"  reject <id>         say no to a proposed action\n"
+		"  undo <id>           end an action now\n"
+		"  quarantine <device> [time]  cut a device off from everything but the gateway\n"
+		"  prioritize <device> [time]  send a device's traffic first (Wi-Fi video queue)\n"
+		"  block <domain> [time]       stop every device resolving a domain and its subdomains\n"
+		"                      time: 90s, 30m, 2h, 1d (default from config, 1h)\n"
 		"  version             agctl version\n"
 		"\n"
 		"  -j                  print raw JSON\n");
@@ -160,8 +169,19 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("  sensors         dns %s, flow %s, wifi %s\n",
 		       fnum(s, "dns") ? "on" : "waiting", fnum(s, "flow") ? "on" : "OFF",
 		       fnum(s, "wifi") ? "on" : "no stations");
-	printf("  alerts          %llu (%s mode: explained, nothing blocked)\n",
-	       (unsigned long long)fnum(msg, "alerts"), orb(fstr(msg, "mode"), "advise"));
+	printf("  alerts          %llu\n", (unsigned long long)fnum(msg, "alerts"));
+	{
+		struct blob_attr *d = field(msg, "decisions");
+		const char *mode = orb(fstr(msg, "mode"), "advise");
+
+		printf("  acting          %s mode (%s)\n", mode,
+		       !strcmp(mode, "enforce") ? "policies act on their own, within guardrails" :
+		       !strcmp(mode, "off") ? "alerts only" : "actions wait for your approval");
+		if (d)
+			printf("  decisions       %llu waiting for you, %llu in effect, %llu policies\n",
+			       (unsigned long long)fnum(d, "waiting"), (unsigned long long)fnum(d, "active"),
+			       (unsigned long long)fnum(d, "policies"));
+	}
 	{
 		struct blob_attr *m = field(msg, "models"), *e;
 		size_t rem;
@@ -404,6 +424,100 @@ static void show_score(struct ubus_request *req, int type, struct blob_attr *msg
 	}
 }
 
+static const char *duration(int64_t s, char *out, size_t n)
+{
+	if (s < 0)
+		s = 0;
+	if (s < 120)
+		snprintf(out, n, "%llds", (long long)s);
+	else if (s < 7200)
+		snprintf(out, n, "%lldm", (long long)(s / 60));
+	else if (s < 172800)
+		snprintf(out, n, "%lldh%02lldm", (long long)(s / 3600), (long long)(s % 3600 / 60));
+	else
+		snprintf(out, n, "%lldd", (long long)(s / 86400));
+	return out;
+}
+
+static const char *action_words(const char *action)
+{
+	return !strcmp(action, "quarantine") ? "quarantine" : !strcmp(action, "priority") ? "prioritize" :
+	       !strcmp(action, "block") ? "block" : action;
+}
+
+static void show_decisions(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "decisions"), *e;
+	size_t rem;
+	int n = 0, waiting = 0;
+
+	if (json_out)
+		return print_json(msg);
+	if (arr)
+		blobmsg_for_each_attr(e, arr, rem) {
+			const char *st = fstr(e, "state"), *action = fstr(e, "action");
+			char t1[32], t2[32];
+			int block = !strcmp(action, "block");
+
+			n++;
+			printf("#%-4llu %-9s %-10s %s%s%s\n", (unsigned long long)fnum(e, "id"), st,
+			       action_words(action), block ? fstr(e, "target") : fstr(e, "device"),
+			       block ? "" : "  ", block ? "" : fstr(e, "target"));
+			if (!strcmp(st, "proposed")) {
+				waiting++;
+				printf("      proposed by %s %s, for %s\n", fstr(e, "origin"),
+				       ago(fnum(e, "created"), t1, sizeof(t1)), duration((int64_t)fnum(e, "ttl"), t2, sizeof(t2)));
+			} else if (!strcmp(st, "active")) {
+				printf("      by %s%s, %s left\n", fstr(e, "origin"), fnum(e, "automatic") ? " (automatic)" : "",
+				       duration((int64_t)fnum(e, "expires") - ag_wall_s(), t1, sizeof(t1)));
+			} else {
+				printf("      by %s, %s %s\n", fstr(e, "origin"), st, ago(fnum(e, "decided"), t1, sizeof(t1)));
+			}
+			printf("      why: %s\n", fstr(e, "reason"));
+			if (*fstr(e, "note"))
+				printf("      note: %s\n", fstr(e, "note"));
+			printf("\n");
+		}
+	if (!n)
+		printf("No decisions yet. AIGW is in %s mode.\n", orb(fstr(msg, "mode"), "advise"));
+	else if (waiting)
+		printf("%d waiting for you: agctl approve <id>  or  agctl reject <id>\n", waiting);
+}
+
+static int change_failed;
+
+static void show_change(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	if (json_out)
+		print_json(msg);
+	else if (fnum(msg, "ok"))
+		printf("done (decision #%llu). See: agctl decisions\n", (unsigned long long)fnum(msg, "id"));
+	else
+		fprintf(stderr, "agctl: refused: %s\n", fstr(msg, "error"));
+	if (!fnum(msg, "ok"))
+		change_failed = 1;
+}
+
+/* "90", "90s", "30m", "2h", "1d" -> seconds; -1 when unreadable */
+static int parse_time(const char *s)
+{
+	char *end;
+	long v = strtol(s, &end, 10);
+
+	if (end == s || v <= 0)
+		return -1;
+	switch (*end) {
+	case '\0': case 's': break;
+	case 'm': v *= 60; break;
+	case 'h': v *= 3600; break;
+	case 'd': v *= 86400; break;
+	default: return -1;
+	}
+	if (*end && end[1])
+		return -1;
+	return v > 365L * 86400 ? 365 * 86400 : (int)v;
+}
+
 /* ---------- calls ---------- */
 
 static int call(const char *path, const char *method, struct blob_attr *args, ubus_data_handler_t cb)
@@ -464,6 +578,16 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 			       (unsigned long long)fnum(msg, "duration_s"));
 	} else if (!strcmp(type, AG_EV_ALERT)) {
 		printf("ALERT [%s] %s\n", fstr(msg, "kind"), fstr(msg, "reason"));
+	} else if (!strcmp(type, AG_EV_DECISION)) {
+		const char *action = fstr(msg, "action");
+
+		printf("DECISION #%llu %s: %s %s", (unsigned long long)fnum(msg, "id"), fstr(msg, "state"),
+		       action_words(action), !strcmp(action, "block") ? fstr(msg, "target") : fstr(msg, "device"));
+		if (!strcmp(fstr(msg, "state"), "proposed"))
+			printf("  (agctl approve %llu)", (unsigned long long)fnum(msg, "id"));
+		if (*fstr(msg, "note"))
+			printf("  -- %s", fstr(msg, "note"));
+		printf("\n");
 	} else if (!strcmp(type, AG_EV_WIFI)) {
 		printf("wifi  %-16s %s on %s", orb(fstr(msg, "hostname"), fstr(msg, "mac")),
 		       fstr(msg, "event"), fstr(msg, "iface"));
@@ -489,6 +613,9 @@ static int watch(const char *what)
 	if ((all || !strcmp(what, "wifi")) && ubus_register_event_handler(ctx, &ev, AG_EV_WIFI))
 		rc = 1;
 	if ((all || !strcmp(what, "alerts")) && ubus_register_event_handler(ctx, &ev, AG_EV_ALERT))
+		rc = 1;
+	if ((all || !strcmp(what, "alerts") || !strcmp(what, "decisions")) &&
+	    ubus_register_event_handler(ctx, &ev, AG_EV_DECISION))
 		rc = 1;
 	if (rc) {
 		fprintf(stderr, "agctl: cannot subscribe to events (permission?)\n");
@@ -557,6 +684,41 @@ int main(int argc, char **argv)
 		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "watch")) {
 		rc = watch(i < argc ? argv[i] : "dns");
+	} else if (!strcmp(cmd, "decisions")) {
+		blob_buf_init(&args, 0);
+		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
+		rc = call("ag.decision", "list", args.head, show_decisions);
+		blob_buf_free(&args);
+	} else if ((!strcmp(cmd, "quarantine") || !strcmp(cmd, "prioritize") || !strcmp(cmd, "block")) && i < argc) {
+		int ttl = i + 1 < argc ? parse_time(argv[i + 1]) : 0;
+
+		if (ttl < 0) {
+			fprintf(stderr, "agctl: unreadable time '%s' (try 90s, 30m, 2h, 1d)\n", argv[i + 1]);
+			rc = 1;
+		} else {
+			blob_buf_init(&args, 0);
+			blobmsg_add_string(&args, "action", !strcmp(cmd, "prioritize") ? "priority" : cmd);
+			blobmsg_add_string(&args, "target", argv[i]);
+			if (ttl)
+				blobmsg_add_u32(&args, "ttl", (uint32_t)ttl);
+			rc = call("ag.decision", "request", args.head, show_change) || change_failed;
+			blob_buf_free(&args);
+		}
+	} else if ((!strcmp(cmd, "approve") || !strcmp(cmd, "reject") || !strcmp(cmd, "undo")) && i < argc) {
+		int ttl = (!strcmp(cmd, "approve") && i + 1 < argc) ? parse_time(argv[i + 1]) : 0;
+
+		if (ttl < 0 || atoi(argv[i]) <= 0) {
+			fprintf(stderr, "agctl: usage: agctl %s <id>%s\n", cmd, !strcmp(cmd, "approve") ? " [time]" : "");
+			rc = 1;
+		} else {
+			blob_buf_init(&args, 0);
+			blobmsg_add_u32(&args, "id", (uint32_t)atoi(argv[i]));
+			if (ttl)
+				blobmsg_add_u32(&args, "ttl", (uint32_t)ttl);
+			rc = call("ag.decision", !strcmp(cmd, "undo") ? "revert" : cmd, args.head, show_change) ||
+			     change_failed;
+			blob_buf_free(&args);
+		}
 	} else {
 		usage();
 		rc = 1;

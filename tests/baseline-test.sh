@@ -104,6 +104,15 @@ config baseline 'baseline'
 
 config wifi 'wifi'
 	option ctrl_dir '$T/hostapd'
+
+config act 'act'
+	# this test is about alerts; acting has its own test (act-test.sh)
+	option mode 'off'
+	option dns_policy '$T/dns-policy'
+
+config lan 'lan'
+	# only the test client: a live AIGW's clients on this host stay out of the test
+	list iface 'abc$R'
 EOF
 echo "1999999999 02:00:00:00:96:02 10.96.0.2 smart-plug *" > "$T/leases"
 export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock"

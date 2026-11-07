@@ -516,6 +516,7 @@ int dev_state_save(void)
 	blobmsg_close_array(&b, arr);
 	ep_save(&b);
 	alerts_save(&b);
+	act_save(&b);
 
 	json = blobmsg_format_json(b.head, true);
 	snprintf(tmp, sizeof(tmp), "%s.tmp", cfg.state_file);
@@ -612,6 +613,8 @@ int dev_state_load(void)
 			AG_INFO("restored %d DNS name bindings", ep_load(cur));
 		else if (!strcmp(blobmsg_name(cur), "alerts"))
 			alerts_load(cur);
+		else if (!strcmp(blobmsg_name(cur), "decisions"))
+			act_load(cur);
 	}
 	if (arr) {
 		size_t r2;
