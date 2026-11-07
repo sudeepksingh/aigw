@@ -15,7 +15,10 @@
  *
  * Phase 2 ("understand") adds the on-device model, baselines and alerts
  * (ag.alert, ag.domain); phase 3 ("act") turns alerts into decisions with
- * guardrails, time limits and undo (ag.decision, see act.c).
+ * guardrails, time limits and undo (ag.decision, see act.c); phase 4 ("plug")
+ * hosts plug-ins and per-device Wi-Fi keys (ag.plugin, ag.wifi); phase 5
+ * ("outside") takes signed model updates and hot-loads them (ag.model, see
+ * models.c), which the bridge plug-in fetches from cortex.
  */
 #define _GNU_SOURCE
 #include <signal.h>
@@ -184,7 +187,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
-	blobmsg_add_string(&b, "phase", "plug");
+	blobmsg_add_string(&b, "phase", "outside");
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
@@ -209,6 +212,10 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	s = blobmsg_open_table(&b, "models");
 	if (alerts_model_trees())
 		blobmsg_add_u32(&b, alerts_model_name(), (uint32_t)alerts_model_trees());
+	blobmsg_close_table(&b, s);
+	s = blobmsg_open_table(&b, "model_versions");
+	if (alerts_model_trees())
+		blobmsg_add_u32(&b, alerts_model_name(), (uint32_t)models_version(alerts_model_name()));
 	blobmsg_close_table(&b, s);
 	s = blobmsg_open_table(&b, "sensors");
 	blobmsg_add_u8(&b, "dns", last_dns_event ? 1 : 0);
@@ -429,11 +436,13 @@ static struct ubus_object decision_obj = {
 
 /* ---------- plug-ins ---------- */
 
-enum { PL_NAME, PL_ALLOW, PL_ENABLED, __PL_MAX };
+enum { PL_NAME, PL_ALLOW, PL_ENABLED, PL_KEY, PL_VALUE, __PL_MAX };
 static const struct blobmsg_policy plugin_policy[__PL_MAX] = {
 	[PL_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
 	[PL_ALLOW] = { .name = "allow", .type = BLOBMSG_TYPE_BOOL },
 	[PL_ENABLED] = { .name = "enabled", .type = BLOBMSG_TYPE_BOOL },
+	[PL_KEY] = { .name = "key", .type = BLOBMSG_TYPE_STRING },
+	[PL_VALUE] = { .name = "value", .type = BLOBMSG_TYPE_STRING },
 };
 
 static int m_plugin_list(struct ubus_context *ctx, struct ubus_object *obj,
@@ -474,14 +483,93 @@ static int m_plugin_set(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+/* a plug-in's setting (its "config plugin" section); the plug-in restarts with it */
+static int m_plugin_config(struct ubus_context *ctx, struct ubus_object *obj,
+			   struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__PL_MAX];
+	char err[256] = "";
+	int rc;
+
+	blobmsg_parse(plugin_policy, __PL_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[PL_NAME] || !tb[PL_KEY] || !tb[PL_VALUE])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+	rc = plugin_config(blobmsg_get_string(tb[PL_NAME]), blobmsg_get_string(tb[PL_KEY]),
+			   blobmsg_get_string(tb[PL_VALUE]), err, sizeof(err));
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "ok", rc == 0);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method plugin_methods[] = {
 	UBUS_METHOD("list", m_plugin_list, plugin_policy),
 	UBUS_METHOD("rescan", m_plugin_list, plugin_policy),
 	UBUS_METHOD("set", m_plugin_set, plugin_policy),
+	UBUS_METHOD("config", m_plugin_config, plugin_policy),
 };
 static struct ubus_object_type plugin_type = UBUS_OBJECT_TYPE("ag.plugin", plugin_methods);
 static struct ubus_object plugin_obj = {
 	.name = "ag.plugin", .type = &plugin_type, .methods = plugin_methods, .n_methods = ARRAY_SIZE(plugin_methods),
+};
+
+/* ---------- models: signed updates, rollback ---------- */
+
+enum { MD_NAME, MD_FILE, MD_SIG, MD_FORCE, __MD_MAX };
+static const struct blobmsg_policy model_policy[__MD_MAX] = {
+	[MD_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[MD_FILE] = { .name = "file", .type = BLOBMSG_TYPE_STRING },
+	[MD_SIG] = { .name = "sig", .type = BLOBMSG_TYPE_STRING },
+	[MD_FORCE] = { .name = "force", .type = BLOBMSG_TYPE_BOOL },
+};
+
+static int m_model_list(struct ubus_context *ctx, struct ubus_object *obj,
+			struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "dir", cfg.models_dir);
+	blobmsg_add_string(&b, "package_dir", cfg.model_dir);
+	blobmsg_add_string(&b, "keys_dir", cfg.trusted_keys);
+	blobmsg_add_u8(&b, "require_signature", (uint8_t)cfg.models_require_sig);
+	models_blob(&b, "models");
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static int m_model_change(struct ubus_context *ctx, struct ubus_object *obj,
+			  struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__MD_MAX];
+	char err[256] = "";
+	int rc, version = 0;
+
+	blobmsg_parse(model_policy, __MD_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!strcmp(method, "install")) {
+		if (!tb[MD_FILE])
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		rc = models_offer(blobmsg_get_string(tb[MD_FILE]), tb[MD_SIG] ? blobmsg_get_string(tb[MD_SIG]) : NULL,
+				  "you", tb[MD_FORCE] && blobmsg_get_bool(tb[MD_FORCE]), &version, err, sizeof(err));
+	} else {
+		rc = models_rollback(tb[MD_NAME] ? blobmsg_get_string(tb[MD_NAME]) : NULL, err, sizeof(err));
+	}
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "ok", rc == 0);
+	if (version)
+		blobmsg_add_u32(&b, "version", (uint32_t)version);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method model_methods[] = {
+	UBUS_METHOD_NOARG("list", m_model_list),
+	UBUS_METHOD("install", m_model_change, model_policy),
+	UBUS_METHOD("rollback", m_model_change, model_policy),
+};
+static struct ubus_object_type model_type = UBUS_OBJECT_TYPE("ag.model", model_methods);
+static struct ubus_object model_obj = {
+	.name = "ag.model", .type = &model_type, .methods = model_methods, .n_methods = ARRAY_SIZE(model_methods),
 };
 
 /* ---------- per-device Wi-Fi keys ---------- */
@@ -631,7 +719,7 @@ static void on_ubus_connect(struct ubus_context *ctx)
 	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj) ||
 	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj) ||
 	    ubus_add_object(ctx, &decision_obj) || ubus_add_object(ctx, &plugin_obj) ||
-	    ubus_add_object(ctx, &wifi_obj))
+	    ubus_add_object(ctx, &wifi_obj) || ubus_add_object(ctx, &model_obj))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;
@@ -682,6 +770,7 @@ int main(int argc, char **argv)
 	signal(SIGPIPE, SIG_IGN);       /* a plug-in that went away must not take the brain with it */
 	local_addrs_refresh();
 	alerts_init();
+	models_init();
 	dev_state_load();
 	act_init();
 	flow_init();

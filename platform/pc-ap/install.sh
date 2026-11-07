@@ -22,7 +22,7 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
 	build-essential cmake pkg-config git ca-certificates libjson-c-dev libnetfilter-conntrack-dev \
 	hostapd dnsmasq-base nftables iw iproute2 wireless-regdb kmod procps \
-	zstd xz-utils dnsutils >/dev/null
+	zstd xz-utils dnsutils curl >/dev/null
 
 step "Building OpenWRT libraries (libubox, ubus, uci)"
 PREFIX=$PREFIX sh "$REPO/scripts/build-deps.sh"
@@ -36,7 +36,7 @@ install -m 0755 "$REPO/platform/pc-ap/aigw-ap" "$PREFIX/sbin/aigw-ap"
 ldconfig
 
 step "Configuring"
-mkdir -p /etc/config /etc/aigw /etc/aigw/plugins /var/lib/aigw
+mkdir -p /etc/config /etc/aigw /etc/aigw/plugins /etc/aigw/keys.d /etc/aigw/models /var/lib/aigw
 if [ ! -f /etc/config/aigw ]; then
 	install -m 0644 "$REPO/config/aigw" /etc/config/aigw
 fi

@@ -153,6 +153,10 @@ void ag_config_load(struct ag_config *c)
 	copy(c->plugin_dir, sizeof(c->plugin_dir), AG_DATADIR "/plugins");
 	copy(c->plugin_user_dir, sizeof(c->plugin_user_dir), "/etc/aigw/plugins");
 	copy(c->plugin_user, sizeof(c->plugin_user), "nobody");
+	copy(c->plugin_state, sizeof(c->plugin_state), owrt ? "/var/run/aigw/plugins" : "/var/lib/aigw/plugins");
+	copy(c->models_dir, sizeof(c->models_dir), "/etc/aigw/models");
+	copy(c->trusted_keys, sizeof(c->trusted_keys), "/etc/aigw/keys.d");
+	c->models_require_sig = 1;
 	copy(c->wifi_keys, sizeof(c->wifi_keys), "/etc/aigw/wifi-keys");
 	c->key_ttl = 86400;
 
@@ -243,6 +247,12 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "plugins", "user");
 		if (v)
 			snprintf(c->plugin_user, sizeof(c->plugin_user), "%s", v);   /* may be "" */
+		copy(c->plugin_state, sizeof(c->plugin_state), opt(ctx, p, "plugins", "state_dir"));
+		copy(c->models_dir, sizeof(c->models_dir), opt(ctx, p, "models", "dir"));
+		copy(c->trusted_keys, sizeof(c->trusted_keys), opt(ctx, p, "models", "keys"));
+		v = opt(ctx, p, "models", "require_signature");
+		if (v)
+			c->models_require_sig = atoi(v) != 0;
 		copy(c->wifi_keys, sizeof(c->wifi_keys), opt(ctx, p, "wifi", "keys"));
 		v = opt(ctx, p, "wifi", "key_ttl");
 		if (v && atoi(v) >= 60)

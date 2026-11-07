@@ -18,6 +18,7 @@
 #define AG_EV_ALERT "ag.alert"
 #define AG_EV_DECISION "ag.decision"
 #define AG_EV_PLUGIN "ag.plugin"   /* plug-in lifecycle; plug-ins' own events use their types (iot.*) */
+#define AG_EV_MODEL "ag.model"     /* a model update loaded, refused or rolled back */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
 enum ag_mode { AG_MODE_OFF, AG_MODE_ADVISE, AG_MODE_ENFORCE };
@@ -107,6 +108,11 @@ struct ag_config {
 	char plugin_dir[256];     /* from packages: trusted */
 	char plugin_user_dir[256];/* added with agctl: privileged capabilities need your OK */
 	char plugin_user[32];     /* plug-ins run as this user ("" = as agd) */
+	char plugin_state[256];   /* each plug-in gets <plugin_state>/<name>, writable by it */
+	/* model updates (signed, hot-loaded) */
+	char models_dir[256];     /* installed updates; the packaged ones stay in model_dir */
+	char trusted_keys[256];   /* usign public keys whose signatures are accepted */
+	int models_require_sig;   /* 0: also accept unsigned updates (development only) */
 	/* per-device Wi-Fi keys */
 	char wifi_keys[256];      /* hostapd wpa_psk_file that agd manages */
 	int key_ttl;              /* an unused join key expires after this many seconds */

@@ -275,7 +275,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand">AI<span>GW</span></div>
-  <div class="ver">architecture v0.3 · code v0.7 · 2026-11-07</div>
+  <div class="ver">architecture v0.3 · code v0.8 · 2026-11-07</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -733,7 +733,7 @@ agctl plugin add ag-skill-iot-lockdown     <span class="c"># on either host</spa
       <tr><td><code>agdns</code> <span class="tag t-sensor">sensor</span> <span class="tag t-act">actuator</span></td><td>C</td><td>AI DNS</td><td>Critical path, parses untrusted input, sandboxed, survives brain restarts</td></tr>
       <tr><td><code>agd</code> <span class="tag t-brain">brain</span></td><td>C</td><td>Brain + built-in modules (flow, wifi, disc, sys, act) + plug-in host</td><td>One process: shared memory, one event loop, lowest RAM</td></tr>
       <tr><td><code>agctl</code></td><td>C</td><td>CLI for setup, plug-ins and debugging</td><td>Scripting</td></tr>
-      <tr><td><code>ag-bridge</code> <span class="tag t-cortex">outside</span></td><td>C</td><td>Optional MQTT/TLS link to the cortex</td><td>Keeps internet-facing code out of the brain</td></tr>
+      <tr><td><code>ag-bridge</code> <span class="tag t-cortex">outside</span></td><td>C</td><td>Optional HTTPS link to the cortex (a connector plug-in; TLS by curl)</td><td>Keeps internet-facing code out of the brain, unprivileged</td></tr>
       <tr><td><code>cortex</code> <span class="tag t-cortex">outside</span></td><td>Python</td><td>Training, fleet intelligence, LLM agent, connectors</td><td>Cloud, PC or NAS; never on the router</td></tr>
       <tr><td>App / UI</td><td>LuCI · web · mobile</td><td>Status, decisions, one-tap feedback</td><td>Talks to ubus only</td></tr>
     </tbody>
@@ -860,16 +860,16 @@ agctl plugin add ag-skill-iot-lockdown     <span class="c"># on either host</spa
     <div>
       <p><b>Bridge (C, on the gateway)</b></p>
       <ul class="tight">
-        <li>MQTT over TLS with a per-device certificate</li>
-        <li>Exports features and decisions, never raw packets</li>
-        <li>Buffers offline with a size cap</li>
-        <li>Accepts only signed models and proposals (ed25519, usign-compatible)</li>
+        <li>HTTPS (curl) with a per-gateway token, as an unprivileged plug-in</li>
+        <li>Exports state, alerts and decisions, never raw packets or DNS logs</li>
+        <li>Each report carries recent history: a missed one is covered by the next</li>
+        <li>Models go to agd, which accepts only signed ones (ed25519, usign-compatible); proposals wait for a person</li>
       </ul>
     </div>
     <div>
       <p><b>Cortex services (Python)</b></p>
       <ul class="tight">
-        <li>Fleet history and training data (ClickHouse)</li>
+        <li>Fleet history and training data (SQLite; a column store for large fleets later)</li>
         <li>Training → <code>.agm</code> export → sign → OTA</li>
         <li>Federated threat intelligence across homes</li>
         <li>LLM agent as an MCP server; write tools only propose</li>
@@ -1171,7 +1171,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
     <div class="ph"><div class="p">P2<small>understand</small></div><div><h4>Models and signals</h4><p><code>.agm</code> runtime, domain-risk and device-type models, baselines, DNS ⇄ flow signals, explained alerts.</p></div><div class="exit"><b>Exit test</b>Correct device types; explained alerts on test cases.<br><span class="status-ok">built · v0.3, v0.4</span> (device type rule-based)</div></div>
     <div class="ph"><div class="p">P3<small>act</small></div><div><h4>Policies and enforcement</h4><p>Policy engine, guardrails, nft / tc / dns / wifi actuators, TTL and revert.</p></div><div class="exit"><b>Exit test</b>Quarantine and priority work and auto-revert; DNS/DHCP never blocked.<br><span class="status-ok">built · v0.5, v0.6</span></div></div>
     <div class="ph"><div class="p">P4<small>plug &amp; IoT</small></div><div><h4>Plug-ins and IoT</h4><p>Manifest and auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant connector.</p></div><div class="exit"><b>Exit test</b>A third-party plug-in installs and activates with no config.<br><span class="status-ok">built · v0.7</span></div></div>
-    <div class="ph"><div class="p">P5<small>outside</small></div><div><h4>Cortex and cloud use cases</h4><p>Bridge, fleet history, training loop, OTA models, LLM agent via MCP, remote access.</p></div><div class="exit"><b>Exit test</b>A model retrained from feedback reaches a fleet and is hot-loaded.</div></div>
+    <div class="ph"><div class="p">P5<small>outside</small></div><div><h4>Cortex and cloud use cases</h4><p>Bridge, fleet history, training loop, OTA models, LLM agent via MCP, remote access.</p></div><div class="exit"><b>Exit test</b>A model retrained from feedback reaches a fleet and is hot-loaded.<br><span class="status-ok">built · v0.8</span> (remote access next)</div></div>
     <div class="ph"><div class="p">P6<small>hardware</small></div><div><h4>Real routers</h4><p>LuCI app, procd tuning, tests on OpenWRT One and Wi-Fi 7 boards, footprint validation.</p></div><div class="exit"><b>Exit test</b>Same test suite passes on routers within budget.</div></div>
     <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.</div></div>
   </div>
@@ -1202,6 +1202,21 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Wi-Fi keys</td><td><code>agctl key add &lt;name&gt; [zone]</code>: a passphrase and QR code per device in hostapd's <code>wpa_psk_file</code>; bound to the first MAC that joins with it, named and zoned; revocable on its own.</td></tr>
       <tr><td>MQTT / HA</td><td>Plug-in <code>aigw-mqtt</code>: sensors on MQTT become <code>iot.mqtt</code> context; Home Assistant discovery gives every device presence and a Quarantine switch.</td></tr>
       <tr><td>Not yet</td><td>DPP (Wi-Fi Easy Connect), IoT zone network isolation (the zone is a policy label today), signed side-loaded plug-ins (P5), ujail (P6), Matter/Thread, Zigbee.</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:18px">As built in v0.8 (P5 outside, first part)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Step</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Answer</td><td>Rejecting a proposal, or undoing an automatic action, that came from a <code>dga</code> alert marks the name a false alarm; approving confirms it. The decision is the answer: nothing is asked twice.</td></tr>
+      <tr><td>Report</td><td>Plug-in <code>ag-bridge</code> (as <code>nobody</code>, HTTPS through curl, token in a file only it can read) sends status, models, alerts, decisions and devices to cortex: by name, anonymously or not at all. Never packets or DNS logs.</td></tr>
+      <tr><td>Learn</td><td>Cortex (Python, SQLite) turns those decisions into labels; <code>retrain</code> weighs each answer like 50 synthetic examples and records how far the model agrees with people.</td></tr>
+      <tr><td>Publish</td><td>A version goes into the model's metadata; the file is signed with cortex's usign (Ed25519) key.</td></tr>
+      <tr><td>Check</td><td><code>agd</code> accepts it only when a key you trust (<code>agctl trust</code>) signed it, it reads this build's features, gives sane scores, and is newer than the one in use and any you rolled back.</td></tr>
+      <tr><td>Load</td><td>Swapped in between two lookups: same process, no restart; <code>agctl models</code> shows version, signer and origin. A refused update leaves the running model, with the reason shown.</td></tr>
+      <tr><td>Undo</td><td><code>agctl model rollback</code> returns to the previous model and holds the newer one off, across restarts.</td></tr>
+      <tr><td>Ask (MCP)</td><td><code>python3 -m aigw_cortex mcp</code>: an AI assistant reads devices, alerts, decisions and models; its one write tool, <code>propose_action</code>, only suggests. The suggestion waits on the gateway for a person, even in enforce mode.</td></tr>
+      <tr><td>Next</td><td>Remote access, signed side-loaded plug-ins, federated threat intelligence.</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -1244,7 +1259,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.7 (phases P0–P4) · 2026-11-07</footer>
+<footer>AIGW architecture v0.3 · implementation v0.8 (phases P0–P4, P5 in progress) · 2026-11-07</footer>
 </main>
 </div>
 

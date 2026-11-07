@@ -142,6 +142,11 @@ config plugins 'plugins'
 	option dir '$T/sys'
 	option user_dir '$T/user'
 	option user 'nobody'
+	option state_dir '$T/pstate'
+
+config models 'models'
+	option dir '$T/models'
+	option keys '$T/keys.d'
 
 config plugin 'mqtt'
 	option port '$MQTT_PORT'

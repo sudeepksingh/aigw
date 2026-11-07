@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.7**, phases P0–P4 built (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.8**, phases P0–P4 built, P5 in progress (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -242,7 +242,7 @@ MQTT telemetry ┘                │ 6 Automate ← 5 Enforce ← 4 Learn      
 | `agdns` | C | AI DNS (sensor + actuator) | Critical path, untrusted input, sandboxed, survives brain restarts |
 | `agd` | C | Brain + built-in modules + plug-in host | Shared memory, one event loop, lowest RAM |
 | `agctl` | C | CLI: setup, plug-ins, debugging | Scripting |
-| `ag-bridge` | C | Optional MQTT/TLS link to cortex | Internet-facing code isolated |
+| `ag-bridge` | C | Optional HTTPS link to cortex (a connector plug-in, TLS by curl) | Internet-facing code isolated, unprivileged |
 | `cortex` | Python | Training, fleet intelligence, LLM, connectors | Cloud/PC/NAS, never on the router |
 | App / UI | LuCI · web · mobile | Status, decisions, feedback | ubus only |
 
@@ -314,8 +314,8 @@ table inet ag {
 ```
 
 ### Cortex · outside
-- **Bridge (C, gateway):** MQTT/TLS with per-device certificate; exports features and decisions, never raw packets; offline buffer with cap; accepts only ed25519-signed (usign-compatible) models and proposals.
-- **Services (Python):** fleet history/training data (ClickHouse) · training → `.agm` → sign → OTA · federated threat intelligence · LLM agent as MCP server (write tools only propose) · connectors (Home Assistant, ISP portals, care providers, feeds).
+- **Bridge (C, gateway):** a connector plug-in, unprivileged; HTTPS through curl with a per-gateway token; exports state, alerts and decisions, never raw packets or DNS logs; each report carries recent history, so a missed one is covered by the next; models it fetches go to `agd`, which accepts only ed25519-signed (usign-compatible) ones; proposals wait for a person.
+- **Services (Python):** fleet history and training data (SQLite; a column store for large fleets later) · training → `.agm` → sign → OTA · federated threat intelligence · LLM agent as MCP server (write tools only propose) · connectors (Home Assistant, ISP portals, care providers, feeds).
 
 ---
 
@@ -463,21 +463,24 @@ agctl plugin add ag-sensor-zigbee
 ### Repository layout
 ```
 aigw/
-  include/ag/           public headers: events, DNS parser, mark layout (plugin API later)
-  core/libag/           logging, UCI config, DNS parser (later: entity tables, sketches, .agm runtime)
-  agd/                  brain (later: modules/{flow,wifi,disc,sys,act})
+  include/ag/           public headers: events, DNS parser, .agm models, QR, signatures
+  core/libag/           logging, UCI config, DNS parser, .agm runtime, domain features, QR,
+                        SHA-512 + Ed25519 verification
+  agd/                  brain: devices, sensors, alerts, baselines, decisions, plug-in host,
+                        Wi-Fi keys, models (signed updates, hot-load, rollback)
   agdns/                AI DNS
   agctl/                CLI
-  plugins/              first-party plug-ins (mqtt connector, iot-guard skill) and examples
+  plugins/              first-party plug-ins (mqtt and bridge connectors, iot-guard skill), examples
+  cortex/aigw_cortex/   Python: fleet history, labels, retrain/sign/publish, bridge API, MCP server
+  cortex/training/      Python training pipelines (domain-risk)
+  models/               packaged .agm models
   scripts/              aigw-nft (kernel rules), build-deps.sh (OpenWRT libs for PCs)
   config/aigw           default UCI configuration, shared by every host
   platform/pc-ap/       installer, aigw-ap, systemd units, WSL launcher
   platform/openwrt/     package feed (Makefile, procd init, uci-defaults), SDK build script
-  tests/                unit tests, runtime smoke test (later: fuzz, event and pcap replay)
+  tests/                unit tests, smoke test, namespace tests, plug-in test, outside test
+                        (later: fuzz, event and pcap replay)
   docs/                 architecture (md + html), getting-started guides
-  -- planned --
-  bridge/               ag-bridge (MQTT)            P5
-  cortex/               Python: training, LLM/MCP   P5
 ```
 
 ---
@@ -535,7 +538,7 @@ established connections · forwarding throughput unchanged.
 - **Least privilege:** `agdns` binds port 53 only; `agd` holds only `CAP_NET_ADMIN`; plug-ins get what their manifest declares; `ujail` on OpenWRT.
 - **Signed everything:** models, plug-ins, remote policies (ed25519); unsigned refused.
 - **Propose only:** cloud and LLM propose; local guardrails and the user decide.
-- **Local-first:** only consented features leave, MACs/IPs hashed.
+- **Local-first:** nothing leaves until you link a cortex (your own, by default); then state, not traffic. `devices anonymous` replaces MACs, IPs and names with salted hashes.
 - **Household consent:** "what AIGW sees" page, per-person opt-out for wellbeing features.
 
 ---
@@ -551,7 +554,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P2 Understand** | `.agm` runtime, domain-risk + device-type models, baselines, DNS ⇄ flow signals | Correct device types; explained alerts on test cases | v0.3, v0.4 (device type is rule-based) |
 | **P3 Act** | Policy engine, guardrails, nft/tc/dns/wifi actuators, TTL + revert | Quarantine/priority work and auto-revert; DNS/DHCP never blocked | v0.5, completed in v0.6 |
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
-| **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | |
+| **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8 (remote access and signed plug-ins next) |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | |
 | **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | |
 
@@ -593,7 +596,8 @@ or AP isolation); band steering needs a multi-band AP and moves to P7 with the r
 
 Trust is simple: packages are trusted (the package manager installed them as root);
 for plug-ins you added, privileged capabilities wait for `agctl plugin allow`. Signed
-side-loaded plug-ins (ed25519) arrive with model signing in P5; `ujail` sandboxing with P6.
+side-loaded plug-ins (ed25519, same trusted keys as models since v0.8) follow later in P5;
+`ujail` sandboxing with P6.
 
 IoT onboarding (`keys.c`): `agctl key add <name> [zone]` → a fresh passphrase with a `keyid`
 in hostapd's `wpa_psk_file` + `RELOAD_WPA_PSK` + a `WIFI:` QR code (encoder in `libag`). The
@@ -605,6 +609,28 @@ discovery (device tracker + Quarantine switch per device, alerts and waiting-dec
 `aigw-mqtt`. Verified by `tests/plug-test.sh` (fake hostapd, private mosquitto).
 Not yet: Wi-Fi Easy Connect (DPP) bootstrapping, IoT zone network isolation (VLAN / client
 isolation; the zone is a label policies use today), Matter/Thread, Zigbee.
+
+**As built in v0.8 (P5, first part).** The training loop runs end to end:
+
+| Step | As built |
+|------|----------|
+| Answer | a person rejects a proposal, or undoes an automatic action, that came from a `dga` alert → false alarm; approves one → confirmed. Nothing is asked twice: the answer is the decision itself |
+| Report | `ag-bridge` (connector plug-in, `nobody`, curl over HTTPS, token in a mode-600 file it alone can read) posts status, models, alerts, decisions and devices every `interval`; `devices names \| anonymous \| none` (anonymous: a salted hash instead of MAC/IP/name, no alert reasons). Never packets or DNS logs |
+| Learn | cortex (`cortex/aigw_cortex`, Python, SQLite) turns decisions into labels; `retrain` passes them to the trainer, where each answer weighs as much as 50 synthetic examples; the model records how many answers it saw and how far it agrees with them |
+| Publish | stamp `version` into the `.agm` META section, sign with cortex's usign key (Ed25519; `cryptography` or a built-in pure-Python signer) |
+| Deliver | the bridge sees a newer version, downloads `.agm` + `.sig` into its own state directory and offers them to agd (`{"model": …}`, capability `model.offer`, paths must be inside that directory) |
+| Check | `models.c`: signature by a key in `models.keys` (`agctl trust`; verified by libag's own SHA-512/Ed25519, RFC 8032 vectors in the unit test), parses, same feature schema and count, sane scores on probe names, newer than the version in use and than any rolled-back one |
+| Load | written to `models.dir` (previous update kept as `.prev`), swapped in between two lookups: same process, an `ag.model` event, `agctl models` shows version, signer and origin. A refused offer leaves the running model and is shown with its reason |
+| Undo | `agctl model rollback` returns to `.prev` (or the packaged model) and holds the newer version off, across restarts; `agctl model install --force` overrides |
+
+Suggestions travel the same path the other way: the MCP server (`python3 -m aigw_cortex mcp`,
+stdio, tools for gateways, devices, alerts, decisions, models; one write tool, `propose_action`)
+queues a proposal; the bridge hands it to agd as a plug-in proposal, which waits for a person
+even in enforce mode, and reports back how it was taken. Plug-ins also gained `$AIGW_STATE`
+(an own writable directory), `config:<key>` needs and `agctl plugin config`. Verified by
+`tests/outside-test.sh` (private cortex, real retrain with scikit-learn, tampered and untrusted
+models, rollback across a restart, MCP session, anonymous reports).
+Next in P5: remote access, signed side-loaded plug-ins (same keys), federated threat intelligence.
 
 ---
 

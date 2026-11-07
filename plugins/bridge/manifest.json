@@ -1,0 +1,23 @@
+{
+  "name": "bridge",
+  "kind": "connector",
+  "version": "0.8.0",
+  "description": "Links this gateway to cortex: fleet history, signed model updates, suggestions from the AI assistant (they wait for your OK)",
+  "exec": "ag-bridge",
+  "caps": ["devices.read", "decision.propose", "model.offer"],
+  "needs": ["bin:curl", "config:url", "config:token"],
+  "budget": { "ram_kb": 8192, "cpu_pct": 5 },
+  "hosts": ["openwrt", "linux"],
+  "config": {
+    "url": "",
+    "token": "",
+    "interval": "300",
+    "devices": "names",
+    "models": "1",
+    "proposals": "1"
+  },
+  "card": {
+    "title": "Cortex",
+    "text": "Reports to your cortex, takes signed model updates (checked before use) and shows its suggestions for your approval."
+  }
+}

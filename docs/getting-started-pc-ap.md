@@ -109,6 +109,27 @@ With Home Assistant's MQTT integration on the same broker, every device shows
 up with presence and a Quarantine switch. `sudo agctl plugin disable mqtt`
 turns it off.
 
+### Cortex (optional): retraining, signed model updates, MCP
+
+Cortex can run on this same PC. Retraining needs numpy and scikit-learn,
+for example in a venv: `python3 -m venv ~/.aigw-train && ~/.aigw-train/bin/pip
+install -r cortex/training/requirements.txt`.
+
+```bash
+cd cortex
+python3 -m aigw_cortex enroll home                 # prints the token
+python3 -m aigw_cortex serve &                     # 127.0.0.1:8790
+sudo agctl trust ~/.aigw-cortex/keys/cortex.pub
+sudo agctl bridge http://127.0.0.1:8790
+sudo agctl bridge token                            # paste it
+python3 -m aigw_cortex retrain --python ~/.aigw-train/bin/python
+agctl models                                       # new version in use, no restart
+```
+
+The bridge plug-in comes with the install and waits until you set its address
+and token. See [cortex/README.md](../cortex/README.md) for the MCP server
+("ask your home" from an AI assistant).
+
 ## Windows (WSL2)
 
 WSL2 can drive a **USB** Wi-Fi adapter through

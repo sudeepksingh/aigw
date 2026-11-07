@@ -176,6 +176,10 @@ config wifi 'wifi'
 config plugins 'plugins'
 	option enabled '0'
 
+config models 'models'
+	option dir '$T/models'
+	option keys '$T/keys.d'
+
 config act 'act'
 	option mode '$1'
 	option max_auto_per_hour '$2'

@@ -131,6 +131,18 @@ void alerts_load(struct blob_attr *arr);
 
 void alerts_raise(const char *kind, const char *severity, const char *ip, const char *subject,
 		  double score, const char *reason);
+/* the domain-risk model: is this one usable here; start using it (takes ownership) */
+struct ag_model;
+int alerts_model_check(const struct ag_model *m, char *err, size_t n);
+void alerts_model_use(struct ag_model *m);
+
+/* models.c: packaged models, signed updates (hot-loaded), rollback */
+void models_init(void);
+int models_offer(const char *file, const char *sig, const char *origin, int force, int *version,
+		 char *err, size_t errlen);
+int models_rollback(const char *name, char *err, size_t errlen);
+void models_blob(struct blob_buf *b, const char *name);
+int models_version(const char *name);
 
 /* act.c: decisions, guardrails, actuators */
 struct act_opts {
@@ -172,6 +184,7 @@ const struct ag_policy *plugin_policy_for(const char *kind, const char *zone, ch
 int plugin_count(int running);
 void plugin_blob(struct blob_buf *b, const char *name, const char *only);
 int plugin_set(const char *name, const char *what, int on, char *err, size_t errlen);
+int plugin_config(const char *name, const char *key, const char *value, char *err, size_t errlen);
 void plugin_rescan(void);
 
 /* keys.c: per-device Wi-Fi keys (hostapd wpa_psk_file) and QR onboarding */

@@ -72,31 +72,61 @@ static int in_list(const char *s, const char *const *list)
 
 int alerts_init(void)
 {
-	char path[512], err[128];
-	int dim;
-
 	if (!cfg.alerts_enabled) {
 		AG_INFO("alerts disabled in config");
 		return -1;
 	}
-	snprintf(path, sizeof(path), "%s/domain-risk.agm", cfg.model_dir);
-	dga_model = ag_model_load(path, err, sizeof(err));
-	if (!dga_model) {
-		AG_WARN("domain-risk model not loaded (%s: %s); other alerts still work", path, err);
+	return 0;                           /* the model arrives through models_init() */
+}
+
+/* A model may replace the running one only if it reads the features this
+ * build extracts and gives sane scores on a few known names. */
+int alerts_model_check(const struct ag_model *m, char *err, size_t n)
+{
+	static const char *const probe[] = { "google.com", "wikipedia.org", "xkqjzvbwptmr.com", NULL };
+	float x[AG_DOMFEAT_N];
+	char label[NAME_LEN];
+	const float *bg;
+	int dim, i;
+
+	if (ag_model_schema(m) != ag_fnv1a(AG_DOMFEAT_SCHEMA) || ag_model_nfeatures(m) != AG_DOMFEAT_N) {
+		snprintf(err, n, "trained for different features (needs %s, %d features)", AG_DOMFEAT_SCHEMA, AG_DOMFEAT_N);
 		return -1;
 	}
-	if (ag_model_schema(dga_model) != ag_fnv1a(AG_DOMFEAT_SCHEMA) ||
-	    ag_model_nfeatures(dga_model) != AG_DOMFEAT_N) {
-		AG_WARN("%s was trained for different features; refusing it", path);
-		ag_model_free(dga_model);
-		dga_model = NULL;
+	bg = ag_model_bigram(m, &dim);
+	if (!bg || dim <= 0 || ag_model_ntrees(m) <= 0) {
+		snprintf(err, n, "no trees or no bigram table");
 		return -1;
 	}
-	bigram = ag_model_bigram(dga_model, &dim);
-	bigram_dim = dim;
-	AG_INFO("domain-risk model loaded: %d trees, alert at score >= %.2f",
-		ag_model_ntrees(dga_model), cfg.dga_threshold);
+	for (i = 0; probe[i]; i++) {
+		double p;
+
+		if (ag_domain_label(probe[i], label, sizeof(label)) < 0)
+			continue;
+		ag_domain_features(probe[i], label, bg, dim, x);
+		p = ag_model_prob(m, x);
+		if (!(p >= 0 && p <= 1)) {
+			snprintf(err, n, "gives no usable score for %s", probe[i]);
+			return -1;
+		}
+	}
 	return 0;
+}
+
+/* swap models between two lookups: nothing holds the old one */
+void alerts_model_use(struct ag_model *m)
+{
+	struct ag_model *old = dga_model;
+	int dim = 0;
+
+	dga_model = m;
+	bigram = m ? ag_model_bigram(m, &dim) : NULL;
+	bigram_dim = dim;
+	if (old && old != m)
+		ag_model_free(old);
+	if (m)
+		AG_INFO("domain-risk model in use: %d trees, alert at score >= %.2f", ag_model_ntrees(m),
+			cfg.dga_threshold);
 }
 
 const char *alerts_model_name(void)

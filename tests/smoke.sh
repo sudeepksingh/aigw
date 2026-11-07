@@ -46,6 +46,10 @@ config act 'act'
 config plugins 'plugins'
 	# a live AIGW's plug-ins (e.g. MQTT to Home Assistant) stay out of the test
 	option enabled '0'
+
+config models 'models'
+	option dir '$T/models'
+	option keys '$T/keys.d'
 EOF
 echo "1999999999 aa:bb:cc:dd:ee:ff 192.0.2.10 smoke-host *" > "$T/leases"
 

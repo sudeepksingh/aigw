@@ -18,15 +18,19 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.7, phase 4 "plug & IoT".** AIGW knows every device (identity, Wi-Fi,
+> **Status: v0.8, phase 5 "outside".** AIGW knows every device (identity, Wi-Fi,
 > lookups, connections, traffic), learns what is normal for each one, and
 > runs an on-device AI model that recognises machine-generated names used by
 > malware. It explains in plain words what deserves attention and can act on
 > it: quarantine, prioritise, throttle, block. Every action has a time limit
 > and an undo, guardrails that nothing can override, and by default **nothing
-> changes until you approve it**. New in v0.7: **plug-ins that wire themselves
-> in with no configuration**, skills, **a Wi-Fi key and QR code per device**,
-> and **MQTT / Home Assistant**. See the [roadmap](docs/ARCHITECTURE.md#16-roadmap).
+> changes until you approve it**. Plug-ins wire themselves in with no
+> configuration; every device can have its own Wi-Fi key; Home Assistant sees
+> it all. New in v0.8: **cortex**, the optional services outside. Your answers
+> to AIGW's alerts **retrain the model**, the new model is **signed and reaches
+> the gateways, which load it without a restart**, and you can **ask your home
+> from an AI assistant (MCP)**, which can only *suggest* actions.
+> See the [roadmap](docs/ARCHITECTURE.md#16-roadmap).
 
 ---
 
@@ -245,7 +249,47 @@ Anything published under `aigw/sensor/...` becomes context for AIGW (an
 `iot.mqtt` event, tied to a device by a `mac` or `ip` field), and
 `aigw/cmd/<action>` asks for an action with the usual guardrails.
 
-## What you get in v0.7
+## Cortex: learning from your answers, signed model updates, ask your home
+
+Cortex is optional and runs wherever you like: the same PC, a NAS, a cloud
+VM. The gateway works fully without it.
+
+```
+ gateway                         bridge (plug-in, unprivileged)          cortex (Python)
+ your answers to alerts  ─────►  report: state, never traffic  ───────►  labels → retrain
+ hot-loaded, no restart  ◄─────  offer ◄── signed .agm  ◄──────────────  sign (usign/Ed25519)
+ waits for your OK       ◄─────  proposal ◄────────────────────────────  MCP assistant
+```
+
+```bash
+# on the cortex machine (Python 3; numpy + scikit-learn for retraining)
+cd aigw/cortex
+python3 -m aigw_cortex enroll home          # prints this gateway's token
+python3 -m aigw_cortex serve --listen 0.0.0.0 --port 8790   # add --cert/--key for HTTPS
+# on the gateway
+sudo agctl trust ~/.aigw-cortex/keys/cortex.pub    # copy the key over first
+sudo agctl bridge http://cortex-host:8790
+sudo agctl bridge token                            # paste the token
+```
+
+When you undo or reject an action that came from a `dga` alert, cortex
+records the name as a false alarm (approving it confirms the alert).
+`python3 -m aigw_cortex retrain` trains a new domain-risk model with those
+answers, signs it and publishes it; each gateway's bridge fetches it, and agd
+checks the signature, the features and the scores, then swaps it in without
+a restart. Anything unsigned, signed by a key you don't trust, or changed
+after signing is refused, and the running model stays. `agctl models` shows
+what runs and who signed it; `agctl model rollback` goes back one step and
+holds that version off.
+
+**Ask your home from an AI assistant:** `python3 -m aigw_cortex mcp` is an MCP
+server (stdio) for Claude Desktop, Claude Code or any MCP client. Its tools
+read devices, alerts, decisions and models; its one write tool,
+`propose_action`, only *suggests*. The suggestion reaches the gateway as a
+proposal that waits for your `agctl approve`, even in enforce mode. See
+[cortex/README.md](cortex/README.md).
+
+## What you get in v0.8
 
 | Component | What it does |
 |-----------|--------------|
@@ -256,7 +300,10 @@ Anything published under `aigw/sensor/...` becomes context for AIGW (an
 | Plug-in host | Finds plug-ins by itself, checks manifest, host, trust and needs, wires events, actions and skill policies, runs them unprivileged with restarts and budgets. See above. |
 | Wi-Fi keys | A key and QR code per device, bound to its MAC on first join, zoned, revocable on its own. |
 | `ag-mqtt` | Connector plug-in: MQTT 3.1.1 telemetry in, state out, Home Assistant discovery. |
-| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr` |
+| Model updates | Signed (usign-compatible Ed25519, verified by libag), checked against this build's features, hot-loaded, with rollback and hold-off. |
+| `ag-bridge` | Connector plug-in to cortex over HTTPS (curl): reports state, fetches signed models, brings proposals. Devices can be reported by name, anonymously or not at all. |
+| cortex | Python, optional: fleet history (SQLite), labels from your answers, retraining, signing and publishing, HTTP API for bridges, MCP server. |
+| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge` |
 | `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
 
@@ -276,28 +323,33 @@ ubus call ag.decision approve '{"id": 4}'      # also: reject, revert
 ubus call ag.plugin list                        # also: rescan, set '{"name": "x", "allow": true}'
 ubus call ag.wifi key_add '{"name": "Doorbell", "zone": "iot"}'   # also: keys, key_revoke
 ubus call ag.device zone '{"device": "tv", "zone": "iot"}'
-ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision ag.plugin 'iot.*'
+ubus call ag.model list                         # also: install '{"file": "...", "sig": "..."}', rollback
+ubus call ag.plugin config '{"name": "bridge", "key": "interval", "value": "600"}'
+ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision ag.plugin ag.model 'iot.*'
 ```
 
 ## Repository layout
 
 ```
-include/ag/          public headers (events, DNS parser, connection-mark layout)
-core/libag/          shared library: logging, config (UCI), DNS parser
+include/ag/          public headers (events, DNS parser, models, QR, signatures)
+core/libag/          shared library: logging, config (UCI), DNS parser, .agm runtime, QR,
+                     SHA-512 + Ed25519 verification (sign.c)
 agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors,
                      alerts, baselines, decisions (act.c: policies, guardrails, actuators),
-                     plug-in host (plugin.c), per-device Wi-Fi keys (keys.c)
+                     plug-in host (plugin.c), per-device Wi-Fi keys (keys.c), models (models.c)
 agdns/               the DNS sensor
 agctl/               command line
-plugins/             first-party plug-ins (mqtt, iot-guard) and examples for your own
+plugins/             first-party plug-ins (mqtt, bridge, iot-guard) and examples for your own
 scripts/             aigw-nft (kernel rules), aigw-dhcp-event (DHCP hook), build-deps.sh
 config/aigw          default configuration (UCI, used on every host)
 platform/pc-ap/      PC as AP: installer, aigw-ap, systemd units, WSL launcher
 platform/openwrt/    OpenWRT package (feed) and SDK build script
 models/              trained on-device models (.agm)
-cortex/training/     Python training pipelines that produce those models
+cortex/aigw_cortex/  cortex: fleet history, retraining, signing, HTTP API, MCP server
+cortex/training/     Python training pipelines that produce the models
 tests/               unit tests, model parity test, smoke test, network-namespace tests (flow, baseline,
-                     act), plug-in test (plug-ins, skills, Wi-Fi keys, MQTT)
+                     act), plug-in test (plug-ins, skills, Wi-Fi keys, MQTT), outside test
+                     (bridge, cortex, retrain, signed hot-loaded model, MCP)
 docs/                architecture and getting-started guides
 ```
 
@@ -312,6 +364,7 @@ sudo tests/flow-test.sh build         # client/server namespaces: DNS<->flow joi
 sudo tests/baseline-test.sh build     # behaviour baselines on a fast clock (1 s = 1 hour)
 sudo tests/act-test.sh build          # decisions, guardrails and actuators against real nft rules
 sudo tests/plug-test.sh build         # plug-ins, skills, budgets, Wi-Fi keys, MQTT + Home Assistant
+sudo tests/outside-test.sh build      # bridge + cortex: labels, retrain, signed hot-load, rollback, MCP
 ```
 
 The namespace tests are safe to run on a machine that is itself running
