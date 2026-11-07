@@ -4,7 +4,9 @@
 		"ag": { "methods": [ "status" ] },
 		"ag.device": { "methods": [ "list" ] },
 		"ag.dns": { "methods": [ "log" ] },
-		"ag.flow": { "methods": [ "recent" ] }
+		"ag.flow": { "methods": [ "recent" ] },
+		"ag.alert": { "methods": [ "list" ] },
+		"ag.domain": { "methods": [ "score" ] }
 	},
-	"listen": [ "ag.dns", "ag.flow", "ag.wifi" ]
+	"listen": [ "ag.dns", "ag.flow", "ag.wifi", "ag.alert" ]
 }

@@ -29,6 +29,7 @@ config aigw 'main'
 	option log_level 'debug'
 	option leases '$T/leases'
 	option state_file '$T/state.json'
+	option model_dir '$(cd "$(dirname "$0")/.." && pwd)/models'
 
 config dns 'dns'
 	option listen '127.0.0.1'

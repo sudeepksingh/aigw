@@ -13,6 +13,7 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 R=$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')
 NC=aigwc$R NS=aigws$R
@@ -67,7 +68,8 @@ if [ -w "$TW" ]; then TW_OLD=$(cat "$TW"); echo 2 > "$TW"; fi
 
 echo "== server: DNS for shop.aigw.test and a web server"
 ip netns exec "$NS" dnsmasq --conf-file=/dev/null --no-resolv --no-hosts --bind-interfaces \
-	--listen-address=198.18.0.2 --address=/shop.aigw.test/198.18.0.2 --pid-file="$T/dns.pid"
+	--listen-address=198.18.0.2 --address=/shop.aigw.test/198.18.0.2 \
+	--address=/xkqjzvbwptmr.com/198.18.0.4 --pid-file="$T/dns.pid"
 mkdir -p "$T/www"
 head -c 300000 /dev/urandom > "$T/www/file"
 ip netns exec "$NS" python3 -m http.server 8080 --bind 0.0.0.0 --directory "$T/www" \
@@ -79,6 +81,7 @@ config aigw 'main'
 	option log_level 'debug'
 	option leases '$T/leases'
 	option state_file '$T/state.json'
+	option model_dir '$REPO/models'
 
 config dns 'dns'
 	option listen '10.97.0.1'
@@ -110,6 +113,10 @@ ip netns exec "$NC" curl -s -o /dev/null http://198.18.0.2:8080/file || fail "do
 echo "== client connects to 198.18.0.3 without looking anything up"
 ip netns exec "$NC" curl -s -o /dev/null http://198.18.0.3:8080/file || fail "download 2"
 
+echo "== client looks up a machine-generated name, and tries DNS over TLS"
+ip netns exec "$NC" dig +short +time=3 +tries=2 @10.97.0.1 -p 15353 xkqjzvbwptmr.com A > /dev/null
+ip netns exec "$NC" curl -s --connect-timeout 1 -o /dev/null http://198.18.0.3:853/ || true
+
 sleep 5   # connections close, leave TIME_WAIT, counters refresh
 
 agctl() { "$BIN/agctl/agctl" "$@"; }
@@ -135,6 +142,25 @@ for p in problems: print("  -", p)
 sys.exit(1 if problems else 0)
 EOF
 
+echo "== alerts"
+agctl alerts
+agctl -j alerts > "$T/alerts.json"
+python3 - "$T/alerts.json" <<'EOF' || fail "alert checks"
+import json, sys
+alerts = json.load(open(sys.argv[1]))["alerts"]
+kinds = {(a["kind"], a["subject"]) for a in alerts}
+problems = []
+if ("dga", "xkqjzvbwptmr.com") not in kinds: problems.append("no DGA alert for xkqjzvbwptmr.com")
+if ("no-dns", "198.18.0.3") not in kinds: problems.append("no no-DNS alert for 198.18.0.3")
+if ("dns-bypass", "198.18.0.3") not in kinds: problems.append("no DNS-bypass alert for port 853")
+if any(a["kind"] == "dga" and a["subject"] == "shop.aigw.test" for a in alerts): problems.append("false DGA alert")
+if not all(a["reason"] and a["device"] == "test-client" for a in alerts): problems.append("alert without reason or device")
+for p in problems: print("  -", p)
+sys.exit(1 if problems else 0)
+EOF
+agctl score xkqjzvbwptmr.com
+agctl score www.wikipedia.org
+
 echo "== device history survives an agd restart"
 kill "$AGD"; sleep 1
 grep -q test-client "$T/state.json" || fail "state file has no device"
@@ -145,6 +171,19 @@ python3 - "$T/dev2.json" <<'EOF' || fail "history not restored"
 import json, sys
 d = json.load(open(sys.argv[1]))
 sys.exit(0 if d["bytes_down"] >= 600000 and d["flows"] >= 2 else 1)
+EOF
+agctl -j alerts > "$T/alerts2.json"
+grep -q xkqjzvbwptmr "$T/alerts2.json" || fail "alerts not restored"
+
+echo "== after the restart, a cached DNS answer is still recognised"
+ip netns exec "$NC" curl -s -o /dev/null http://198.18.0.2:8080/file || fail "download 3"
+sleep 4
+agctl -j flows 1 > "$T/flows2.json"
+python3 - "$T/flows2.json" <<'EOF' || fail "connection after restart lost its name (false no-DNS)"
+import json, sys
+f = json.load(open(sys.argv[1]))["flows"][0]
+print("  ", f["dst"], "->", f["domain"] or "(no name)", "no_dns =", f["no_dns"])
+sys.exit(0 if f["domain"] == "shop.aigw.test" and not f["no_dns"] else 1)
 EOF
 
 echo "FLOW TEST OK"

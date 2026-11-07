@@ -15,6 +15,11 @@
 #define AG_EV_FLOW "ag.flow"
 #define AG_EV_WIFI "ag.wifi"
 #define AG_EV_DHCP "ag.dhcp"
+#define AG_EV_ALERT "ag.alert"
+
+#ifndef AG_DATADIR
+#define AG_DATADIR "/usr/share/aigw"
+#endif
 
 enum ag_log_level {
 	AG_LOG_ERR,
@@ -50,6 +55,10 @@ struct ag_config {
 	int flow_poll;            /* seconds between traffic counter refreshes */
 	int flow_warmup;          /* seconds after start before flagging "no DNS" */
 	char wifi_ctrl[128];      /* hostapd control socket directory */
+	char model_dir[256];      /* .agm models */
+	int alerts_enabled;
+	double dga_threshold;     /* domain-risk score that raises an alert */
+	int dga_min_label;        /* shorter names are not judged */
 };
 
 /* Fills defaults, then overrides from UCI. Never fails hard: a missing

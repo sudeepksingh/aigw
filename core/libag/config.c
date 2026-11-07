@@ -42,6 +42,10 @@ void ag_config_load(struct ag_config *c)
 	c->flow_poll = 30;
 	c->flow_warmup = 600;
 	copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), owrt ? "/var/run/hostapd" : "/run/aigw/hostapd");
+	copy(c->model_dir, sizeof(c->model_dir), AG_DATADIR "/models");
+	c->alerts_enabled = 1;
+	c->dga_threshold = 0.98;
+	c->dga_min_label = 8;
 
 	ctx = uci_alloc_context();
 	if (!ctx)
@@ -72,6 +76,16 @@ void ag_config_load(struct ag_config *c)
 		if (v && atoi(v) >= 0)
 			c->flow_warmup = atoi(v);
 		copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), opt(ctx, p, "wifi", "ctrl_dir"));
+		copy(c->model_dir, sizeof(c->model_dir), opt(ctx, p, "main", "model_dir"));
+		v = opt(ctx, p, "alerts", "enabled");
+		if (v)
+			c->alerts_enabled = atoi(v) != 0;
+		v = opt(ctx, p, "alerts", "dga_threshold");
+		if (v && atof(v) > 0 && atof(v) <= 1)
+			c->dga_threshold = atof(v);
+		v = opt(ctx, p, "alerts", "dga_min_label");
+		if (v && atoi(v) >= 1)
+			c->dga_min_label = atoi(v);
 	}
 	uci_free_context(ctx);
 }

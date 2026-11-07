@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.2.0 LANGUAGES C)
+project(aigw VERSION 0.3.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -12,7 +12,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
-add_compile_definitions(AG_VERSION="${PROJECT_VERSION}")
+add_compile_definitions(AG_VERSION="${PROJECT_VERSION}"
+  AG_DATADIR="${CMAKE_INSTALL_PREFIX}/share/aigw")
 
 # OpenWRT libraries (packaged on OpenWRT; built by scripts/build-deps.sh elsewhere)
 find_path(UBOX_INCLUDE_DIR libubox/uloop.h)
@@ -47,6 +48,7 @@ add_subdirectory(agdns)
 add_subdirectory(agctl)
 
 install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event DESTINATION sbin)
+install(FILES models/domain-risk.agm DESTINATION share/aigw/models)
 
 if(AIGW_TESTS)
   enable_testing()

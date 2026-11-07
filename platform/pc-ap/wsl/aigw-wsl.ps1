@@ -18,7 +18,10 @@ param(
     [string]$Distro = ""
 )
 
-$ErrorActionPreference = "Stop"
+# "Continue", not "Stop": Windows PowerShell 5.1 turns any stderr line from a
+# native program (usbipd prints harmless warnings) into a fatal error under
+# "Stop". Failures are checked explicitly below instead.
+$ErrorActionPreference = "Continue"
 
 $Usbipd = (Get-Command usbipd -ErrorAction SilentlyContinue).Source
 if (-not $Usbipd) { $Usbipd = "C:\Program Files\usbipd-win\usbipd.exe" }

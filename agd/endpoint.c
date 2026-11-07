@@ -78,3 +78,55 @@ int ep_count(void)
 {
 	return (int)eps.count;
 }
+
+/* Saved with the device history: devices keep using cached DNS answers
+ * after agd restarts, and without these their connections would look like
+ * "no DNS lookup". Only entries that have not expired are kept. */
+void ep_save(struct blob_buf *b)
+{
+	struct endpoint *e;
+	int64_t now = ag_wall_s();
+	void *arr, *t;
+
+	arr = blobmsg_open_array(b, "endpoints");
+	avl_for_each_element(&eps, e, avl) {
+		if (e->expires < now)
+			continue;
+		t = blobmsg_open_table(b, NULL);
+		blobmsg_add_string(b, "ip", e->ip);
+		blobmsg_add_string(b, "domain", e->domain);
+		blobmsg_add_u64(b, "expires", (uint64_t)e->expires);
+		blobmsg_close_table(b, t);
+	}
+	blobmsg_close_array(b, arr);
+}
+
+int ep_load(struct blob_attr *arr)
+{
+	struct blob_attr *e, *cur;
+	int64_t now = ag_wall_s();
+	size_t rem, r2;
+	int n = 0;
+
+	blobmsg_for_each_attr(e, arr, rem) {
+		const char *ip = NULL, *dom = NULL;
+		int64_t exp = 0;
+
+		blobmsg_for_each_attr(cur, e, r2) {
+			const char *k = blobmsg_name(cur);
+
+			if (!strcmp(k, "ip") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
+				ip = blobmsg_get_string(cur);
+			else if (!strcmp(k, "domain") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
+				dom = blobmsg_get_string(cur);
+			else if (!strcmp(k, "expires"))
+				exp = blobmsg_type(cur) == BLOBMSG_TYPE_INT64 ? (int64_t)blobmsg_get_u64(cur) :
+				      blobmsg_type(cur) == BLOBMSG_TYPE_INT32 ? (int64_t)blobmsg_get_u32(cur) : 0;
+		}
+		if (!ip || !dom || exp < now)
+			continue;
+		ep_add(ip, dom, "", (uint32_t)(exp - now));
+		n++;
+	}
+	return n;
+}

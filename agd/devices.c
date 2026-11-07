@@ -431,6 +431,8 @@ int dev_state_save(void)
 		blobmsg_close_table(&b, t);
 	}
 	blobmsg_close_array(&b, arr);
+	ep_save(&b);
+	alerts_save(&b);
 
 	json = blobmsg_format_json(b.head, true);
 	snprintf(tmp, sizeof(tmp), "%s.tmp", cfg.state_file);
@@ -517,9 +519,16 @@ int dev_state_load(void)
 		blob_buf_free(&b);
 		return -1;
 	}
-	blob_for_each_attr(cur, b.head, rem)
-		if (!strcmp(blobmsg_name(cur), "devices") && blobmsg_type(cur) == BLOBMSG_TYPE_ARRAY)
+	blob_for_each_attr(cur, b.head, rem) {
+		if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
+			continue;
+		if (!strcmp(blobmsg_name(cur), "devices"))
 			arr = cur;
+		else if (!strcmp(blobmsg_name(cur), "endpoints"))
+			AG_INFO("restored %d DNS name bindings", ep_load(cur));
+		else if (!strcmp(blobmsg_name(cur), "alerts"))
+			alerts_load(cur);
+	}
 	if (arr) {
 		size_t r2;
 

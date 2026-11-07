@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.2.0
+PKG_VERSION:=0.3.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -53,13 +53,14 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) $(AIGW_SRC)/CMakeLists.txt $(AIGW_SRC)/include $(AIGW_SRC)/core \
 		$(AIGW_SRC)/agd $(AIGW_SRC)/agdns $(AIGW_SRC)/agctl \
-		$(AIGW_SRC)/scripts $(AIGW_SRC)/tests $(AIGW_SRC)/LICENSE \
+		$(AIGW_SRC)/scripts $(AIGW_SRC)/tests $(AIGW_SRC)/models $(AIGW_SRC)/LICENSE \
 		$(PKG_BUILD_DIR)/
 endef
 
 define Package/aigw/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults \
-		$(1)/etc/hotplug.d/dhcp
+		$(1)/etc/hotplug.d/dhcp $(1)/usr/share/aigw/models
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/models/domain-risk.agm $(1)/usr/share/aigw/models/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agd $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agdns $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-nft $(1)/usr/sbin/
