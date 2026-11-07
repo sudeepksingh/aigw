@@ -6,6 +6,10 @@
 # OpenWRT SDK cache used by platform/openwrt/build-sdk.sh
 /.sdk/
 
+# Python
+__pycache__/
+*.pyc
+
 # editors / OS
 .vscode/
 .idea/
