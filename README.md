@@ -18,13 +18,15 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.3, phase 2 "understand" (advise mode).** AIGW knows every
-> device (identity, Wi-Fi, lookups, connections, traffic) and now has its
-> first on-device AI: a domain-risk model that recognises machine-generated
-> names used by malware. It explains in plain words what deserves attention:
-> machine-generated lookups, connections without DNS, and devices hiding
-> their DNS. Nothing is blocked yet; policies and enforcement are phase 3.
-> See the [roadmap](docs/ARCHITECTURE.md#16-roadmap).
+> **Status: v0.4, phase 2 "understand" complete (advise mode).** AIGW knows
+> every device (identity, Wi-Fi, lookups, connections, traffic), learns what
+> is normal for each one, and has its first on-device AI: a domain-risk
+> model that recognises machine-generated names used by malware. It explains
+> in plain words what deserves attention: machine-generated lookups,
+> connections without DNS, devices hiding their DNS, a stable device using a
+> new site, upload spikes, and activity at unusual hours. Nothing is blocked
+> yet; policies and enforcement are phase 3. See the
+> [roadmap](docs/ARCHITECTURE.md#16-roadmap).
 
 ---
 
@@ -95,20 +97,39 @@ on popular sites (Tranco list) and synthetic machine-generated names.
 
 Malware using a name generator looks up dozens of such names, so an infected
 device is flagged quickly even though single names can slip through.
-Pronounceable and dictionary-word generators are a known weak spot; spotting
-those needs per-device behaviour baselines (next step).
+Pronounceable and dictionary-word generators are a known weak spot of the
+name model; per-device behaviour baselines cover part of that gap.
+
+## Behaviour baselines
+
+Every device gets a baseline, learned continuously in about 1 KB:
+
+- **the sites it uses**, as registrable domains in a Bloom filter
+- **how many new sites it picks up per day**
+- **its usual upload per hour**
+- **the hours of the day it is active**
+
+After 24 hours and 20 sites a device is *steady* and changes raise alerts:
+
+| Alert | When |
+|-------|------|
+| `new-destination` | A device with a stable pattern (fewer than 2 new sites a day, typical of IoT) uses a site it never used. Phones and laptops never raise this. |
+| `upload-spike` | Upload in an hour is 6 standard deviations above the device's usual, and at least 50 MB |
+| `unusual-hour` | Traffic at an hour of day the device has never been active in, after 7 days of history |
+
+Thresholds are in `/etc/config/aigw` (`baseline` section).
 
 Retrain: `python3 cortex/training/domain_risk/train.py` (needs `numpy`,
 `scikit-learn`). It also writes golden data that the C test uses to check
 it computes exactly the same scores.
 
-## What you get in v0.3
+## What you get in v0.4
 
 | Component | What it does |
 |-----------|--------------|
 | `agdns` | DNS sensor: forwards client DNS (UDP + TCP) and reports every answered query to the brain. Keeps working if the brain stops. |
 | `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. |
-| Alerts | Advise mode: `dga` (machine-generated lookup), `no-dns` (connection without a lookup), `dns-bypass` (device using its own encrypted DNS). Each has a plain-language reason; repeats are counted, not repeated. |
+| Alerts | Advise mode: `dga` (machine-generated lookup), `no-dns` (connection without a lookup), `dns-bypass` (device using its own encrypted DNS), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
 | `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch` |
 | `aigw-nft` | Kernel rules (`inet ag` table): DNS interception, quarantine set, connection-mark actions |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
@@ -150,7 +171,8 @@ sudo ./scripts/build-deps.sh          # libubox, ubus, uci (once)
 cmake -S . -B build && cmake --build build
 ctest --test-dir build                # unit tests
 sudo tests/smoke.sh build             # runs agd + agdns + DNS queries on loopback
-sudo tests/flow-test.sh build         # client/server namespaces: DNS<->flow join, bytes, no-DNS flag
+sudo tests/flow-test.sh build         # client/server namespaces: DNS<->flow join, bytes, alerts
+sudo tests/baseline-test.sh build     # behaviour baselines on a fast clock (1 s = 1 hour)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).

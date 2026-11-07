@@ -109,10 +109,40 @@ static void test_damaged(const char *path)
 	free(copy);
 }
 
+static void test_registrable(void)
+{
+	static const char *const cases[][2] = {
+		{ "www.example.com", "example.com" },
+		{ "a.b.c.example.co.uk.", "example.co.uk" },
+		{ "Mail.Google.COM", "google.com" },
+		{ "example.example.com", "example.com" },
+		{ "uk.co.uk", "uk.co.uk" },
+		{ "r3---sn-x.googlevideo.com", "googlevideo.com" },
+		{ "user.github.io", "user.github.io" },
+		{ "printer.local", NULL },
+		{ "10.0.0.1", NULL },
+		{ "localhost", NULL },
+	};
+	char out[256];
+	size_t i;
+
+	for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+		int rc = ag_domain_registrable(cases[i][0], out, sizeof(out));
+
+		if (!cases[i][1])
+			CHECK(rc == -1, "%s: expected none, got %s", cases[i][0], out);
+		else
+			CHECK(rc == 0 && !strcmp(out, cases[i][1]), "%s: got %s, want %s",
+			      cases[i][0], rc ? "(none)" : out, cases[i][1]);
+	}
+}
+
 int main(int argc, char **argv)
 {
 	char err[128] = "";
 	struct ag_model *m;
+
+	test_registrable();
 
 	if (argc < 3) {
 		fprintf(stderr, "usage: test_agm model.agm golden.tsv\n");

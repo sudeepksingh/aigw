@@ -25,6 +25,69 @@ struct endpoint {
 
 static AVL_TREE(eps, avl_strcmp, false, NULL);
 
+/* IPv4 /24 -> a name recently resolved inside it. Apps such as WhatsApp
+ * connect to server addresses from their own lists, usually next to ones
+ * they did look up; those connections get the neighbour's name. */
+struct netname {
+	struct avl_node avl;
+	char net[16];
+	char domain[NAME_LEN];
+};
+
+static AVL_TREE(nets, avl_strcmp, false, NULL);
+
+static int net24(const char *ip, char *out, size_t n)
+{
+	const char *last = strrchr(ip, '.');
+
+	if (strchr(ip, ':') || !last || (size_t)(last - ip) >= n)
+		return -1;
+	memcpy(out, ip, (size_t)(last - ip));
+	out[last - ip] = '\0';
+	return 0;
+}
+
+static void net_add(const char *ip, const char *domain)
+{
+	struct netname *e;
+	char key[16];
+
+	if (net24(ip, key, sizeof(key)) < 0)
+		return;
+	e = avl_find_element(&nets, key, e, avl);
+	if (!e) {
+		if (nets.count >= EP_MAX) {
+			struct netname *x, *tmp;
+			unsigned drop = EP_MAX / 8;
+
+			avl_for_each_element_safe(&nets, x, avl, tmp) {
+				if (!drop--)
+					break;
+				avl_delete(&nets, &x->avl);
+				free(x);
+			}
+		}
+		e = calloc(1, sizeof(*e));
+		if (!e)
+			return;
+		snprintf(e->net, sizeof(e->net), "%s", key);
+		e->avl.key = e->net;
+		avl_insert(&nets, &e->avl);
+	}
+	snprintf(e->domain, sizeof(e->domain), "%s", domain);
+}
+
+const char *ep_lookup_near(const char *ip)
+{
+	struct netname *e;
+	char key[16];
+
+	if (net24(ip, key, sizeof(key)) < 0)
+		return NULL;
+	e = avl_find_element(&nets, key, e, avl);
+	return e ? e->domain : NULL;
+}
+
 static void ep_evict(void)
 {
 	struct endpoint *e, *tmp;
@@ -65,6 +128,7 @@ void ep_add(const char *ip, const char *domain, const char *client, uint32_t ttl
 	snprintf(e->domain, sizeof(e->domain), "%s", domain);
 	snprintf(e->client, sizeof(e->client), "%s", client);
 	e->expires = ag_wall_s() + (ttl > EP_MIN_KEEP ? ttl : EP_MIN_KEEP);
+	net_add(ip, domain);
 }
 
 const char *ep_lookup(const char *ip)

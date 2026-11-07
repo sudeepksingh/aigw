@@ -56,9 +56,18 @@ struct ag_config {
 	int flow_warmup;          /* seconds after start before flagging "no DNS" */
 	char wifi_ctrl[128];      /* hostapd control socket directory */
 	char model_dir[256];      /* .agm models */
+	char lan_ifaces[256];     /* space-separated; clients on these are "the home" */
 	int alerts_enabled;
 	double dga_threshold;     /* domain-risk score that raises an alert */
 	int dga_min_label;        /* shorter names are not judged */
+	/* per-device behaviour baselines */
+	int bucket_seconds;       /* length of one activity bucket (an hour) */
+	int learn_minutes;        /* watch a device this long before judging it */
+	int min_known;            /* ... and until it has used this many sites */
+	double novelty_max;       /* new sites/day below which a device counts as stable */
+	double spike_factor;      /* upload alert: this many std-devs above usual */
+	double spike_min_mb;      /* ... and at least this much in one bucket */
+	int unusual_min_days;     /* days of history before "unusual hour" alerts */
 };
 
 /* Fills defaults, then overrides from UCI. Never fails hard: a missing

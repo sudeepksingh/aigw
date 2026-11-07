@@ -46,6 +46,13 @@ void ag_config_load(struct ag_config *c)
 	c->alerts_enabled = 1;
 	c->dga_threshold = 0.98;
 	c->dga_min_label = 8;
+	c->bucket_seconds = 3600;
+	c->learn_minutes = 1440;
+	c->min_known = 20;
+	c->novelty_max = 2.0;
+	c->spike_factor = 6.0;
+	c->spike_min_mb = 50.0;
+	c->unusual_min_days = 7;
 
 	ctx = uci_alloc_context();
 	if (!ctx)
@@ -77,6 +84,25 @@ void ag_config_load(struct ag_config *c)
 			c->flow_warmup = atoi(v);
 		copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), opt(ctx, p, "wifi", "ctrl_dir"));
 		copy(c->model_dir, sizeof(c->model_dir), opt(ctx, p, "main", "model_dir"));
+		{
+			struct uci_section *s = uci_lookup_section(ctx, p, "lan");
+			struct uci_option *o = s ? uci_lookup_option(ctx, s, "iface") : NULL;
+			struct uci_element *e;
+			size_t len = 0;
+
+			if (o && o->type == UCI_TYPE_STRING) {
+				copy(c->lan_ifaces, sizeof(c->lan_ifaces), o->v.string);
+			} else if (o && o->type == UCI_TYPE_LIST) {
+				uci_foreach_element(&o->v.list, e) {
+					int w = snprintf(c->lan_ifaces + len, sizeof(c->lan_ifaces) - len, "%s%s",
+							 len ? " " : "", e->name);
+
+					if (w < 0 || (size_t)w >= sizeof(c->lan_ifaces) - len)
+						break;
+					len += (size_t)w;
+				}
+			}
+		}
 		v = opt(ctx, p, "alerts", "enabled");
 		if (v)
 			c->alerts_enabled = atoi(v) != 0;
@@ -86,6 +112,27 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "alerts", "dga_min_label");
 		if (v && atoi(v) >= 1)
 			c->dga_min_label = atoi(v);
+		v = opt(ctx, p, "baseline", "bucket_seconds");
+		if (v && atoi(v) >= 1)
+			c->bucket_seconds = atoi(v);
+		v = opt(ctx, p, "baseline", "learn_minutes");
+		if (v && atoi(v) >= 0)
+			c->learn_minutes = atoi(v);
+		v = opt(ctx, p, "baseline", "min_known");
+		if (v && atoi(v) >= 0)
+			c->min_known = atoi(v);
+		v = opt(ctx, p, "baseline", "novelty_max");
+		if (v && atof(v) >= 0)
+			c->novelty_max = atof(v);
+		v = opt(ctx, p, "baseline", "spike_factor");
+		if (v && atof(v) > 0)
+			c->spike_factor = atof(v);
+		v = opt(ctx, p, "baseline", "spike_min_mb");
+		if (v && atof(v) >= 0)
+			c->spike_min_mb = atof(v);
+		v = opt(ctx, p, "baseline", "unusual_min_days");
+		if (v && atoi(v) >= 1)
+			c->unusual_min_days = atoi(v);
 	}
 	uci_free_context(ctx);
 }

@@ -22,6 +22,10 @@
  * name has none worth judging (no dot, IP literal, .arpa, .local, .lan, ...). */
 int ag_domain_label(const char *qname, char *label, size_t n);
 
+/* The registrable domain ("example.co.uk" for www.example.co.uk), lower-case;
+ * what a device's baseline remembers. Same rules and return as above. */
+int ag_domain_registrable(const char *qname, char *out, size_t n);
+
 /* Fills out[AG_DOMFEAT_N]. bigram is the model's dim x dim log-prob table. */
 void ag_domain_features(const char *qname, const char *label, const float *bigram, int dim,
 			float *out);

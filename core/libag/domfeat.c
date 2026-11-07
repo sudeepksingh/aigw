@@ -41,6 +41,31 @@ static int in_list(const char *s, const char *const *list)
 	return 0;
 }
 
+int ag_domain_registrable(const char *qname, char *out, size_t n)
+{
+	char label[256], name[256];
+	size_t len, i, ll;
+
+	if (ag_domain_label(qname, label, sizeof(label)) < 0)
+		return -1;
+	snprintf(name, sizeof(name), "%s", qname);
+	for (i = 0; name[i]; i++)
+		name[i] = (char)tolower((unsigned char)name[i]);
+	len = strlen(name);
+	while (len && name[len - 1] == '.')
+		name[--len] = '\0';
+	/* the label is the registrable part: find it as a whole label, scanning
+	 * from the right because a subdomain may repeat it */
+	ll = strlen(label);
+	for (i = len - ll + 1; i-- > 0;) {
+		if (!strncmp(name + i, label, ll) && (i == 0 || name[i - 1] == '.') && name[i + ll] == '.') {
+			snprintf(out, n, "%s", name + i);
+			return 0;
+		}
+	}
+	return -1;
+}
+
 int ag_domain_label(const char *qname, char *label, size_t n)
 {
 	char name[256], *labels[128];

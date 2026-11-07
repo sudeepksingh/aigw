@@ -271,6 +271,27 @@ static void show_device(struct ubus_request *req, int type, struct blob_attr *ms
 		       human_bytes(fnum(d, "bytes_down"), b1, sizeof(b1)),
 		       human_bytes(fnum(d, "bytes_up"), b2, sizeof(b2)),
 		       (unsigned long long)fnum(d, "flows"), (unsigned long long)fnum(d, "flows_no_dns"));
+		{
+			struct blob_attr *bl = field(d, "baseline"), *h;
+			size_t r3;
+			int k = 0;
+
+			if (bl) {
+				printf("  baseline        %s: %llu known sites, %.1f new/day%s, usual upload %s per hour\n",
+				       fstr(bl, "state"), (unsigned long long)fnum(bl, "known_sites"),
+				       field(bl, "new_sites_per_day") ? blobmsg_get_double(field(bl, "new_sites_per_day")) : 0,
+				       fnum(bl, "stable") ? " (stable pattern)" : "",
+				       human_bytes(field(bl, "upload_per_bucket") ?
+						   (uint64_t)blobmsg_get_double(field(bl, "upload_per_bucket")) : 0, b1, sizeof(b1)));
+				printf("  active hours   ");
+				if (field(bl, "active_hours"))
+					blobmsg_for_each_attr(h, field(bl, "active_hours"), r3) {
+						printf("%s", blobmsg_get_u32(h) ? "#" : ".");
+						k++;
+					}
+				printf("  (00-23h, # = seen active)\n");
+			}
+		}
 		printf("  top by traffic\n");
 		if (field(d, "top_destinations"))
 			blobmsg_for_each_attr(e, field(d, "top_destinations"), r2)

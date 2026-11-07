@@ -35,10 +35,25 @@ config alerts 'alerts'
 	# shorter registrable names are not judged
 	option dga_min_label '8'
 
+config baseline 'baseline'
+	# what is normal for each device, learned continuously
+	# watch a device this long, and until it has used this many sites, before judging it
+	option learn_minutes '1440'
+	option min_known '20'
+	# devices picking up fewer new sites per day count as "stable" (IoT);
+	# only they raise new-destination alerts (phones and laptops don't)
+	option novelty_max '2'
+	# upload alert: this many standard deviations above usual, and at least this many MB in an hour
+	option spike_factor '6'
+	option spike_min_mb '50'
+	# days of history before "active at an unusual hour" alerts
+	option unusual_min_days '7'
+
 config wifi 'wifi'
 	# hostapd control sockets; leave unset for the platform default
 	# option ctrl_dir '/var/run/hostapd'
 
 config lan 'lan'
-	# interfaces whose clients AIGW looks after
+	# interfaces whose clients AIGW looks after (DNS interception, and the
+	# flow sensor only follows clients on these networks)
 	list iface 'br-lan'
