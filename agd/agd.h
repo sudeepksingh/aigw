@@ -21,6 +21,23 @@ struct top_item {
 	uint64_t n;
 };
 
+#define BLOOM_BYTES 1024        /* 8192 bits: ~1000 sites at ~2% false "known" */
+
+/* What is normal for one device. Learned continuously; judged once steady. */
+struct baseline {
+	uint8_t bloom[BLOOM_BYTES];     /* registrable domains it has used */
+	uint32_t known;                 /* distinct sites added */
+	int64_t since;                  /* learning started */
+	int64_t bucket;                 /* start of the current activity bucket */
+	uint32_t buckets;               /* finished buckets observed */
+	uint32_t new_now;               /* new sites in the current bucket */
+	uint64_t up_now, down_now;      /* bytes in the current bucket */
+	double novelty;                 /* EWMA of new sites per bucket */
+	double up_mean, up_var;         /* EWMA of upload per bucket */
+	uint16_t active[24];            /* buckets with activity, by hour of day */
+	uint8_t spike_alerted, unusual_alerted;
+};
+
 struct device {
 	int used;
 	char ip[IP_LEN];
@@ -47,6 +64,8 @@ struct device {
 	int64_t wifi_since;
 	char wifi_iface[24];
 	unsigned wifi_seen;             /* poll sequence */
+
+	struct baseline bl;
 };
 
 /* main.c */
@@ -61,11 +80,12 @@ struct device *dev_find_mac(const char *mac, int create);
 struct device *dev_learn(const char *ip, const char *mac, const char *hostname);
 int dev_count(void);
 void dev_guess_type(struct device *d);
-void dev_blob(struct blob_buf *b, const struct device *d);
+void dev_blob(struct blob_buf *b, const struct device *d, int full);
 void top_add(struct top_item *t, int n, const char *name, uint64_t inc);
 void top_sorted(const struct top_item *t, int n, struct top_item *out);
 void local_addrs_refresh(void);
 int is_local(const char *ip);
+int is_lan_client(const char *ip);
 int is_private(const char *ip);
 void dev_poll_leases(void);
 void dev_poll_arp(void);
@@ -75,6 +95,7 @@ int dev_state_load(void);
 /* endpoint.c: which name each IP was looked up as (the DNS <-> flow join) */
 void ep_add(const char *ip, const char *domain, const char *client, uint32_t ttl);
 const char *ep_lookup(const char *ip);
+const char *ep_lookup_near(const char *ip);
 int ep_count(void);
 void ep_save(struct blob_buf *b);
 int ep_load(struct blob_attr *arr);
@@ -97,6 +118,17 @@ uint64_t alerts_total(void);
 void alerts_blob(struct blob_buf *b, unsigned limit, const char *name);
 void alerts_save(struct blob_buf *b);
 void alerts_load(struct blob_attr *arr);
+
+void alerts_raise(const char *kind, const char *severity, const char *ip, const char *subject,
+		  double score, const char *reason);
+
+/* baseline.c */
+void baseline_domain(struct device *d, const char *qname);
+void baseline_traffic(struct device *d, uint64_t up, uint64_t down);
+void baseline_tick(void);
+int baseline_steady(const struct device *d);
+void baseline_blob(struct blob_buf *b, const struct device *d, int full);
+void baseline_load(struct device *d, struct blob_attr *tbl);
 
 /* wifi.c */
 void wifi_init(void);

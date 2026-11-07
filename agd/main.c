@@ -100,6 +100,7 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 		d->last_seen = last_dns_event;
 		d->queries++;
 		top_add(d->doms, DEV_DOM_MAX, qname, 1);
+		baseline_domain(d, qname);
 	}
 
 	e = &dlog[dlog_head];
@@ -208,7 +209,7 @@ static int m_device_list(struct ubus_context *ctx, struct ubus_object *obj,
 		if (!devs[i].used)
 			continue;
 		t = blobmsg_open_table(&b, NULL);
-		dev_blob(&b, &devs[i]);
+		dev_blob(&b, &devs[i], 0);
 		blobmsg_close_table(&b, t);
 	}
 	blobmsg_close_array(&b, arr);
@@ -400,6 +401,7 @@ static void poll_cb(struct uloop_timeout *t)
 	dev_poll_leases();
 	dev_poll_arp();
 	wifi_poll();
+	baseline_tick();
 	uloop_timeout_set(t, POLL_MS);
 }
 

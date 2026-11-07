@@ -36,7 +36,7 @@ struct alert {
 	char device_name[64];
 	char subject[NAME_LEN];
 	double score;
-	char reason[320];
+	char reason[400];
 };
 
 static struct alert alerts[ALERT_MAX];
@@ -128,7 +128,7 @@ static void device_names(const char *ip, char *mac, char *name)
 	snprintf(name, 64, "%s", d && d->hostname[0] ? d->hostname : d && d->mac[0] ? d->mac : ip);
 }
 
-static void raise_alert(const char *kind, const char *severity, const char *ip, const char *subject,
+void alerts_raise(const char *kind, const char *severity, const char *ip, const char *subject,
 			double score, const char *reason)
 {
 	char mac[18], name[64];
@@ -193,13 +193,13 @@ void alerts_on_dns(const char *client, const char *qname)
 	snprintf(reason, sizeof(reason),
 		 "%s looked up %s, a name that looks machine-generated (score %.2f). "
 		 "Malware generates names like this to find its control servers.", name, qname, s);
-	raise_alert("dga", "warning", client, qname, s, reason);
+	alerts_raise("dga", "warning", client, qname, s, reason);
 }
 
 void alerts_on_flow(const char *client, const char *dst, const char *domain, const char *proto,
 		    unsigned dport, int no_dns)
 {
-	char reason[320], name[64], mac[18];
+	char reason[400], name[64], mac[18];
 	int doh_name = in_list(domain, resolver_names);
 
 	if (!cfg.alerts_enabled)
@@ -210,14 +210,14 @@ void alerts_on_flow(const char *client, const char *dst, const char *domain, con
 			 "%s uses its own encrypted DNS (%s to %s), so AIGW can't see what it looks up. "
 			 "Often a browser or phone \"private DNS\" setting.",
 			 name, dport == 853 ? "DNS over TLS" : "DNS over HTTPS", domain && *domain ? domain : dst);
-		raise_alert("dns-bypass", "info", client, domain && *domain ? domain : dst, 0, reason);
+		alerts_raise("dns-bypass", "info", client, domain && *domain ? domain : dst, 0, reason);
 		return;
 	}
 	if (no_dns) {
 		snprintf(reason, sizeof(reason),
 			 "%s connected to %s (%s/%u) without looking up any name first. "
 			 "Apps rarely do this; malware and hard-coded trackers do.", name, dst, proto, dport);
-		raise_alert("no-dns", "info", client, dst, 0, reason);
+		alerts_raise("no-dns", "info", client, dst, 0, reason);
 	}
 }
 

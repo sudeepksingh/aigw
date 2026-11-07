@@ -30,6 +30,8 @@ jobs:
         run: sudo UPSTREAM=1.1.1.1 tests/smoke.sh build
       - name: Flow sensor test (network namespaces)
         run: sudo tests/flow-test.sh build
+      - name: Behaviour baseline test (network namespaces, fast clock)
+        run: sudo tests/baseline-test.sh build
       - name: nft rules render
         run: for f in scripts/aigw-nft scripts/aigw-dhcp-event platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh; do sh -n "$f"; done
 

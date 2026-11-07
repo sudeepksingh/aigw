@@ -2,7 +2,7 @@
 # Flow sensor integration test. A "client" and a "server" live in their own
 # network namespaces and this host routes between them, like a gateway:
 #
-#   client 10.97.0.2 ── host 10.97.0.1 | 198.18.0.1 ── server 198.18.0.2, 198.18.0.3
+#   client 10.97.0.2 ── host 10.97.0.1 | 198.18.0.1 ── server 198.18.0.2, 198.19.0.3
 #                        (agd, agdns)                  (DNS + web server)
 #
 # Checks: DNS -> flow join (connection labelled with the looked-up name),
@@ -55,9 +55,11 @@ ip -n "$NC" addr add 10.97.0.2/24 dev "agc${R}p"
 ip -n "$NC" link set "agc${R}p" up; ip -n "$NC" link set lo up
 ip -n "$NC" route add default via 10.97.0.1
 ip -n "$NS" addr add 198.18.0.2/24 dev "ags${R}p"
-ip -n "$NS" addr add 198.18.0.3/24 dev "ags${R}p"
+ip -n "$NS" addr add 198.19.0.3/24 dev "ags${R}p"
+ip -n "$NS" addr add 198.18.0.5/24 dev "ags${R}p"
 ip -n "$NS" link set "ags${R}p" up; ip -n "$NS" link set lo up
 ip -n "$NS" route add default via 198.18.0.1
+ip route add 198.19.0.0/24 via 198.18.0.2   # a second network behind the server
 sysctl -qw net.ipv4.ip_forward=1
 if command -v iptables >/dev/null; then   # e.g. Docker sets FORWARD to DROP
 	iptables -I FORWARD -i "agc$R" -j ACCEPT
@@ -110,12 +112,15 @@ ans=$(ip netns exec "$NC" dig +short +time=3 +tries=2 @10.97.0.1 -p 15353 shop.a
 [ "$ans" = 198.18.0.2 ] || fail "lookup through agdns returned '$ans'"
 ip netns exec "$NC" curl -s -o /dev/null http://198.18.0.2:8080/file || fail "download 1"
 
-echo "== client connects to 198.18.0.3 without looking anything up"
-ip netns exec "$NC" curl -s -o /dev/null http://198.18.0.3:8080/file || fail "download 2"
+echo "== client connects to 198.19.0.3 without looking anything up"
+ip netns exec "$NC" curl -s -o /dev/null http://198.19.0.3:8080/file || fail "download 2"
+
+echo "== client connects to 198.18.0.5, next to shop.aigw.test, without a lookup"
+ip netns exec "$NC" curl -s -o /dev/null http://198.18.0.5:8080/file || fail "download nearby"
 
 echo "== client looks up a machine-generated name, and tries DNS over TLS"
 ip netns exec "$NC" dig +short +time=3 +tries=2 @10.97.0.1 -p 15353 xkqjzvbwptmr.com A > /dev/null
-ip netns exec "$NC" curl -s --connect-timeout 1 -o /dev/null http://198.18.0.3:853/ || true
+ip netns exec "$NC" curl -s --connect-timeout 1 -o /dev/null http://198.19.0.3:853/ || true
 
 sleep 5   # connections close, leave TIME_WAIT, counters refresh
 
@@ -132,12 +137,14 @@ flows = json.load(open(sys.argv[2]))["flows"]
 dst = {d["name"]: d["bytes"] for d in dev["top_destinations"]}
 problems = []
 if dev["flows"] < 2: problems.append("expected >= 2 connections, got %d" % dev["flows"])
-if dev["flows_no_dns"] < 1: problems.append("connection to 198.18.0.3 not flagged as no-DNS")
+if dev["flows_no_dns"] < 1: problems.append("connection to 198.19.0.3 not flagged as no-DNS")
 if dev["bytes_down"] < 2 * 300000: problems.append("bytes_down too small: %d" % dev["bytes_down"])
 if dst.get("shop.aigw.test", 0) < 300000: problems.append("traffic not attributed to shop.aigw.test: %s" % dst)
-if dst.get("198.18.0.3", 0) < 300000: problems.append("traffic to 198.18.0.3 missing: %s" % dst)
+if dst.get("198.19.0.3", 0) < 300000: problems.append("traffic to 198.19.0.3 missing: %s" % dst)
 if not any(f["domain"] == "shop.aigw.test" and not f["no_dns"] for f in flows): problems.append("no labelled flow")
-if not any(f["dst"] == "198.18.0.3" and f["no_dns"] for f in flows): problems.append("no no-DNS flow")
+if not any(f["dst"] == "198.19.0.3" and f["no_dns"] for f in flows): problems.append("no no-DNS flow")
+if not any(f["dst"] == "198.18.0.5" and f["domain"] == "shop.aigw.test (nearby)" and not f["no_dns"] for f in flows):
+    problems.append("connection next to a looked-up name was not labelled nearby")
 for p in problems: print("  -", p)
 sys.exit(1 if problems else 0)
 EOF
@@ -151,8 +158,8 @@ alerts = json.load(open(sys.argv[1]))["alerts"]
 kinds = {(a["kind"], a["subject"]) for a in alerts}
 problems = []
 if ("dga", "xkqjzvbwptmr.com") not in kinds: problems.append("no DGA alert for xkqjzvbwptmr.com")
-if ("no-dns", "198.18.0.3") not in kinds: problems.append("no no-DNS alert for 198.18.0.3")
-if ("dns-bypass", "198.18.0.3") not in kinds: problems.append("no DNS-bypass alert for port 853")
+if ("no-dns", "198.19.0.3") not in kinds: problems.append("no no-DNS alert for 198.19.0.3")
+if ("dns-bypass", "198.19.0.3") not in kinds: problems.append("no DNS-bypass alert for port 853")
 if any(a["kind"] == "dga" and a["subject"] == "shop.aigw.test" for a in alerts): problems.append("false DGA alert")
 if not all(a["reason"] and a["device"] == "test-client" for a in alerts): problems.append("alert without reason or device")
 for p in problems: print("  -", p)

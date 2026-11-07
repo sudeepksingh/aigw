@@ -141,7 +141,7 @@ static int read_tuple(struct nf_conntrack *ct, struct tuple *t)
  * covered by agdns, so port 53 is skipped. */
 static int interesting(const struct tuple *t)
 {
-	if (is_local(t->src) || is_local(t->dst))
+	if (is_local(t->src) || is_local(t->dst) || !is_lan_client(t->src))
 		return 0;
 	if (t->dport == 53)
 		return 0;
@@ -172,6 +172,7 @@ static void credit(struct aflow *f, uint64_t up, uint64_t down)
 	d->bytes_up += du;
 	d->bytes_down += dd;
 	top_add(d->dsts, DEV_DST_MAX, f->domain[0] ? f->domain : f->dst, du + dd);
+	baseline_traffic(d, du, dd);
 }
 
 static const char *proto_name(uint8_t p)
@@ -216,8 +217,12 @@ static struct aflow *flow_begin(const struct tuple *t, int seen_start)
 	f->dport = t->dport;
 	f->start = seen_start ? ag_wall_s() : 0;
 	dom = ep_lookup(t->dst);
-	if (dom)
+	if (dom) {
 		snprintf(f->domain, sizeof(f->domain), "%s", dom);
+	} else if ((dom = ep_lookup_near(t->dst))) {
+		/* same /24 as a name the home looked up: an app's own server list */
+		snprintf(f->domain, sizeof(f->domain), "%.100s (nearby)", dom);
+	}
 	/* only judge connections we saw start, once the endpoint table is warm */
 	f->no_dns = seen_start && !dom && !is_private(t->dst) &&
 		    ag_wall_s() - started >= cfg.flow_warmup;

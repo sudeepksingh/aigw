@@ -23,16 +23,92 @@ struct device devs[DEV_MAX];
 /* ---------- the gateway's own addresses ---------- */
 
 #define LOCAL_MAX 32
+#define LAN_MAX   16
 static char local_ips[LOCAL_MAX][IP_LEN];
 static int n_local;
+
+/* networks on the configured LAN interfaces: the home's clients live here */
+static struct { int family; uint8_t net[16]; int prefix; } lan_nets[LAN_MAX];
+static int n_lan;
+
+static int is_lan_iface(const char *name)
+{
+	char list[sizeof(cfg.lan_ifaces)], *tok, *save = NULL;
+
+	snprintf(list, sizeof(list), "%s", cfg.lan_ifaces);
+	for (tok = strtok_r(list, " ", &save); tok; tok = strtok_r(NULL, " ", &save))
+		if (!strcmp(tok, name))
+			return 1;
+	return 0;
+}
+
+static int prefix_len(const uint8_t *mask, int bytes)
+{
+	int i, n = 0;
+
+	for (i = 0; i < bytes; i++)
+		n += __builtin_popcount(mask[i]);
+	return n;
+}
+
+static int prefix_match(const uint8_t *a, const uint8_t *b, int prefix)
+{
+	int full = prefix / 8, rest = prefix % 8;
+
+	if (memcmp(a, b, (size_t)full))
+		return 0;
+	return !rest || ((a[full] ^ b[full]) & (uint8_t)(0xff << (8 - rest))) == 0;
+}
+
+/* With no LAN interfaces configured (tests, unusual setups) every client counts. */
+int is_lan_client(const char *ip)
+{
+	uint8_t a[16];
+	int i, fam = strchr(ip, ':') ? AF_INET6 : AF_INET;
+
+	if (n_lan == 0)
+		return 1;
+	if (inet_pton(fam, ip, a) != 1)
+		return 0;
+	for (i = 0; i < n_lan; i++)
+		if (lan_nets[i].family == fam && prefix_match(a, lan_nets[i].net, lan_nets[i].prefix))
+			return 1;
+	return 0;
+}
 
 void local_addrs_refresh(void)
 {
 	struct ifaddrs *ifa, *i;
-	int n = 0;
+	int n = 0, nl = 0;
 
 	if (getifaddrs(&ifa) < 0)
 		return;
+	for (i = ifa; i; i = i->ifa_next) {
+		const uint8_t *addr, *mask;
+		int bytes;
+
+		if (!i->ifa_addr || !i->ifa_netmask || nl >= LAN_MAX || !is_lan_iface(i->ifa_name))
+			continue;
+		if (i->ifa_addr->sa_family == AF_INET) {
+			addr = (const uint8_t *)&((struct sockaddr_in *)i->ifa_addr)->sin_addr;
+			mask = (const uint8_t *)&((struct sockaddr_in *)i->ifa_netmask)->sin_addr;
+			bytes = 4;
+		} else if (i->ifa_addr->sa_family == AF_INET6) {
+			addr = ((struct sockaddr_in6 *)i->ifa_addr)->sin6_addr.s6_addr;
+			mask = ((struct sockaddr_in6 *)i->ifa_netmask)->sin6_addr.s6_addr;
+			bytes = 16;
+			if (addr[0] == 0xfe && (addr[1] & 0xc0) == 0x80)
+				continue; /* link-local */
+		} else {
+			continue;
+		}
+		lan_nets[nl].family = i->ifa_addr->sa_family;
+		lan_nets[nl].prefix = prefix_len(mask, bytes);
+		memcpy(lan_nets[nl].net, addr, (size_t)bytes);
+		nl++;
+	}
+	n_lan = nl;
+
 	for (i = ifa; i && n < LOCAL_MAX; i = i->ifa_next) {
 		const void *a;
 
@@ -191,6 +267,12 @@ static void dev_merge(struct device *into, struct device *from)
 		into->last_seen = from->last_seen;
 	if (!into->hostname[0])
 		memcpy(into->hostname, from->hostname, sizeof(into->hostname));
+	for (i = 0; i < BLOOM_BYTES; i++)
+		into->bl.bloom[i] |= from->bl.bloom[i];
+	if (from->bl.known > into->bl.known)
+		into->bl.known = from->bl.known;
+	if (from->bl.since && (!into->bl.since || from->bl.since < into->bl.since))
+		into->bl.since = from->bl.since;
 	from->used = 0;
 }
 
@@ -354,7 +436,7 @@ static void top_blob(struct blob_buf *b, const char *name, const char *count_nam
 	blobmsg_close_array(b, arr);
 }
 
-void dev_blob(struct blob_buf *b, const struct device *d)
+void dev_blob(struct blob_buf *b, const struct device *d, int full)
 {
 	void *w;
 
@@ -382,6 +464,7 @@ void dev_blob(struct blob_buf *b, const struct device *d)
 	blobmsg_close_table(b, w);
 	top_blob(b, "top_domains", "lookups", d->doms, DEV_DOM_MAX, 5);
 	top_blob(b, "top_destinations", "bytes", d->dsts, DEV_DST_MAX, 5);
+	baseline_blob(b, d, full);
 }
 
 /* ---------- persistence ---------- */
@@ -427,7 +510,7 @@ int dev_state_save(void)
 		if (!d->used || (!d->mac[0] && !d->queries && !d->flows))
 			continue;
 		t = blobmsg_open_table(&b, NULL);
-		dev_blob(&b, d);
+		dev_blob(&b, d, 1);
 		blobmsg_close_table(&b, t);
 	}
 	blobmsg_close_array(&b, arr);
@@ -461,7 +544,7 @@ int dev_state_save(void)
 
 enum {
 	S_IP, S_MAC, S_HOST, S_TYPE, S_VC, S_OPTS, S_FIRST, S_LAST, S_QUERIES,
-	S_FLOWS, S_NODNS, S_UP, S_DOWN, S_DOMS, S_DSTS, __S_MAX
+	S_FLOWS, S_NODNS, S_UP, S_DOWN, S_DOMS, S_DSTS, S_BASELINE, __S_MAX
 };
 
 static const struct blobmsg_policy dev_policy[__S_MAX] = {
@@ -480,6 +563,7 @@ static const struct blobmsg_policy dev_policy[__S_MAX] = {
 	[S_DOWN] = { "bytes_down", BLOBMSG_TYPE_UNSPEC },
 	[S_DOMS] = { "top_domains", BLOBMSG_TYPE_ARRAY },
 	[S_DSTS] = { "top_destinations", BLOBMSG_TYPE_ARRAY },
+	[S_BASELINE] = { "baseline", BLOBMSG_TYPE_TABLE },
 };
 
 static void load_top(struct top_item *t, int n, struct blob_attr *arr, const char *count_name)
@@ -555,6 +639,8 @@ int dev_state_load(void)
 			d->bytes_down = num(tb[S_DOWN]);
 			load_top(d->doms, DEV_DOM_MAX, tb[S_DOMS], "lookups");
 			load_top(d->dsts, DEV_DST_MAX, tb[S_DSTS], "bytes");
+			if (tb[S_BASELINE])
+				baseline_load(d, tb[S_BASELINE]);
 			n++;
 		}
 	}
