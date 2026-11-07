@@ -36,7 +36,7 @@ install -m 0755 "$REPO/platform/pc-ap/aigw-ap" "$PREFIX/sbin/aigw-ap"
 ldconfig
 
 step "Configuring"
-mkdir -p /etc/config /etc/aigw /var/lib/aigw
+mkdir -p /etc/config /etc/aigw /etc/aigw/plugins /var/lib/aigw
 if [ ! -f /etc/config/aigw ]; then
 	install -m 0644 "$REPO/config/aigw" /etc/config/aigw
 fi

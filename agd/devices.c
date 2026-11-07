@@ -267,6 +267,8 @@ static void dev_merge(struct device *into, struct device *from)
 		into->last_seen = from->last_seen;
 	if (!into->hostname[0])
 		memcpy(into->hostname, from->hostname, sizeof(into->hostname));
+	if (!into->zone[0])
+		memcpy(into->zone, from->zone, sizeof(into->zone));
 	for (i = 0; i < BLOOM_BYTES; i++)
 		into->bl.bloom[i] |= from->bl.bloom[i];
 	if (from->bl.known > into->bl.known)
@@ -444,6 +446,8 @@ void dev_blob(struct blob_buf *b, const struct device *d, int full)
 	blobmsg_add_string(b, "mac", d->mac);
 	blobmsg_add_string(b, "hostname", d->hostname);
 	blobmsg_add_string(b, "type", d->type);
+	blobmsg_add_string(b, "zone", d->zone);
+	blobmsg_add_string(b, "wifi_key", d->wifi_key);
 	blobmsg_add_string(b, "vendor_class", d->vendor_class);
 	blobmsg_add_string(b, "dhcp_options", d->dhcp_options);
 	blobmsg_add_u64(b, "first_seen", (uint64_t)d->first_seen);
@@ -462,6 +466,13 @@ void dev_blob(struct blob_buf *b, const struct device *d, int full)
 		blobmsg_add_string(b, "iface", d->wifi_iface);
 	}
 	blobmsg_close_table(b, w);
+	if (d->plugin_events) {
+		w = blobmsg_open_table(b, "plugins");
+		blobmsg_add_u32(b, "events", d->plugin_events);
+		blobmsg_add_string(b, "last", d->plugin_last);
+		blobmsg_add_u64(b, "last_ts", (uint64_t)d->plugin_last_ts);
+		blobmsg_close_table(b, w);
+	}
 	top_blob(b, "top_domains", "lookups", d->doms, DEV_DOM_MAX, 5);
 	top_blob(b, "top_destinations", "bytes", d->dsts, DEV_DST_MAX, 5);
 	baseline_blob(b, d, full);
@@ -545,7 +556,7 @@ int dev_state_save(void)
 
 enum {
 	S_IP, S_MAC, S_HOST, S_TYPE, S_VC, S_OPTS, S_FIRST, S_LAST, S_QUERIES,
-	S_FLOWS, S_NODNS, S_UP, S_DOWN, S_DOMS, S_DSTS, S_BASELINE, __S_MAX
+	S_FLOWS, S_NODNS, S_UP, S_DOWN, S_DOMS, S_DSTS, S_BASELINE, S_ZONE, S_KEY, __S_MAX
 };
 
 static const struct blobmsg_policy dev_policy[__S_MAX] = {
@@ -565,6 +576,8 @@ static const struct blobmsg_policy dev_policy[__S_MAX] = {
 	[S_DOMS] = { "top_domains", BLOBMSG_TYPE_ARRAY },
 	[S_DSTS] = { "top_destinations", BLOBMSG_TYPE_ARRAY },
 	[S_BASELINE] = { "baseline", BLOBMSG_TYPE_TABLE },
+	[S_ZONE] = { "zone", BLOBMSG_TYPE_STRING },
+	[S_KEY] = { "wifi_key", BLOBMSG_TYPE_STRING },
 };
 
 static void load_top(struct top_item *t, int n, struct blob_attr *arr, const char *count_name)
@@ -633,6 +646,8 @@ int dev_state_load(void)
 			str(d->type, sizeof(d->type), tb[S_TYPE]);
 			str(d->vendor_class, sizeof(d->vendor_class), tb[S_VC]);
 			str(d->dhcp_options, sizeof(d->dhcp_options), tb[S_OPTS]);
+			str(d->zone, sizeof(d->zone), tb[S_ZONE]);
+			str(d->wifi_key, sizeof(d->wifi_key), tb[S_KEY]);
 			d->first_seen = (int64_t)num(tb[S_FIRST]);
 			d->last_seen = (int64_t)num(tb[S_LAST]);
 			d->queries = (uint32_t)num(tb[S_QUERIES]);

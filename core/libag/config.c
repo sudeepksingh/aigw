@@ -60,21 +60,51 @@ const char *ag_mode_str(int mode)
 	return mode == AG_MODE_ENFORCE ? "enforce" : mode == AG_MODE_ADVISE ? "advise" : "off";
 }
 
+int ag_plugin_name_ok(const char *name)
+{
+	size_t i, n = name ? strlen(name) : 0;
+
+	if (n < 1 || n > 31 || name[0] < 'a' || name[0] > 'z')
+		return 0;
+	for (i = 0; i < n; i++)
+		if (!((name[i] >= 'a' && name[i] <= 'z') || (name[i] >= '0' && name[i] <= '9') || name[i] == '-'))
+			return 0;
+	return 1;
+}
+
+int ag_policy_action_ok(const char *action)
+{
+	char plugin[48];
+	const char *dot, *p;
+
+	if (!action || !*action)
+		return 0;
+	/* blocking a domain is never automatic: the user names it */
+	if (!strcmp(action, "quarantine") || !strcmp(action, "disconnect") || !strcmp(action, "throttle") ||
+	    !strcmp(action, "deprioritize") || !strcmp(action, "priority"))
+		return 1;
+	dot = strchr(action, '.');
+	if (!dot || dot == action || (size_t)(dot - action) >= sizeof(plugin) || !dot[1] || strlen(dot + 1) > 23)
+		return 0;
+	snprintf(plugin, sizeof(plugin), "%.*s", (int)(dot - action), action);
+	for (p = dot + 1; *p; p++)
+		if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-' || *p == '_'))
+			return 0;
+	return ag_plugin_name_ok(plugin);
+}
+
 static void add_policy(struct ag_config *c, const char *name, const char *alert, const char *action,
-		       int ttl, int rate, int mode)
+		       const char *zone, int ttl, int rate, int mode)
 {
 	struct ag_policy *p;
 
-	if (c->n_policies >= AG_POLICY_MAX || !alert || !*alert || !action || !*action)
-		return;
-	/* blocking a domain is never automatic: the user names it */
-	if (strcmp(action, "quarantine") && strcmp(action, "disconnect") && strcmp(action, "throttle") &&
-	    strcmp(action, "deprioritize") && strcmp(action, "priority"))
+	if (c->n_policies >= AG_POLICY_MAX || !alert || !*alert || !ag_policy_action_ok(action))
 		return;
 	p = &c->policies[c->n_policies++];
 	snprintf(p->name, sizeof(p->name), "%s", name ? name : alert);
 	snprintf(p->alert, sizeof(p->alert), "%s", alert);
 	snprintf(p->action, sizeof(p->action), "%s", action);
+	snprintf(p->zone, sizeof(p->zone), "%s", zone ? zone : "");
 	p->ttl = ttl > 0 ? ttl : 0;
 	p->rate_kbps = rate > 0 ? rate : 0;
 	p->mode = mode;
@@ -119,6 +149,12 @@ void ag_config_load(struct ag_config *c)
 	c->act_max_auto = 3;
 	c->act_rate_kbps = 2000;
 	copy(c->dns_policy, sizeof(c->dns_policy), owrt ? "/var/run/aigw/dns-policy" : "/run/aigw/dns-policy");
+	c->plugins_enabled = 1;
+	copy(c->plugin_dir, sizeof(c->plugin_dir), AG_DATADIR "/plugins");
+	copy(c->plugin_user_dir, sizeof(c->plugin_user_dir), "/etc/aigw/plugins");
+	copy(c->plugin_user, sizeof(c->plugin_user), "nobody");
+	copy(c->wifi_keys, sizeof(c->wifi_keys), "/etc/aigw/wifi-keys");
+	c->key_ttl = 86400;
 
 	ctx = uci_alloc_context();
 	if (!ctx)
@@ -199,6 +235,18 @@ void ag_config_load(struct ag_config *c)
 			c->act_rate_kbps = atoi(v);
 		read_list(ctx, uci_lookup_section(ctx, p, "act"), "protect", c->act_protect, sizeof(c->act_protect));
 		copy(c->dns_policy, sizeof(c->dns_policy), opt(ctx, p, "act", "dns_policy"));
+		v = opt(ctx, p, "plugins", "enabled");
+		if (v)
+			c->plugins_enabled = atoi(v) != 0;
+		copy(c->plugin_dir, sizeof(c->plugin_dir), opt(ctx, p, "plugins", "dir"));
+		copy(c->plugin_user_dir, sizeof(c->plugin_user_dir), opt(ctx, p, "plugins", "user_dir"));
+		v = opt(ctx, p, "plugins", "user");
+		if (v)
+			snprintf(c->plugin_user, sizeof(c->plugin_user), "%s", v);   /* may be "" */
+		copy(c->wifi_keys, sizeof(c->wifi_keys), opt(ctx, p, "wifi", "keys"));
+		v = opt(ctx, p, "wifi", "key_ttl");
+		if (v && atoi(v) >= 60)
+			c->key_ttl = atoi(v);
 		{
 			struct uci_element *e;
 
@@ -214,7 +262,8 @@ void ag_config_load(struct ag_config *c)
 				rate = uci_lookup_option_string(ctx, s, "rate");
 				add_policy(c, s->anonymous ? NULL : s->e.name,
 					   uci_lookup_option_string(ctx, s, "alert"),
-					   uci_lookup_option_string(ctx, s, "action"), ttl ? atoi(ttl) : 0,
+					   uci_lookup_option_string(ctx, s, "action"),
+					   uci_lookup_option_string(ctx, s, "zone"), ttl ? atoi(ttl) : 0,
 					   rate ? atoi(rate) : 0,
 					   ag_mode_parse(uci_lookup_option_string(ctx, s, "mode"), AG_MODE_ENFORCE));
 			}
@@ -223,8 +272,8 @@ void ag_config_load(struct ag_config *c)
 	uci_free_context(ctx);
 defaults:
 	if (!policies_configured) {
-		add_policy(c, "dga", "dga", "quarantine", 0, 0, AG_MODE_ENFORCE);
-		add_policy(c, "iot_new_site", "new-destination", "quarantine", 0, 0, AG_MODE_ENFORCE);
+		add_policy(c, "dga", "dga", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
+		add_policy(c, "iot_new_site", "new-destination", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 	}
 }
 

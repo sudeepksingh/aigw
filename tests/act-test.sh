@@ -171,6 +171,10 @@ config flow 'flow'
 
 config wifi 'wifi'
 	option ctrl_dir '$T/hostapd'
+	option keys '$T/wifi-keys'
+
+config plugins 'plugins'
+	option enabled '0'
 
 config act 'act'
 	option mode '$1'

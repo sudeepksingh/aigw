@@ -1,0 +1,16 @@
+{
+  "name": "iot-guard",
+  "kind": "skill",
+  "version": "0.7.0",
+  "description": "Stricter rules for devices in the IoT zone (smart plugs, cameras, TVs that joined with their own key)",
+  "policies": [
+    { "alert": "no-dns", "zone": "iot", "action": "quarantine", "ttl": 3600, "mode": "advise" },
+    { "alert": "upload-spike", "zone": "iot", "action": "throttle", "rate": 1000, "ttl": 3600, "mode": "advise" },
+    { "alert": "unusual-hour", "zone": "iot", "action": "deprioritize", "ttl": 3600, "mode": "advise" }
+  ],
+  "hosts": ["openwrt", "linux"],
+  "card": {
+    "title": "IoT guard",
+    "text": "An IoT device that talks to an address it never looked up, uploads far more than usual or wakes at an odd hour gets an action proposed for your approval."
+  }
+}

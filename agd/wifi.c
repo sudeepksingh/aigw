@@ -127,6 +127,14 @@ static void poll_iface(const char *dir, const char *iface)
 		d->wifi_seen = poll_seq;
 		d->last_seen = ag_wall_s();
 		stations++;
+		{
+			/* joined with its own key (wpa_psk_file keyid): see keys.c */
+			const char *k = strstr(reply, "\nkeyid=");
+			char kid[32];
+
+			if (k && sscanf(k + 7, "%31[^\n]", kid) == 1)
+				keys_seen(d, kid);
+		}
 
 		snprintf(cmd, sizeof(cmd), "STA-NEXT %s", mac);
 		if (hapd_cmd(path, cmd, reply, sizeof(reply)) <= 0)
@@ -174,6 +182,45 @@ void wifi_poll(void)
 int wifi_station_count(void)
 {
 	return stations;
+}
+
+/* Sends a command to every access point; returns how many answered (not FAIL). */
+int wifi_all(const char *cmd, char *reply, size_t n)
+{
+	char path[512], buf[4096];
+	DIR *dir;
+	struct dirent *e;
+	int ok = 0;
+
+	if (reply && n)
+		reply[0] = '\0';
+	if (sock < 0 || !(dir = opendir(cfg.wifi_ctrl)))
+		return 0;
+	while ((e = readdir(dir))) {
+		struct stat st;
+
+		if (e->d_name[0] == '.' || !strcmp(e->d_name, "global"))
+			continue;
+		snprintf(path, sizeof(path), "%s/%s", cfg.wifi_ctrl, e->d_name);
+		if (stat(path, &st) || !S_ISSOCK(st.st_mode))
+			continue;
+		if (hapd_cmd(path, cmd, buf, sizeof(buf)) <= 0 || !strncmp(buf, "FAIL", 4) ||
+		    !strncmp(buf, "UNKNOWN COMMAND", 15))
+			continue;
+		if (!ok && reply && n)
+			snprintf(reply, n, "%s", buf);
+		ok++;
+	}
+	closedir(dir);
+	return ok;
+}
+
+int wifi_kick(const char *mac)
+{
+	char cmd[64];
+
+	snprintf(cmd, sizeof(cmd), "DEAUTHENTICATE %s", mac);
+	return wifi_all(cmd, NULL, 0);
 }
 
 /*
