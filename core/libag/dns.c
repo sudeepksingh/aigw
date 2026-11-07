@@ -110,6 +110,7 @@ int ag_dns_parse(const uint8_t *buf, size_t len, struct ag_dns_msg *m)
 	m->qtype = rd16(buf + off);
 	m->qclass = rd16(buf + off + 2);
 	off += 4;
+	m->qend = (uint16_t)off;
 
 	/* skip any further questions */
 	for (i = 1; i < m->qdcount; i++) {
@@ -145,6 +146,33 @@ int ag_dns_parse(const uint8_t *buf, size_t len, struct ag_dns_msg *m)
 		off += rdlen;
 	}
 	return 0;
+}
+
+int ag_dns_make_nxdomain(uint8_t *buf, size_t len, const struct ag_dns_msg *q)
+{
+	if (!buf || !q || q->qdcount == 0 || q->qend < AG_DNS_HDR_LEN || q->qend > len)
+		return -1;
+	/* QR=1, keep opcode and RD, RA=1, RCODE=3 (no such name) */
+	buf[2] = (uint8_t)(0x80 | (buf[2] & 0x79));
+	buf[3] = 0x80 | 3;
+	buf[4] = 0; buf[5] = 1;                         /* one question */
+	memset(buf + 6, 0, 6);                          /* no answers, authority, additional */
+	return q->qend;
+}
+
+int ag_dns_name_under(const char *qname, const char *name)
+{
+	size_t lq, ln;
+
+	if (!qname || !name || !*name)
+		return 0;
+	lq = strlen(qname);
+	ln = strlen(name);
+	if (lq && qname[lq - 1] == '.')
+		lq--;
+	if (lq < ln || strncmp(qname + lq - ln, name, ln))
+		return 0;
+	return lq == ln || qname[lq - ln - 1] == '.';
 }
 
 const char *ag_dns_type_str(uint16_t type, char *tmp, size_t tmplen)

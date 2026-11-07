@@ -49,8 +49,18 @@ Then:
 ```bash
 agctl devices        # devices, how many DNS queries, top domains
 agctl dns 20         # last 20 queries
-agctl watch          # live
+agctl alerts         # what AIGW noticed, and why
+agctl decisions      # actions AIGW proposes; approve with: agctl approve <id>
+agctl watch all      # live
 sudo aigw-ap status  # access point, clients, services
+```
+
+Act yourself (every action ends on its own; `agctl undo <id>` ends it now):
+
+```bash
+agctl quarantine <device> 30m   # cut a device off from everything but the gateway
+agctl prioritize <device> 2h    # its traffic first, in the Wi-Fi video queue
+agctl block <domain> 1d         # no device can resolve it or its subdomains
 ```
 
 Start automatically at boot: `sudo systemctl enable --now aigw`.
@@ -95,7 +105,10 @@ WSL's kernel cannot read the distribution's firmware files directly.
 | `UPLINK` | `auto` | Internet interface; `auto` = default route |
 
 `/etc/config/aigw` (UCI format, same file as on OpenWRT) holds the AIGW
-settings: log level, DNS port and upstream resolver.
+settings: log level, DNS port and upstream resolver, alert thresholds,
+baselines, and acting (`act` section: `mode` advise/enforce/off, time limits,
+devices AIGW must never act on, and the `policy` sections). Apply with
+`sudo systemctl restart aigw-agd`.
 
 ## Troubleshooting
 

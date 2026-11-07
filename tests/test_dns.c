@@ -115,12 +115,43 @@ static void test_type_names(void)
 	CHECK(strcmp(ag_dns_type_str(4242, tmp, sizeof(tmp)), "TYPE4242") == 0);
 }
 
+/* the block actuator: NXDOMAIN answers and subdomain matching */
+static void test_block(void)
+{
+	unsigned char q[sizeof(query) + 11];
+	struct ag_dns_msg m, r;
+	int n;
+
+	/* the query plus an EDNS OPT record that must be dropped from the answer */
+	memcpy(q, query, sizeof(query));
+	q[11] = 1;
+	memcpy(q + sizeof(query), "\x00\x00\x29\x10\x00\x00\x00\x00\x00\x00\x00", 11);
+	CHECK(ag_dns_parse(q, sizeof(q), &m) == 0);
+	CHECK(m.qend == sizeof(query));
+	n = ag_dns_make_nxdomain(q, sizeof(q), &m);
+	CHECK(n == (int)sizeof(query));
+	CHECK(ag_dns_parse(q, (size_t)n, &r) == 0);
+	CHECK(AG_DNS_IS_RESPONSE(r.flags) && AG_DNS_RCODE(r.flags) == 3);
+	CHECK(r.id == 0x1234 && (r.flags & 0x0100));       /* same id, RD kept */
+	CHECK(r.qdcount == 1 && r.ancount == 0 && strcmp(r.qname, "www.example.com") == 0);
+	CHECK(ag_dns_make_nxdomain(q, 5, &m) == -1);
+
+	CHECK(ag_dns_name_under("example.com", "example.com"));
+	CHECK(ag_dns_name_under("ads.example.com", "example.com"));
+	CHECK(ag_dns_name_under("a.b.example.com.", "example.com"));
+	CHECK(!ag_dns_name_under("badexample.com", "example.com"));
+	CHECK(!ag_dns_name_under("example.com.evil", "example.com"));
+	CHECK(!ag_dns_name_under("com", "example.com"));
+	CHECK(!ag_dns_name_under("example.com", ""));
+}
+
 int main(void)
 {
 	test_query();
 	test_response();
 	test_hostile();
 	test_type_names();
+	test_block();
 	if (failures) {
 		fprintf(stderr, "%d check(s) failed\n", failures);
 		return 1;

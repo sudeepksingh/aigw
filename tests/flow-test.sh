@@ -96,6 +96,14 @@ config flow 'flow'
 
 config wifi 'wifi'
 	option ctrl_dir '$T/hostapd'
+
+config act 'act'
+	# advise: proposals only, no kernel changes in the host's namespace
+	option dns_policy '$T/dns-policy'
+
+config lan 'lan'
+	# only the test client: a live AIGW's clients on this host stay out of the test
+	list iface 'agc$R'
 EOF
 echo "1999999999 02:00:00:00:97:02 10.97.0.2 test-client *" > "$T/leases"
 export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock"

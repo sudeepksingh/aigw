@@ -18,14 +18,13 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.4, phase 2 "understand" complete (advise mode).** AIGW knows
-> every device (identity, Wi-Fi, lookups, connections, traffic), learns what
-> is normal for each one, and has its first on-device AI: a domain-risk
-> model that recognises machine-generated names used by malware. It explains
-> in plain words what deserves attention: machine-generated lookups,
-> connections without DNS, devices hiding their DNS, a stable device using a
-> new site, upload spikes, and activity at unusual hours. Nothing is blocked
-> yet; policies and enforcement are phase 3. See the
+> **Status: v0.5, phase 3 "act".** AIGW knows every device (identity, Wi-Fi,
+> lookups, connections, traffic), learns what is normal for each one, and
+> runs an on-device AI model that recognises machine-generated names used by
+> malware. It explains in plain words what deserves attention, and now it can
+> act: quarantine a device, prioritise one, or block a domain. Every action
+> has a time limit and an undo, guardrails that nothing can override, and by
+> default **nothing changes until you approve it**. See the
 > [roadmap](docs/ARCHITECTURE.md#16-roadmap).
 
 ---
@@ -50,8 +49,9 @@ agctl devices          # every device: type, Wi-Fi signal, lookups, traffic
 agctl device <name>    # one device in detail
 agctl flows            # recent connections, with the name each one belongs to
 agctl alerts           # what AIGW thinks you should know, and why
+agctl decisions        # actions AIGW proposes, and the ones in effect
 agctl score <domain>   # ask the domain-risk model about any name
-agctl watch all        # DNS, connections, Wi-Fi joins and alerts, live
+agctl watch all        # DNS, connections, Wi-Fi joins, alerts and decisions, live
 ```
 
 **On Windows (WSL2):** install inside WSL as above, then start everything from
@@ -123,15 +123,58 @@ Retrain: `python3 cortex/training/domain_risk/train.py` (needs `numpy`,
 `scikit-learn`). It also writes golden data that the C test uses to check
 it computes exactly the same scores.
 
-## What you get in v0.4
+## Acting: decisions and guardrails
+
+```
+alert ──► policy ──► proposal ──(you approve, or enforce mode)──► guardrails ──► actuator
+                                                                    every action: time limit + undo
+```
+
+| Action | Command | How it works |
+|--------|---------|--------------|
+| Quarantine a device | `agctl quarantine <device> [time]` | Its MAC goes into the nft set `quarantine`: it still reaches the gateway (DHCP, DNS) but nothing beyond it |
+| Prioritise a device | `agctl prioritize <device> [time]` | Its traffic is marked DSCP CS5, which Wi-Fi (WMM) sends in the video queue |
+| Block a domain | `agctl block <domain> [time]` | `agdns` answers "no such name" for it and every subdomain, over UDP and TCP |
+
+`<device>` is an IP, MAC or name from `agctl devices`; `time` is like `90s`,
+`30m`, `2h` or `1d` (default 1 hour). `agctl decisions` lists what is waiting
+for you and what is in effect; `agctl approve <id>`, `agctl reject <id>` and
+`agctl undo <id>` answer them.
+
+**Modes** (`act.mode` in `/etc/config/aigw`):
+
+- `advise` (default): policies *propose*; nothing changes until you approve.
+- `enforce`: policies act on their own, within the guardrails.
+- `off`: alerts only.
+
+Built-in policies propose a quarantine for a device that looks up a
+machine-generated name (`dga`) and for a stable IoT device that suddenly uses
+a new site (`new-destination`). Add your own `config policy` sections.
+
+**Guardrails**, checked for every action whoever asks (a policy, you, later
+the cloud):
+
+- never the gateway itself, never a device outside the LAN, never a device
+  in `act.protect`;
+- always a time limit, at most `max_ttl` (1 day). The kernel (nft timeouts)
+  and `agdns` (per-entry expiry) end actions on their own, even if `agd`
+  stops;
+- automatic actions only in enforce mode, at most `max_auto_per_hour` (3),
+  and blocking a domain is never automatic;
+- DNS and DHCP to the gateway are never affected.
+
+Actions are saved and put back after a restart or a firewall reload.
+
+## What you get in v0.5
 
 | Component | What it does |
 |-----------|--------------|
-| `agdns` | DNS sensor: forwards client DNS (UDP + TCP) and reports every answered query to the brain. Keeps working if the brain stops. |
+| `agdns` | DNS sensor and actuator: forwards client DNS (UDP + TCP), reports every answered query to the brain, and answers blocked names itself. Keeps working if the brain stops. |
 | `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. |
-| Alerts | Advise mode: `dga` (machine-generated lookup), `no-dns` (connection without a lookup), `dns-bypass` (device using its own encrypted DNS), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
-| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch` |
-| `aigw-nft` | Kernel rules (`inet ag` table): DNS interception, quarantine set, connection-mark actions |
+| Decisions | Policies, proposals, approval, guardrails and three actuators (quarantine, priority, block), each with a time limit and undo. See above. |
+| Alerts | `dga` (machine-generated lookup), `no-dns` (connection without a lookup), `dns-bypass` (device using its own encrypted DNS), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
+| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `quarantine`, `prioritize`, `block` |
+| `aigw-nft` | Kernel rules (`inet ag` table): DNS interception, quarantine and priority sets, connection-mark actions |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
 
 API (same on every host):
@@ -143,7 +186,10 @@ ubus call ag.dns log '{"limit": 20}'
 ubus call ag.flow recent '{"limit": 20}'
 ubus call ag.alert list
 ubus call ag.domain score '{"name": "example.com"}'
-ubus listen ag.dns ag.flow ag.wifi ag.alert
+ubus call ag.decision list
+ubus call ag.decision request '{"action": "block", "target": "example.com", "ttl": 600}'
+ubus call ag.decision approve '{"id": 4}'      # also: reject, revert
+ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision
 ```
 
 ## Repository layout
@@ -151,7 +197,8 @@ ubus listen ag.dns ag.flow ag.wifi ag.alert
 ```
 include/ag/          public headers (events, DNS parser, connection-mark layout)
 core/libag/          shared library: logging, config (UCI), DNS parser
-agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors
+agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors,
+                     alerts, baselines, decisions (act.c: policies, guardrails, actuators)
 agdns/               the DNS sensor
 agctl/               command line
 scripts/             aigw-nft (kernel rules), aigw-dhcp-event (DHCP hook), build-deps.sh
@@ -160,7 +207,7 @@ platform/pc-ap/      PC as AP: installer, aigw-ap, systemd units, WSL launcher
 platform/openwrt/    OpenWRT package (feed) and SDK build script
 models/              trained on-device models (.agm)
 cortex/training/     Python training pipelines that produce those models
-tests/               unit tests, model parity test, smoke test, flow test (network namespaces)
+tests/               unit tests, model parity test, smoke test, network-namespace tests (flow, baseline, act)
 docs/                architecture and getting-started guides
 ```
 
@@ -173,7 +220,11 @@ ctest --test-dir build                # unit tests
 sudo tests/smoke.sh build             # runs agd + agdns + DNS queries on loopback
 sudo tests/flow-test.sh build         # client/server namespaces: DNS<->flow join, bytes, alerts
 sudo tests/baseline-test.sh build     # behaviour baselines on a fast clock (1 s = 1 hour)
+sudo tests/act-test.sh build          # decisions, guardrails and actuators against real nft rules
 ```
+
+The namespace tests are safe to run on a machine that is itself running
+AIGW: they use their own namespaces, bus and configuration.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 

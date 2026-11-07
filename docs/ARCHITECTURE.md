@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design draft **v0.2** (2026-11-06), no code yet · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.5**, phases P0–P3 built (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -544,12 +544,22 @@ established connections · forwarding throughput unchanged.
 
 Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from day one.
 
-| Phase | Deliverable | Exit test |
-|-------|-------------|-----------|
-| **P0 Foundation** | libag, event schema, mark layout; PC-as-AP bring-up; OpenWRT packages in CI | A phone joins the PC's AIGW Wi-Fi; same packages install on an OpenWRT x86 VM |
-| **P1 Observe** | agdns, flow/disc/wifi/sys, Context Graph, agctl, first app screens | Live "who talks to what" per device and person |
-| **P2 Understand** | `.agm` runtime, domain-risk + device-type models, baselines, DNS ⇄ flow signals | Correct device types; explained alerts on test cases |
-| **P3 Act** | Policy engine, guardrails, nft/tc/dns/wifi actuators, TTL + revert | Quarantine/priority work and auto-revert; DNS/DHCP never blocked |
+| Phase | Deliverable | Exit test | Status |
+|-------|-------------|-----------|--------|
+| **P0 Foundation** | libag, event schema, mark layout; PC-as-AP bring-up; OpenWRT packages in CI | A phone joins the PC's AIGW Wi-Fi; same packages install on an OpenWRT x86 VM | v0.1 |
+| **P1 Observe** | agdns, flow/disc/wifi/sys, Context Graph, agctl, first app screens | Live "who talks to what" per device and person | v0.2 (no app screens yet) |
+| **P2 Understand** | `.agm` runtime, domain-risk + device-type models, baselines, DNS ⇄ flow signals | Correct device types; explained alerts on test cases | v0.3, v0.4 (device type is rule-based) |
+| **P3 Act** | Policy engine, guardrails, nft/tc/dns/wifi actuators, TTL + revert | Quarantine/priority work and auto-revert; DNS/DHCP never blocked | v0.5: nft + dns actuators; tc and wifi later |
+
+**As built in v0.5 (P3).** Alerts flow through `config policy` sections to *decisions*
+(`ag.decision`: list · request · approve · reject · revert). Modes: `advise` (default; proposals wait
+for a person) · `enforce` (automatic, at most `max_auto_per_hour`) · `off`. Actuators: quarantine
+(MAC in nft set, forwarding only, so DHCP/DNS to the gateway keep working) · priority (IP in nft
+set, DSCP CS5 → WMM video queue) · block (agdns NXDOMAIN for a name and its subdomains, UDP and TCP).
+Guardrails: never the gateway, never off-LAN or protected devices, TTL 10 s – `max_ttl` on every
+action with expiry enforced by the kernel and agdns themselves, blocking never automatic. Decisions
+persist and are re-applied after restarts and firewall reloads. Verified by `tests/act-test.sh`
+against real nft rules in network namespaces.
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget |

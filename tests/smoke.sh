@@ -38,6 +38,9 @@ config dns 'dns'
 
 config wifi 'wifi'
 	option ctrl_dir '$T/hostapd'
+
+config act 'act'
+	option dns_policy '$T/dns-policy'
 EOF
 echo "1999999999 aa:bb:cc:dd:ee:ff 192.0.2.10 smoke-host *" > "$T/leases"
 

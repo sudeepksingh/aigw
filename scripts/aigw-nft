@@ -11,7 +11,7 @@ set -eu
 
 NFT_FILE=${AIGW_NFT_FILE:-/etc/aigw/aigw.nft}
 
-uci_get() { uci -q get "aigw.$1" 2>/dev/null || true; }
+uci_get() { uci ${AIGW_UCI_CONFDIR:+-c "$AIGW_UCI_CONFDIR"} -q get "aigw.$1" 2>/dev/null || true; }
 
 render() {
 	port=$(uci_get dns.port); port=${port:-5300}
@@ -27,9 +27,22 @@ render() {
 table inet ag
 delete table inet ag
 table inet ag {
-	# devices the brain isolates (MAC, with expiry)
+	# Elements are added and removed by agd (agd/act.c), always with a timeout,
+	# so every action ends on time even if agd stops.
+
+	# quarantined devices (MAC): they reach the gateway (DHCP, DNS), nothing beyond
 	set quarantine {
 		type ether_addr
+		flags timeout
+	}
+
+	# prioritised devices (IP): their traffic goes in the Wi-Fi video queue
+	set priority4 {
+		type ipv4_addr
+		flags timeout
+	}
+	set priority6 {
+		type ipv6_addr
 		flags timeout
 	}
 
@@ -41,8 +54,17 @@ table inet ag {
 
 	chain forward {
 		type filter hook forward priority filter - 5; policy accept;
-		ether saddr @quarantine drop
+		ether saddr @quarantine counter drop
 		ct mark & 0x000000ff vmap @action
+	}
+
+	# DSCP CS5 = WMM "video" access category on the radio
+	chain prioritize {
+		type filter hook forward priority mangle; policy accept;
+		ip saddr @priority4 counter ip dscp set cs5
+		ip daddr @priority4 counter ip dscp set cs5
+		ip6 saddr @priority6 counter ip6 dscp set cs5
+		ip6 daddr @priority6 counter ip6 dscp set cs5
 	}
 EOF
 	if [ "$intercept" = "1" ] && [ -n "$ifaces" ]; then
