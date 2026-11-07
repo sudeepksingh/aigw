@@ -35,8 +35,14 @@
  *                    {"request": {action, target, ttl, reason}}     acts, as a person would
  *                    {"request": {"undo": id}}
  *                    {"done": {id, ok, error}}                      actuator result
- *                    {"query": "devices" | "decisions" | "status", "id": n}
+ *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status", "id": n}
+ *                    {"model": {file, sig, id}}     offer a signed model update (capability
+ *                                                   model.offer; files in its own $AIGW_STATE)
  *                    {"log": "text"}
+ *
+ * Each plug-in runs in its folder with $AIGW_STATE, a directory only it (and
+ * root) can write. "needs" may also name a setting ("config:url"): the
+ * plug-in waits until you set it (agctl plugin config <name> url <value>).
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -45,6 +51,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <grp.h>
+#include <limits.h>
 #include <poll.h>
 #include <pwd.h>
 #include <signal.h>
@@ -146,7 +153,12 @@ static int trusted(const struct plugin *p)
 
 static int priv_cap(const char *cap)
 {
-	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read");
+	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read") || !strcmp(cap, "model.offer");
+}
+
+static void state_dir(const struct plugin *p, char *out, size_t n)
+{
+	snprintf(out, n, "%s/%s", cfg.plugin_state, p->name);
 }
 
 static int priv_sub(const char *type)
@@ -430,6 +442,49 @@ static void on_decision(struct plugin *p, struct blob_attr *a, int request)
 	}
 }
 
+/* a path the plug-in hands over must lie in its own state directory */
+static int own_file(const struct plugin *p, const char *path, char *real, size_t n)
+{
+	char dir[300], rdir[PATH_MAX], rp[PATH_MAX];
+	size_t l;
+
+	state_dir(p, dir, sizeof(dir));
+	if (!path || !realpath(dir, rdir) || !realpath(path, rp))
+		return 0;
+	l = strlen(rdir);
+	if (strncmp(rp, rdir, l) || rp[l] != '/')
+		return 0;
+	snprintf(real, n, "%s", rp);
+	return 1;
+}
+
+static void on_model(struct plugin *p, struct blob_attr *a)
+{
+	char err[256] = "", origin[48], file[PATH_MAX] = "", sig[PATH_MAX] = "";
+	const char *sg = gstr(a, "sig");
+	int rc = -1, version = 0;
+
+	snprintf(origin, sizeof(origin), "plug-in %s", p->name);
+	if (!has_cap(p, "model.offer"))
+		snprintf(err, sizeof(err), "plug-in %s may not offer models (capability model.offer%s)", p->name,
+			 trusted(p) ? " not in its manifest" : " needs: agctl plugin allow");
+	else if (!own_file(p, gstr(a, "file"), file, sizeof(file)) || (sg && *sg && !own_file(p, sg, sig, sizeof(sig))))
+		snprintf(err, sizeof(err), "model files must be in the plug-in's own directory ($AIGW_STATE)");
+	else
+		rc = models_offer(file, sig[0] ? sig : NULL, origin, 0, &version, err, sizeof(err));
+	if (get(a, "id")) {
+		struct blob_buf d = { 0 };
+
+		blob_buf_init(&d, 0);
+		blobmsg_add_u8(&d, "ok", rc == 0);
+		blobmsg_add_u32(&d, "version", (uint32_t)version);
+		reply(p, (int)gnum(a, "id", 0), &d, err);
+		blob_buf_free(&d);
+	} else if (rc) {
+		AG_INFO("plug-in %s: model refused: %s", p->name, err);
+	}
+}
+
 static void on_query(struct plugin *p, const char *what, int id)
 {
 	struct blob_buf d = { 0 };
@@ -444,6 +499,10 @@ static void on_query(struct plugin *p, const char *what, int id)
 		blobmsg_add_u64(&d, "alerts", alerts_total());
 		blobmsg_add_u32(&d, "waiting", (uint32_t)act_count(0));
 		blobmsg_add_u32(&d, "active", (uint32_t)act_count(1));
+		blobmsg_add_u32(&d, "plugins", (uint32_t)plugin_count(1));
+		blobmsg_add_u64(&d, "uptime_s", (uint64_t)(ag_wall_s() - started));
+	} else if (!strcmp(what, "models")) {
+		models_blob(&d, "models");
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :
@@ -462,9 +521,11 @@ static void on_query(struct plugin *p, const char *what, int id)
 		blobmsg_close_array(&d, arr);
 	} else if (!strcmp(what, "decisions")) {
 		act_blob(&d, 50, "decisions");
+	} else if (!strcmp(what, "alerts")) {
+		alerts_blob(&d, 50, "alerts");
 	} else {
 		blob_buf_free(&d);
-		reply(p, id, NULL, "unknown query (status, devices, decisions)");
+		reply(p, id, NULL, "unknown query (status, devices, decisions, alerts, models)");
 		return;
 	}
 	reply(p, id, &d, NULL);
@@ -500,6 +561,8 @@ static void handle_line(struct plugin *p, char *line)
 			act_plugin_result((uint32_t)gnum(body, "id", 0), (int)gnum(body, "ok", 0), gstr(body, "error"));
 		else if (!strcmp(key, "query") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
 			on_query(p, blobmsg_get_string(cur), (int)gnum(b.head, "id", 0));
+		else if (!strcmp(key, "model") && body)
+			on_model(p, body);
 		else if (!strcmp(key, "log") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
 			AG_INFO("plug-in %s: %.300s", p->name, blobmsg_get_string(cur));
 		else
@@ -688,11 +751,18 @@ static int start(struct plugin *p)
 {
 	int pin[2] = { -1, -1 }, pout[2] = { -1, -1 }, perr[2] = { -1, -1 };
 	struct passwd *pw = NULL;
-	char env_name[64], env_dir[300], env_host[48], *envp[8], *argv[2];
+	char env_name[64], env_dir[300], env_host[48], env_state[320], sdir[300], *envp[9], *argv[2];
 	pid_t pid;
 
 	if (getuid() == 0 && cfg.plugin_user[0] && !(pw = getpwnam(cfg.plugin_user))) {
 		set_state(p, P_FAILED, "user '%s' (plugins.user) does not exist", cfg.plugin_user);
+		return -1;
+	}
+	/* its own writable directory: downloads, caches; nobody else's plug-in can touch it */
+	state_dir(p, sdir, sizeof(sdir));
+	if ((mkdir(cfg.plugin_state, 0755) && errno != EEXIST) || (mkdir(sdir, 0700) && errno != EEXIST) ||
+	    (pw && chown(sdir, pw->pw_uid, pw->pw_gid)) || chmod(sdir, 0700)) {
+		set_state(p, P_FAILED, "cannot prepare %s: %s", sdir, strerror(errno));
 		return -1;
 	}
 	if (pipe(pin) || pipe(pout) || pipe(perr)) {
@@ -702,13 +772,15 @@ static int start(struct plugin *p)
 	snprintf(env_name, sizeof(env_name), "AIGW_PLUGIN=%s", p->name);
 	snprintf(env_dir, sizeof(env_dir), "AIGW_PLUGIN_DIR=%s", p->dir);
 	snprintf(env_host, sizeof(env_host), "AIGW_HOST=%s", cfg.host);
+	snprintf(env_state, sizeof(env_state), "AIGW_STATE=%s", sdir);
 	envp[0] = (char *)"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 	envp[1] = env_name;
 	envp[2] = env_dir;
 	envp[3] = env_host;
-	envp[4] = (char *)"HOME=/tmp";
-	envp[5] = (char *)"LANG=C";
-	envp[6] = NULL;
+	envp[4] = env_state;
+	envp[5] = (char *)"HOME=/tmp";
+	envp[6] = (char *)"LANG=C";
+	envp[7] = NULL;
 	argv[0] = p->exec;
 	argv[1] = NULL;
 
@@ -903,6 +975,16 @@ static int event_available(const struct plugin *self, const char *type)
 	return 0;
 }
 
+static int conf_set(const struct plugin *p, const char *key)
+{
+	int i;
+
+	for (i = 0; i < p->n_conf; i++)
+		if (!strcmp(p->conf[i].k, key))
+			return p->conf[i].v[0] != '\0';
+	return 0;
+}
+
 /* NULL when everything it needs is here, else what is missing */
 static const char *missing(const struct plugin *p, char *buf, size_t n)
 {
@@ -922,6 +1004,8 @@ static const char *missing(const struct plugin *p, char *buf, size_t n)
 			snprintf(buf, n, "nothing answers on %s (yet)", v);
 		else if (!strncmp(need, "event:", 6) && !event_available(p, v))
 			snprintf(buf, n, "no running plug-in provides '%s' events", v);
+		else if (!strncmp(need, "config:", 7) && !conf_set(p, v))
+			snprintf(buf, n, "setting '%s' is not set (agctl plugin config %s %s <value>)", v, p->name, v);
 		else
 			continue;
 		return buf;
@@ -1011,13 +1095,15 @@ static int load_manifest(struct plugin *p, char *err, size_t n)
 		}
 	for (i = 0; i < p->n_needs; i++)
 		if (strncmp(p->needs[i], "bin:", 4) && strncmp(p->needs[i], "file:", 5) &&
-		    strncmp(p->needs[i], "tcp:", 4) && strncmp(p->needs[i], "event:", 6)) {
-			snprintf(err, n, "unknown need '%s' (bin:, file:, tcp:, event:)", p->needs[i]);
+		    strncmp(p->needs[i], "tcp:", 4) && strncmp(p->needs[i], "event:", 6) &&
+		    strncmp(p->needs[i], "config:", 7)) {
+			snprintf(err, n, "unknown need '%s' (bin:, file:, tcp:, event:, config:)", p->needs[i]);
 			goto out;
 		}
 	for (i = 0; i < p->n_caps; i++)
 		if (strcmp(p->caps[i], "decision.request") && strcmp(p->caps[i], "decision.propose") &&
-		    strcmp(p->caps[i], "devices.read") && strcmp(p->caps[i], "alert.raise")) {
+		    strcmp(p->caps[i], "devices.read") && strcmp(p->caps[i], "alert.raise") &&
+		    strcmp(p->caps[i], "model.offer")) {
 			snprintf(err, n, "unknown capability '%s'", p->caps[i]);
 			goto out;
 		}
@@ -1206,7 +1292,8 @@ static void read_uci(void)
 	uci_free_context(ctx);
 }
 
-static int write_uci(const char *plugin, const char *option, int value, char *err, size_t n)
+/* value "" removes the option */
+static int write_uci(const char *plugin, const char *option, const char *value, char *err, size_t n)
 {
 	struct uci_context *ctx = uci_alloc_context();
 	struct uci_package *pkg = NULL;
@@ -1233,8 +1320,15 @@ static int write_uci(const char *plugin, const char *option, int value, char *er
 	snprintf(tuple, sizeof(tuple), "aigw.%s=plugin", sec);
 	if (uci_lookup_ptr(ctx, &ptr, tuple, true) != UCI_OK || uci_set(ctx, &ptr) != UCI_OK)
 		goto out;
-	snprintf(tuple, sizeof(tuple), "aigw.%s.%s=%d", sec, option, value);
-	if (uci_lookup_ptr(ctx, &ptr, tuple, true) != UCI_OK || uci_set(ctx, &ptr) != UCI_OK ||
+	/* set the fields directly: a value may hold any character (URLs, tokens) */
+	memset(&ptr, 0, sizeof(ptr));
+	ptr.package = "aigw";
+	ptr.section = sec;
+	ptr.option = option;
+	if (uci_lookup_ptr(ctx, &ptr, NULL, true) != UCI_OK)
+		goto out;
+	ptr.value = value;
+	if ((*value ? uci_set(ctx, &ptr) : (ptr.o ? uci_delete(ctx, &ptr) : UCI_OK)) != UCI_OK ||
 	    uci_save(ctx, ptr.p) != UCI_OK || uci_commit(ctx, &ptr.p, false) != UCI_OK)
 		goto out;
 	rc = 0;
@@ -1713,7 +1807,7 @@ int plugin_set(const char *name, const char *what, int on, char *err, size_t err
 		snprintf(err, errlen, "%s comes from a package and is already trusted", name);
 		return -1;
 	}
-	if (write_uci(name, what, on, err, errlen))
+	if (write_uci(name, what, on ? "1" : "0", err, errlen))
 		return -1;
 	read_uci();
 	if (!strcmp(what, "enabled") && on && (p->state == P_FAILED || p->state == P_DISABLED)) {
@@ -1724,6 +1818,43 @@ int plugin_set(const char *name, const char *what, int on, char *err, size_t err
 	if (!strcmp(what, "allow") && p->state == P_RUNNING)
 		stop(p, P_WAITING, "restarting with new permissions");
 	else if (!strcmp(what, "allow") && p->state == P_ACTIVE)
+		p->state = P_WAITING;
+	evaluate(p);
+	return 0;
+}
+
+/* a plug-in setting ("" removes it); the plug-in restarts to see it */
+int plugin_config(const char *name, const char *key, const char *value, char *err, size_t errlen)
+{
+	struct plugin *p = find(name);
+	size_t i;
+	int j;
+
+	if (!p) {
+		snprintf(err, errlen, "no plug-in '%s' (agctl plugins)", name);
+		return -1;
+	}
+	for (i = 0; key[i]; i++)
+		if (!((key[i] >= 'a' && key[i] <= 'z') || (key[i] >= '0' && key[i] <= '9') || key[i] == '_'))
+			break;
+	if (!*key || key[i] || i > 31 || !strcmp(key, "allow") || !strcmp(key, "enabled") || !strcmp(key, "name")) {
+		snprintf(err, errlen, "setting names are up to 31 of a-z, 0-9 and _ (allow/enabled have their own commands)");
+		return -1;
+	}
+	if (strlen(value) >= sizeof(p->conf[0].v) || strpbrk(value, "\n\r'")) {
+		snprintf(err, errlen, "value too long (max %zu) or has a quote or line break", sizeof(p->conf[0].v) - 1);
+		return -1;
+	}
+	if (write_uci(name, key, value, err, errlen))
+		return -1;
+	if (!*value)                        /* removed: unset now; the manifest default returns when agd restarts */
+		for (j = 0; j < p->n_conf; j++)
+			if (!strcmp(p->conf[j].k, key))
+				p->conf[j] = p->conf[--p->n_conf];
+	read_uci();
+	if (p->state == P_RUNNING)
+		stop(p, P_WAITING, "restarting with new settings");
+	else if (p->state == P_ACTIVE)
 		p->state = P_WAITING;
 	evaluate(p);
 	return 0;

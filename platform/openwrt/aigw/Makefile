@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.7.0
+PKG_VERSION:=0.8.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -62,6 +62,24 @@ define Package/aigw-mqtt/description
   uci set aigw.mqtt.broker=<address>; uci commit aigw).
 endef
 
+define Package/aigw-bridge
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=AIGW plug-in: bridge to cortex (fleet history, signed model updates)
+  # curl (TLS, certificate checks) is needed at run time; the plug-in waits
+  # until it is installed. It is not a build dependency, so the package
+  # builds from the base feed alone.
+  DEPENDS:=+aigw +libubox +libblobmsg-json +libuci
+endef
+
+define Package/aigw-bridge/description
+  An AIGW plug-in that links the gateway to cortex, AIGW's optional
+  services outside: it reports state (never traffic), fetches signed model
+  updates for agd to check and hot-load, and brings suggestions from the AI
+  assistant, which wait for your approval. Needs curl (opkg install curl).
+  Set it up with: agctl bridge <cortex URL>; agctl bridge token.
+endef
+
 CMAKE_OPTIONS += -DAIGW_TESTS=OFF
 
 define Build/Prepare
@@ -79,7 +97,8 @@ define Package/aigw/install
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/models/domain-risk.agm $(1)/usr/share/aigw/models/
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
 		$(1)/usr/share/aigw/plugins/iot-guard/
-	# per-device Wi-Fi keys, your plug-ins and device history survive a firmware upgrade
+	# per-device Wi-Fi keys, your plug-ins, trusted keys, model updates and
+	# device history survive a firmware upgrade
 	echo /etc/aigw/ > $(1)/lib/upgrade/keep.d/aigw
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agd $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agdns $(1)/usr/sbin/
@@ -98,6 +117,12 @@ define Package/aigw-mqtt/install
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/mqtt/manifest.json $(1)/usr/share/aigw/plugins/mqtt/
 endef
 
+define Package/aigw-bridge/install
+	$(INSTALL_DIR) $(1)/usr/share/aigw/plugins/bridge
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/bridge/ag-bridge $(1)/usr/share/aigw/plugins/bridge/
+	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/bridge/manifest.json $(1)/usr/share/aigw/plugins/bridge/
+endef
+
 define Package/aigw/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
@@ -113,3 +138,4 @@ endef
 
 $(eval $(call BuildPackage,aigw))
 $(eval $(call BuildPackage,aigw-mqtt))
+$(eval $(call BuildPackage,aigw-bridge))

@@ -114,6 +114,10 @@ config act 'act'
 config plugins 'plugins'
 	option enabled '0'
 
+config models 'models'
+	option dir '$T/models'
+	option keys '$T/keys.d'
+
 config lan 'lan'
 	# only the test client: a live AIGW's clients on this host stay out of the test
 	list iface 'abc$R'

@@ -109,14 +109,36 @@ config plugins 'plugins'
 	option enabled '1'
 	# plug-ins run as this unprivileged user
 	option user 'nobody'
+	# each plug-in's own writable directory is <state_dir>/<name>
+	# option state_dir '/var/run/aigw/plugins'
 
 # Settings for one plug-in become its configuration; 'enabled 0' turns it off.
+# 'agctl plugin config <name> <key> <value>' sets them and restarts the plug-in.
 # config plugin 'mqtt'
 #	option broker '192.168.1.10'
 #	option port '1883'
 #	option username 'aigw'
 #	option password 'secret'
 #	option homeassistant '1'
+
+# The bridge to cortex (package aigw-bridge): 'agctl bridge <url>', then
+# 'agctl bridge token' (paste the token from 'aigw_cortex enroll').
+# config plugin 'bridge'
+#	option url 'https://cortex.example.net:8790'
+#	option token '...'
+#	option interval '300'
+#	# names | anonymous (no names, addresses or alert reasons) | none
+#	option devices 'names'
+#	option models '1'
+#	option proposals '1'
+
+config models 'models'
+	# Model updates (from cortex through the bridge, or 'agctl model install')
+	# are used only when signed by a key you trust ('agctl trust <key.pub>'),
+	# and are loaded without a restart. The packaged models stay as fallback.
+	# option dir '/etc/aigw/models'
+	# option keys '/etc/aigw/keys.d'
+	option require_signature '1'
 
 config lan 'lan'
 	# interfaces whose clients AIGW looks after (DNS interception, and the

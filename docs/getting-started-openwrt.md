@@ -114,6 +114,24 @@ Your own plug-ins: `agctl plugin add <folder>` (they live in
 `/etc/aigw/plugins`, kept across firmware upgrades), and
 `agctl plugin allow <name>` for privileged capabilities.
 
+### Cortex (optional)
+
+To take model updates from your cortex (see
+[cortex/README.md](../cortex/README.md)), install the bridge and curl, trust
+cortex's key and point the bridge at it:
+
+```bash
+opkg install curl /tmp/aigw-bridge_*.ipk          # or: apk add curl; apk add --allow-untrusted /tmp/aigw-bridge-*.apk
+scp you@cortex-host:.aigw-cortex/keys/cortex.pub /tmp/
+agctl trust /tmp/cortex.pub
+agctl bridge https://cortex-host:8790
+agctl bridge token                                 # paste the token from "aigw_cortex enroll"
+agctl models                                       # the version in use and who signed it
+```
+
+Model updates and trusted keys live in `/etc/aigw/`, so they survive a
+firmware upgrade.
+
 ### Wi-Fi keys per device
 
 Tell hostapd about AIGW's key file once (per Wi-Fi interface you want it on):

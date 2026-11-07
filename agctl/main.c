@@ -2,6 +2,7 @@
 /* agctl: command-line view of the AIGW brain over ubus. */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,6 +20,7 @@
 #include "ag/ag.h"
 #include "ag/dns.h"
 #include "ag/qr.h"
+#include "ag/sign.h"
 
 static struct ubus_context *ctx;
 static int json_out;
@@ -36,7 +38,7 @@ static void usage(void)
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
-		"  watch [dns|flows|wifi|alerts|decisions|plugins|all]   follow activity live (Ctrl+C to stop)\n"
+		"  watch [dns|flows|wifi|alerts|decisions|plugins|models|all]   follow activity live (Ctrl+C to stop)\n"
 		"\n"
 		"  decisions [N]       actions waiting for you, in effect, and past ones\n"
 		"  approve <id> [time] carry out a proposed action (optionally for another time limit)\n"
@@ -58,6 +60,16 @@ static void usage(void)
 		"  plugin remove <name>          remove a plug-in you added\n"
 		"  plugin allow|deny <name>      let a plug-in you added use its privileged capabilities\n"
 		"  plugin enable|disable <name>  turn a plug-in on or off\n"
+		"  plugin config <name> <key> <value|->  change a plug-in's setting (- reads it from stdin)\n"
+		"\n"
+		"  models              models in use: version, where from, who signed it\n"
+		"  model install <file.agm> [file.sig] [--force]  load a model update now (needs a\n"
+		"                      trusted signature; --force also allows an older version)\n"
+		"  model rollback [name]         go back to the previous model and hold that version off\n"
+		"  trust <key.pub>     accept models signed with this usign key (e.g. your cortex's)\n"
+		"  untrust <fingerprint>         stop accepting a key\n"
+		"  bridge [url]        link to cortex: show the bridge, or set cortex's address\n"
+		"  bridge token        set this gateway's token (paste it; read from stdin)\n"
 		"\n"
 		"  keys                Wi-Fi keys of individual devices\n"
 		"  key add <name> [zone] [time]  new key and a QR code to scan; the first device to\n"
@@ -216,14 +228,19 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("  wi-fi keys      %llu per-device keys\n", (unsigned long long)fnum(msg, "wifi_keys"));
 	}
 	{
-		struct blob_attr *m = field(msg, "models"), *e;
+		struct blob_attr *m = field(msg, "models"), *v = field(msg, "model_versions"), *e;
 		size_t rem;
 		int k = 0;
 
 		printf("  models         ");
 		if (m)
 			blobmsg_for_each_attr(e, m, rem) {
-				printf(" %s (%u trees)", blobmsg_name(e), blobmsg_get_u32(e));
+				uint64_t ver = fnum(v, blobmsg_name(e));
+
+				if (ver)
+					printf(" %s v%llu (%u trees)", blobmsg_name(e), (unsigned long long)ver, blobmsg_get_u32(e));
+				else
+					printf(" %s (packaged, %u trees)", blobmsg_name(e), blobmsg_get_u32(e));
 				k++;
 			}
 		printf("%s\n", k ? "" : " none loaded");
@@ -688,6 +705,138 @@ static void show_ok(struct ubus_request *req, int type, struct blob_attr *msg)
 		change_failed = 1;
 }
 
+static void show_models(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "models"), *keys = field(msg, "trusted_keys"), *e;
+	size_t rem;
+	char t[32];
+	int k = 0;
+
+	if (json_out)
+		return print_json(msg);
+	printf("Models (updates in %s; signature %s)\n", fstr(msg, "dir"),
+	       fnum(msg, "require_signature") ? "required" : "NOT required");
+	if (arr)
+		blobmsg_for_each_attr(e, arr, rem) {
+			const char *src = orb(fstr(e, "source"), "-");
+
+			if (!fnum(e, "loaded")) {
+				printf("  %-12s not loaded\n", fstr(e, "name"));
+				continue;
+			}
+			if (!strcmp(src, "package"))
+				printf("  %-12s packaged model, %llu trees\n", fstr(e, "name"), (unsigned long long)fnum(e, "trees"));
+			else
+				printf("  %-12s version %llu, %llu trees, from %s, signed by %s, trained %s, since %s\n",
+				       fstr(e, "name"), (unsigned long long)fnum(e, "version"), (unsigned long long)fnum(e, "trees"),
+				       orb(fstr(e, "origin"), "?"), orb(fstr(e, "signer"), "nobody (unsigned)"),
+				       orb(fstr(e, "trained"), "?"), ago(fnum(e, "installed"), t, sizeof(t)));
+			if (fnum(e, "held_back"))
+				printf("  %-12s held back: version %llu and older (you rolled back)\n", "",
+				       (unsigned long long)fnum(e, "held_back"));
+			if (fstr(e, "refused") && *fstr(e, "refused"))
+				printf("  %-12s last refused %s: %s\n", "", ago(fnum(e, "refused_at"), t, sizeof(t)), fstr(e, "refused"));
+		}
+	printf("Trusted keys (%s)\n", fstr(msg, "keys_dir"));
+	if (keys)
+		blobmsg_for_each_attr(e, keys, rem) {
+			printf("  %s  %s\n", fstr(e, "fingerprint"), orb(fstr(e, "comment"), ""));
+			k++;
+		}
+	if (!k)
+		printf("  none: model updates are refused until you trust a key (agctl trust <key.pub>)\n");
+}
+
+static void show_model_change(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	if (json_out)
+		print_json(msg);
+	else if (!fnum(msg, "ok"))
+		fprintf(stderr, "agctl: %s\n", fstr(msg, "error"));
+	else if (fnum(msg, "version"))
+		printf("version %llu is in use now (no restart needed)\n", (unsigned long long)fnum(msg, "version"));
+	else
+		printf("done\n");
+	if (!fnum(msg, "ok"))
+		change_failed = 1;
+}
+
+/* copy a usign public key into the trusted keys directory, named by its fingerprint */
+static int trust(const char *file)
+{
+	struct ag_config c;
+	uint8_t fp[8], pk[32];
+	char text[1100], fph[17], dst[400];
+	size_t n;
+	FILE *f = fopen(file, "r"), *o;
+
+	if (!f) {
+		fprintf(stderr, "agctl: %s: %s\n", file, strerror(errno));
+		return 1;
+	}
+	n = fread(text, 1, sizeof(text) - 1, f);
+	fclose(f);
+	text[n] = '\0';
+	if (ag_usign_pubkey(text, fp, pk)) {
+		fprintf(stderr, "agctl: %s is not a usign public key (untrusted comment line + base64 line)\n", file);
+		return 1;
+	}
+	ag_config_load(&c);
+	ag_fingerprint_hex(fp, fph);
+	if (mkdir(c.trusted_keys, 0755) && errno != EEXIST) {
+		fprintf(stderr, "agctl: cannot create %s: %s (sudo?)\n", c.trusted_keys, strerror(errno));
+		return 1;
+	}
+	snprintf(dst, sizeof(dst), "%s/%s.pub", c.trusted_keys, fph);
+	if (!(o = fopen(dst, "w")) || fputs(text, o) < 0 || fclose(o)) {
+		fprintf(stderr, "agctl: cannot write %s: %s (sudo?)\n", dst, strerror(errno));
+		return 1;
+	}
+	chmod(dst, 0644);
+	printf("trusting key %s: models it signs are accepted (%s)\n", fph, dst);
+	return 0;
+}
+
+static int untrust(const char *fph)
+{
+	struct ag_config c;
+	char path[400];
+
+	ag_config_load(&c);
+	snprintf(path, sizeof(path), "%s/%s.pub", c.trusted_keys, fph);
+	if (strchr(fph, '/') || unlink(path)) {
+		fprintf(stderr, "agctl: no trusted key %s (agctl models lists them)\n", fph);
+		return 1;
+	}
+	printf("key %s is no longer trusted\n", fph);
+	return 0;
+}
+
+static int plugin_config(const char *name, const char *key, const char *value)
+{
+	struct blob_buf a = { 0 };
+	char line[512];
+	int rc;
+
+	if (!strcmp(value, "-")) {
+		if (isatty(0))
+			fprintf(stderr, "%s %s: ", name, key);
+		if (!fgets(line, sizeof(line), stdin)) {
+			fprintf(stderr, "agctl: nothing read\n");
+			return 1;
+		}
+		line[strcspn(line, "\r\n")] = '\0';
+		value = line;
+	}
+	blob_buf_init(&a, 0);
+	blobmsg_add_string(&a, "name", name);
+	blobmsg_add_string(&a, "key", key);
+	blobmsg_add_string(&a, "value", value);
+	rc = call("ag.plugin", "config", a.head, show_ok) || change_failed;
+	blob_buf_free(&a);
+	return rc;
+}
+
 /* fork/exec without a shell; 0 on success */
 static int run(char *const argv[])
 {
@@ -1009,6 +1158,8 @@ static int watch(const char *what)
 	if ((all || !strcmp(what, "plugins")) &&
 	    (ubus_register_event_handler(ctx, &ev, AG_EV_PLUGIN) || ubus_register_event_handler(ctx, &ev, "iot.*")))
 		rc = 1;
+	if ((all || !strcmp(what, "models")) && ubus_register_event_handler(ctx, &ev, AG_EV_MODEL))
+		rc = 1;
 	if (rc) {
 		fprintf(stderr, "agctl: cannot subscribe to events (permission?)\n");
 	} else {
@@ -1047,6 +1198,10 @@ int main(int argc, char **argv)
 		print_qr(argv[i]);
 		return 0;
 	}
+	if (!strcmp(cmd, "trust") && i < argc)     /* files only: agd reads the keys at each offer */
+		return trust(argv[i]);
+	if (!strcmp(cmd, "untrust") && i < argc)
+		return untrust(argv[i]);
 
 	ctx = ubus_connect(ag_ubus_path());
 	if (!ctx) {
@@ -1152,6 +1307,8 @@ int main(int argc, char **argv)
 			blobmsg_add_u8(&args, allow ? "allow" : "enabled", !strcmp(sub, "allow") || !strcmp(sub, "enable"));
 			rc = call("ag.plugin", "set", args.head, show_ok) || change_failed;
 			blob_buf_free(&args);
+		} else if (!strcmp(sub, "config") && i + 2 < argc) {
+			rc = plugin_config(argv[i], argv[i + 1], argv[i + 2]);
 		} else if (i == argc || !strcmp(sub, "show")) {
 			device_filter = i < argc ? argv[i] : sub;
 			blob_buf_init(&args, 0);
@@ -1161,6 +1318,61 @@ int main(int argc, char **argv)
 		} else {
 			usage();
 			rc = 1;
+		}
+	} else if (!strcmp(cmd, "models")) {
+		rc = call("ag.model", "list", NULL, show_models);
+	} else if (!strcmp(cmd, "model") && i < argc) {
+		const char *sub = argv[i++];
+
+		blob_buf_init(&args, 0);
+		if (!strcmp(sub, "install") && i < argc) {
+			char file[PATH_MAX], sig[PATH_MAX + 8] = "";
+			int force = 0;
+
+			if (!realpath(argv[i++], file)) {
+				fprintf(stderr, "agctl: %s: %s\n", argv[i - 1], strerror(errno));
+				rc = 1;
+			}
+			for (; i < argc && !rc; i++) {
+				if (!strcmp(argv[i], "--force"))
+					force = 1;
+				else if (!realpath(argv[i], sig)) {
+					fprintf(stderr, "agctl: %s: %s\n", argv[i], strerror(errno));
+					rc = 1;
+				}
+			}
+			if (!sig[0]) {
+				snprintf(sig, sizeof(sig), "%s.sig", file);
+				if (access(sig, F_OK))
+					sig[0] = '\0';
+			}
+			if (!rc) {
+				blobmsg_add_string(&args, "file", file);
+				if (sig[0])
+					blobmsg_add_string(&args, "sig", sig);
+				blobmsg_add_u8(&args, "force", (uint8_t)force);
+				rc = call("ag.model", "install", args.head, show_model_change) || change_failed;
+			}
+		} else if (!strcmp(sub, "rollback")) {
+			if (i < argc)
+				blobmsg_add_string(&args, "name", argv[i]);
+			rc = call("ag.model", "rollback", args.head, show_model_change) || change_failed;
+		} else {
+			usage();
+			rc = 1;
+		}
+		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "bridge")) {
+		if (i == argc) {
+			device_filter = "bridge";
+			blob_buf_init(&args, 0);
+			blobmsg_add_string(&args, "name", "bridge");
+			rc = call("ag.plugin", "list", args.head, show_plugins);
+			blob_buf_free(&args);
+		} else if (!strcmp(argv[i], "token")) {
+			rc = plugin_config("bridge", "token", "-");
+		} else {
+			rc = plugin_config("bridge", "url", argv[i]);
 		}
 	} else if (!strcmp(cmd, "keys")) {
 		rc = call("ag.wifi", "keys", NULL, show_keys);

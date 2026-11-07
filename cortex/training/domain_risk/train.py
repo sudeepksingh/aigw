@@ -125,11 +125,29 @@ def main():
     ap.add_argument("--depth", type=int, default=3)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--out", default=os.path.join(REPO, "models", "domain-risk.agm"))
-    ap.add_argument("--golden", default=os.path.join(REPO, "tests", "data", "domain-risk-golden.tsv"))
+    ap.add_argument("--golden", default=os.path.join(REPO, "tests", "data", "domain-risk-golden.tsv"),
+                    help="golden test file to write ('' = none)")
+    ap.add_argument("--benign-file", help="popular domains, one per line, instead of downloading Tranco")
+    ap.add_argument("--feedback", help="people's answers: <domain>\\t<0 benign | 1 risky> per line")
+    ap.add_argument("--feedback-weight", type=float, default=50.0,
+                    help="how much one answer counts against one generated example")
     args = ap.parse_args()
     rng = random.Random(args.seed)
 
-    domains = load_tranco(args.top)
+    if args.benign_file:
+        with open(args.benign_file) as f:
+            domains = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+    else:
+        domains = load_tranco(args.top)
+    fb_items, fb_y = [], []
+    if args.feedback:
+        with open(args.feedback) as f:
+            for ln in f:
+                parts = ln.rstrip("\n").split("\t")
+                lab = domain_label(parts[0]) if len(parts) == 2 and parts[1] in ("0", "1") else None
+                if lab:
+                    fb_items.append((parts[0], lab))
+                    fb_y.append(int(parts[1]))
     seen, benign = set(), []
     for d in domains:
         lab = domain_label(d)
@@ -149,11 +167,18 @@ def main():
 
     X = np.vstack([featurize(b_train, table), featurize([(q, l) for _, l, q in d_train], table)])
     y = np.array([0] * len(b_train) + [1] * len(d_train))
-    print(f"training on {len(b_train)} popular + {len(d_train)} generated domains, {N_FEATURES} features")
+    w = np.ones(len(y))
+    if fb_items:
+        # a person's answer about a real lookup outweighs many synthetic examples
+        X = np.vstack([X, featurize(fb_items, table)])
+        y = np.concatenate([y, fb_y])
+        w = np.concatenate([w, np.full(len(fb_y), args.feedback_weight)])
+    print(f"training on {len(b_train)} popular + {len(d_train)} generated domains"
+          f" + {len(fb_items)} answers from people, {N_FEATURES} features")
     t0 = time.time()
     clf = GradientBoostingClassifier(n_estimators=args.trees, max_depth=args.depth, learning_rate=0.1,
                                      subsample=0.8, random_state=args.seed)
-    clf.fit(X, y)
+    clf.fit(X, y, sample_weight=w)
     print(f"trained in {time.time() - t0:.0f}s")
 
     Xb = featurize(b_test, table)
@@ -170,7 +195,7 @@ def main():
         print(f"  {thr:<8} {float((pb >= thr).mean()) * 100:8.3f}%  {float((pd >= thr).mean()) * 100:12.2f}%")
     print(f"held-out AUC {auc:.4f}; at score >= {THRESHOLD}: false alarms on popular sites {fpr * 100:.2f}%")
     for f in FAMILIES:
-        print(f"  caught {recall[f] * 100:6.2f}%  {f}")
+        print(f"  caught {recall.get(f, 0) * 100:6.2f}%  {f}")
     worst = sorted(zip(pb, b_test), key=lambda t: -t[0])[:10]
     print("most suspicious popular sites:", ", ".join(f"{d}({p:.2f})" for p, (d, _) in worst))
 
@@ -182,9 +207,16 @@ def main():
     assert diff < 1e-9, f"exported trees disagree with sklearn: {diff}"
 
     importance = {n: round(float(v), 4) for n, v in zip(FEATURE_NAMES, clf.feature_importances_)}
+    fb_ok = None
+    if fb_items:
+        p = clf.predict_proba(featurize(fb_items, table))[:, 1]
+        fb_ok = round(float(np.mean([(pi >= THRESHOLD) == bool(yi) for pi, yi in zip(p, fb_y)])), 4)
+        print(f"agrees with {fb_ok * 100:.1f}% of people's answers at score >= {THRESHOLD}")
+    src = f"{os.path.basename(args.benign_file)}" if args.benign_file else f"Tranco top {args.top}"
     meta = {
         "schema": SCHEMA, "features": FEATURE_NAMES, "trained": time.strftime("%Y-%m-%d"),
-        "benign_source": f"Tranco top {args.top} ({len(benign)} unique labels)",
+        "benign_source": f"{src} ({len(benign)} unique labels)",
+        "feedback_labels": len(fb_items), "feedback_agreement": fb_ok,
         "risky_source": "synthetic DGA families: " + ", ".join(FAMILIES),
         "trees": args.trees, "depth": args.depth, "threshold": THRESHOLD,
         "heldout_auc": round(auc, 4), "heldout_false_alarm_rate": round(fpr, 5),
@@ -194,6 +226,8 @@ def main():
     size = write_agm(args.out, "domain-risk", base, trees, table, meta)
     print(f"wrote {args.out} ({size} bytes, {len(trees)} trees)")
 
+    if not args.golden:
+        return
     os.makedirs(os.path.dirname(args.golden), exist_ok=True)
     with open(args.golden, "w") as f:
         f.write("# qname\tlabel\t" + "\t".join(FEATURE_NAMES) + "\tprob\n")
