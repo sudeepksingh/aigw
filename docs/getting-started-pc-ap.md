@@ -58,10 +58,18 @@ sudo aigw-ap status  # access point, clients, services
 Act yourself (every action ends on its own; `agctl undo <id>` ends it now):
 
 ```bash
-agctl quarantine <device> 30m   # cut a device off from everything but the gateway
-agctl prioritize <device> 2h    # its traffic first, in the Wi-Fi video queue
-agctl block <domain> 1d         # no device can resolve it or its subdomains
+agctl prioritize <device> 2h          # its traffic first, in the Wi-Fi video queue
+agctl deprioritize <device> 2h        # its traffic last (Wi-Fi background queue)
+agctl throttle <device> 2mbit 1h      # a speed limit
+agctl block <domain> 1d               # no device can resolve it or its subdomains
+agctl block <domain> 1h <device>      # ... just this device
+agctl quarantine <device> 30m         # cut a device off from everything but the gateway
+agctl disconnect <device> 30m         # kick it off Wi-Fi and refuse it
 ```
+
+On a PC as AP, Wi-Fi clients talk to each other through the radio itself,
+not through the kernel, so quarantine cuts a device off from the internet
+and from wired devices; use `disconnect` to keep it off the Wi-Fi entirely.
 
 Start automatically at boot: `sudo systemctl enable --now aigw`.
 Stop: `sudo aigw-ap down`.

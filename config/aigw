@@ -61,13 +61,16 @@ config act 'act'
 	option max_ttl '86400'
 	# enforce mode: at most this many automatic actions per hour, then they wait for you
 	option max_auto_per_hour '3'
+	# default speed limit for 'throttle', kbit/s
+	option throttle_kbps '2000'
 	# devices AIGW never acts on (MAC, IP or name), e.g. your own laptop
 	# list protect 'aa:bb:cc:dd:ee:ff'
 	# block list agdns reads; leave unset for the platform default (in RAM)
 	# option dns_policy '/run/aigw/dns-policy'
 
 # Policies: when an alert is raised, which action to propose. A policy's own
-# mode can only be weaker than act.mode. Actions: quarantine, priority.
+# mode can only be weaker than act.mode. Actions: quarantine, disconnect,
+# throttle (with option rate, kbit/s), deprioritize, priority.
 # (Blocking a domain is never automatic: run 'agctl block <domain>'.)
 # Without any policy sections, these two are built in.
 config policy 'dga'
@@ -82,7 +85,8 @@ config policy 'iot_new_site'
 
 # config policy 'upload_spike'
 #	option alert 'upload-spike'
-#	option action 'quarantine'
+#	option action 'throttle'
+#	option rate '1000'
 #	option mode 'advise'
 
 config wifi 'wifi'

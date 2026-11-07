@@ -18,7 +18,7 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.5, phase 3 "act".** AIGW knows every device (identity, Wi-Fi,
+> **Status: v0.6, phase 3 "act" complete.** AIGW knows every device (identity, Wi-Fi,
 > lookups, connections, traffic), learns what is normal for each one, and
 > runs an on-device AI model that recognises machine-generated names used by
 > malware. It explains in plain words what deserves attention, and now it can
@@ -130,16 +130,22 @@ alert ──► policy ──► proposal ──(you approve, or enforce mode)�
                                                                     every action: time limit + undo
 ```
 
+From mild to strong:
+
 | Action | Command | How it works |
 |--------|---------|--------------|
-| Quarantine a device | `agctl quarantine <device> [time]` | Its MAC goes into the nft set `quarantine`: it still reaches the gateway (DHCP, DNS) but nothing beyond it |
 | Prioritise a device | `agctl prioritize <device> [time]` | Its traffic is marked DSCP CS5, which Wi-Fi (WMM) sends in the video queue |
-| Block a domain | `agctl block <domain> [time]` | `agdns` answers "no such name" for it and every subdomain, over UDP and TCP |
+| Deprioritise a device | `agctl deprioritize <device> [time]` | DSCP CS1: the Wi-Fi background queue, so it yields to everything else |
+| Throttle a device | `agctl throttle <device> [rate] [time]` | A per-device speed limit in nft, both directions (`2mbit`, `500kbit`; default 2 Mbit/s) |
+| Block a domain | `agctl block <domain> [time] [device]` | `agdns` answers "no such name" for it and every subdomain, over UDP and TCP, for every device or just one |
+| Quarantine a device | `agctl quarantine <device> [time]` | Its MAC goes into the nft sets `quarantine` (routed traffic) and `bridge ag quarantine` (other devices on a bridged LAN): it still reaches the gateway (DHCP, DNS), nothing beyond it |
+| Disconnect from Wi-Fi | `agctl disconnect <device> [time]` | hostapd kicks it off and refuses it until the time is up |
 
 `<device>` is an IP, MAC or name from `agctl devices`; `time` is like `90s`,
 `30m`, `2h` or `1d` (default 1 hour). `agctl decisions` lists what is waiting
 for you and what is in effect; `agctl approve <id>`, `agctl reject <id>` and
-`agctl undo <id>` answer them.
+`agctl undo <id>` answer them. Asking again for an action that is in effect
+restarts its time limit (and, for throttle, sets the new rate).
 
 **Modes** (`act.mode` in `/etc/config/aigw`):
 
@@ -158,23 +164,23 @@ the cloud):
   in `act.protect`;
 - always a time limit, at most `max_ttl` (1 day). The kernel (nft timeouts)
   and `agdns` (per-entry expiry) end actions on their own, even if `agd`
-  stops;
+  stops (Wi-Fi bans are lifted by `agd`, also after a restart);
 - automatic actions only in enforce mode, at most `max_auto_per_hour` (3),
   and blocking a domain is never automatic;
 - DNS and DHCP to the gateway are never affected.
 
 Actions are saved and put back after a restart or a firewall reload.
 
-## What you get in v0.5
+## What you get in v0.6
 
 | Component | What it does |
 |-----------|--------------|
 | `agdns` | DNS sensor and actuator: forwards client DNS (UDP + TCP), reports every answered query to the brain, and answers blocked names itself. Keeps working if the brain stops. |
 | `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. |
-| Decisions | Policies, proposals, approval, guardrails and three actuators (quarantine, priority, block), each with a time limit and undo. See above. |
+| Decisions | Policies, proposals, approval, guardrails and six actions (prioritize, deprioritize, throttle, block, quarantine, disconnect), each with a time limit and undo. See above. |
 | Alerts | `dga` (machine-generated lookup), `no-dns` (connection without a lookup), `dns-bypass` (device using its own encrypted DNS), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
-| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `quarantine`, `prioritize`, `block` |
-| `aigw-nft` | Kernel rules (`inet ag` table): DNS interception, quarantine and priority sets, connection-mark actions |
+| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect` |
+| `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
 
 API (same on every host):
@@ -188,6 +194,7 @@ ubus call ag.alert list
 ubus call ag.domain score '{"name": "example.com"}'
 ubus call ag.decision list
 ubus call ag.decision request '{"action": "block", "target": "example.com", "ttl": 600}'
+ubus call ag.decision request '{"action": "throttle", "target": "tv", "rate": 3000}'
 ubus call ag.decision approve '{"id": 4}'      # also: reject, revert
 ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision
 ```

@@ -346,13 +346,15 @@ static int m_decision_list(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
-enum { DR_ID, DR_ACTION, DR_TARGET, DR_TTL, DR_REASON, __DR_MAX };
+enum { DR_ID, DR_ACTION, DR_TARGET, DR_TTL, DR_REASON, DR_RATE, DR_DEVICE, __DR_MAX };
 static const struct blobmsg_policy dec_policy[__DR_MAX] = {
 	[DR_ID] = { .name = "id", .type = BLOBMSG_TYPE_INT32 },
 	[DR_ACTION] = { .name = "action", .type = BLOBMSG_TYPE_STRING },
 	[DR_TARGET] = { .name = "target", .type = BLOBMSG_TYPE_STRING },
 	[DR_TTL] = { .name = "ttl", .type = BLOBMSG_TYPE_INT32 },
 	[DR_REASON] = { .name = "reason", .type = BLOBMSG_TYPE_STRING },
+	[DR_RATE] = { .name = "rate", .type = BLOBMSG_TYPE_INT32 },        /* throttle, kbit/s */
+	[DR_DEVICE] = { .name = "device", .type = BLOBMSG_TYPE_STRING },   /* block for one device */
 };
 
 /* request / approve / reject / revert: reply {ok, id, error} so callers can
@@ -370,9 +372,13 @@ static int m_decision_change(struct ubus_context *ctx, struct ubus_object *obj,
 	if (tb[DR_ID])
 		id = blobmsg_get_u32(tb[DR_ID]);
 	if (!strcmp(method, "request")) {
+		struct act_opts o = { 0 };
+
 		if (!tb[DR_ACTION] || !tb[DR_TARGET])
 			return UBUS_STATUS_INVALID_ARGUMENT;
-		rc = act_request(blobmsg_get_string(tb[DR_ACTION]), blobmsg_get_string(tb[DR_TARGET]), ttl,
+		o.rate_kbps = tb[DR_RATE] ? (int)blobmsg_get_u32(tb[DR_RATE]) : 0;
+		o.device = tb[DR_DEVICE] ? blobmsg_get_string(tb[DR_DEVICE]) : NULL;
+		rc = act_request(blobmsg_get_string(tb[DR_ACTION]), blobmsg_get_string(tb[DR_TARGET]), ttl, &o,
 				 tb[DR_REASON] ? blobmsg_get_string(tb[DR_REASON]) : NULL, &id, err, sizeof(err));
 	} else {
 		if (!tb[DR_ID])

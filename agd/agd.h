@@ -123,11 +123,16 @@ void alerts_raise(const char *kind, const char *severity, const char *ip, const 
 		  double score, const char *reason);
 
 /* act.c: decisions, guardrails, actuators */
+struct act_opts {
+	int rate_kbps;              /* throttle */
+	const char *device;         /* block: just this device (IP, MAC or name); NULL = all */
+};
+
 void act_init(void);
 void act_tick(void);
 void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const char *reason);
-int act_request(const char *action, const char *what, int ttl, const char *reason,
-		uint32_t *id, char *err, size_t errlen);
+int act_request(const char *action, const char *what, int ttl, const struct act_opts *o,
+		const char *reason, uint32_t *id, char *err, size_t errlen);
 int act_approve(uint32_t id, int ttl, char *err, size_t errlen);
 int act_reject(uint32_t id, char *err, size_t errlen);
 int act_revert(uint32_t id, char *err, size_t errlen);
@@ -149,5 +154,6 @@ void baseline_load(struct device *d, struct blob_attr *tbl);
 void wifi_init(void);
 void wifi_poll(void);
 int wifi_station_count(void);
+int wifi_ban(const char *mac, int on, char *err, size_t errlen);
 
 #endif

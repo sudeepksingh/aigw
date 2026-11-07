@@ -10,8 +10,9 @@
  * TCP connections are relayed by a short-lived child process each.
  *
  * Actuator: names on the block list agd writes (act.dns_policy) and their
- * subdomains get an NXDOMAIN answer from here, over UDP and TCP. Each entry
- * expires by itself, so blocks end on time even without agd.
+ * subdomains get an NXDOMAIN answer from here, over UDP and TCP, for every
+ * client or just the one an entry names. Each entry expires by itself, so
+ * blocks end on time even without agd.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -79,6 +80,7 @@ static struct {
 struct blocked {
 	char name[AG_DNS_NAME_MAX];
 	int64_t expires;
+	char client[INET6_ADDRSTRLEN];      /* "" = every device */
 };
 
 static struct blocked blk[BLOCK_MAX];
@@ -108,12 +110,13 @@ static void block_reload(void)
 	blk_st = st;
 	f = fopen(cfg.dns_policy, "r");
 	while (f && n < BLOCK_MAX && fgets(line, sizeof(line), f)) {
-		char name[AG_DNS_NAME_MAX];
+		char name[AG_DNS_NAME_MAX], client[INET6_ADDRSTRLEN] = "";
 		long long exp;
 
-		if (line[0] == '#' || sscanf(line, "%255s %lld", name, &exp) != 2)
+		if (line[0] == '#' || sscanf(line, "%255s %lld %45s", name, &exp, client) < 2)
 			continue;
 		snprintf(blk[n].name, sizeof(blk[n].name), "%s", name);
+		snprintf(blk[n].client, sizeof(blk[n].client), "%s", client);
 		blk[n].expires = exp;
 		n++;
 	}
@@ -123,13 +126,14 @@ static void block_reload(void)
 	AG_INFO("block list: %d name%s", n, n == 1 ? "" : "s");
 }
 
-static int is_blocked(const char *qname)
+static int is_blocked(const char *qname, const char *client)
 {
 	int64_t now = ag_wall_s();
 	int i;
 
 	for (i = 0; i < n_blk; i++)
-		if (blk[i].expires > now && ag_dns_name_under(qname, blk[i].name))
+		if (blk[i].expires > now && ag_dns_name_under(qname, blk[i].name) &&
+		    (!blk[i].client[0] || !strcmp(blk[i].client, client)))
 			return 1;
 	return 0;
 }
@@ -331,18 +335,18 @@ static void client_cb(struct uloop_fd *u, unsigned int events)
 		if (ag_dns_parse(buf, (size_t)n, &q) < 0)
 			q.qname[0] = '\0'; /* still forward: upstream decides */
 
-		if (q.qname[0] && n_blk && is_blocked(q.qname)) {
-			int rl = ag_dns_make_nxdomain(buf, (size_t)n, &q);
-			struct ag_dns_msg r;
+		if (q.qname[0] && n_blk) {
 			char ip[INET6_ADDRSTRLEN];
+			int rl;
 
-			if (rl > 0) {
+			addr_str(&from, ip, sizeof(ip));
+			if (is_blocked(q.qname, ip) && (rl = ag_dns_make_nxdomain(buf, (size_t)n, &q)) > 0) {
+				struct ag_dns_msg r;
+
 				sendto(u->fd, buf, (size_t)rl, 0, (struct sockaddr *)&from, flen);
 				stats.blocked++;
-				if (ag_dns_parse(buf, (size_t)rl, &r) == 0) {
-					addr_str(&from, ip, sizeof(ip));
+				if (ag_dns_parse(buf, (size_t)rl, &r) == 0)
 					emit_event(ip, q.qname, q.qtype, &r, 0, 1);
-				}
 				continue;
 			}
 		}
@@ -441,7 +445,7 @@ static int tcp_from_client(uint8_t *acc, size_t *alen, int cfd, int ufd, const c
 
 		if (*alen < l + 2)
 			return 0;
-		if (n_blk && ag_dns_parse(m, l, &q) == 0 && q.qname[0] && is_blocked(q.qname)) {
+		if (n_blk && ag_dns_parse(m, l, &q) == 0 && q.qname[0] && is_blocked(q.qname, client)) {
 			int rl = ag_dns_make_nxdomain(m, l, &q);
 			struct tcp_report rep;
 
