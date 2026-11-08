@@ -112,6 +112,10 @@ def main():
     sep = args.index("--")
     log, pkgdir, port, luci_port = args[0], args[1], args[2], args[3]
     keep = "--keep" in args[4:sep]
+    add_arch = next((a.split("=", 1)[1] for a in args[4:sep] if a.startswith("--add-arch=")), "")
+    # --add-arch replaces opkg's list: repeat the device's own architectures, then add ours
+    opkg_arch = (" $(opkg print-architecture | awk '{print \"--add-arch \" $2 \":\" $3}')"
+                 f" --add-arch {add_arch}:200") if add_arch else ""
     qemu = args[sep + 1:]
     vm = VM(qemu, log)
     say = lambda s: print(f"==> {s}", flush=True)  # noqa: E731
@@ -131,6 +135,9 @@ def main():
         vm.expect(r"root@[^:]+:[^#]*# ", 60)
         vm.run("dmesg -n 1; export TERM=dumb")
         say("waiting for the network (wan via QEMU)")
+        # some images (malta) have no wan by default: make the second NIC a DHCP wan
+        vm.run("uci -q get network.wan >/dev/null || { uci set network.wan=interface; uci set network.wan.device=eth1;"
+               " uci set network.wan.proto=dhcp; uci commit network; /etc/init.d/network reload; }")
         # loops run in a subshell: an "exit" must never end the console's own shell
         must("(i=0; until ping -c1 -W1 10.0.2.2 >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 90 ] && exit 1; sleep 1; done)",
              "network", 120)
@@ -150,16 +157,16 @@ def main():
             must(retry.format(f"apk add {luci}"), "LuCI", 900)
         else:
             must(retry.format("opkg update"), "opkg update", 600)
-            must(retry.format(f"opkg install {pkgs}"), "opkg install", 900)
-            must(retry.format(f"opkg install {luci}"), "LuCI", 900)
+            must(retry.format(f"opkg install{opkg_arch} {pkgs}"), "opkg install", 1200)
+            must(retry.format(f"opkg install{opkg_arch} {luci}"), "LuCI", 1200)
         # LuCI reachable from the host (QEMU forwards a port to the wan side): open it in this test VM only
         must("uci set firewall.aigwtest=rule; uci set firewall.aigwtest.src=wan; uci set firewall.aigwtest.proto=tcp;"
              " uci set firewall.aigwtest.dest_port=80; uci set firewall.aigwtest.target=ACCEPT;"
              " uci commit firewall; fw4 reload; /etc/init.d/rpcd restart; /etc/init.d/uhttpd restart", "LuCI port", 120)
         say("starting AIGW")
         vm.run("/etc/init.d/aigw enable; /etc/init.d/aigw restart")
-        must("(i=0; until agctl status >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 60 ] && exit 1; sleep 1; done)",
-             "agd answering", 90)
+        must("(i=0; until agctl status >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 200 ] && exit 1; sleep 1; done)",
+             "agd answering", 240)
         say("aigw-selftest --full")
         vm.buf = b""
         vm.n += 1
@@ -184,6 +191,14 @@ def main():
             print(f"    FAIL luci: {e}", flush=True)
             failed += 1
         if keep:
+            # something to look at, including a hostile host name the pages must show as text
+            vm.run("t=$(( $(date +%s) + 86400 )); printf '%s\\n' "
+                   "\"$t 02:00:00:00:66:01 192.168.1.66 <svg/onload=alert(1)> *\" "
+                   "\"$t 02:00:00:00:66:02 192.168.1.67 Living-room-TV *\" >> /tmp/dhcp.leases; sleep 6;"
+                   " ubus send ag.dns '{\"client\":\"192.168.1.67\",\"qname\":\"www.youtube.com\"}';"
+                   " ubus send ag.dns '{\"client\":\"192.168.1.66\",\"qname\":\"xkqjzvbwptmr.com\"}';"
+                   " agctl remote on 203.0.113.10 >/dev/null; agctl remote add \"Anna's phone\" >/dev/null;"
+                   " agctl key add 'Living room plug' iot >/dev/null 2>&1; true", 120)
             say(f"VM kept running: LuCI on http://127.0.0.1:{luci_port} (root, no password). Ctrl+C to stop.")
             try:
                 while True:

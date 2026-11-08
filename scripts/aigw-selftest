@@ -52,7 +52,11 @@ if [ $OWRT = 1 ]; then
 fi
 
 # ---- kernel rules and firewall
-ok_if nft "table inet ag is loaded" nft list table inet ag
+if [ $OWRT = 0 ] && ! nft list table inet ag >/dev/null 2>&1 && ! pidof hostapd >/dev/null; then
+	info nft "kernel rules load with the access point (sudo aigw-ap up); it is not running"
+else
+	ok_if nft "table inet ag is loaded" nft list table inet ag
+fi
 if [ $OWRT = 1 ]; then
 	ok_if fw4 "firewall include keeps the table across reloads" sh -c '[ "$(uci -q get firewall.aigw)" = include ]'
 	if [ $FULL = 1 ]; then

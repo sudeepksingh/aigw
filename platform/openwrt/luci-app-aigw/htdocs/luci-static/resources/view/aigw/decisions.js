@@ -10,6 +10,11 @@ var callApprove = rpc.declare({ object: 'ag.decision', method: 'approve', params
 var callReject = rpc.declare({ object: 'ag.decision', method: 'reject', params: [ 'id' ] });
 var callRevert = rpc.declare({ object: 'ag.decision', method: 'revert', params: [ 'id' ] });
 
+/* text, never markup: reasons quote names that come from the network */
+function T(s) {
+	return document.createTextNode(s == null ? '' : String(s));
+}
+
 function when(ts) {
 	return ts ? new Date(ts * 1000).toLocaleString() : '-';
 }
@@ -29,7 +34,7 @@ return view.extend({
 
 		return fn(id).then(function(res) {
 			if (res && res.ok === false)
-				ui.addNotification(null, E('p', res.error || _('Failed')), 'danger');
+				ui.addNotification(null, E('p', {}, T(res.error || _('Failed'))), 'danger');
 			return self.load().then(function(d) { self.refresh(d); });
 		});
 	},
@@ -40,45 +45,45 @@ return view.extend({
 			var btns = [];
 
 			if (d.state == 'proposed') {
-				btns.push(E('button', { 'class': 'btn cbi-button-positive', 'click': ui.createHandlerFn(self, 'change', callApprove, d.id) }, _('Approve')), ' ');
-				btns.push(E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(self, 'change', callReject, d.id) }, _('Reject')));
+				btns.push(E('button', { 'class': 'btn cbi-button-positive', 'click': ui.createHandlerFn(self, 'change', callApprove, d.id) }, T(_('Approve'))), ' ');
+				btns.push(E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(self, 'change', callReject, d.id) }, T(_('Reject'))));
 			} else if (d.state == 'active') {
-				btns.push(E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(self, 'change', callRevert, d.id) }, _('Undo')));
+				btns.push(E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(self, 'change', callRevert, d.id) }, T(_('Undo'))));
 			}
 			return E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td' }, '#%d'.format(d.id)),
-				E('td', { 'class': 'td' }, [ E('strong', d.state), E('br'), E('small', d.state == 'active' ? left(d.expires) : '') ]),
-				E('td', { 'class': 'td' }, [ d.action, ' ', E('em', d.device || d.target) ]),
-				E('td', { 'class': 'td' }, [ d.reason, d.note ? E('br') : '', d.note ? E('small', d.note) : '', E('br'),
-					E('small', _('from %s, %s').format(d.origin, when(d.created))) ]),
+				E('td', { 'class': 'td' }, T('#' + d.id)),
+				E('td', { 'class': 'td' }, [ E('strong', {}, T(d.state)), E('br'), E('small', {}, T(d.state == 'active' ? left(d.expires) : '')) ]),
+				E('td', { 'class': 'td' }, [ T(d.action + ' '), E('em', {}, T(d.device || d.target)) ]),
+				E('td', { 'class': 'td' }, [ T(d.reason), d.note ? E('br') : '', d.note ? E('small', {}, T(d.note)) : '', E('br'),
+					E('small', {}, T(_('from %s, %s').format(d.origin, when(d.created)))) ]),
 				E('td', { 'class': 'td right' }, btns)
 			]);
 		});
 
 		return E('table', { 'class': 'table' }, [
 			E('tr', { 'class': 'tr table-titles' }, [
-				E('th', { 'class': 'th' }, '#'), E('th', { 'class': 'th' }, _('State')), E('th', { 'class': 'th' }, _('Action')),
-				E('th', { 'class': 'th' }, _('Why')), E('th', { 'class': 'th' })
+				E('th', { 'class': 'th' }, T('#')), E('th', { 'class': 'th' }, T(_('State'))), E('th', { 'class': 'th' }, T(_('Action'))),
+				E('th', { 'class': 'th' }, T(_('Why'))), E('th', { 'class': 'th' })
 			])
-		].concat(rows.length ? rows : [ E('tr', { 'class': 'tr placeholder' }, E('td', { 'class': 'td' }, _('No decisions yet.'))) ]));
+		].concat(rows.length ? rows : [ E('tr', { 'class': 'tr placeholder' }, E('td', { 'class': 'td' }, T(_('No decisions yet.')))) ]));
 	},
 
 	alerts: function(list) {
 		var rows = list.map(function(a) {
 			return E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td' }, [ E('strong', a.kind), a.count > 1 ? E('small', ' ×%d'.format(a.count)) : '' ]),
-				E('td', { 'class': 'td' }, a.device),
-				E('td', { 'class': 'td' }, a.reason),
-				E('td', { 'class': 'td' }, when(a.last))
+				E('td', { 'class': 'td' }, [ E('strong', {}, T(a.kind)), a.count > 1 ? E('small', {}, T(' ×' + a.count)) : '' ]),
+				E('td', { 'class': 'td' }, T(a.device)),
+				E('td', { 'class': 'td' }, T(a.reason)),
+				E('td', { 'class': 'td' }, T(when(a.last)))
 			]);
 		});
 
 		return E('table', { 'class': 'table' }, [
 			E('tr', { 'class': 'tr table-titles' }, [
-				E('th', { 'class': 'th' }, _('Alert')), E('th', { 'class': 'th' }, _('Device')),
-				E('th', { 'class': 'th' }, _('What and why')), E('th', { 'class': 'th' }, _('Last'))
+				E('th', { 'class': 'th' }, T(_('Alert'))), E('th', { 'class': 'th' }, T(_('Device'))),
+				E('th', { 'class': 'th' }, T(_('What and why'))), E('th', { 'class': 'th' }, T(_('Last')))
 			])
-		].concat(rows.length ? rows : [ E('tr', { 'class': 'tr placeholder' }, E('td', { 'class': 'td' }, _('Nothing to report.'))) ]));
+		].concat(rows.length ? rows : [ E('tr', { 'class': 'tr placeholder' }, E('td', { 'class': 'td' }, T(_('Nothing to report.')))) ]));
 	},
 
 	refresh: function(data) {
@@ -95,11 +100,11 @@ return view.extend({
 		poll.add(function() { return self.load().then(function(d) { self.refresh(d); }); }, 10);
 
 		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', _('Alerts and decisions')),
+			E('h2', {}, T(_('Alerts and decisions'))),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('Every action has a time limit and an undo. Your answers teach AIGW which alerts were right.')),
-			E('div', { 'class': 'cbi-section' }, [ E('h3', _('Decisions')), this.dbox ]),
-			E('div', { 'class': 'cbi-section' }, [ E('h3', _('Alerts')), this.abox ])
+				T(_('Every action has a time limit and an undo. Your answers teach AIGW which alerts were right.'))),
+			E('div', { 'class': 'cbi-section' }, [ E('h3', {}, T(_('Decisions'))), this.dbox ]),
+			E('div', { 'class': 'cbi-section' }, [ E('h3', {}, T(_('Alerts'))), this.abox ])
 		]);
 	},
 

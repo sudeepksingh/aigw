@@ -1133,7 +1133,8 @@ static int call(const char *path, const char *method, struct blob_attr *args, ub
 		fprintf(stderr, "agctl: '%s' not found on ubus. Is agd running (and are you allowed to use it)?\n", path);
 		return 1;
 	}
-	rc = ubus_invoke(ctx, id, method, args, cb, NULL, 3000);
+	/* generous: some calls run tools (remote on reloads the firewall: seconds on a small router) */
+	rc = ubus_invoke(ctx, id, method, args, cb, NULL, 30000);
 	if (rc) {
 		fprintf(stderr, "agctl: %s %s failed: %s\n", path, method, ubus_strerror(rc));
 		return 1;

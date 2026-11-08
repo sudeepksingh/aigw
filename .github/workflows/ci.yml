@@ -76,15 +76,23 @@ jobs:
           path: dist/openwrt/
 
   openwrt-qemu:
-    name: OpenWRT 24.10 in QEMU (install, aigw-selftest --full)
+    name: OpenWRT 24.10 in QEMU, ${{ matrix.arch }} (install, aigw-selftest --full, LuCI)
     needs: [openwrt]
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, artifact: aigw-openwrt-24.10-x86-64 }
+          - { arch: mipsel_24kc, artifact: aigw-openwrt-24.10-ramips-mt7621 }
+          - { arch: aarch64_cortex-a53, artifact: aigw-openwrt-24.10-mediatek-filogic }
     steps:
       - uses: actions/checkout@v5
       - name: Packages
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 curl python3
+          sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-system-mips qemu-system-arm \
+            curl python3
       - name: KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -92,14 +100,14 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - uses: actions/download-artifact@v4
         with:
-          name: aigw-openwrt-24.10-x86-64
+          name: ${{ matrix.artifact }}
           path: dist/openwrt/
       - name: Install and self-test in OpenWRT
-        run: platform/openwrt/qemu-test.sh
+        run: ARCH=${{ matrix.arch }} platform/openwrt/qemu-test.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: qemu-console-log
+          name: qemu-console-log-${{ matrix.arch }}
           path: dist/openwrt/qemu-*.log
 
   release:

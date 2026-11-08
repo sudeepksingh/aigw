@@ -2,9 +2,11 @@
 
 Phase 6 ends when the same checks that pass in CI pass on real routers,
 within the memory and flash budget. CI already installs every build on
-OpenWRT x86-64 in QEMU and runs `aigw-selftest --full` there
-(`platform/openwrt/qemu-test.sh`). This page covers the part only real
-hardware can show.
+OpenWRT in QEMU and runs `aigw-selftest --full` there
+(`platform/openwrt/qemu-test.sh`). It does this on x86-64, on emulated MIPS
+with the MT7621 packages, and on emulated ARM64 with the Filogic packages.
+This page covers the part only real hardware can show: real radios, real
+flash, real load, and the actual chips.
 
 Reference boards: an **OpenWRT One** (Filogic, aarch64), any **MT7621**
 router (mipsel), and a **Wi-Fi 7** Filogic board when one is at hand.

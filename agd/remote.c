@@ -396,7 +396,7 @@ static int name_ok(const char *s)
 	size_t i;
 
 	for (i = 0; s[i]; i++)
-		if (!(isalnum((unsigned char)s[i]) || strchr(" _.-", s[i])))
+		if (!(isalnum((unsigned char)s[i]) || strchr(" _.-'", s[i])))
 			return 0;
 	return i > 0 && i < 32;
 }
@@ -449,7 +449,7 @@ int remote_add(const char *name, struct blob_buf *reply, char *err, size_t n)
 		return -1;
 	}
 	if (!name_ok(name)) {
-		snprintf(err, n, "name: 1-31 letters, digits, spaces, '.', '_' or '-'");
+		snprintf(err, n, "name: 1-31 letters, digits, spaces, ' . _ or -");
 		return -1;
 	}
 	if (find_peer(name)) {
