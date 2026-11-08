@@ -60,7 +60,7 @@ else
 		ok_if nft-names "table inet ag_sni copies HTTPS handshakes to agd" nft list table inet ag_sni
 	fi
 fi
-SNI=$(echo "$STATUS" | json sni)
+SNI=$(echo "$STATUS" | grep -o '"sni": *[a-z0-9]*' | head -1 | sed 's/.*: *//')   # sensors.sni, not the sni table
 if [ "$SNI" = 1 ] || [ "$SNI" = true ]; then
 	pass names "connections are named from their TLS / QUIC handshakes"
 elif [ $OWRT = 1 ] && [ "$(uci -q get aigw.flow.sni)" != 0 ]; then
