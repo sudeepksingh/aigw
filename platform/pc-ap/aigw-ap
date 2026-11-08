@@ -28,6 +28,7 @@ PASSPHRASE=${PASSPHRASE:-}
 COUNTRY=${COUNTRY:-}
 BAND=${BAND:-2.4}
 CHANNEL=${CHANNEL:-6}
+WIDTH=${WIDTH:-auto}
 SUBNET=${SUBNET:-10.42.0}
 UPLINK=${UPLINK:-auto}
 
@@ -162,8 +163,42 @@ pick_iface() {
 	done
 }
 
+# Channel width settings for hostapd (width $1: 20, 40 or 80 MHz). 40 MHz
+# pairs the channel with its neighbour (HT40+ below, HT40- above); 80 MHz
+# (5 GHz, 802.11ac) uses the block of four channels the channel is in.
+width_lines() {
+	w=$1
+	[ "$w" = 20 ] && return 0
+	if [ "$BAND" = 5 ]; then
+		if [ "$CHANNEL" -ge 149 ]; then base=149; else base=36; fi
+		if [ $(( (CHANNEL - base) / 4 % 2 )) = 0 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
+		if [ "$w" = 80 ]; then
+			echo "vht_oper_chwidth=1"
+			echo "vht_oper_centr_freq_seg0_idx=$(( base + (CHANNEL - base) / 16 * 16 + 6 ))"
+		fi
+	else
+		if [ "$CHANNEL" -le 7 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
+	fi
+}
+
+# The widths to try, widest first: what WIDTH asks for, then narrower ones.
+widths() {
+	w=$WIDTH
+	if [ "$w" = auto ]; then
+		if [ "$BAND" = 5 ]; then w=80; else w=20; fi
+	fi
+	[ "$BAND" = 5 ] || [ "$w" != 80 ] || w=40       # 80 MHz is 5 GHz only
+	[ "$BAND" = 5 ] && [ "$CHANNEL" = 165 ] && w=20  # channel 165 has no partner
+	case $w in
+	80) echo "80 40 20" ;;
+	40) echo "40 20" ;;
+	*) echo "20" ;;
+	esac
+}
+
 write_hostapd() {
 	iface=$1
+	width=${2:-20}
 	if [ "$BAND" = 5 ]; then
 		[ -n "$COUNTRY" ] || die "5 GHz needs COUNTRY set in $CONF"
 		hw_mode=a
@@ -188,6 +223,7 @@ write_hostapd() {
 		fi
 		echo "ieee80211n=1"
 		if [ "$BAND" = 5 ]; then echo "ieee80211ac=1"; fi
+		width_lines "$width"
 		echo "wmm_enabled=1"
 		echo "auth_algs=1"
 		echo "wpa=2"
@@ -250,11 +286,21 @@ up() {
 	ip addr flush dev "$iface"
 	ip addr add "$SUBNET.1/24" dev "$iface"
 
-	write_hostapd "$iface"
-	if ! hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" > "$RUN/hostapd.log" 2>&1; then
+	started=""
+	for w in $(widths); do
+		write_hostapd "$iface" "$w"
+		if hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" > "$RUN/hostapd.log" 2>&1; then
+			started=$w
+			break
+		fi
+		kill_pidfile "$RUN/hostapd.pid"
+		say "hostapd refused $w MHz on channel $CHANNEL; trying narrower"
+	done
+	if [ -z "$started" ]; then
 		cat "$RUN/hostapd.log" >&2
 		die "hostapd could not start the access point on $iface"
 	fi
+	echo "$started" > "$RUN/width"
 	ip link set "$iface" up
 
 	dnsmasq --conf-file=/dev/null --port=0 --interface="$iface" --bind-interfaces \
@@ -292,7 +338,7 @@ EOF
 
 	say "AIGW access point is up"
 	say "  Wi-Fi     $SSID  (password in $CONF)"
-	say "  adapter   $iface, $BAND GHz channel $CHANNEL"
+	say "  adapter   $iface, $BAND GHz channel $CHANNEL, $started MHz wide"
 	say "  clients   $SUBNET.20-250, internet via $up_if"
 	say "Watch it:  agctl watch all   |   agctl devices   |   sudo aigw-ap status"
 }
