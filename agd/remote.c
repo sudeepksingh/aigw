@@ -508,6 +508,7 @@ int remote_add(const char *name, struct blob_buf *reply, char *err, size_t n)
 	blobmsg_add_string(reply, "name", p->name);
 	blobmsg_add_string(reply, "ip", p->ip);
 	blobmsg_add_string(reply, "config", conf);
+	agd_qr_rows(reply, "qr_rows", conf);
 	memset(conf, 0, sizeof(conf));
 	AG_INFO("remote access: added %s (%s)", p->name, p->ip);
 	return 0;

@@ -9,7 +9,7 @@
 # loads table "inet ag_remote": accept the UDP port, let tunnel clients
 # through, send their DNS to agdns (so AIGW protects them away from home)
 # and NAT them out. On OpenWRT it also adds a firewall zone and a rule for
-# the port (fw4 drops what its own chains don't accept).
+# the port (fw4 drops what its own chains don't accept); down removes them.
 set -eu
 
 die() { echo "aigw-remote: $*" >&2; exit 1; }
@@ -101,6 +101,14 @@ down)
 	[ $# -eq 2 ] || die "usage: aigw-remote down IFACE"
 	ip link del "$2" 2>/dev/null || true
 	nft delete table inet ag_remote 2>/dev/null || true
+	# OpenWRT: off means no open port and no zone left behind
+	if [ -f /etc/openwrt_release ] && uci -q get firewall.aigw_remote >/dev/null; then
+		for s in aigw_remote_port aigw_remote_lan aigw_remote_wan aigw_remote; do
+			uci -q delete firewall.$s
+		done
+		uci commit firewall
+		fw4 reload >/dev/null 2>&1 || true
+	fi
 	;;
 *)
 	die "usage: aigw-remote up|sync|down ..."

@@ -18,7 +18,9 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.9, phase 5 "outside" complete.** AIGW knows every device (identity, Wi-Fi,
+> **Status: v0.10, phase 6 "hardware" under way:** a LuCI web interface, procd
+> supervision, a self-test, and every build installed and checked on OpenWRT in
+> QEMU; real routers next. AIGW knows every device (identity, Wi-Fi,
 > lookups, connections, traffic), learns what is normal for each one, and
 > runs an on-device AI model that recognises machine-generated names used by
 > malware. It explains in plain words what deserves attention and can act on
@@ -324,7 +326,37 @@ Plug-ins signed with a key the gateway trusts (`python3 -m aigw_cortex
 sign-plugin <folder>`, or usign) get their privileged capabilities without
 `agctl plugin allow`. Changing any file in the folder takes that trust away.
 
-## What you get in v0.9
+## Web interface (LuCI)
+
+`opkg install luci-app-aigw` adds an **AIGW** menu to the router's web
+interface, with these pages:
+- **Overview:** status, mode, waiting decisions, models.
+- **Devices:** quarantine, prioritize, zone.
+- **Alerts and decisions:** approve, reject, undo.
+- **Wi-Fi keys and remote access:** new keys and phones, each with a QR code to scan.
+- **Plug-ins and models:** on and off, allow, rollback.
+
+It uses the same ubus API as `agctl`, through rpcd with its own access list.
+
+## Is it healthy? `aigw-selftest`
+
+```bash
+aigw-selftest           # PASS / FAIL per check, changes nothing
+aigw-selftest --full    # also restarts agd once, reloads the firewall, tries remote access
+```
+
+The self-test covers:
+- the services (procd, ujail), the firewall include and the kernel rules;
+- on this CPU: signatures, the model's scores, a QR code, and a real DNS
+  query through agdns (`agctl selftest`);
+- memory and flash against the budget;
+- the LuCI access list.
+
+CI runs it inside OpenWRT x86-64 in QEMU after installing every build with
+opkg (`platform/openwrt/qemu-test.sh`). To try it on your own router, see
+[docs/testing-on-routers.md](docs/testing-on-routers.md).
+
+## What you get in v0.10
 
 | Component | What it does |
 |-----------|--------------|
@@ -338,9 +370,11 @@ sign-plugin <folder>`, or usign) get their privileged capabilities without
 | Model updates | Signed (usign-compatible Ed25519, verified by libag), checked against this build's features, hot-loaded, with rollback and hold-off. The shared threat list travels the same way. |
 | Remote access | WireGuard peers with QR codes; DNS from the tunnel goes to agdns; `aigw-remote` sets up the interface, rules and NAT. |
 | Signed plug-ins | A trusted signature over every file of a plug-in folder grants its privileges. |
+| `luci-app-aigw` | LuCI pages for everything above, QR codes drawn in the browser. |
+| `aigw-selftest` | Health and budget check on the device; `agctl selftest` for the CPU-level checks. |
 | `ag-bridge` | Connector plug-in to cortex over HTTPS (curl): reports state, fetches signed models, brings proposals. Devices can be reported by name, anonymously or not at all. |
 | cortex | Python, optional: fleet history (SQLite), labels from your answers, retraining, signing and publishing, HTTP API for bridges, MCP server. |
-| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge`, `remote` |
+| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge`, `remote`, `selftest` |
 | `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
 
@@ -379,11 +413,11 @@ agd/                 the brain: devices, endpoints (DNS<->flow join), flow and W
 agdns/               the DNS sensor
 agctl/               command line
 plugins/             first-party plug-ins (mqtt, bridge, iot-guard) and examples for your own
-scripts/             aigw-nft (kernel rules), aigw-remote (WireGuard), aigw-dhcp-event (DHCP hook),
-                     build-deps.sh
+scripts/             aigw-nft (kernel rules), aigw-remote (WireGuard), aigw-selftest, aigw-dhcp-event
+                     (DHCP hook), build-deps.sh
 config/aigw          default configuration (UCI, used on every host)
 platform/pc-ap/      PC as AP: installer, aigw-ap, systemd units, WSL launcher
-platform/openwrt/    OpenWRT package (feed) and SDK build script
+platform/openwrt/    OpenWRT packages (feed), LuCI app, SDK build script, QEMU test
 models/              trained on-device models (.agm)
 cortex/aigw_cortex/  cortex: fleet history, retraining, signing, HTTP API, MCP server
 cortex/training/     Python training pipelines that produce the models
@@ -408,6 +442,9 @@ sudo tests/plug-test.sh build         # plug-ins, skills, budgets, Wi-Fi keys, M
 sudo tests/outside-test.sh build      # bridge + cortex: labels, retrain, signed hot-load, rollback, MCP,
                                       # threat list, signed plug-ins
 sudo tests/remote-test.sh build       # a real WireGuard tunnel between namespaces: DNS through AIGW, revoke
+platform/openwrt/build-sdk.sh         # OpenWRT packages (VERSION=24.10 TARGET=x86/64 by default)
+platform/openwrt/qemu-test.sh         # install them on OpenWRT in QEMU, run aigw-selftest --full there
+KEEP=1 platform/openwrt/qemu-test.sh  # ... and keep it running: LuCI on http://127.0.0.1:8080
 ```
 
 The namespace tests are safe to run on a machine that is itself running

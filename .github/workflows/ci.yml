@@ -42,7 +42,7 @@ jobs:
       - name: Remote access test (WireGuard between network namespaces)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/remote-test.sh build
       - name: Shell syntax
-        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh; do sh -n "$f"; done
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh; do sh -n "$f"; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}
@@ -75,10 +75,37 @@ jobs:
           name: ${{ steps.name.outputs.name }}
           path: dist/openwrt/
 
+  openwrt-qemu:
+    name: OpenWRT 24.10 in QEMU (install, aigw-selftest --full)
+    needs: [openwrt]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 curl python3
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: aigw-openwrt-24.10-x86-64
+          path: dist/openwrt/
+      - name: Install and self-test in OpenWRT
+        run: platform/openwrt/qemu-test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: qemu-console-log
+          path: dist/openwrt/qemu-*.log
+
   release:
     name: Release packages
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, openwrt]
+    needs: [linux, openwrt, openwrt-qemu]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

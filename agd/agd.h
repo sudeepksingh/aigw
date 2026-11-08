@@ -207,6 +207,9 @@ int keys_revoke(const char *name, char *err, size_t errlen);
 void keys_blob(struct blob_buf *b, const char *only);
 int keys_count(void);
 
+/* main.c: a QR code as rows of '1'/'0' under field (for LuCI) */
+void agd_qr_rows(struct blob_buf *b, const char *field, const char *text);
+
 /* remote.c: remote access over WireGuard (peers with QR codes) */
 void remote_init(void);
 void remote_tick(void);
