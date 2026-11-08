@@ -6,7 +6,8 @@
 # (802.11v) to move to 5 GHz, and it does.
 #
 # Needs root, the mac80211_hwsim module (Ubuntu: linux-modules-extra), hostapd,
-# wpa_supplicant, iw. Prints SKIP and succeeds where hwsim is missing (WSL).
+# wpa_supplicant, iw. Prints SKIP and succeeds where hwsim is missing (WSL),
+# unless AIGW_REQUIRE_HWSIM=1 (CI), where a skip is a failure.
 #
 #   sudo tests/hwsim-test.sh [build-dir]
 set -eu
@@ -30,13 +31,16 @@ cleanup() {
 trap cleanup EXIT INT TERM
 fail() { echo "HWSIM TEST FAIL: $*" >&2; echo "--- logs" >&2; tail -n 40 "$T"/*.log >&2 2>/dev/null || true; exit 1; }
 
+skip() {
+	[ "${AIGW_REQUIRE_HWSIM:-0}" = 1 ] && fail "cannot run here: $* (AIGW_REQUIRE_HWSIM=1)"
+	echo "HWSIM TEST SKIP: $*"
+	exit 0
+}
 [ "$(id -u)" = 0 ] || fail "run as root"
-for t in hostapd wpa_supplicant iw; do command -v $t >/dev/null || { echo "HWSIM TEST SKIP: no $t"; exit 0; }; done
-if lsmod | grep -q '^mac80211_hwsim'; then
-	echo "HWSIM TEST SKIP: mac80211_hwsim already loaded (in use by something else)"; exit 0
-fi
+for t in hostapd wpa_supplicant iw; do command -v $t >/dev/null || skip "no $t"; done
+lsmod | grep -q '^mac80211_hwsim' && skip "mac80211_hwsim already loaded (in use by something else)"
 before=$(ls /sys/class/ieee80211 2>/dev/null || true)
-modprobe mac80211_hwsim radios=3 2>/dev/null || { echo "HWSIM TEST SKIP: no mac80211_hwsim in this kernel"; exit 0; }
+modprobe mac80211_hwsim radios=3 2>/dev/null || skip "no mac80211_hwsim in this kernel"
 LOADED=1
 sleep 1
 phys=""
