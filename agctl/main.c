@@ -53,6 +53,8 @@ static void usage(void)
 		"                                   for every device or just one\n"
 		"  quarantine <device> [time]    cut a device off from everything but the gateway\n"
 		"  disconnect <device> [time]    kick it off Wi-Fi and refuse it until the time is up\n"
+		"  channel <ap|2.4|5> <ch> [time]  move an access point to another channel (devices\n"
+		"                                follow); back to the old one when the time is up\n"
 		"  do <plugin.action> <device|target> [time]   an action a plug-in offers (agctl plugins)\n"
 		"                      time: 90s, 30m, 2h, 1d (default from config, 1h)\n"
 		"\n"
@@ -203,9 +205,19 @@ static void show_radios(struct ubus_request *req, int type, struct blob_attr *ms
 		return;
 	}
 	blobmsg_for_each_attr(r, arr, rem) {
-		printf("%s  \"%s\"  %s GHz channel %llu (%llu MHz)  %s\n", fstr(r, "iface"), fstr(r, "ssid"),
+		printf("%s  \"%s\"  %s GHz channel %llu (%llu MHz, %llu MHz wide)  %s\n", fstr(r, "iface"), fstr(r, "ssid"),
 		       orb(fstr(r, "band"), "?"), (unsigned long long)fnum(r, "channel"), (unsigned long long)fnum(r, "freq"),
-		       fstr(r, "bssid"));
+		       (unsigned long long)fnum(r, "width"), fstr(r, "bssid"));
+		if (field(r, "busy_pct"))
+			printf("  air             %llu%% used by others%s\n", (unsigned long long)fnum(r, "busy_pct"),
+			       fnum(r, "busy_since") ? " (busy for a while)" : "");
+		else if (*fstr(r, "air"))
+			printf("  air             %s\n", fstr(r, "air"));
+		if (*fstr(r, "neighbours"))
+			printf("  neighbours      by channel, weighted by strength: %s%s", fstr(r, "neighbours"),
+			       fnum(r, "suggest") ? "" : "\n");
+		if (fnum(r, "suggest"))
+			printf("; quieter: channel %llu\n", (unsigned long long)fnum(r, "suggest"));
 		blobmsg_for_each_attr(s, field(r, "stations"), rem2) {
 			printf("  %-17.17s %-15.15s %4d dBm %-4s %7.1f Mbit/s  %-13s %s",
 			       orb(fstr(s, "hostname"), fstr(s, "mac")), orb(fstr(s, "ip"), "-"), (int32_t)fnum(s, "signal"),
@@ -1433,6 +1445,23 @@ int main(int argc, char **argv)
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
 		rc = call("ag.decision", "list", args.head, show_decisions);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "channel") && i + 1 < argc) {
+		char target[64];
+		int ttl = i + 2 < argc ? parse_time(argv[i + 2]) : 0;
+
+		snprintf(target, sizeof(target), "%s:%s", argv[i], argv[i + 1]);
+		if (i + 2 < argc && ttl <= 0) {
+			fprintf(stderr, "agctl: usage: agctl channel <access point|2.4|5> <channel> [time]\n");
+			rc = 1;
+		} else {
+			blob_buf_init(&args, 0);
+			blobmsg_add_string(&args, "action", "channel");
+			blobmsg_add_string(&args, "target", target);
+			if (ttl > 0)
+				blobmsg_add_u32(&args, "ttl", (uint32_t)ttl);
+			rc = call("ag.decision", "request", args.head, show_change) || change_failed;
+			blob_buf_free(&args);
+		}
 	} else if ((!strcmp(cmd, "quarantine") || !strcmp(cmd, "prioritize") || !strcmp(cmd, "block") ||
 		    !strcmp(cmd, "deprioritize") || !strcmp(cmd, "throttle") || !strcmp(cmd, "disconnect") ||
 		    (!strcmp(cmd, "do") && i + 1 < argc)) && i < argc) {

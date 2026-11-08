@@ -18,7 +18,10 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.12, phase 7 "advanced" under way:** **band steering** (a
+> **Status: v0.13, phase 7 "advanced" under way:** **channel self-healing**
+> (an access point whose channel stays crowded is moved to a quieter one, the
+> devices following without dropping; proposed for your approval, or automatic
+> in enforce mode). v0.12 brought **band steering** (a
 > 2.4 GHz and a 5 GHz access point with one name, on a dual-band router or on
 > a PC with two adapters; close devices move to 5 GHz, far ones to 2.4 GHz,
 > by 802.11v where they support it) and **presence** (who is home, arrivals
@@ -157,6 +160,7 @@ From mild to strong:
 | Prioritise a device | `agctl prioritize <device> [time]` | Its traffic is marked DSCP CS5, which Wi-Fi (WMM) sends in the video queue |
 | Deprioritise a device | `agctl deprioritize <device> [time]` | DSCP CS1: the Wi-Fi background queue, so it yields to everything else |
 | Throttle a device | `agctl throttle <device> [rate] [time]` | A per-device speed limit in nft, both directions (`2mbit`, `500kbit`; default 2 Mbit/s) |
+| Move Wi-Fi to another channel | `agctl channel <ap\|2.4\|5> <ch> [time]` | hostapd announces the switch and devices follow; back to the old channel when the time is up |
 | Block a domain | `agctl block <domain> [time] [device]` | `agdns` answers "no such name" for it and every subdomain, over UDP and TCP, for every device or just one |
 | Quarantine a device | `agctl quarantine <device> [time]` | Its MAC goes into the nft sets `quarantine` (routed traffic) and `bridge ag quarantine` (other devices on a bridged LAN): it still reaches the gateway (DHCP, DNS), nothing beyond it |
 | Disconnect from Wi-Fi | `agctl disconnect <device> [time]` | hostapd kicks it off and refuses it until the time is up |
@@ -374,13 +378,14 @@ CI runs it inside OpenWRT in QEMU after installing every build with opkg
 packages) and on emulated ARM64 (the Filogic packages). To try it on your own router, see
 [docs/testing-on-routers.md](docs/testing-on-routers.md).
 
-## What you get in v0.12
+## What you get in v0.13
 
 | Component | What it does |
 |-----------|--------------|
 | `agdns` | DNS sensor and actuator: forwards client DNS (UDP + TCP), reports every answered query to the brain, and answers blocked names itself. Keeps working if the brain stops. **Cache:** answers kept for their TTL, names in use refreshed before they expire, expired answers served when the upstream fails (RFC 8767); `agctl dns cache` shows hits and answer times. |
 | `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. **Connection names:** HTTPS connections (TCP and QUIC) also get the server name from their handshake, copied by the kernel (NFLOG) without slowing anything; those names are judged like lookups. |
 | Band steering | With a 2.4 GHz and a 5 GHz access point under one name, each device is moved to the band that suits it: an 802.11v request where supported, otherwise a 30 s refusal on its band. Hysteresis, a gap between moves, a home-wide rate limit, never protected devices, and a device that won't move is left alone. `agctl wifi`. |
+| Channel self-healing | How busy each access point's channel is (the radio's survey); when it stays crowded, a neighbour scan finds a quieter channel and a `wifi-busy` alert proposes moving there, by a channel switch announcement devices follow. A decision like any other: approval, time limit, undo. `agctl channel <ap|2.4|5> <ch>` by hand. |
 | Presence | Who is home: arrivals and departures as `ag.presence` events (a device unseen for 10 minutes has left), and how near each Wi-Fi device is to the access point. |
 | Decisions | Policies, proposals, approval, guardrails and six actions (prioritize, deprioritize, throttle, block, quarantine, disconnect), each with a time limit and undo. See above. |
 | Alerts | `dga` (machine-generated lookup, or handshake name), `no-dns` (connection without a lookup or a handshake name), `dns-bypass` (device using its own encrypted DNS, also recognised from the handshake), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
@@ -430,6 +435,7 @@ core/libag/          shared library: logging, config (UCI), DNS parser, .agm run
                      SHA-512 + Ed25519 verification (sign.c), TLS / QUIC server names (sni.c)
 agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors,
                      connection names (sni.c), band steering (steer.c), presence (presence.c),
+                     channel self-healing (chan.c),
                      alerts, baselines, decisions (act.c: policies,
                      guardrails, actuators), plug-in host (plugin.c), per-device Wi-Fi keys (keys.c),
                      models (models.c), threat list (intel.c), remote access (remote.c)
@@ -468,6 +474,7 @@ sudo tests/remote-test.sh build       # a real WireGuard tunnel between namespac
 sudo tests/dns-cache-test.sh build    # agdns cache against a slow fake upstream: answer times, prefetch, stale
 sudo tests/sni-test.sh build          # HTTPS and QUIC without AIGW's DNS, named from their handshakes
 sudo tests/steer-test.sh build        # band steering and presence against a fake dual-band hostapd
+sudo tests/chan-test.sh build         # channel self-healing: a busy channel, a proposal, the switch, undo
 sudo tests/hwsim-test.sh build        # real hostapd + wpa_supplicant on simulated radios (needs mac80211_hwsim)
 platform/openwrt/build-sdk.sh         # OpenWRT packages (VERSION=24.10 TARGET=x86/64 by default)
 platform/openwrt/qemu-test.sh         # install them on OpenWRT in QEMU, run aigw-selftest --full there

@@ -81,7 +81,7 @@ int ag_policy_action_ok(const char *action)
 		return 0;
 	/* blocking a domain is never automatic: the user names it */
 	if (!strcmp(action, "quarantine") || !strcmp(action, "disconnect") || !strcmp(action, "throttle") ||
-	    !strcmp(action, "deprioritize") || !strcmp(action, "priority"))
+	    !strcmp(action, "deprioritize") || !strcmp(action, "priority") || !strcmp(action, "channel"))
 		return 1;
 	dot = strchr(action, '.');
 	if (!dot || dot == action || (size_t)(dot - action) >= sizeof(plugin) || !dot[1] || strlen(dot + 1) > 23)
@@ -146,6 +146,11 @@ void ag_config_load(struct ag_config *c)
 	c->steer_kick = 1;
 	c->steer_rate = 2;
 	c->presence_away = 600;
+	c->chan_heal = 1;
+	c->chan_busy = 60;
+	c->chan_hold = 1800;
+	c->chan_poll = 30;
+	c->chan_scan_gap = 21600;
 	copy(c->model_dir, sizeof(c->model_dir), AG_DATADIR "/models");
 	c->alerts_enabled = 1;
 	c->dga_threshold = 0.98;
@@ -250,6 +255,21 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "wifi", "presence_away");
 		if (v && atoi(v) >= 10)
 			c->presence_away = atoi(v);
+		v = opt(ctx, p, "wifi", "chan_heal");
+		if (v)
+			c->chan_heal = atoi(v) != 0;
+		v = opt(ctx, p, "wifi", "chan_busy");
+		if (v && atoi(v) >= 10 && atoi(v) <= 100)
+			c->chan_busy = atoi(v);
+		v = opt(ctx, p, "wifi", "chan_hold");
+		if (v && atoi(v) >= 0)
+			c->chan_hold = atoi(v);
+		v = opt(ctx, p, "wifi", "chan_poll");
+		if (v && atoi(v) >= 5)
+			c->chan_poll = atoi(v);
+		v = opt(ctx, p, "wifi", "chan_scan_gap");
+		if (v && atoi(v) >= 10)
+			c->chan_scan_gap = atoi(v);
 		copy(c->model_dir, sizeof(c->model_dir), opt(ctx, p, "main", "model_dir"));
 		read_list(ctx, uci_lookup_section(ctx, p, "lan"), "iface", c->lan_ifaces, sizeof(c->lan_ifaces));
 		v = opt(ctx, p, "alerts", "enabled");
@@ -359,6 +379,8 @@ defaults:
 		add_policy(c, "dga", "dga", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 		add_policy(c, "iot_new_site", "new-destination", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 		add_policy(c, "known_threat", "known-threat", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
+		/* a quieter channel for a day; then back, and judged again */
+		add_policy(c, "wifi_busy", "wifi-busy", "channel", NULL, 86400, 0, AG_MODE_ENFORCE);
 	}
 }
 

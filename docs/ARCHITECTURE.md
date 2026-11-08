@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.12**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.13**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -558,7 +558,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | v0.10: LuCI, procd, self-test, OpenWRT in QEMU; real routers next |
-| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence |
+| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence; v0.13: channel self-healing |
 
 Real-router testing of every phase so far is planned for the end of the project (P6).
 
@@ -714,7 +714,19 @@ Not covered yet: TCP ClientHellos split into segments that arrive out of order (
 
 Verified by `tests/steer-test.sh` (a fake dual-band hostapd: a phone moved up by 802.11v, a laptop without it moved up by refusal and let back in after 30 s, a far device moved down without ping-pong, a 2.4 GHz-only plug and a protected TV never asked, a device that ignores requests left alone after three, a visitor's departure) and `tests/hwsim-test.sh` in CI (real hostapd with `aigw-ap`'s configs and a real `wpa_supplicant` on `mac80211_hwsim` radios: the client joins on 2.4 GHz, agd's 802.11v request moves it to 5 GHz).
 
-Not covered yet: channel self-healing (choosing and switching to a quieter channel), steering between more than two access points (mesh), and room-level presence or motion from signal patterns.
+Not covered yet: steering between more than two access points (mesh), and room-level presence or motion from signal patterns.
+
+**As built in v0.13 (P7, third part).** Channel self-healing:
+
+| Piece | As built |
+|-------|----------|
+| Measure (`chan.c`) | Every `wifi.chan_poll` (30 s), per access point, the radio's survey of the channel in use (`iw dev <ap> survey dump`): air used by others = (busy − own transmit) / active, smoothed. Shown by `agctl wifi`; a radio that reports no channel time says so. |
+| Decide | Busier than `wifi.chan_busy` (60 %) for `wifi.chan_hold` (30 min): one neighbour scan (`iw dev <ap> scan ap-force`, at most every `wifi.chan_scan_gap`, 6 h: the radio leaves its channel briefly). Each candidate channel (2.4 GHz 1/6/11; 5 GHz per width: 36/149 at 80 MHz, 36/44/149/157 at 40, the non-radar 20 MHz channels) scores the networks on or overlapping it, a strong one 3, a weak one 1; channels the radio may not use here (`iw phy`: disabled, no-IR, radar) are left out. One scoring at most half of the current raises `wifi-busy` with the numbers. |
+| Act | Policy `wifi_busy` (built in, and in the shipped config) → decision `channel <ap>:<channel>`, a day by default: a proposal in advise mode, automatic in enforce mode within `max_auto_per_hour`. One channel decision per access point at a time. hostapd `CHAN_SWITCH` keeps the width (center frequency and secondary channel worked out) and announces the switch, so devices follow without dropping; the minute's re-check does nothing when it is already there. Where the radio has no channel switch announcement, the PC restarts that access point on the new channel (`aigw-ap channel`). Undo, or the time limit, switches back to the channel it had. `agctl channel <ap|2.4|5> <ch> [time]` by hand. |
+
+Verified by `tests/chan-test.sh` (a fake hostapd and a stand-in `iw`: an 80 % busy channel 6 with 6 strong networks, channel 1 proposed, approval sends `CHAN_SWITCH 5 2412`, the re-check doesn't switch again, undo goes back, a manual switch, channel 14 refused) and in `tests/hwsim-test.sh` (CI): a real hostapd moves the 5 GHz access point from 36 to 44 and the real client follows the announcement.
+
+On the PC's RTL8821CU (`rtw88`) the driver reports no survey data and no channel switch announcement: the channel can't be judged there, and a switch restarts the access point (devices rejoin within seconds). Router radios (mt76, ath10k/ath11k) report both.
 ---
 
 ## 17. Status and risks

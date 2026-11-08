@@ -192,4 +192,25 @@ ok = r["steering"]["dual_band"] and r["steering"]["moves_done"] >= 1 and len(on5
 print("  steering:", r["steering"])
 sys.exit(0 if ok else 1)
 EOF
+
+echo "== channel switch: agctl channel 5 44; the client follows the announcement"
+assoc_before=$(grep -c "CTRL-EVENT-CONNECTED" "$T/wpas.log" || true)
+"$BIN/agctl/agctl" channel 5 44 10m || fail "agctl channel 5 44"
+i=0
+until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 5220'; do
+	i=$((i + 1))
+	if [ $i -gt 30 ]; then
+		echo "--- 5 GHz hostapd"; tail -n 20 "$T/hostapd5-$w5.log"
+		echo "--- agd"; tail -n 10 "$T/agd.log"
+		fail "client not on channel 44 (5220 MHz) after 30 s"
+	fi
+	sleep 1
+done
+echo "   on channel 44 after ${i}s: $(ip netns exec "$NC" iw dev "$STA" link | grep -E 'freq' | tr -s ' \t' ' ')"
+grep -q "switching from channel 36 to 44" "$T/agd.log" || fail "agd did not announce the switch (fell back to a restart?)"
+if [ "$(grep -c "CTRL-EVENT-CONNECTED" "$T/wpas.log" || true)" != "$assoc_before" ]; then
+	echo "   (the client reconnected instead of following)"
+fi
+sleep 6
+"$BIN/agctl/agctl" wifi
 echo "HWSIM TEST OK"

@@ -106,6 +106,13 @@ config policy 'known_threat'
 	option action 'quarantine'
 	option ttl '3600'
 
+config policy 'wifi_busy'
+	# an access point's channel stays crowded: move it to a quieter one for a day
+	# (clients follow without dropping), then back and judged again
+	option alert 'wifi-busy'
+	option action 'channel'
+	option ttl '86400'
+
 # config policy 'upload_spike'
 #	option alert 'upload-spike'
 #	option action 'throttle'
@@ -137,6 +144,16 @@ config wifi 'wifi'
 	option steer_kick '1'
 	# a device unseen this long has left home (phones drop Wi-Fi to save power)
 	option presence_away '600'
+	# Channel self-healing: how busy each access point's channel is (the radio's
+	# survey), measured every chan_poll seconds; busier than chan_busy % for
+	# chan_hold seconds raises 'wifi-busy' with a quieter channel from a scan of
+	# the neighbours (at most every chan_scan_gap seconds; a scan leaves the
+	# channel for a moment). The wifi_busy policy turns it into a 'channel' action.
+	option chan_heal '1'
+	option chan_busy '60'
+	option chan_hold '1800'
+	option chan_poll '30'
+	option chan_scan_gap '21600'
 
 config plugins 'plugins'
 	# Plug-ins wire themselves in, no configuration needed: packages put them
