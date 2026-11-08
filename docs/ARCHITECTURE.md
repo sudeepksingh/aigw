@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.10**, phases P0–P5 built, P6 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.11**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -558,7 +558,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | v0.10: LuCI, procd, self-test, OpenWRT in QEMU; real routers next |
-| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | |
+| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names |
 
 Real-router testing of every phase so far is planned for the end of the project (P6).
 
@@ -677,6 +677,32 @@ The LuCI pages are also rendered in a headless browser (`platform/openwrt/luci_s
 
 Busy homes (hundreds of devices and endpoints, plug-ins running) still need measuring on real routers. The checklist is [testing-on-routers.md](testing-on-routers.md).
 
+**As built in v0.11 (P7, first part).** Faster DNS, and a name for every HTTPS connection:
+
+| Piece | As built |
+|-------|----------|
+| DNS cache (`agdns`) | Up to `dns.cache` answers (1000), keyed by question, EDNS, DO and CD bits; served with the client's ID, RD bit and spelling of the name (0x20), TTLs counted down. Only clean answers: one question, not truncated, NOERROR or NXDOMAIN, records with a TTL; negative answers at most 300 s. Every answer, cached or not, still reaches `agd` as an `ag.dns` event (`cached: 1`). Blocks are checked before the cache. |
+| Prefetch | A name asked for at least twice, with a TTL of 10 s or more, is asked for again when under a tenth of its TTL is left. Busy names never wait for the upstream. |
+| Stale answers | RFC 8767: an expired answer (kept up to `dns.stale`, 1 day) is served with a 30 s TTL when the upstream answers SERVFAIL or REFUSED, or has not answered after 1.8 s. The upstream's answer still refreshes the cache when it comes. |
+| `ag.dnscache` | ubus `stats`: entries, hits and misses, average answer time from the cache and from upstream, prefetches, stale answers. `agctl dns cache`; LuCI overview. |
+| Connection names (`agd/sni.c`) | `aigw-nft` adds table `inet ag_sni`: from the LAN, TCP 443 packets 3–6 and UDP 443 packets 1–3 of each connection are copied (`log group`, 2 KB) to NFLOG group `flow.sni_group`. A copy, never a verdict: forwarding never waits. `agd` puts the ClientHello back together (TCP by sequence number; QUIC CRYPTO frames by offset, across Initial packets, in any order), and `libag sni.c` reads the server name and ALPN. QUIC Initial protection uses keys derived from the packet itself (RFC 9001 §5, v1 and v2), so any on-path box can read it; SHA-256, HKDF, AES-128 and AES-GCM are in `libag`, checked against FIPS 197, RFC 5869 and RFC 9001 vectors. |
+| Flow sensor | An HTTPS connection without a DNS name waits up to 3 s for its handshake before it counts as "no DNS". A handshake name replaces a missing name, a "(nearby)" guess or a different DNS name (an address shared by many sites); a DNS name stays when the handshake only shows an Encrypted Client Hello's outer name. Flows carry `named_by` (`dns`, `nearby`, `sni`); `agctl flows` notes "name from handshake". |
+| Alerts | A handshake name is judged like a lookup: DNS-over-HTTPS servers → `dns-bypass`, threat-intel lists → `known-threat`, the domain-risk model → `dga`. Names behind an Encrypted Client Hello are not judged. |
+| Packaging | `aigw` depends on `kmod-nfnetlink-log`. Where the kernel lacks NFLOG, `aigw-nft` leaves the table out and connections are named from DNS only; the fw4 include always loads. `aigw-selftest` checks the cache (a repeated lookup is a hit), the sensor and its table. |
+
+Measured by `tests/dns-cache-test.sh` against an upstream that takes 50 ms per answer:
+
+| | Result |
+|--|--------|
+| Answer time, median of 20 names | 51 ms from upstream, 0.3 ms from the cache (about 150× faster) |
+| A 10 s name asked every 0.5 s for 14 s | slowest answer after the first 1.4 ms; the upstream was asked twice (once by prefetch) |
+| Upstream silent | the expired answer after 1.9 s, TTL 30 |
+| Upstream answering SERVFAIL | the expired answer after 52 ms, TTL 30 |
+
+`tests/sni-test.sh` (network namespaces, a real `openssl s_server`, NFLOG in the kernel): HTTPS without a lookup through AIGW (`curl --resolve`, as an app using DNS over HTTPS or a hard-coded address) is named from its ClientHello. A machine-generated name raises `dga`, and `dns.google` raises `dns-bypass`, both from the handshake alone. A QUIC Initial split over two datagrams in reverse order is named. A TLS connection to a bare address still counts as no-DNS, and a DNS name stays.
+
+Not covered yet: TCP ClientHellos split into segments that arrive out of order (waits for retransmission, which the copy window may miss); with fw4 flow offloading, the second segment of a post-quantum ClientHello can bypass the copy, so a name late in it is missed. ECH hides the real site name by design.
+
 ---
 
 ## 17. Status and risks
@@ -698,7 +724,7 @@ Development PC checked 2026-11-06 (WSL2 kernel 6.18.54, RTL8821CU):
 | Regulatory DB not loaded on PC | 5 GHz AP may be refused | load wireless-regdb, set country; 2.4 GHz fallback |
 | USB Wi-Fi AP stability (rtw88 over USB/IP) | brief disconnects | hostapd watchdog; mt76 adapters recommended |
 | One adapter can't be AP and sensor | no presence sensing while AP | second USB adapter; routers have several radios |
-| DNS bypass | partial DNS view | port-53 redirect, canary, DoH detection, flow signals |
+| DNS bypass | partial DNS view | port-53 redirect, DoH detection, flow signals; since v0.11 connections are named from their TLS / QUIC handshakes |
 | False positives | lost trust | observe/advise first, TTL, one-tap feedback |
 | C parsing untrusted data | gateway compromise | fuzzing, ASan, sandboxing |
 | Third-party plug-ins | misbehaving code | signatures, declared permissions, budgets, ujail |

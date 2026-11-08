@@ -6,6 +6,7 @@
 				"ag": [ "status" ],
 				"ag.device": [ "list" ],
 				"ag.alert": [ "list" ],
+				"ag.dnscache": [ "stats" ],
 				"ag.decision": [ "list" ],
 				"ag.plugin": [ "list" ],
 				"ag.model": [ "list" ],

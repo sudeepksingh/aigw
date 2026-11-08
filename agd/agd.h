@@ -111,10 +111,19 @@ void ep_save(struct blob_buf *b);
 int ep_load(struct blob_attr *arr);
 
 /* flow.c */
-extern uint64_t flows_total, flows_no_dns_total;
 int flow_init(void);
 int flow_active(void);
 void flow_blob_recent(struct blob_buf *b, unsigned limit);
+struct ag_sni;
+/* a connection's server name, read from its TLS or QUIC handshake */
+void flow_named(const char *client, const char *dst, uint8_t proto, uint16_t sport, uint16_t dport,
+		const struct ag_sni *s);
+extern uint64_t flows_total, flows_no_dns_total, flows_sni_total;
+
+/* sni.c: TLS / QUIC handshakes copied by the kernel (NFLOG) */
+int sni_init(void);
+int sni_active(void);
+void sni_blob(struct blob_buf *b);
 
 /* alerts.c */
 int alerts_init(void);
@@ -122,6 +131,8 @@ const char *alerts_model_name(void);
 int alerts_model_trees(void);
 double alerts_domain_score(const char *qname, char *label, size_t n, float *features);
 void alerts_on_dns(const char *client, const char *qname);
+void alerts_on_sni(const char *client, const char *dst, const char *name, unsigned dport, int ech);
+void alerts_no_dns(const char *client, const char *dst, const char *proto, unsigned dport);
 void alerts_on_flow(const char *client, const char *dst, const char *domain, const char *proto,
 		    unsigned dport, int no_dns);
 uint64_t alerts_total(void);

@@ -110,6 +110,35 @@ EOF
 	echo "}"
 }
 
+# Server names for connections (agd/sni.c): the first packets of each new
+# HTTPS connection (the TLS ClientHello, the QUIC Initial) are copied to agd
+# over NFLOG. A copy, never a verdict: forwarding never waits for agd. Needs
+# nft_log and nfnetlink_log (kmod-nfnetlink-log on OpenWRT).
+render_sni() {
+	[ "$(uci_get flow.sni)" = 0 ] && return 0
+	[ "$(uci_get flow.enabled)" = 0 ] && return 0
+	grp=$(uci_get flow.sni_group); grp=${grp:-4419}
+	from=""
+	ifaces=""
+	for i in $(uci_get lan.iface); do
+		[ -n "$ifaces" ] && ifaces="$ifaces, "
+		ifaces="$ifaces\"$i\""
+	done
+	[ -n "$ifaces" ] && from="iifname { $ifaces } "
+	cat <<EOF
+
+table inet ag_sni
+delete table inet ag_sni
+table inet ag_sni {
+	chain forward {
+		type filter hook forward priority filter - 6; policy accept;
+		${from}tcp dport 443 ct original packets 3-6 log group $grp snaplen 2048 queue-threshold 1
+		${from}udp dport 443 ct original packets 1-3 log group $grp snaplen 2048 queue-threshold 1
+	}
+}
+EOF
+}
+
 # Quarantine inside a bridge (e.g. br-lan on OpenWRT): frames between two LAN
 # ports never reach the inet forward hook. Needs nft bridge support in the
 # kernel (kmod-nft-bridge on OpenWRT); skipped where it is missing.
@@ -137,6 +166,22 @@ apply)
 	mkdir -p "$(dirname "$NFT_FILE")"
 	render > "$NFT_FILE.tmp"
 	nft -c -f "$NFT_FILE.tmp"
+	# connection names ride along only where the kernel takes them, so the
+	# file (also the fw4 include on OpenWRT) always loads
+	render_sni > "$NFT_FILE.sni"
+	if [ -s "$NFT_FILE.sni" ]; then
+		cat "$NFT_FILE.tmp" "$NFT_FILE.sni" > "$NFT_FILE.both"
+		if nft -c -f "$NFT_FILE.both" 2>/dev/null; then
+			mv "$NFT_FILE.both" "$NFT_FILE.tmp"
+		else
+			echo "aigw-nft: no NFLOG support (nft_log, nfnetlink_log): connections are named from DNS only" >&2
+			rm -f "$NFT_FILE.both"
+			nft delete table inet ag_sni 2>/dev/null || true
+		fi
+	else
+		nft delete table inet ag_sni 2>/dev/null || true
+	fi
+	rm -f "$NFT_FILE.sni"
 	mv "$NFT_FILE.tmp" "$NFT_FILE"
 	nft -f "$NFT_FILE"
 	render_bridge > "$NFT_FILE.bridge"
@@ -151,18 +196,24 @@ remove)
 	echo "# aigw is stopped" > "$NFT_FILE"
 	rm -f "$NFT_FILE.bridge"
 	nft delete table inet ag 2>/dev/null || true
+	nft delete table inet ag_sni 2>/dev/null || true
 	nft delete table bridge ag 2>/dev/null || true
 	;;
 show)
 	nft list table inet ag
+	nft list table inet ag_sni 2>/dev/null || true
 	nft list table bridge ag 2>/dev/null || true
 	;;
 render)
 	render
+	render_sni
 	render_bridge
 	;;
+render-sni)
+	render_sni
+	;;
 *)
-	echo "usage: aigw-nft apply|remove|show|render" >&2
+	echo "usage: aigw-nft apply|remove|show|render|render-sni" >&2
 	exit 1
 	;;
 esac

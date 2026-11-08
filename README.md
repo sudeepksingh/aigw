@@ -18,9 +18,13 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.10, phase 6 "hardware" under way:** a LuCI web interface, procd
-> supervision, a self-test, and every build installed and checked on OpenWRT in
-> QEMU; real routers next. AIGW knows every device (identity, Wi-Fi,
+> **Status: v0.11, phase 7 "advanced" under way:** DNS answers from a cache
+> (about 150× faster than asking upstream, refreshed before they expire,
+> still answered when the upstream fails), and every HTTPS connection named
+> from its TLS or QUIC handshake, so apps that skip AIGW's DNS (DNS over
+> HTTPS, hard-coded addresses) are still seen and judged. Phase 6 brought a
+> LuCI web interface, procd supervision, a self-test, and every build checked
+> on OpenWRT in QEMU; real routers next. AIGW knows every device (identity, Wi-Fi,
 > lookups, connections, traffic), learns what is normal for each one, and
 > runs an on-device AI model that recognises machine-generated names used by
 > malware. It explains in plain words what deserves attention and can act on
@@ -58,6 +62,7 @@ The installer prints the Wi-Fi name and password. Join it from a phone, then:
 agctl devices          # every device: type, Wi-Fi signal, lookups, traffic
 agctl device <name>    # one device in detail
 agctl flows            # recent connections, with the name each one belongs to
+agctl dns cache        # how much the DNS cache saves
 agctl alerts           # what AIGW thinks you should know, and why
 agctl decisions        # actions AIGW proposes, and the ones in effect
 agctl score <domain>   # ask the domain-risk model about any name
@@ -354,7 +359,8 @@ aigw-selftest --full    # also restarts agd once, reloads the firewall, tries re
 The self-test covers:
 - the services (procd, ujail), the firewall include and the kernel rules;
 - on this CPU: signatures, the model's scores, a QR code, and a real DNS
-  query through agdns (`agctl selftest`);
+  query through agdns, asked twice so the second comes from the cache (`agctl selftest`);
+- connection names: the sensor and its kernel table;
 - memory and flash against the budget;
 - the LuCI access list.
 
@@ -363,14 +369,14 @@ CI runs it inside OpenWRT in QEMU after installing every build with opkg
 packages) and on emulated ARM64 (the Filogic packages). To try it on your own router, see
 [docs/testing-on-routers.md](docs/testing-on-routers.md).
 
-## What you get in v0.10
+## What you get in v0.11
 
 | Component | What it does |
 |-----------|--------------|
-| `agdns` | DNS sensor and actuator: forwards client DNS (UDP + TCP), reports every answered query to the brain, and answers blocked names itself. Keeps working if the brain stops. |
-| `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. |
+| `agdns` | DNS sensor and actuator: forwards client DNS (UDP + TCP), reports every answered query to the brain, and answers blocked names itself. Keeps working if the brain stops. **Cache:** answers kept for their TTL, names in use refreshed before they expire, expired answers served when the upstream fails (RFC 8767); `agctl dns cache` shows hits and answer times. |
+| `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. **Connection names:** HTTPS connections (TCP and QUIC) also get the server name from their handshake, copied by the kernel (NFLOG) without slowing anything; those names are judged like lookups. |
 | Decisions | Policies, proposals, approval, guardrails and six actions (prioritize, deprioritize, throttle, block, quarantine, disconnect), each with a time limit and undo. See above. |
-| Alerts | `dga` (machine-generated lookup), `no-dns` (connection without a lookup), `dns-bypass` (device using its own encrypted DNS), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
+| Alerts | `dga` (machine-generated lookup, or handshake name), `no-dns` (connection without a lookup or a handshake name), `dns-bypass` (device using its own encrypted DNS, also recognised from the handshake), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
 | Plug-in host | Finds plug-ins by itself, checks manifest, host, trust and needs, wires events, actions and skill policies, runs them unprivileged with restarts and budgets. See above. |
 | Wi-Fi keys | A key and QR code per device, bound to its MAC on first join, zoned, revocable on its own. |
 | `ag-mqtt` | Connector plug-in: MQTT 3.1.1 telemetry in, state out, Home Assistant discovery. |
@@ -382,7 +388,7 @@ packages) and on emulated ARM64 (the Filogic packages). To try it on your own ro
 | `ag-bridge` | Connector plug-in to cortex over HTTPS (curl): reports state, fetches signed models, brings proposals. Devices can be reported by name, anonymously or not at all. |
 | cortex | Python, optional: fleet history (SQLite), labels from your answers, retraining, signing and publishing, HTTP API for bridges, MCP server. |
 | `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge`, `remote`, `selftest` |
-| `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
+| `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions), `inet ag_sni` (copies of HTTPS handshakes for connection names, where the kernel has NFLOG) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
 
 API (same on every host):
@@ -391,7 +397,8 @@ API (same on every host):
 ubus call ag status
 ubus call ag.device list
 ubus call ag.dns log '{"limit": 20}'
-ubus call ag.flow recent '{"limit": 20}'
+ubus call ag.dnscache stats                     # agdns: hits, answer times, prefetches, stale answers
+ubus call ag.flow recent '{"limit": 20}'        # each flow: named_by dns | nearby | sni
 ubus call ag.alert list
 ubus call ag.domain score '{"name": "example.com"}'
 ubus call ag.decision list
@@ -412,12 +419,12 @@ ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision ag.plugin ag.model 'iot.
 ```
 include/ag/          public headers (events, DNS parser, models, QR, signatures)
 core/libag/          shared library: logging, config (UCI), DNS parser, .agm runtime, QR,
-                     SHA-512 + Ed25519 verification (sign.c)
+                     SHA-512 + Ed25519 verification (sign.c), TLS / QUIC server names (sni.c)
 agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors,
-                     alerts, baselines, decisions (act.c: policies, guardrails, actuators),
-                     plug-in host (plugin.c), per-device Wi-Fi keys (keys.c), models (models.c),
-                     threat list (intel.c), remote access (remote.c)
-agdns/               the DNS sensor
+                     connection names (sni.c), alerts, baselines, decisions (act.c: policies,
+                     guardrails, actuators), plug-in host (plugin.c), per-device Wi-Fi keys (keys.c),
+                     models (models.c), threat list (intel.c), remote access (remote.c)
+agdns/               the DNS sensor and cache
 agctl/               command line
 plugins/             first-party plug-ins (mqtt, bridge, iot-guard) and examples for your own
 scripts/             aigw-nft (kernel rules), aigw-remote (WireGuard), aigw-selftest, aigw-dhcp-event
@@ -431,7 +438,7 @@ cortex/training/     Python training pipelines that produce the models
 tests/               unit tests, model parity test, smoke test, network-namespace tests (flow, baseline,
                      act), plug-in test (plug-ins, skills, Wi-Fi keys, MQTT), outside test
                      (bridge, cortex, retrain, signed hot-loaded model, MCP, threat list, signed
-                     plug-ins), remote test (WireGuard)
+                     plug-ins), remote test (WireGuard), DNS cache test, connection-name test
 docs/                architecture and getting-started guides
 ```
 
@@ -449,6 +456,8 @@ sudo tests/plug-test.sh build         # plug-ins, skills, budgets, Wi-Fi keys, M
 sudo tests/outside-test.sh build      # bridge + cortex: labels, retrain, signed hot-load, rollback, MCP,
                                       # threat list, signed plug-ins
 sudo tests/remote-test.sh build       # a real WireGuard tunnel between namespaces: DNS through AIGW, revoke
+sudo tests/dns-cache-test.sh build    # agdns cache against a slow fake upstream: answer times, prefetch, stale
+sudo tests/sni-test.sh build          # HTTPS and QUIC without AIGW's DNS, named from their handshakes
 platform/openwrt/build-sdk.sh         # OpenWRT packages (VERSION=24.10 TARGET=x86/64 by default)
 platform/openwrt/qemu-test.sh         # install them on OpenWRT in QEMU, run aigw-selftest --full there
 ARCH=mipsel_24kc platform/openwrt/qemu-test.sh   # the MT7621 packages on emulated MIPS (also aarch64_cortex-a53)

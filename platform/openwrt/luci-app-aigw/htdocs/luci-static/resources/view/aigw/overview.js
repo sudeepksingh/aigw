@@ -5,6 +5,20 @@
 
 var callStatus = rpc.declare({ object: 'ag', method: 'status', expect: { '': {} } });
 var callModels = rpc.declare({ object: 'ag.model', method: 'list', expect: { '': {} } });
+var callCache = rpc.declare({ object: 'ag.dnscache', method: 'stats', expect: { '': {} } });
+
+function loadAll() {
+	return Promise.all([ callStatus(), L.resolveDefault(callModels(), {}), L.resolveDefault(callCache(), {}) ]);
+}
+
+function cacheText(c) {
+	if (!c.cache)
+		return [ _('off'), '' ];
+	return [ _('%d%% of lookups answered from the cache').format(c.hit_pct || 0),
+		_('%s ms from the cache, %s ms from upstream; %d refreshed early, %d stale answers')
+			.format(((c.hit_avg_us || 0) / 1000).toFixed(2), ((c.upstream_avg_us || 0) / 1000).toFixed(1),
+				c.prefetches || 0, c.stale || 0) ];
+}
 
 /* text, never markup: names and reasons come from the network */
 function T(s) {
@@ -29,11 +43,12 @@ function modeText(mode) {
 
 return view.extend({
 	load: function() {
-		return Promise.all([ callStatus(), L.resolveDefault(callModels(), {}) ]);
+		return loadAll();
 	},
 
-	table: function(st, models) {
+	table: function(st, models, cache) {
 		var d = st.decisions || {}, p = st.plugins || {}, r = st.remote || {}, s = st.sensors || {};
+		var ct = cacheText(cache || {});
 		var mods = (models.models || []).filter(function(m) { return m.loaded; }).map(function(m) {
 			return m.kind == 'list'
 				? _('%s v%d (%d names)').format(m.name, m.version, m.entries)
@@ -46,8 +61,11 @@ return view.extend({
 			row(_('Running for'), '%t'.format(st.uptime_s || 0)),
 			row(_('Devices'), String(st.devices || 0), _('%d on Wi-Fi now').format(st.wifi_stations || 0)),
 			row(_('DNS lookups'), String(st.dns_queries || 0)),
-			row(_('Connections'), String(st.flows || 0), _('%d without a DNS lookup').format(st.flows_no_dns || 0)),
+			row(_('DNS cache'), ct[0], ct[1]),
+			row(_('Connections'), String(st.flows || 0), _('%d without a DNS lookup, %d named from their handshake')
+				.format(st.flows_no_dns || 0, st.flows_sni || 0)),
 			row(_('Sensors'), [ s.dns ? _('DNS on') : _('DNS waiting'), s.flow ? _('flows on') : _('flows OFF'),
+				s.sni ? _('connection names on') : _('connection names off'),
 				s.wifi ? _('Wi-Fi on') : _('no Wi-Fi stations') ].join(', ')),
 			row(_('Alerts'), String(st.alerts || 0)),
 			row(_('Acting'), st.mode || 'advise', modeText(st.mode)),
@@ -61,12 +79,12 @@ return view.extend({
 	},
 
 	render: function(data) {
-		var box = E('div', {}, this.table(data[0], data[1]));
+		var box = E('div', {}, this.table(data[0], data[1], data[2]));
 		var self = this;
 
 		poll.add(function() {
-			return Promise.all([ callStatus(), L.resolveDefault(callModels(), {}) ]).then(function(res) {
-				box.replaceChildren(self.table(res[0], res[1]));
+			return loadAll().then(function(res) {
+				box.replaceChildren(self.table(res[0], res[1], res[2]));
 			});
 		}, 10);
 

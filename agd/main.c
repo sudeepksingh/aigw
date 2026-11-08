@@ -209,7 +209,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
-	blobmsg_add_string(&b, "phase", "outside");
+	blobmsg_add_string(&b, "phase", "advanced");
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
@@ -217,6 +217,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u64(&b, "dns_last_event", (uint64_t)last_dns_event);
 	blobmsg_add_u64(&b, "flows", flows_total);
 	blobmsg_add_u64(&b, "flows_no_dns", flows_no_dns_total);
+	blobmsg_add_u64(&b, "flows_sni", flows_sni_total);
 	blobmsg_add_u32(&b, "endpoints", (uint32_t)ep_count());
 	blobmsg_add_u64(&b, "alerts", alerts_total());
 	blobmsg_add_string(&b, "mode", ag_mode_str(cfg.act_mode));
@@ -247,8 +248,10 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	s = blobmsg_open_table(&b, "sensors");
 	blobmsg_add_u8(&b, "dns", last_dns_event ? 1 : 0);
 	blobmsg_add_u8(&b, "flow", flow_active() ? 1 : 0);
+	blobmsg_add_u8(&b, "sni", sni_active() ? 1 : 0);
 	blobmsg_add_u8(&b, "wifi", wifi_station_count() > 0 ? 1 : 0);
 	blobmsg_close_table(&b, s);
+	sni_blob(&b);
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
@@ -858,6 +861,7 @@ int main(int argc, char **argv)
 	act_init();
 	remote_init();                  /* before the flow sensor: tunnel clients are part of the home */
 	flow_init();
+	sni_init();                     /* after the flow sensor: it names its connections */
 	wifi_init();
 	keys_init();
 	plugin_init();

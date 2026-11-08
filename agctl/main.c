@@ -35,6 +35,7 @@ static void usage(void)
 		"  devices             devices: identity, Wi-Fi, lookups, traffic\n"
 		"  device <ip|mac|name>  one device in detail\n"
 		"  dns [N]             last N DNS lookups (default 30)\n"
+		"  dns cache           the DNS cache: hits, answer times, prefetches, stale answers\n"
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
@@ -189,6 +190,28 @@ static void print_json(struct blob_attr *msg)
 	}
 }
 
+static void show_dnscache(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "cache")) {
+		printf("DNS cache off (dns.cache 0)\n");
+		return;
+	}
+	printf("DNS cache       %llu of %llu answers kept\n", (unsigned long long)fnum(msg, "entries"),
+	       (unsigned long long)fnum(msg, "size"));
+	printf("  lookups       %llu from the cache, %llu from upstream (%llu%% from the cache)\n",
+	       (unsigned long long)fnum(msg, "hits"), (unsigned long long)fnum(msg, "misses"),
+	       (unsigned long long)fnum(msg, "hit_pct"));
+	printf("  answer time   %.2f ms from the cache, %.1f ms from upstream\n", fnum(msg, "hit_avg_us") / 1000.0,
+	       fnum(msg, "upstream_avg_us") / 1000.0);
+	printf("  prefetched    %llu names refreshed before they expired\n", (unsigned long long)fnum(msg, "prefetches"));
+	printf("  stale         %llu expired answers served while upstream failed\n",
+	       (unsigned long long)fnum(msg, "stale"));
+	printf("  blocked       %llu   timeouts %llu   dropped %llu\n", (unsigned long long)fnum(msg, "blocked"),
+	       (unsigned long long)fnum(msg, "timeouts"), (unsigned long long)fnum(msg, "dropped"));
+}
+
 static const char *dev_name(struct blob_attr *d)
 {
 	return orb(fstr(d, "hostname"), orb(fstr(d, "mac"), "-"));
@@ -209,12 +232,13 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 	       (unsigned long long)fnum(msg, "wifi_stations"));
 	printf("  dns lookups     %llu (last %s)\n", (unsigned long long)fnum(msg, "dns_queries"),
 	       ago(fnum(msg, "dns_last_event"), t, sizeof(t)));
-	printf("  connections     %llu, %llu without a DNS lookup\n", (unsigned long long)fnum(msg, "flows"),
-	       (unsigned long long)fnum(msg, "flows_no_dns"));
+	printf("  connections     %llu, %llu without a DNS lookup, %llu named from their handshake\n",
+	       (unsigned long long)fnum(msg, "flows"), (unsigned long long)fnum(msg, "flows_no_dns"),
+	       (unsigned long long)fnum(msg, "flows_sni"));
 	if (s)
-		printf("  sensors         dns %s, flow %s, wifi %s\n",
+		printf("  sensors         dns %s, flow %s, names %s, wifi %s\n",
 		       fnum(s, "dns") ? "on" : "waiting", fnum(s, "flow") ? "on" : "OFF",
-		       fnum(s, "wifi") ? "on" : "no stations");
+		       fnum(s, "sni") ? "on" : "off", fnum(s, "wifi") ? "on" : "no stations");
 	printf("  alerts          %llu\n", (unsigned long long)fnum(msg, "alerts"));
 	{
 		struct blob_attr *d = field(msg, "decisions");
@@ -446,7 +470,8 @@ static void show_flows(struct ubus_request *req, int type, struct blob_attr *msg
 		       orb(fstr(e, "hostname"), fstr(e, "client")), orb(fstr(e, "domain"), fstr(e, "dst")),
 		       proto, human_bytes(fnum(e, "bytes_down"), dn, sizeof(dn)),
 		       human_bytes(fnum(e, "bytes_up"), up, sizeof(up)),
-		       (unsigned long long)fnum(e, "duration_s"), fnum(e, "no_dns") ? "no DNS lookup" : "");
+		       (unsigned long long)fnum(e, "duration_s"), fnum(e, "no_dns") ? "no DNS lookup" :
+		       !strcmp(fstr(e, "named_by"), "sni") ? "name from handshake" : "");
 	}
 }
 
@@ -1176,6 +1201,9 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 			printf("conn  %-16s %-5s %-44s port %llu%s\n", fstr(msg, "client"), fstr(msg, "proto"), dst,
 			       (unsigned long long)fnum(msg, "dport"),
 			       fnum(msg, "no_dns") ? "   ** no DNS lookup **" : "");
+		else if (!strcmp(what, "named"))
+			printf("name  %-16s %-5s %-44s port %llu (from its handshake)\n", fstr(msg, "client"),
+			       fstr(msg, "proto"), dst, (unsigned long long)fnum(msg, "dport"));
 		else
 			printf("end   %-16s %-5s %-44s %s down, %s up, %llus\n", fstr(msg, "client"),
 			       fstr(msg, "proto"), dst, human_bytes(fnum(msg, "bytes_down"), b1, sizeof(b1)),
@@ -1312,6 +1340,8 @@ int main(int argc, char **argv)
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
 		rc = call("ag.alert", "list", args.head, show_alerts);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "dns") && i < argc && !strcmp(argv[i], "cache")) {
+		rc = call("ag.dnscache", "stats", NULL, show_dnscache);
 	} else if (!strcmp(cmd, "dns") || !strcmp(cmd, "flows")) {
 		blob_buf_init(&args, 0);
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 30);

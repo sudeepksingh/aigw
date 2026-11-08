@@ -4,6 +4,7 @@
 		"ag": { "methods": [ "status" ] },
 		"ag.device": { "methods": [ "list" ] },
 		"ag.dns": { "methods": [ "log" ] },
+		"ag.dnscache": { "methods": [ "stats" ] },
 		"ag.flow": { "methods": [ "recent" ] },
 		"ag.alert": { "methods": [ "list" ] },
 		"ag.domain": { "methods": [ "score" ] },

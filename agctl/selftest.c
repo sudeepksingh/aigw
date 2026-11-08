@@ -111,18 +111,26 @@ static void check_qr(void)
 	result(ok, "qr", "Wi-Fi QR code, version %d", ok ? q.version : 0);
 }
 
-/* a real A query to agdns on 127.0.0.1:<dns.port> */
-static void check_dns(const struct ag_config *c)
+static uint64_t mono_us(void)
 {
-	static const char *const name = "example.com";
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (uint64_t)ts.tv_sec * 1000000ull + (uint64_t)ts.tv_nsec / 1000;
+}
+
+/* One A query to agdns on 127.0.0.1:<dns.port>. Returns the answer's
+ * length (parsed into m, time taken in *us), 0 for a wrong reply, -1 when
+ * nothing came back. */
+static int ask(const struct ag_config *c, const char *name, uint16_t id, struct ag_dns_msg *m, uint64_t *us)
+{
 	uint8_t q[512], r[1500];
 	struct sockaddr_in sa = { .sin_family = AF_INET };
 	struct pollfd p;
-	struct ag_dns_msg m;
 	size_t n = 12;
 	const char *s = name;
+	uint64_t t0;
 	int fd, got;
-	uint16_t id = (uint16_t)(time(NULL) ^ getpid());
 
 	memset(q, 0, sizeof(q));
 	q[0] = (uint8_t)(id >> 8);
@@ -144,29 +152,48 @@ static void check_dns(const struct ag_config *c)
 	sa.sin_port = htons((uint16_t)c->dns_port);
 	inet_pton(AF_INET, "127.0.0.1", &sa.sin_addr);
 	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	t0 = mono_us();
 	if (fd < 0 || sendto(fd, q, n, 0, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
-		result(0, "dns", "cannot send to 127.0.0.1#%d", c->dns_port);
 		if (fd >= 0)
 			close(fd);
-		return;
+		return -1;
 	}
 	p.fd = fd;
 	p.events = POLLIN;
 	got = poll(&p, 1, 4000) == 1 ? (int)recv(fd, r, sizeof(r), 0) : -1;
+	*us = mono_us() - t0;
 	close(fd);
-	if (got <= 0) {
+	if (got <= 0)
+		return -1;
+	return ag_dns_parse(r, (size_t)got, m) < 0 || m->id != id ? 0 : got;
+}
+
+/* real queries through agdns: the same name twice, the second from its cache */
+static void check_dns(const struct ag_config *c)
+{
+	static const char *const name = "example.com";
+	uint16_t id = (uint16_t)(time(NULL) ^ getpid());
+	struct ag_dns_msg m, m2;
+	uint64_t us, us2;
+	int rc = ask(c, name, id, &m, &us);
+
+	if (rc < 0) {
 		result(0, "dns", "agdns on 127.0.0.1#%d did not answer", c->dns_port);
 		return;
 	}
-	if (ag_dns_parse(r, (size_t)got, &m) < 0 || m.id != id) {
+	if (rc == 0) {
 		result(0, "dns", "agdns answered something that is not a DNS reply");
 		return;
 	}
-	if ((m.flags & 0xf) == 2)               /* SERVFAIL: agdns works, the upstream doesn't */
+	if ((m.flags & 0xf) == 2) {             /* SERVFAIL: agdns works, the upstream doesn't */
 		printf("INFO dns: agdns answers on 127.0.0.1#%d, but its upstream failed (no internet?)\n", c->dns_port);
-	else
-		result((m.flags & 0xf) == 0 && m.n_ans > 0, "dns", "%s through agdns: rcode %d, %d address%s", name,
-		       m.flags & 0xf, m.n_ans, m.n_ans == 1 ? "" : "es");
+		return;
+	}
+	result((m.flags & 0xf) == 0 && m.n_ans > 0, "dns", "%s through agdns: rcode %d, %d address%s", name,
+	       m.flags & 0xf, m.n_ans, m.n_ans == 1 ? "" : "es");
+	if (ask(c, name, (uint16_t)(id + 1), &m2, &us2) > 0)
+		printf("INFO dns-time: %.2f ms, asked again %.2f ms%s\n", us / 1000.0, us2 / 1000.0,
+		       c->dns_cache ? " (from the cache)" : "");
 }
 
 int agctl_selftest(void)

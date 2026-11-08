@@ -176,7 +176,7 @@ LAN client ──DNS :53──► nft "inet ag" redirect ──► agdns :5300 �
 |-------|-------|
 | Services | `/etc/init.d/aigw` (procd, respawned on crash) |
 | Settings | `/etc/config/aigw` (`uci show aigw`) |
-| Kernel rules | table `inet ag`, loaded by `aigw-nft`, kept across firewall reloads by the fw4 include `firewall.aigw`; agd puts active actions back within a minute of a reload |
+| Kernel rules | table `inet ag`, loaded by `aigw-nft`, kept across firewall reloads by the fw4 include `firewall.aigw`; agd puts active actions back within a minute of a reload. Table `inet ag_sni` (same file) copies HTTPS handshakes to agd for connection names (needs `kmod-nfnetlink-log`, a dependency of the package) |
 | Block list | `/var/run/aigw/dns-policy` (RAM), written by agd, read by agdns |
 | Plug-ins | packages: `/usr/share/aigw/plugins`; yours: `/etc/aigw/plugins`; children of agd, running as `nobody` |
 | Wi-Fi keys | `/etc/aigw/wifi-keys` (hostapd `wpa_psk_file`, written by agd) |
