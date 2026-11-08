@@ -95,6 +95,11 @@ struct ag_config {
 	int steer_kick;           /* devices without 802.11v may be moved by refusing them on one band */
 	int steer_rate;           /* most moves a minute in the whole home */
 	int presence_away;        /* seconds unseen before a device has left */
+	int chan_heal;            /* watch how busy each access point's channel is; suggest a quieter one */
+	int chan_busy;            /* % of the air used by others that counts as busy */
+	int chan_hold;            /* seconds it must stay that busy */
+	int chan_poll;            /* seconds between channel measurements */
+	int chan_scan_gap;        /* seconds between two neighbour scans (a scan leaves the channel briefly) */
 	char model_dir[256];      /* .agm models */
 	char lan_ifaces[256];     /* space-separated; clients on these are "the home" */
 	int alerts_enabled;

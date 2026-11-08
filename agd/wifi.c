@@ -177,6 +177,7 @@ static void ap_status(const char *iface)
 	a->freq = (int)kv(reply, "freq", 0);
 	a->channel = (int)kv(reply, "channel", 0);
 	a->band = a->freq >= 2400 && a->freq < 2500 ? 2 : a->freq >= 5000 && a->freq < 5900 ? 5 : 0;
+	a->width = kv(reply, "vht_oper_chwidth", 0) >= 1 ? 80 : kv(reply, "secondary_channel", 0) ? 40 : 20;
 	kvs(reply, "bssid[0]", v, sizeof(v));
 	snprintf(a->bssid, sizeof(a->bssid), "%.17s", v);
 	kvs(reply, "ssid[0]", a->ssid, sizeof(a->ssid));
@@ -311,6 +312,7 @@ void wifi_poll(void)
 		}
 	}
 	steer_tick();
+	chan_tick();
 }
 
 int wifi_station_count(void)

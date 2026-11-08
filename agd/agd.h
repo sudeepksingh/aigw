@@ -269,6 +269,7 @@ struct wifi_ap {
 	char bssid[18];
 	char ssid[33];
 	int freq, channel, band;        /* band 2 or 5 */
+	int width;                      /* 20, 40 or 80 MHz */
 	int stations;
 };
 #define WIFI_AP_MAX 8
@@ -283,6 +284,13 @@ void steer_tick(void);
 int steer_ready(const struct wifi_ap **a2, const struct wifi_ap **a5);
 void steer_blob(struct blob_buf *b);
 extern uint64_t steer_total, steer_ok_total;
+
+/* chan.c: channel self-healing */
+void chan_tick(void);
+void chan_blob(struct blob_buf *b, const char *iface);
+int chan_valid(int band, int ch);
+int chan_parse(const char *target, const struct wifi_ap **ap, int *ch);
+int chan_switch(const char *iface, int ch, char *err, size_t errlen);
 
 /* presence: arrivals and departures */
 void presence_tick(void);

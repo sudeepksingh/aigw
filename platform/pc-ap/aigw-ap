@@ -492,6 +492,20 @@ up) up ;;
 down) down ;;
 restart) down; up ;;
 status) status ;;
+channel)   # one access point to another channel, until the next `up` (agd's channel action
+	   # uses this where the radio can't announce a switch): channel <iface> <channel>
+	[ $# -ge 3 ] || die "usage: aigw-ap channel <iface> <channel>"
+	c="$RUN/hostapd-$2.conf"
+	[ -f "$c" ] || die "no access point on $2"
+	band=5
+	if grep -q '^hw_mode=g' "$c"; then band=2.4; fi
+	w=20
+	if grep -q '^vht_oper_chwidth=1' "$c"; then w=80; elif grep -q '^ht_capab=\[HT40' "$c"; then w=40; fi
+	br=$(sed -n 's/^bridge=//p' "$c")
+	kill_pidfile "$RUN/hostapd-$2.pid"
+	got=$(start_ap "$2" "$band" "$3" "$w" "$br")
+	[ -n "$got" ] || die "hostapd could not start $2 on channel $3"
+	say "$2 now on channel $3 ($got MHz)" ;;
 conf)   # the hostapd config `up` writes: conf <iface> <band> <channel> <width> [bridge]
 	[ $# -ge 5 ] || die "usage: aigw-ap conf <iface> <2.4|5> <channel> <20|40|80> [bridge]"
 	mkdir -p "$RUN"

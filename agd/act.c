@@ -16,6 +16,8 @@
  *                           "bridge ag quarantine" (LAN-to-LAN through a bridge): the
  *                           device still reaches the gateway (DHCP, DNS), nothing beyond
  *   disconnect <device>     hostapd: kicked off Wi-Fi and refused until the time is up
+ *   channel <ap>:<channel>  an access point moves to a quieter channel (chan.c: hostapd
+ *                           channel switch announcement); back to the old one at the end
  *   <plugin>.<action>       an actuator plug-in carries it out (plugin.c); same rules
  *
  * Policies come from /etc/config/aigw first, then from skills (plug-ins);
@@ -271,6 +273,13 @@ static struct device *find_device(const char *q);
 
 static int valid_target(const struct decision *d)
 {
+	if (!strcmp(d->action, "channel")) {
+		const struct wifi_ap *a;
+		int ch;
+
+		/* the access point may be away for a moment (hostapd restarting): judged when it is back */
+		return chan_parse(d->target, &a, &ch) == 0 || (strchr(d->target, ':') && strlen(d->target) < 40);
+	}
 	if (!strcmp(d->action, "block"))
 		return !d->scope[0] || valid_ip(d->scope);
 	if (is_plugin_action(d->action))
@@ -369,6 +378,13 @@ static int actuate(struct decision *d, char *err, size_t errlen)
 		return dns_policy_write(err, errlen);
 	if (!strcmp(d->action, "disconnect"))
 		return wifi_ban(d->target, 1, err, errlen);
+	if (!strcmp(d->action, "channel")) {
+		const char *colon = strrchr(d->target, ':');
+		char iface[32];
+
+		snprintf(iface, sizeof(iface), "%.*s", colon ? (int)(colon - d->target) : 0, d->target);
+		return chan_switch(iface, colon ? atoi(colon + 1) : 0, err, errlen);
+	}
 	if (is_plugin_action(d->action))
 		return plugin_act(d->action, d->id, d->target, valid_ip(d->target) ? find_device(d->target) : NULL,
 				  (int)left, d->reason, 0, err, errlen);
@@ -416,6 +432,15 @@ static void unactuate(struct decision *d)
 	if (!strcmp(d->action, "disconnect")) {
 		if (wifi_ban(d->target, 0, err, sizeof(err)))
 			AG_DEBUG("undo disconnect %s: %s", d->target, err);
+		return;
+	}
+	if (!strcmp(d->action, "channel")) {   /* back to the channel it had (kept in scope) */
+		const char *colon = strrchr(d->target, ':');
+		char iface[32];
+
+		snprintf(iface, sizeof(iface), "%.*s", colon ? (int)(colon - d->target) : 0, d->target);
+		if (atoi(d->scope) > 0 && chan_switch(iface, atoi(d->scope), err, sizeof(err)))
+			AG_WARN("undo channel %s: %s", d->target, err);
 		return;
 	}
 	if (is_plugin_action(d->action)) {
@@ -557,6 +582,25 @@ static int guard(const char *action, const char *what, const struct act_opts *o,
 		}
 		return 0;
 	}
+	if (!strcmp(action, "channel")) {
+		const struct wifi_ap *a;
+		int ch;
+
+		if (chan_parse(what, &a, &ch) < 0) {
+			snprintf(err, errlen, "'%.40s' is not <access point or 2.4/5>:<channel> with a channel AIGW uses "
+				 "(2.4 GHz 1-13; 5 GHz 36-48, 149-165)", what);
+			return -1;
+		}
+		if (a->channel == ch) {
+			snprintf(err, errlen, "%s is already on channel %d", a->iface, ch);
+			return -1;
+		}
+		snprintf(out->target, sizeof(out->target), "%s:%d", a->iface, ch);
+		snprintf(out->scope, sizeof(out->scope), "%d", a->channel);   /* to switch back to */
+		snprintf(out->device, sizeof(out->device), "Wi-Fi %s GHz (%s), channel %d -> %d",
+			 a->band == 5 ? "5" : "2.4", a->iface, a->channel, ch);
+		return 0;
+	}
 	if (is_plugin_action(action)) {
 		int device_subject = 1;
 
@@ -578,7 +622,7 @@ static int guard(const char *action, const char *what, const struct act_opts *o,
 	}
 	if (!is_device_action(action)) {
 		snprintf(err, errlen, "unknown action '%s' (priority, deprioritize, throttle, block, "
-			 "quarantine, disconnect, or a plug-in's: agctl plugins)", action);
+			 "quarantine, disconnect, channel, or a plug-in's: agctl plugins)", action);
 		return -1;
 	}
 	if (!(dv = guard_device(what, out->device, err, errlen)))
@@ -774,13 +818,24 @@ void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const cha
 		AG_INFO("%s: not acting on alert %u: %s", origin, alert_id, err);
 		return;
 	}
-	if (dec_find(p->action, g.target, "", D_ACTIVE) || dec_find(p->action, g.target, "", D_PROPOSED))
+	if (dec_find(p->action, g.target, g.scope, D_ACTIVE) || dec_find(p->action, g.target, g.scope, D_PROPOSED))
 		return;     /* already handled */
+	if (!strcmp(p->action, "channel")) {
+		/* one channel decision per access point at a time, whichever channel */
+		size_t n = (size_t)(strrchr(g.target, ':') - g.target) + 1;
+		int i;
+
+		for (i = 0; i < DEC_MAX; i++)
+			if (decs[i].used && (decs[i].state == D_ACTIVE || decs[i].state == D_PROPOSED) &&
+			    !strcmp(decs[i].action, "channel") && !strncmp(decs[i].target, g.target, n))
+				return;
+	}
 	d = dec_new();
 	if (!d)
 		return;
 	snprintf(d->action, sizeof(d->action), "%s", p->action);
 	snprintf(d->target, sizeof(d->target), "%s", g.target);
+	snprintf(d->scope, sizeof(d->scope), "%s", g.scope);
 	snprintf(d->device, sizeof(d->device), "%s", g.device);
 	snprintf(d->origin, sizeof(d->origin), "%s", origin);
 	snprintf(d->reason, sizeof(d->reason), "%s", reason);

@@ -176,6 +176,24 @@ by refusing them on their band for 30 s; set `wifi.steer_kick 0` to never do
 that. 802.11v needs a hostapd with WNM support (`wpad-basic-*` or a full
 `wpad`); without it only that fallback works.
 
+### Channel self-healing
+
+AIGW watches how busy each radio's channel is. When it stays crowded, it
+scans once, proposes a quieter channel (`agctl decisions`), and on approval
+hostapd announces the switch so devices follow without dropping:
+
+```bash
+agctl wifi                                         # air used by others, neighbours by channel
+agctl channel 5 44 1d                              # or move it yourself, for a day
+```
+
+The switch lasts until its time limit (a day by default) or `agctl undo`;
+your channel setting in `/etc/config/wireless` is not changed. In enforce
+mode AIGW switches on its own (within `act.max_auto_per_hour`). Thresholds:
+`wifi.chan_busy`, `wifi.chan_hold` in `/etc/config/aigw`. If your
+`/etc/config/aigw` predates v0.13 and has its own `policy` sections, add the
+`wifi_busy` policy from the packaged default to get proposals.
+
 The same data is on ubus for LuCI, scripts and other tools:
 
 ```bash
