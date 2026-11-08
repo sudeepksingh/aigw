@@ -52,7 +52,20 @@ set -- $phys
 ifof() { ls "/sys/class/ieee80211/$1/device/net" | head -1; }
 AP5=$(ifof "$1") AP24=$(ifof "$2") STA=$(ifof "$3") STAPHY=$3
 echo "== radios: $AP5 (5 GHz), $AP24 (2.4 GHz), $STA (client)"
+# the kernel reads the regulatory database once; a freshly installed one
+# (wireless-regdb) needs a reload before a country can be set
+iw reg reload 2>/dev/null || true
 iw reg set US 2>/dev/null || true
+n=0
+until iw reg get | grep -q '^country US'; do
+	n=$((n + 1))
+	if [ $n -gt 10 ]; then
+		iw reg get | head -3
+		fail "the kernel did not take the country (regulatory database not loaded: wireless-regdb?)"
+	fi
+	sleep 0.5
+done
+echo "   regulatory: $(iw reg get | grep -m1 '^country')"
 
 echo "== access points from aigw-ap's own configs, in one bridge"
 printf 'SSID=AIGW-HWSIM\nPASSPHRASE=hwsim-test-pass\nCOUNTRY=US\n' > "$T/pc-ap.conf"

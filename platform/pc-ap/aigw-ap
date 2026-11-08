@@ -370,7 +370,17 @@ up() {
 	for i in $iface $iface24; do
 		if command -v nmcli >/dev/null; then nmcli device set "$i" managed no 2>/dev/null || true; fi
 	done
-	[ -n "$COUNTRY" ] && iw reg set "$COUNTRY" 2>/dev/null || true
+	if [ -n "$COUNTRY" ]; then
+		# the kernel reads the regulatory database once; reload it (a newly
+		# installed wireless-regdb) before setting the country
+		iw reg reload 2>/dev/null || true
+		iw reg set "$COUNTRY" 2>/dev/null || true
+		sleep 0.5
+		if ! iw reg get 2>/dev/null | grep -q "^country $COUNTRY"; then
+			say "warning: the kernel did not take country $COUNTRY ($(iw reg get 2>/dev/null | grep -m1 '^country'));"
+			say "         5 GHz may be refused (NO-IR). Install wireless-regdb, then: sudo iw reg reload"
+		fi
+	fi
 
 	stop_aps
 	kill_pidfile "$RUN/dnsmasq.pid"
