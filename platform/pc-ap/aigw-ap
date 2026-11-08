@@ -271,7 +271,10 @@ start_ap() {
 	iface=$1 band=$2 ch=$3 want=$4 br=$5
 	for w in $(widths "$band" "$ch" "$want"); do
 		write_hostapd "$iface" "$w" "$band" "$ch" "$RUN/hostapd-$iface.conf" "$br"
-		if hostapd -B -P "$RUN/hostapd-$iface.pid" "$RUN/hostapd-$iface.conf" > "$RUN/hostapd-$iface.log" 2>&1; then
+		# -B returns before the access point is really up (channel checks,
+		# the 40 MHz neighbour scan); its state says whether it got there
+		if hostapd -B -P "$RUN/hostapd-$iface.pid" "$RUN/hostapd-$iface.conf" > "$RUN/hostapd-$iface.log" 2>&1 &&
+		   ap_enabled "$iface"; then
 			echo "$w"
 			return 0
 		fi
@@ -280,6 +283,26 @@ start_ap() {
 	done
 	cat "$RUN/hostapd-$iface.log" >&2
 	return 0
+}
+
+# Wait up to 15 s for hostapd on $1 to say state=ENABLED. Without hostapd_cli,
+# a hostapd still running after 3 s counts.
+ap_enabled() {
+	pidf="$RUN/hostapd-$1.pid"
+	if ! command -v hostapd_cli >/dev/null; then
+		sleep 3
+		[ -f "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null
+		return
+	fi
+	i=0
+	while [ $i -lt 30 ]; do
+		st=$(hostapd_cli -p "$RUN/hostapd" -i "$1" status 2>/dev/null | sed -n 's/^state=//p')
+		[ "$st" = ENABLED ] && return 0
+		[ -f "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null || return 1
+		sleep 0.5
+		i=$((i + 1))
+	done
+	return 1
 }
 
 stop_aps() {

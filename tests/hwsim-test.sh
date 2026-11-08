@@ -61,8 +61,25 @@ AP="sh $REPO/platform/pc-ap/aigw-ap"
 ip link add "$BR" type bridge
 ip link set "$BR" up
 ip addr add 10.95.0.1/24 dev "$BR"
+# hostapd in the foreground: its whole log stays (with -B, errors after the
+# fork are lost); up = AP-ENABLED in that log within 20 s
+start_hapd() {   # conf log pidfile
+	hostapd -t "$1" > "$2" 2>&1 &
+	echo $! > "$3"
+	n=0
+	while [ $n -lt 40 ]; do
+		grep -q AP-ENABLED "$2" && return 0
+		kill -0 "$(cat "$3")" 2>/dev/null || return 1
+		sleep 0.5; n=$((n + 1))
+	done
+	return 1
+}
+regdump() {
+	echo "--- regulatory"; iw reg get 2>&1 | head -30
+	echo "--- $AP5 channel 36"; iw phy "$(basename "$(readlink -f /sys/class/net/$AP5/phy80211)")" info 2>&1 | grep -E "5180|5200" | head -4
+}
 $AP conf "$AP24" 2.4 6 20 "$BR" > "$T/h24.conf"
-hostapd -B -P "$T/h24.pid" "$T/h24.conf" > "$T/hostapd24.log" 2>&1 || fail "2.4 GHz hostapd did not start"
+start_hapd "$T/h24.conf" "$T/hostapd24.log" "$T/h24.pid" || fail "2.4 GHz hostapd did not start"
 
 echo "== the client joins (only 2.4 GHz is up yet)"
 ip netns add "$NC"
@@ -86,9 +103,14 @@ echo "== the 5 GHz access point comes up"
 w5=""
 for w in 80 40 20; do
 	$AP conf "$AP5" 5 36 $w "$BR" > "$T/h5.conf"
-	if hostapd -B -P "$T/h5.pid" "$T/h5.conf" > "$T/hostapd5.log" 2>&1; then w5=$w; break; fi
+	if start_hapd "$T/h5.conf" "$T/hostapd5-$w.log" "$T/h5.pid"; then w5=$w; break; fi
+	kill "$(cat "$T/h5.pid")" 2>/dev/null || true
+	echo "   5 GHz at $w MHz did not come up: $(grep -iE 'fail|not allowed|could not|error|DFS|NO-IR|disabled' "$T/hostapd5-$w.log" | head -3 | tr '\n' ' ')"
 done
-[ -n "$w5" ] || fail "5 GHz hostapd did not start"
+if [ -z "$w5" ]; then
+	regdump
+	fail "5 GHz hostapd did not start"
+fi
 echo "   5 GHz channel 36, $w5 MHz"
 
 mkdir -p "$T/config"
@@ -138,6 +160,7 @@ until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 5'; do
 	i=$((i + 1))
 	if [ $i -gt 90 ]; then
 		echo "--- agd's view"; "$BIN/agctl/agctl" wifi || true
+		echo "--- 5 GHz hostapd"; tail -n 15 "$T/hostapd5-$w5.log"; regdump
 		echo "--- hostapd's station entry"; hostapd_cli -p "$T/run/hostapd" -i "$AP24" all_sta 2>&1 || true
 		fail "client still on 2.4 GHz after 90 s"
 	fi
