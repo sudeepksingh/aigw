@@ -96,8 +96,9 @@ fi
 if grep -qi microsoft /proc/version 2>/dev/null; then
 	cat <<EOF
 
-You are on WSL2: attach the USB Wi-Fi adapter from Windows first, or simply
-run platform\\pc-ap\\wsl\\aigw-wsl.cmd from Windows. It attaches the adapter
-and starts the access point for you.
+You are on WSL2: \`sudo aigw-ap up\` attaches the USB Wi-Fi adapter from
+Windows by itself once it is shared. To share it (one time, administrator
+approval) and keep WSL running, run platform\\pc-ap\\wsl\\aigw-wsl.cmd from
+Windows. It also attaches the adapter and starts the access point for you.
 EOF
 fi

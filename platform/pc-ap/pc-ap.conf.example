@@ -23,3 +23,7 @@ SUBNET=10.42.0
 
 # Interface with internet access ("auto" = default route)
 UPLINK=auto
+
+# WSL only: the USB adapter aigw-ap attaches from Windows when it is missing
+# (bus id from `usbipd list`; empty = the first Wi-Fi adapter listed)
+USB_BUSID=
