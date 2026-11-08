@@ -29,14 +29,14 @@ done
 case $VERSION in
 *.*.*) ;;
 *)
-	VERSION=$(curl -fsSL "$MIRROR/releases/" | grep -oE "href=\"$VERSION\.[0-9]+/\"" |
+	VERSION=$(curl -fsSL --retry 3 --retry-all-errors "$MIRROR/releases/" | grep -oE "href=\"$VERSION\.[0-9]+/\"" |
 		grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -V | tail -1)
 	[ -n "$VERSION" ] || die "no OpenWRT release found for that version"
 	;;
 esac
 
 URL="$MIRROR/releases/$VERSION/targets/$TARGET"
-SDK_FILE=$(curl -fsSL "$URL/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(zst|xz)' | head -1)
+SDK_FILE=$(curl -fsSL --retry 3 --retry-all-errors "$URL/" | grep -oE 'openwrt-sdk-[^"<>]+\.tar\.(zst|xz)' | head -1)
 [ -n "$SDK_FILE" ] || die "no SDK found at $URL"
 SDK_DIR="$CACHE/${SDK_FILE%.tar.*}"
 
@@ -44,7 +44,9 @@ echo "==> OpenWRT $VERSION, target $TARGET"
 mkdir -p "$CACHE"
 if [ ! -d "$SDK_DIR" ]; then
 	echo "==> downloading $SDK_FILE"
-	curl -fL --progress-bar -o "$CACHE/$SDK_FILE" "$URL/$SDK_FILE"
+	# the mirror sometimes drops HTTP/2 streams mid-download: HTTP/1.1, retries, resume
+	curl -fL --http1.1 --retry 5 --retry-all-errors --retry-delay 5 -C - --progress-bar \
+		-o "$CACHE/$SDK_FILE" "$URL/$SDK_FILE"
 	case $SDK_FILE in
 	*.zst) tar --zstd -xf "$CACHE/$SDK_FILE" -C "$CACHE" ;;
 	*.xz) tar -xJf "$CACHE/$SDK_FILE" -C "$CACHE" ;;
