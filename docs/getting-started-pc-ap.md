@@ -179,12 +179,36 @@ Windows firewall, and forward it from your internet router to the Windows PC.
 
 | Setting | Default | Meaning |
 |---------|---------|---------|
-| `AP_IFACE` | `auto` | Wi-Fi interface for the access point. `auto` picks the first one with AP mode that isn't your internet connection |
+| `AP_IFACE` | `auto` | Wi-Fi interface for the access point. `auto` picks the first one with AP mode that isn't your internet connection. With `BAND=dual`, the 5 GHz one |
 | `SSID`, `PASSPHRASE` | generated | Network name and WPA2 password |
 | `COUNTRY` | detected | Two-letter country code. Required for 5 GHz |
-| `BAND`, `CHANNEL` | `2.4`, `6` | For 5 GHz use `BAND=5` and channel 36, 40, 44 or 48 |
+| `BAND`, `CHANNEL` | `2.4`, `6` | For 5 GHz use `BAND=5` and channel 36, 40, 44 or 48 (in IN and US also 149–165). `BAND=dual`: two adapters, see below |
+| `WIDTH` | `auto` | 20, 40 or 80 MHz; `auto` = 80 on 5 GHz, 20 on 2.4 GHz. A width the adapter refuses falls back to the next narrower one |
+| `CHANNEL_24`, `WIDTH_24`, `AP_IFACE_24` | `6`, `20`, `auto` | `BAND=dual`: the 2.4 GHz access point |
+| `USB_BUSID` | empty | WSL: the adapters to attach from Windows (bus ids from `usbipd list`); empty = every Wi-Fi adapter |
 | `SUBNET` | `10.42.0` | Clients get `.20`-`.250`; the PC is `.1` |
 | `UPLINK` | `auto` | Internet interface; `auto` = default route |
+
+### Two adapters: both bands and band steering
+
+One USB adapter has one radio: it runs 2.4 GHz *or* 5 GHz. With a second
+adapter and `BAND=dual`, `aigw-ap` runs a 5 GHz access point on the first and
+a 2.4 GHz one on the second, with the same name and password, in one bridge
+(`aigwbr0`), so a device keeps its address when it changes band. AIGW then
+moves close devices to 5 GHz and far ones to 2.4 GHz: by an 802.11v request
+where the device supports it, otherwise by refusing it on its band for 30 s
+(`wifi` section of `/etc/config/aigw`).
+
+```bash
+sudo sed -i 's/^BAND=.*/BAND=dual/' /etc/aigw/pc-ap.conf
+sudo aigw-ap restart
+agctl wifi              # both access points and who is on which band
+agctl watch wifi        # moves, joins and leaves as they happen
+```
+
+On WSL, run `platform\pc-ap\wsl\aigw-wsl.cmd` once after plugging in the new
+adapter: it shares it with WSL (administrator approval). From then on
+`sudo aigw-ap up` attaches both by itself.
 
 `/etc/config/aigw` (UCI format, same file as on OpenWRT) holds the AIGW
 settings: log level, DNS port and upstream resolver, alert thresholds,
@@ -197,7 +221,8 @@ devices AIGW must never act on, and the `policy` sections), plug-ins
 
 | Problem | Fix |
 |---------|-----|
-| `no Wi-Fi adapter with AP mode found` | Check `iw dev`. On WSL, start with `aigw-wsl.cmd` so the adapter is attached |
+| `no Wi-Fi adapter with AP mode found` | Check `iw dev`. On WSL, `usbipd list` should show the adapter as Shared or Attached; if it says Not shared, run `aigw-wsl.cmd` once |
+| `BAND=dual needs two Wi-Fi adapters` | Only one adapter came up: check `iw dev`, and on WSL that both show in `usbipd list` |
 | `hostapd could not start` | The message above it shows hostapd's reason. Try `BAND=2.4`, `CHANNEL=6`, or set `COUNTRY` |
 | 5 GHz refused | Set `COUNTRY`. Some adapters can't run an AP on 5 GHz at all |
 | Clients connect but have no internet | `sudo aigw-ap status`; check `UPLINK`; Docker or ufw may block forwarding (`sudo iptables -P FORWARD ACCEPT` or allow `10.42.0.0/24`) |

@@ -59,7 +59,9 @@ return view.extend({
 		return E('table', { 'class': 'table' }, [
 			row(_('Version'), '%s on %s'.format(st.version, st.host), _('phase: %s').format(st.phase)),
 			row(_('Running for'), '%t'.format(st.uptime_s || 0)),
-			row(_('Devices'), String(st.devices || 0), _('%d on Wi-Fi now').format(st.wifi_stations || 0)),
+			row(_('Devices'), String(st.devices || 0), _('%d home, %d on Wi-Fi now').format(st.home || 0, st.wifi_stations || 0)),
+			row(_('Wi-Fi'), _('%d access points').format(st.radios || 0),
+				(st.radios || 0) > 1 ? _('%d devices moved to a better band').format(st.steered || 0) : ''),
 			row(_('DNS lookups'), String(st.dns_queries || 0)),
 			row(_('DNS cache'), ct[0], ct[1]),
 			row(_('Connections'), String(st.flows || 0), _('%d without a DNS lookup, %d named from their handshake')

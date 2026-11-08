@@ -11,7 +11,8 @@
 		"ag.decision": { "methods": [ "list", "request", "approve", "reject", "revert" ] },
 		"ag.plugin": { "methods": [ "list" ] },
 		"ag.model": { "methods": [ "list" ] },
-		"ag.remote": { "methods": [ "list" ] }
+		"ag.remote": { "methods": [ "list" ] },
+		"ag.wifi": { "methods": [ "radios", "keys" ] }
 	},
-	"listen": [ "ag.dns", "ag.flow", "ag.wifi", "ag.alert", "ag.decision", "ag.plugin", "ag.model", "iot.*" ]
+	"listen": [ "ag.dns", "ag.flow", "ag.wifi", "ag.presence","ag.alert", "ag.decision", "ag.plugin", "ag.model", "iot.*" ]
 }

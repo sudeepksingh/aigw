@@ -6,6 +6,12 @@
  * Joins and leaves are reported as "ag.wifi" events.
  *
  * Also the Wi-Fi actuator (wifi_ban): hostapd's deny list plus a deauth.
+ *
+ * Each access point's band and channel come from hostapd's STATUS, and each
+ * station's abilities from its STA entry: 802.11v BSS transition (extended
+ * capabilities bit 19) and 5 GHz (operating classes 115+ it lists, VHT, or
+ * having been seen there). A device found on another access point than
+ * before has "roamed". Band steering (steer.c) builds on this.
  */
 #define _GNU_SOURCE
 #include <ctype.h>
@@ -26,6 +32,9 @@ static int sock = -1;
 static char local_path[sizeof(((struct sockaddr_un *)0)->sun_path)];
 static unsigned poll_seq;
 static int stations;
+
+struct wifi_ap wifi_aps[WIFI_AP_MAX];
+int wifi_n_aps;
 
 static void wifi_cleanup(void)
 {
@@ -69,6 +78,26 @@ static int hapd_cmd(const char *path, const char *cmd, char *reply, size_t n)
 	return (int)r;
 }
 
+int wifi_cmd(const char *iface, const char *cmd, char *reply, size_t n)
+{
+	char path[512];
+
+	if (sock < 0)
+		return -1;
+	snprintf(path, sizeof(path), "%s/%s", cfg.wifi_ctrl, iface);
+	return hapd_cmd(path, cmd, reply, n);
+}
+
+const struct wifi_ap *wifi_ap_find(const char *iface)
+{
+	int i;
+
+	for (i = 0; i < wifi_n_aps; i++)
+		if (!strcmp(wifi_aps[i].iface, iface))
+			return &wifi_aps[i];
+	return NULL;
+}
+
 static long kv(const char *text, const char *key, long dflt)
 {
 	char pat[48];
@@ -77,6 +106,80 @@ static long kv(const char *text, const char *key, long dflt)
 	snprintf(pat, sizeof(pat), "\n%s=", key);
 	p = strstr(text, pat);
 	return p ? strtol(p + strlen(pat), NULL, 10) : dflt;
+}
+
+/* a "key=value" string out of a hostapd reply ("" when absent) */
+static void kvs(const char *text, const char *key, char *out, size_t n)
+{
+	char pat[48];
+	const char *p;
+	size_t i = 0;
+
+	snprintf(pat, sizeof(pat), "\n%s=", key);
+	out[0] = '\0';
+	p = strstr(text, pat);
+	if (!p && !strncmp(text, pat + 1, strlen(pat) - 1))
+		p = text - 1;                   /* the very first line */
+	if (!p)
+		return;
+	p += strlen(pat);
+	while (p[i] && p[i] != '\n' && i + 1 < n) {
+		out[i] = p[i];
+		i++;
+	}
+	out[i] = '\0';
+}
+
+static int hexbyte(const char *h, size_t i)
+{
+	unsigned v;
+
+	if (strlen(h) < 2 * i + 2 || sscanf(h + 2 * i, "%2x", &v) != 1)
+		return -1;
+	return (int)v;
+}
+
+/* What a station's STA entry says it can do. */
+static void station_abilities(struct device *d, const char *reply)
+{
+	char h[256], flags[256];
+	int b, i;
+
+	kvs(reply, "ext_capab", h, sizeof(h));
+	b = hexbyte(h, 2);                      /* extended capabilities bit 19: BSS transition */
+	if (b >= 0)
+		d->wifi_btm = (b & 0x08) != 0;
+	kvs(reply, "supp_op_classes", h, sizeof(h));
+	for (i = 1; (b = hexbyte(h, (size_t)i)) >= 0; i++)
+		if (b >= 115 && b <= 130)           /* 5 GHz operating classes */
+			d->wifi_dual = 1;
+	kvs(reply, "flags", flags, sizeof(flags));
+	if (strstr(flags, "[VHT]"))             /* 802.11ac is 5 GHz only */
+		d->wifi_dual = 1;
+	if (d->wifi_band == 5)
+		d->wifi_dual = 1;
+}
+
+/* This access point's band, channel and name, from hostapd's STATUS. */
+static void ap_status(const char *iface)
+{
+	char reply[4096], v[64];
+	struct wifi_ap *a;
+
+	if (wifi_n_aps >= WIFI_AP_MAX)
+		return;
+	a = &wifi_aps[wifi_n_aps];
+	memset(a, 0, sizeof(*a));
+	snprintf(a->iface, sizeof(a->iface), "%.23s", iface);
+	wifi_n_aps++;
+	if (wifi_cmd(iface, "STATUS", reply, sizeof(reply)) <= 0 || !strncmp(reply, "UNKNOWN", 7))
+		return;                             /* band unknown: never steered */
+	a->freq = (int)kv(reply, "freq", 0);
+	a->channel = (int)kv(reply, "channel", 0);
+	a->band = a->freq >= 2400 && a->freq < 2500 ? 2 : a->freq >= 5000 && a->freq < 5900 ? 5 : 0;
+	kvs(reply, "bssid[0]", v, sizeof(v));
+	snprintf(a->bssid, sizeof(a->bssid), "%.17s", v);
+	kvs(reply, "ssid[0]", a->ssid, sizeof(a->ssid));
 }
 
 static void emit(const char *what, const struct device *d)
@@ -89,7 +192,9 @@ static void emit(const char *what, const struct device *d)
 	blobmsg_add_string(&b, "ip", d->ip);
 	blobmsg_add_string(&b, "hostname", d->hostname);
 	blobmsg_add_string(&b, "iface", d->wifi_iface);
-	if (!strcmp(what, "connected"))
+	if (d->wifi_band)
+		blobmsg_add_string(&b, "band", d->wifi_band == 5 ? "5" : "2.4");
+	if (!strcmp(what, "connected") || !strcmp(what, "roamed"))
 		blobmsg_add_u32(&b, "signal", (uint32_t)d->wifi_signal);
 	agd_emit(AG_EV_WIFI, &b);
 	blob_buf_free(&b);
@@ -98,9 +203,13 @@ static void emit(const char *what, const struct device *d)
 static void poll_iface(const char *dir, const char *iface)
 {
 	char path[512], cmd[64], reply[4096];
-	int guard = 0;
+	const struct wifi_ap *ap;
+	int guard = 0, band;
 
 	snprintf(path, sizeof(path), "%s/%s", dir, iface);
+	ap_status(iface);
+	ap = wifi_ap_find(iface);
+	band = ap ? ap->band : 0;
 	if (hapd_cmd(path, "STA-FIRST", reply, sizeof(reply)) <= 0)
 		return;
 	while (guard++ < 256) {
@@ -112,14 +221,35 @@ static void poll_iface(const char *dir, const char *iface)
 		if (sscanf(reply, "%17[0-9a-fA-F:]", mac) != 1 || strlen(mac) != 17)
 			break;
 		d = dev_find_mac(mac, 1);
+		if (d->wifi_connected && d->wifi_seen == poll_seq && strcmp(d->wifi_iface, iface) &&
+		    kv(reply, "connected_time", 0) >= ag_wall_s() - d->wifi_since) {
+			/* listed by two access points for a moment while it moves: the newer join counts */
+			goto next;
+		}
 		if (!d->wifi_connected) {
 			d->wifi_connected = 1;
 			d->wifi_since = ag_wall_s() - kv(reply, "connected_time", 0);
 			snprintf(d->wifi_iface, sizeof(d->wifi_iface), "%.23s", iface);
+			d->wifi_band = band;
 			d->wifi_signal = (int)kv(reply, "signal", 0);
+			d->wifi_sig_avg = d->wifi_signal;
 			emit("connected", d);
+		} else if (strcmp(d->wifi_iface, iface)) {
+			/* on another access point now (another band, or a mesh node) */
+			snprintf(d->wifi_iface, sizeof(d->wifi_iface), "%.23s", iface);
+			d->wifi_band = band;
+			d->wifi_since = ag_wall_s() - kv(reply, "connected_time", 0);
+			d->wifi_signal = (int)kv(reply, "signal", d->wifi_signal);
+			d->wifi_sig_avg = d->wifi_signal;
+			d->steer_cond_since = 0;
+			emit("roamed", d);
 		}
 		d->wifi_signal = (int)kv(reply, "signal", d->wifi_signal);
+		if (d->wifi_signal)
+			d->wifi_sig_avg = d->wifi_sig_avg ? 0.7 * d->wifi_sig_avg + 0.3 * d->wifi_signal : d->wifi_signal;
+		station_abilities(d, reply);
+		if (ap)
+			((struct wifi_ap *)ap)->stations++;
 		/* tx_rate_info is in units of 100 kbit/s */
 		rate = kv(reply, "tx_rate_info", -1);
 		if (rate >= 0)
@@ -135,7 +265,7 @@ static void poll_iface(const char *dir, const char *iface)
 			if (k && sscanf(k + 7, "%31[^\n]", kid) == 1)
 				keys_seen(d, kid);
 		}
-
+next:
 		snprintf(cmd, sizeof(cmd), "STA-NEXT %s", mac);
 		if (hapd_cmd(path, cmd, reply, sizeof(reply)) <= 0)
 			break;
@@ -155,6 +285,7 @@ void wifi_poll(void)
 		return; /* no access point here (yet) */
 	poll_seq++;
 	stations = 0;
+	wifi_n_aps = 0;
 	while ((e = readdir(dir))) {
 		char p[512];
 		struct stat st;
@@ -174,9 +305,12 @@ void wifi_poll(void)
 			emit("disconnected", d);
 			d->wifi_connected = 0;
 			d->wifi_signal = 0;
+			d->wifi_sig_avg = 0;
 			d->wifi_rate_kbps = 0;
+			d->steer_cond_since = 0;
 		}
 	}
+	steer_tick();
 }
 
 int wifi_station_count(void)

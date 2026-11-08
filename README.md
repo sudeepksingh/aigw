@@ -18,7 +18,11 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.11, phase 7 "advanced" under way:** DNS answers from a cache
+> **Status: v0.12, phase 7 "advanced" under way:** **band steering** (a
+> 2.4 GHz and a 5 GHz access point with one name, on a dual-band router or on
+> a PC with two adapters; close devices move to 5 GHz, far ones to 2.4 GHz,
+> by 802.11v where they support it) and **presence** (who is home, arrivals
+> and departures). v0.11 brought DNS answers from a cache
 > (about 150× faster than asking upstream, refreshed before they expire,
 > still answered when the upstream fails), and every HTTPS connection named
 > from its TLS or QUIC handshake, so apps that skip AIGW's DNS (DNS over
@@ -63,6 +67,7 @@ agctl devices          # every device: type, Wi-Fi signal, lookups, traffic
 agctl device <name>    # one device in detail
 agctl flows            # recent connections, with the name each one belongs to
 agctl dns cache        # how much the DNS cache saves
+agctl wifi             # access points, who is on which band
 agctl alerts           # what AIGW thinks you should know, and why
 agctl decisions        # actions AIGW proposes, and the ones in effect
 agctl score <domain>   # ask the domain-risk model about any name
@@ -369,12 +374,14 @@ CI runs it inside OpenWRT in QEMU after installing every build with opkg
 packages) and on emulated ARM64 (the Filogic packages). To try it on your own router, see
 [docs/testing-on-routers.md](docs/testing-on-routers.md).
 
-## What you get in v0.11
+## What you get in v0.12
 
 | Component | What it does |
 |-----------|--------------|
 | `agdns` | DNS sensor and actuator: forwards client DNS (UDP + TCP), reports every answered query to the brain, and answers blocked names itself. Keeps working if the brain stops. **Cache:** answers kept for their TTL, names in use refreshed before they expire, expired answers served when the upstream fails (RFC 8767); `agctl dns cache` shows hits and answer times. |
 | `agd` | The brain. Joins all sensors into one device table and saves it across restarts. **Identity:** DHCP fingerprint, MAC, hostname, type guess. **Wi-Fi:** signal and link rate from hostapd. **Flows:** every connection from conntrack, labelled with the DNS name it belongs to, bytes up/down, and a flag for connections made without any DNS lookup. **Connection names:** HTTPS connections (TCP and QUIC) also get the server name from their handshake, copied by the kernel (NFLOG) without slowing anything; those names are judged like lookups. |
+| Band steering | With a 2.4 GHz and a 5 GHz access point under one name, each device is moved to the band that suits it: an 802.11v request where supported, otherwise a 30 s refusal on its band. Hysteresis, a gap between moves, a home-wide rate limit, never protected devices, and a device that won't move is left alone. `agctl wifi`. |
+| Presence | Who is home: arrivals and departures as `ag.presence` events (a device unseen for 10 minutes has left), and how near each Wi-Fi device is to the access point. |
 | Decisions | Policies, proposals, approval, guardrails and six actions (prioritize, deprioritize, throttle, block, quarantine, disconnect), each with a time limit and undo. See above. |
 | Alerts | `dga` (machine-generated lookup, or handshake name), `no-dns` (connection without a lookup or a handshake name), `dns-bypass` (device using its own encrypted DNS, also recognised from the handshake), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
 | Plug-in host | Finds plug-ins by itself, checks manifest, host, trust and needs, wires events, actions and skill policies, runs them unprivileged with restarts and budgets. See above. |
@@ -389,7 +396,7 @@ packages) and on emulated ARM64 (the Filogic packages). To try it on your own ro
 | cortex | Python, optional: fleet history (SQLite), labels from your answers, retraining, signing and publishing, HTTP API for bridges, MCP server. |
 | `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge`, `remote`, `selftest` |
 | `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions), `inet ag_sni` (copies of HTTPS handshakes for connection names, where the kernel has NFLOG) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
-| `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
+| `aigw-ap` | PC as AP: hostapd (one adapter, or two for both bands in one bridge), channel width up to 80 MHz, DHCP (with fingerprint hook), NAT and the services; on WSL it attaches the USB adapters from Windows by itself |
 
 API (same on every host):
 
@@ -398,6 +405,7 @@ ubus call ag status
 ubus call ag.device list
 ubus call ag.dns log '{"limit": 20}'
 ubus call ag.dnscache stats                     # agdns: hits, answer times, prefetches, stale answers
+ubus call ag.wifi radios                        # access points, their devices, band steering
 ubus call ag.flow recent '{"limit": 20}'        # each flow: named_by dns | nearby | sni
 ubus call ag.alert list
 ubus call ag.domain score '{"name": "example.com"}'
@@ -411,7 +419,7 @@ ubus call ag.device zone '{"device": "tv", "zone": "iot"}'
 ubus call ag.model list                         # also: install '{"file": "...", "sig": "..."}', rollback
 ubus call ag.plugin config '{"name": "bridge", "key": "interval", "value": "600"}'
 ubus call ag.remote list                        # also: on '{"endpoint": "..."}', off, add/revoke '{"name": "..."}'
-ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision ag.plugin ag.model 'iot.*'
+ubus listen ag.dns ag.flow ag.wifi ag.presence ag.alert ag.decision ag.plugin ag.model 'iot.*'
 ```
 
 ## Repository layout
@@ -421,7 +429,8 @@ include/ag/          public headers (events, DNS parser, models, QR, signatures)
 core/libag/          shared library: logging, config (UCI), DNS parser, .agm runtime, QR,
                      SHA-512 + Ed25519 verification (sign.c), TLS / QUIC server names (sni.c)
 agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors,
-                     connection names (sni.c), alerts, baselines, decisions (act.c: policies,
+                     connection names (sni.c), band steering (steer.c), presence (presence.c),
+                     alerts, baselines, decisions (act.c: policies,
                      guardrails, actuators), plug-in host (plugin.c), per-device Wi-Fi keys (keys.c),
                      models (models.c), threat list (intel.c), remote access (remote.c)
 agdns/               the DNS sensor and cache
@@ -458,6 +467,8 @@ sudo tests/outside-test.sh build      # bridge + cortex: labels, retrain, signed
 sudo tests/remote-test.sh build       # a real WireGuard tunnel between namespaces: DNS through AIGW, revoke
 sudo tests/dns-cache-test.sh build    # agdns cache against a slow fake upstream: answer times, prefetch, stale
 sudo tests/sni-test.sh build          # HTTPS and QUIC without AIGW's DNS, named from their handshakes
+sudo tests/steer-test.sh build        # band steering and presence against a fake dual-band hostapd
+sudo tests/hwsim-test.sh build        # real hostapd + wpa_supplicant on simulated radios (needs mac80211_hwsim)
 platform/openwrt/build-sdk.sh         # OpenWRT packages (VERSION=24.10 TARGET=x86/64 by default)
 platform/openwrt/qemu-test.sh         # install them on OpenWRT in QEMU, run aigw-selftest --full there
 ARCH=mipsel_24kc platform/openwrt/qemu-test.sh   # the MT7621 packages on emulated MIPS (also aarch64_cortex-a53)

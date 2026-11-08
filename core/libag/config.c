@@ -138,6 +138,14 @@ void ag_config_load(struct ag_config *c)
 	c->flow_sni = 1;
 	c->flow_sni_group = 4419;
 	copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), owrt ? "/var/run/hostapd" : "/run/aigw/hostapd");
+	c->steer = 1;
+	c->steer_up = -60;
+	c->steer_down = -75;
+	c->steer_hold = 30;
+	c->steer_gap = 300;
+	c->steer_kick = 1;
+	c->steer_rate = 2;
+	c->presence_away = 600;
 	copy(c->model_dir, sizeof(c->model_dir), AG_DATADIR "/models");
 	c->alerts_enabled = 1;
 	c->dga_threshold = 0.98;
@@ -218,6 +226,30 @@ void ag_config_load(struct ag_config *c)
 		if (v && atoi(v) > 0 && atoi(v) < 65536)
 			c->flow_sni_group = atoi(v);
 		copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), opt(ctx, p, "wifi", "ctrl_dir"));
+		v = opt(ctx, p, "wifi", "steer");
+		if (v)
+			c->steer = atoi(v) != 0;
+		v = opt(ctx, p, "wifi", "steer_up");
+		if (v && atoi(v) < 0 && atoi(v) > -100)
+			c->steer_up = atoi(v);
+		v = opt(ctx, p, "wifi", "steer_down");
+		if (v && atoi(v) < 0 && atoi(v) > -100)
+			c->steer_down = atoi(v);
+		v = opt(ctx, p, "wifi", "steer_hold");
+		if (v && atoi(v) >= 0)
+			c->steer_hold = atoi(v);
+		v = opt(ctx, p, "wifi", "steer_gap");
+		if (v && atoi(v) >= 10)
+			c->steer_gap = atoi(v);
+		v = opt(ctx, p, "wifi", "steer_kick");
+		if (v)
+			c->steer_kick = atoi(v) != 0;
+		v = opt(ctx, p, "wifi", "steer_rate");
+		if (v && atoi(v) >= 1)
+			c->steer_rate = atoi(v);
+		v = opt(ctx, p, "wifi", "presence_away");
+		if (v && atoi(v) >= 10)
+			c->presence_away = atoi(v);
 		copy(c->model_dir, sizeof(c->model_dir), opt(ctx, p, "main", "model_dir"));
 		read_list(ctx, uci_lookup_section(ctx, p, "lan"), "iface", c->lan_ifaces, sizeof(c->lan_ifaces));
 		v = opt(ctx, p, "alerts", "enabled");

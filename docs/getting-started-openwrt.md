@@ -156,6 +156,26 @@ agctl key add "Living room plug" iot               # prints a QR code to scan
 The main password keeps working; each key works for the first device that
 joins with it, and `agctl key revoke <name>` takes it away again.
 
+### Band steering (dual-band routers)
+
+A dual-band router has a 2.4 GHz and a 5 GHz radio. Give both the same name
+and password (OpenWRT does by default) and turn on 802.11v, so AIGW can ask
+devices to move instead of disconnecting them:
+
+```bash
+uci set wireless.default_radio0.bss_transition='1'
+uci set wireless.default_radio1.bss_transition='1'
+uci commit wireless && wifi reload
+agctl wifi                                         # both access points, who is on which band
+agctl watch wifi                                   # moves as they happen
+```
+
+Close devices move to 5 GHz, far ones to 2.4 GHz (`wifi.steer_up`,
+`wifi.steer_down` in `/etc/config/aigw`). Devices without 802.11v are moved
+by refusing them on their band for 30 s; set `wifi.steer_kick 0` to never do
+that. 802.11v needs a hostapd with WNM support (`wpad-basic-*` or a full
+`wpad`); without it only that fallback works.
+
 The same data is on ubus for LuCI, scripts and other tools:
 
 ```bash
