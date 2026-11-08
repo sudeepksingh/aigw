@@ -12,23 +12,35 @@ var callRemoteOff = rpc.declare({ object: 'ag.remote', method: 'off' });
 var callPeerAdd = rpc.declare({ object: 'ag.remote', method: 'add', params: [ 'name' ] });
 var callPeerRevoke = rpc.declare({ object: 'ag.remote', method: 'revoke', params: [ 'name' ] });
 
+/* text, never markup: names, SSIDs and endpoints are user or network input */
+function T(s) {
+	return document.createTextNode(s == null ? '' : String(s));
+}
+
 /* a QR code from agd's rows of '1'/'0', as SVG */
 function qrSvg(rows) {
-	var n = rows.length, q = 4, d = '';
+	var n = rows.length, q = 4, d = '', ns = 'http://www.w3.org/2000/svg';
+	var svg = document.createElementNS(ns, 'svg'), path = document.createElementNS(ns, 'path');
 
 	for (var y = 0; y < n; y++)
 		for (var x = 0; x < n; x++)
 			if (rows[y].charAt(x) == '1')
-				d += 'M%d %dh1v1h-1z'.format(x + q, y + q);
-	return E('svg', { 'xmlns': 'http://www.w3.org/2000/svg', 'viewBox': '0 0 %d %d'.format(n + 2 * q, n + 2 * q),
-		'width': '280', 'height': '280', 'shape-rendering': 'crispEdges', 'style': 'background:#fff' },
-		E('path', { 'd': d, 'fill': '#000' }));
+				d += 'M' + (x + q) + ' ' + (y + q) + 'h1v1h-1z';
+	svg.setAttribute('viewBox', '0 0 ' + (n + 2 * q) + ' ' + (n + 2 * q));
+	svg.setAttribute('width', '280');
+	svg.setAttribute('height', '280');
+	svg.setAttribute('shape-rendering', 'crispEdges');
+	svg.setAttribute('style', 'background:#fff');
+	path.setAttribute('d', d);
+	path.setAttribute('fill', '#000');
+	svg.appendChild(path);
+	return svg;
 }
 
 function failed(res) {
 	if (res && res.ok)
 		return false;
-	ui.addNotification(null, E('p', (res && res.error) || _('Failed')), 'danger');
+	ui.addNotification(null, E('p', {}, T((res && res.error) || _('Failed'))), 'danger');
 	return true;
 }
 
@@ -48,11 +60,11 @@ return view.extend({
 	},
 
 	showQr: function(title, rows, text, note) {
-		ui.showModal(title, [
-			E('div', { 'class': 'center' }, rows ? qrSvg(rows) : E('em', _('Too long for a QR code.'))),
-			text ? E('pre', { 'style': 'white-space:pre-wrap;font-size:90%' }, text) : '',
-			E('p', note),
-			E('div', { 'class': 'right' }, E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Done')))
+		ui.showModal(T(title), [
+			E('div', { 'class': 'center' }, rows && rows.length ? qrSvg(rows) : E('em', {}, T(_('Too long for a QR code.')))),
+			text ? E('pre', { 'style': 'white-space:pre-wrap;font-size:90%' }, T(text)) : '',
+			E('p', {}, T(note)),
+			E('div', { 'class': 'right' }, E('button', { 'class': 'btn', 'click': ui.hideModal }, T(_('Done'))))
 		]);
 	},
 
@@ -110,31 +122,37 @@ return view.extend({
 		return callPeerRevoke(name).then(function(res) { failed(res); return self.reload(); });
 	},
 
+	th: function(labels) {
+		return E('tr', { 'class': 'tr table-titles' }, labels.map(function(l) { return E('th', { 'class': 'th' }, T(l)); }));
+	},
+
+	empty: function(text) {
+		return E('tr', { 'class': 'tr placeholder' }, E('td', { 'class': 'td' }, T(text)));
+	},
+
 	keysSection: function(k) {
 		var self = this, name = E('input', { 'class': 'cbi-input-text', 'placeholder': _('e.g. Living room plug') });
 		var zone = E('input', { 'class': 'cbi-input-text', 'placeholder': _('zone, e.g. iot (optional)'), 'style': 'width:12em' });
 		var rows = (k.keys || []).map(function(e) {
 			return E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td' }, E('strong', e.name)),
-				E('td', { 'class': 'td' }, e.zone || '-'),
-				E('td', { 'class': 'td' }, e.bound || e.mac || _('waiting for its device')),
+				E('td', { 'class': 'td' }, E('strong', {}, T(e.name))),
+				E('td', { 'class': 'td' }, T(e.zone || '-')),
+				E('td', { 'class': 'td' }, T(e.bound || e.mac || _('waiting for its device'))),
 				E('td', { 'class': 'td right' }, [
 					e.qr_rows ? E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(self, 'showQr',
-						_('Wi-Fi key for %s').format(e.name), e.qr_rows, null, '') }, _('QR code')) : '', ' ',
-					E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(self, 'revokeKey', e.name) }, _('Revoke'))
+						_('Wi-Fi key for %s').format(e.name), e.qr_rows, null, '') }, T(_('QR code'))) : '', ' ',
+					E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(self, 'revokeKey', e.name) }, T(_('Revoke')))
 				])
 			]);
 		});
 
 		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', _('Wi-Fi keys per device')),
-			E('p', { 'class': 'cbi-section-descr' }, _('Each device can have its own Wi-Fi password: revoke one without touching the others.')),
-			E('table', { 'class': 'table' }, [
-				E('tr', { 'class': 'tr table-titles' }, [ E('th', { 'class': 'th' }, _('Name')), E('th', { 'class': 'th' }, _('Zone')),
-					E('th', { 'class': 'th' }, _('Device')), E('th', { 'class': 'th' }) ])
-			].concat(rows.length ? rows : [ E('tr', { 'class': 'tr placeholder' }, E('td', { 'class': 'td' }, _('No per-device keys yet.'))) ])),
+			E('h3', {}, T(_('Wi-Fi keys per device'))),
+			E('p', { 'class': 'cbi-section-descr' }, T(_('Each device can have its own Wi-Fi password: revoke one without touching the others.'))),
+			E('table', { 'class': 'table' }, [ this.th([ _('Name'), _('Zone'), _('Device'), '' ]) ]
+				.concat(rows.length ? rows : [ this.empty(_('No per-device keys yet.')) ])),
 			E('div', {}, [ name, ' ', zone, ' ',
-				E('button', { 'class': 'btn cbi-button-add', 'click': ui.createHandlerFn(this, 'addKey', name, zone) }, _('New key')) ])
+				E('button', { 'class': 'btn cbi-button-add', 'click': ui.createHandlerFn(this, 'addKey', name, zone) }, T(_('New key'))) ])
 		]);
 	},
 
@@ -144,34 +162,32 @@ return view.extend({
 		if (!r.enabled) {
 			var ep = E('input', { 'class': 'cbi-input-text', 'value': r.endpoint || '', 'placeholder': _('public address or DDNS name') });
 			return E('div', { 'class': 'cbi-section' }, [
-				E('h3', _('Remote access')),
-				E('p', { 'class': 'cbi-section-descr' }, _('Reach home from your phone over WireGuard; its lookups go through AIGW wherever it is. Behind another router, forward UDP %d to this one.').format(r.port || 51820)),
-				r.error ? E('p', { 'class': 'alert-message warning' }, r.error) : '',
-				E('div', {}, [ ep, ' ', E('button', { 'class': 'btn cbi-button-apply', 'click': ui.createHandlerFn(this, 'remoteOn', ep) }, _('Turn on')) ])
+				E('h3', {}, T(_('Remote access'))),
+				E('p', { 'class': 'cbi-section-descr' }, T(_('Reach home from your phone over WireGuard; its lookups go through AIGW wherever it is. Behind another router, forward UDP %d to this one.').format(r.port || 51820))),
+				r.error ? E('p', { 'class': 'alert-message warning' }, T(r.error)) : '',
+				E('div', {}, [ ep, ' ', E('button', { 'class': 'btn cbi-button-apply', 'click': ui.createHandlerFn(this, 'remoteOn', ep) }, T(_('Turn on'))) ])
 			]);
 		}
 		var name = E('input', { 'class': 'cbi-input-text', 'placeholder': _("e.g. Anna's phone") });
 		var rows = (r.peers || []).map(function(p) {
 			return E('tr', { 'class': 'tr' }, [
-				E('td', { 'class': 'td' }, E('strong', p.name)),
-				E('td', { 'class': 'td' }, p.ip),
-				E('td', { 'class': 'td' }, p.online ? _('connected') : ago(p.handshake)),
-				E('td', { 'class': 'td' }, p.endpoint || '-'),
-				E('td', { 'class': 'td right' }, E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(self, 'revokePeer', p.name) }, _('Revoke')))
+				E('td', { 'class': 'td' }, E('strong', {}, T(p.name))),
+				E('td', { 'class': 'td' }, T(p.ip)),
+				E('td', { 'class': 'td' }, T(p.online ? _('connected') : ago(p.handshake))),
+				E('td', { 'class': 'td' }, T(p.endpoint || '-')),
+				E('td', { 'class': 'td right' }, E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(self, 'revokePeer', p.name) }, T(_('Revoke'))))
 			]);
 		});
 
 		return E('div', { 'class': 'cbi-section' }, [
-			E('h3', _('Remote access')),
-			E('p', { 'class': 'cbi-section-descr' }, _('On: %s, UDP %d, tunnel %s.').format(r.endpoint, r.port, r.subnet)),
-			r.error ? E('p', { 'class': 'alert-message warning' }, r.error) : '',
-			E('table', { 'class': 'table' }, [
-				E('tr', { 'class': 'tr table-titles' }, [ E('th', { 'class': 'th' }, _('Peer')), E('th', { 'class': 'th' }, _('Address')),
-					E('th', { 'class': 'th' }, _('Last seen')), E('th', { 'class': 'th' }, _('From')), E('th', { 'class': 'th' }) ])
-			].concat(rows.length ? rows : [ E('tr', { 'class': 'tr placeholder' }, E('td', { 'class': 'td' }, _('No peers yet.'))) ])),
+			E('h3', {}, T(_('Remote access'))),
+			E('p', { 'class': 'cbi-section-descr' }, T(_('On: %s, UDP %d, tunnel %s.').format(r.endpoint, r.port, r.subnet))),
+			r.error ? E('p', { 'class': 'alert-message warning' }, T(r.error)) : '',
+			E('table', { 'class': 'table' }, [ this.th([ _('Peer'), _('Address'), _('Last seen'), _('From'), '' ]) ]
+				.concat(rows.length ? rows : [ this.empty(_('No peers yet.')) ])),
 			E('div', {}, [ name, ' ',
-				E('button', { 'class': 'btn cbi-button-add', 'click': ui.createHandlerFn(this, 'addPeer', name) }, _('Add a phone')), ' ',
-				E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(this, 'remoteOff') }, _('Turn off')) ])
+				E('button', { 'class': 'btn cbi-button-add', 'click': ui.createHandlerFn(this, 'addPeer', name) }, T(_('Add a phone'))), ' ',
+				E('button', { 'class': 'btn cbi-button-negative', 'click': ui.createHandlerFn(this, 'remoteOff') }, T(_('Turn off'))) ])
 		]);
 	},
 
@@ -183,7 +199,7 @@ return view.extend({
 		this.box = E('div', {});
 		this.fill(data);
 		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', _('Wi-Fi keys and remote access')),
+			E('h2', {}, T(_('Wi-Fi keys and remote access'))),
 			this.box
 		]);
 	},

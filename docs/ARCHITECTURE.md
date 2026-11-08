@@ -663,6 +663,18 @@ QEMU result (OpenWRT 24.10.8 x86-64, 256 MB): all 25 self-test checks and all 12
 | AIGW RAM in total | 2.5 MB | 16 MB |
 | installed flash (core, remote, self-test, models, plug-ins) | 476 KB | 1 MB |
 
+The same run also happens on emulated router CPUs (v0.10.1), with the very packages routers get:
+
+| Run | Packages | Result | RAM (agd + agdns) | Flash |
+|-----|----------|--------|-------------------|-------|
+| x86-64 (KVM in CI) | `x86_64` | 25/25 + 12/12 LuCI | 2.5 MB | 476 KB |
+| malta, MIPS 24Kc little-endian | `mipsel_24kc` (MT7621 build) | 25/25 + 12/12 LuCI | 3.1 MB | 488 KB |
+| armsr, ARM Cortex-A53 | `aarch64_cortex-a53` (Filogic build) | 25/25 + 12/12 LuCI | 3.0 MB | 616 KB |
+
+The model's scores and the signature checks come out identical on all three CPUs. One real problem only showed up under the slow ARM emulation: `agctl` waited 3 s for agd, and `remote on` (which reloads the firewall) can take longer. agctl now waits 30 s.
+
+The LuCI pages are also rendered in a headless browser (`platform/openwrt/luci_screenshots.py`, against a `KEEP=1` VM seeded with devices, an alert and a decision). This found that LuCI's `E()` parses plain strings as HTML, so a device that named itself `<svg/onload=…>` would have run script in the admin's browser. Every value from the network or agd now goes in as a text node, and the check fails if seeded markup becomes an element or a dialog opens.
+
 Busy homes (hundreds of devices and endpoints, plug-ins running) still need measuring on real routers. The checklist is [testing-on-routers.md](testing-on-routers.md).
 
 ---

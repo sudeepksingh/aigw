@@ -1,28 +1,31 @@
 #!/bin/sh
-# Install the built packages on a real OpenWRT x86-64 system in QEMU and run
+# Install the built packages on a real OpenWRT system in QEMU and run
 # aigw-selftest --full there: procd, fw4, opkg dependencies, ubus, rpcd and
 # the firewall integration, as on a router, before any router is touched.
 #
-#   platform/openwrt/build-sdk.sh                   # first: build the packages
-#   platform/openwrt/qemu-test.sh                   # VERSION=24.10 by default
-#   KEEP=1 platform/openwrt/qemu-test.sh            # leave it running, LuCI on :8080 (LUCI_PORT)
+#   platform/openwrt/build-sdk.sh                       # first: build the packages
+#   platform/openwrt/qemu-test.sh                       # x86-64, VERSION=24.10 by default
+#   ARCH=mipsel_24kc platform/openwrt/qemu-test.sh      # MT7621 packages on malta (MIPS)
+#   ARCH=aarch64_cortex-a53 platform/openwrt/qemu-test.sh   # Filogic packages on armsr (ARM64)
+#   KEEP=1 platform/openwrt/qemu-test.sh                # leave it running, LuCI on :8080 (LUCI_PORT)
 #
 # Checks: aigw-selftest --full inside OpenWRT, then LuCI from the host as the
-# AIGW pages use it (rpcd ACL, pages, menu, remote-access QR code).
-#
-# Uses KVM when /dev/kvm is usable (CI), plain emulation otherwise (slower).
-# Needs qemu-system-x86_64, python3, curl, gzip.
+# AIGW pages use it (rpcd ACL, pages, menu, remote-access QR code). On MIPS
+# and ARM the CPU-level checks (signatures, model scores) run on that CPU.
+# x86-64 uses KVM when /dev/kvm is usable; the others are emulated (slower).
+# Needs qemu-system-x86_64 / -mipsel / -aarch64, python3, curl, gzip.
 set -eu
 
 REPO=$(cd "$(dirname "$0")/../.." && pwd)
 VERSION=${VERSION:-24.10}
+ARCH=${ARCH:-x86_64}
 MIRROR=${MIRROR:-https://downloads.openwrt.org}
 CACHE=${QEMU_CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/aigw-qemu}
 PORT=${PORT:-$((20000 + $(od -An -N2 -tu2 /dev/urandom | tr -d ' ') % 20000))}
 LUCI_PORT=${LUCI_PORT:-8080}
 
 die() { echo "qemu-test: $*" >&2; exit 1; }
-for t in qemu-system-x86_64 python3 curl gzip; do command -v $t >/dev/null || die "missing $t"; done
+for t in python3 curl gzip; do command -v $t >/dev/null || die "missing $t"; done
 
 case $VERSION in
 *.*.*) ;;
@@ -32,45 +35,74 @@ case $VERSION in
 	[ -n "$VERSION" ] || die "no OpenWRT release found"
 	;;
 esac
-PKGS="$REPO/dist/openwrt/$VERSION/x86_64"
 
-IMG_GZ="openwrt-$VERSION-x86-64-generic-ext4-combined.img.gz"
+# what to boot for each package architecture
+NET="-netdev user,id=lan -netdev user,id=wan,hostfwd=tcp:127.0.0.1:$LUCI_PORT-:80"
+ADD_ARCH=""
+case $ARCH in
+x86_64)
+	TGT=x86/64 FILE="openwrt-$VERSION-x86-64-generic-ext4-combined.img.gz" QEMU=qemu-system-x86_64
+	ACCEL="-accel tcg"
+	if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL="-accel kvm -cpu host"; fi
+	BOOT="$ACCEL -m 256 -smp 2 -drive file=@IMG@,format=raw $NET -device e1000,netdev=lan -device e1000,netdev=wan"
+	;;
+mipsel_24kc)
+	TGT=malta/le FILE="openwrt-$VERSION-malta-le-vmlinux-initramfs.elf" QEMU=qemu-system-mipsel
+	BOOT="-M malta -m 256 -kernel @IMG@ $NET -device pcnet,netdev=lan -device pcnet,netdev=wan"
+	;;
+aarch64_cortex-a53)
+	# armsr packages are aarch64_generic; the Filogic build runs on any ARMv8
+	TGT=armsr/armv8 FILE="openwrt-$VERSION-armsr-armv8-generic-initramfs-kernel.bin" QEMU=qemu-system-aarch64
+	BOOT="-M virt -cpu cortex-a53 -m 256 -kernel @IMG@ $NET -device virtio-net-pci,netdev=lan -device virtio-net-pci,netdev=wan"
+	ADD_ARCH=aarch64_cortex-a53
+	;;
+*)
+	die "ARCH: x86_64, mipsel_24kc or aarch64_cortex-a53"
+	;;
+esac
+command -v $QEMU >/dev/null || die "missing $QEMU"
+PKGS="$REPO/dist/openwrt/$VERSION/$ARCH"
+
 mkdir -p "$CACHE"
-if [ ! -f "$CACHE/$IMG_GZ" ]; then
-	echo "==> downloading $IMG_GZ"
-	curl -fL --http1.1 --retry 5 --retry-all-errors -C - --progress-bar -o "$CACHE/$IMG_GZ.part" \
-		"$MIRROR/releases/$VERSION/targets/x86/64/$IMG_GZ"
-	mv "$CACHE/$IMG_GZ.part" "$CACHE/$IMG_GZ"
+if [ ! -f "$CACHE/$FILE" ]; then
+	echo "==> downloading $FILE"
+	curl -fL --http1.1 --retry 5 --retry-all-errors -C - --progress-bar -o "$CACHE/$FILE.part" \
+		"$MIRROR/releases/$VERSION/targets/$TGT/$FILE"
+	mv "$CACHE/$FILE.part" "$CACHE/$FILE"
 fi
 W=$(mktemp -d)
 trap 'kill $HTTP 2>/dev/null; rm -rf "$W"' EXIT INT TERM
-gzip -dc "$CACHE/$IMG_GZ" > "$W/openwrt.img" 2>/dev/null || true    # "trailing garbage" is normal
-[ -s "$W/openwrt.img" ] || die "could not unpack $IMG_GZ"
+case $FILE in
+*.gz)
+	gzip -dc "$CACHE/$FILE" > "$W/boot.img" 2>/dev/null || true    # "trailing garbage" is normal
+	;;
+*)
+	cp "$CACHE/$FILE" "$W/boot.img"
+	;;
+esac
+[ -s "$W/boot.img" ] || die "could not unpack $FILE"
 
-# only this version's packages (older builds stay in dist/)
+# only this version's packages (older builds stay in dist/); the
+# architecture-independent ones may sit in any architecture's folder
 V=$(sed -n 's/^PKG_VERSION:=//p' "$REPO/platform/openwrt/aigw/Makefile")
 mkdir -p "$W/pkgs"
 for f in "$PKGS"/*aigw*[_-]"$V"-r*; do
 	[ -f "$f" ] && cp "$f" "$W/pkgs/"
 done
-ls "$W/pkgs" | grep -q . || die "no packages of version $V in $PKGS (run platform/openwrt/build-sdk.sh)"
+ls "$W/pkgs" | grep -q . || die "no packages of version $V in $PKGS (build-sdk.sh with that target)"
 (cd "$W/pkgs" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
 HTTP=$!
 
-ACCEL="-accel tcg"
-if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL="-accel kvm -cpu host"; fi
-echo "==> OpenWRT $VERSION in QEMU (${ACCEL#-accel }), packages: $(ls "$W/pkgs" | tr '\n' ' ')"
-LOG="$REPO/dist/openwrt/qemu-$VERSION.log"
+echo "==> OpenWRT $VERSION $TGT in QEMU ($QEMU), packages: $(ls "$W/pkgs" | tr '\n' ' ')"
+LOG="$REPO/dist/openwrt/qemu-$VERSION-$ARCH.log"
 : > "$LOG"
 set +e
 # shellcheck disable=SC2086
-python3 "$REPO/platform/openwrt/qemu_console.py" "$LOG" "$W/pkgs" "$PORT" "$LUCI_PORT" ${KEEP:+--keep} -- \
-	qemu-system-x86_64 $ACCEL -m 256 -smp 2 -display none -serial stdio -monitor none -no-reboot \
-	-drive file="$W/openwrt.img",format=raw \
-	-netdev user,id=lan -device e1000,netdev=lan \
-	-netdev user,id=wan,hostfwd=tcp:127.0.0.1:$LUCI_PORT-:80 -device e1000,netdev=wan
+python3 "$REPO/platform/openwrt/qemu_console.py" "$LOG" "$W/pkgs" "$PORT" "$LUCI_PORT" ${KEEP:+--keep} \
+	${ADD_ARCH:+--add-arch=$ADD_ARCH} -- \
+	$QEMU $(echo "$BOOT" | sed "s|@IMG@|$W/boot.img|") -display none -serial stdio -monitor none -no-reboot
 rc=$?
 set -e
 echo "==> console log: $LOG"
-[ $rc -eq 0 ] && echo "QEMU OPENWRT TEST OK" || echo "QEMU OPENWRT TEST FAILED ($rc)"
+[ $rc -eq 0 ] && echo "QEMU OPENWRT TEST OK ($ARCH)" || echo "QEMU OPENWRT TEST FAILED ($ARCH: $rc)"
 exit $rc

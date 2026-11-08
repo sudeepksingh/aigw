@@ -6,10 +6,16 @@
 var callStatus = rpc.declare({ object: 'ag', method: 'status', expect: { '': {} } });
 var callModels = rpc.declare({ object: 'ag.model', method: 'list', expect: { '': {} } });
 
+/* text, never markup: names and reasons come from the network */
+function T(s) {
+	return document.createTextNode(s == null ? '' : String(s));
+}
+
 function row(label, value, hint) {
 	return E('tr', { 'class': 'tr' }, [
-		E('td', { 'class': 'td left', 'width': '33%' }, label),
-		E('td', { 'class': 'td left' }, [ value, hint ? E('span', { 'class': 'cbi-value-description' }, [ ' ', hint ]) : '' ])
+		E('td', { 'class': 'td left', 'width': '33%' }, T(label)),
+		E('td', { 'class': 'td left' }, [ (value instanceof Node) ? value : T(value),
+			hint ? E('span', { 'style': 'opacity:.65;margin-left:.6em' }, T(hint)) : '' ])
 	]);
 }
 
@@ -38,15 +44,14 @@ return view.extend({
 		return E('table', { 'class': 'table' }, [
 			row(_('Version'), '%s on %s'.format(st.version, st.host), _('phase: %s').format(st.phase)),
 			row(_('Running for'), '%t'.format(st.uptime_s || 0)),
-			row(_('Devices'), '%d'.format(st.devices || 0), _('%d on Wi-Fi now').format(st.wifi_stations || 0)),
-			row(_('DNS lookups'), '%d'.format(st.dns_queries || 0)),
-			row(_('Connections'), '%d'.format(st.flows || 0), _('%d without a DNS lookup').format(st.flows_no_dns || 0)),
-			row(_('Sensors'), [ s.dns ? _('DNS on') : _('DNS waiting'), ', ', s.flow ? _('flows on') : _('flows OFF'), ', ',
-				s.wifi ? _('Wi-Fi on') : _('no Wi-Fi stations') ].join('')),
-			row(_('Alerts'), '%d'.format(st.alerts || 0)),
+			row(_('Devices'), String(st.devices || 0), _('%d on Wi-Fi now').format(st.wifi_stations || 0)),
+			row(_('DNS lookups'), String(st.dns_queries || 0)),
+			row(_('Connections'), String(st.flows || 0), _('%d without a DNS lookup').format(st.flows_no_dns || 0)),
+			row(_('Sensors'), [ s.dns ? _('DNS on') : _('DNS waiting'), s.flow ? _('flows on') : _('flows OFF'),
+				s.wifi ? _('Wi-Fi on') : _('no Wi-Fi stations') ].join(', ')),
+			row(_('Alerts'), String(st.alerts || 0)),
 			row(_('Acting'), st.mode || 'advise', modeText(st.mode)),
-			row(_('Decisions'), E('a', { 'href': L.url('admin/aigw/decisions') },
-				_('%d waiting for you').format(d.waiting || 0)),
+			row(_('Decisions'), E('a', { 'href': L.url('admin/aigw/decisions') }, T(_('%d waiting for you').format(d.waiting || 0))),
 				_('%d in effect, %d policies').format(d.active || 0, d.policies || 0)),
 			row(_('Plug-ins'), _('%d found, %d working').format(p.found || 0, p.working || 0)),
 			row(_('Wi-Fi keys'), _('%d per-device keys').format(st.wifi_keys || 0)),
@@ -66,9 +71,9 @@ return view.extend({
 		}, 10);
 
 		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', _('AIGW')),
+			E('h2', {}, T(_('AIGW'))),
 			E('div', { 'class': 'cbi-map-descr' },
-				_('The AI-native gateway: what is on your network, what it does, and what AIGW thinks you should know.')),
+				T(_('The AI-native gateway: what is on your network, what it does, and what AIGW thinks you should know.'))),
 			E('div', { 'class': 'cbi-section' }, box)
 		]);
 	},

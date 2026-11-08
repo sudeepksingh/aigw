@@ -338,6 +338,12 @@ interface, with these pages:
 
 It uses the same ubus API as `agctl`, through rpcd with its own access list.
 
+![AIGW overview in LuCI](docs/img/luci-overview.png)
+![Alerts and decisions in LuCI: a proposal waiting for approval](docs/img/luci-decisions.png)
+
+(Screenshots from the QEMU test VM. The second device's host name is a deliberate
+script injection, which the pages show as plain text.)
+
 ## Is it healthy? `aigw-selftest`
 
 ```bash
@@ -352,8 +358,9 @@ The self-test covers:
 - memory and flash against the budget;
 - the LuCI access list.
 
-CI runs it inside OpenWRT x86-64 in QEMU after installing every build with
-opkg (`platform/openwrt/qemu-test.sh`). To try it on your own router, see
+CI runs it inside OpenWRT in QEMU after installing every build with opkg
+(`platform/openwrt/qemu-test.sh`): on x86-64, on emulated MIPS (the MT7621
+packages) and on emulated ARM64 (the Filogic packages). To try it on your own router, see
 [docs/testing-on-routers.md](docs/testing-on-routers.md).
 
 ## What you get in v0.10
@@ -444,7 +451,9 @@ sudo tests/outside-test.sh build      # bridge + cortex: labels, retrain, signed
 sudo tests/remote-test.sh build       # a real WireGuard tunnel between namespaces: DNS through AIGW, revoke
 platform/openwrt/build-sdk.sh         # OpenWRT packages (VERSION=24.10 TARGET=x86/64 by default)
 platform/openwrt/qemu-test.sh         # install them on OpenWRT in QEMU, run aigw-selftest --full there
+ARCH=mipsel_24kc platform/openwrt/qemu-test.sh   # the MT7621 packages on emulated MIPS (also aarch64_cortex-a53)
 KEEP=1 platform/openwrt/qemu-test.sh  # ... and keep it running: LuCI on http://127.0.0.1:8080
+python3 platform/openwrt/luci_screenshots.py  # screenshots of the AIGW pages from that VM (needs playwright)
 ```
 
 The namespace tests are safe to run on a machine that is itself running
