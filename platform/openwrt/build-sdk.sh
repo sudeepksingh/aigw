@@ -79,6 +79,8 @@ fi
 
 echo "==> building"
 make defconfig > /dev/null 2>&1
+# the SDK copies sources once per version: start clean so every change is built
+make package/aigw/clean > /dev/null 2>&1 || true
 if ! make package/aigw/compile -j"$(nproc)" > "$CACHE/build-$VERSION.log" 2>&1; then
 	make package/aigw/compile V=s -j1 2>&1 | tail -60
 	die "build failed (full log: $CACHE/build-$VERSION.log)"
@@ -87,6 +89,7 @@ fi
 ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"/\1/p' .config)
 OUT="$REPO/dist/openwrt/$VERSION/$ARCH"
 mkdir -p "$OUT"
-find bin/packages -type f \( -name 'aigw*.ipk' -o -name 'aigw*.apk' \) -exec cp {} "$OUT/" \;
+find bin/packages -type f \( -name 'aigw*.ipk' -o -name 'aigw*.apk' -o -name 'luci-app-aigw*.ipk' \
+	-o -name 'luci-app-aigw*.apk' \) -exec cp {} "$OUT/" \;
 echo "==> done:"
 ls -l "$OUT"

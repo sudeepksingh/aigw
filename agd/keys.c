@@ -293,6 +293,7 @@ int keys_add(const char *name, const char *zone, int ttl, struct blob_buf *reply
 	blobmsg_add_string(reply, "ssid", ssid);
 	blobmsg_add_string(reply, "passphrase", k->pass);
 	blobmsg_add_string(reply, "qr", qr);
+	agd_qr_rows(reply, "qr_rows", qr);
 	blobmsg_add_u64(reply, "expires", (uint64_t)k->expires);
 	blobmsg_add_u8(reply, "reloaded", (uint8_t)ok);
 	if (!ok)
@@ -424,8 +425,10 @@ void keys_blob(struct blob_buf *b, const char *only)
 		if (only) {                  /* one key asked for by name: enough to show its QR again */
 			blobmsg_add_string(b, "ssid", ssid);
 			blobmsg_add_string(b, "passphrase", k->pass);
-			if (ssid[0] && ag_qr_wifi_text(qr, sizeof(qr), ssid, k->pass) > 0)
+			if (ssid[0] && ag_qr_wifi_text(qr, sizeof(qr), ssid, k->pass) > 0) {
 				blobmsg_add_string(b, "qr", qr);
+				agd_qr_rows(b, "qr_rows", qr);
+			}
 		}
 		blobmsg_close_table(b, t);
 	}

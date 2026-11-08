@@ -85,6 +85,8 @@ static void usage(void)
 		"  key revoke <name>   take a device's key away and disconnect it\n"
 		"  zone <device> <zone|none>     put a device in a zone; policies can be limited to one\n"
 		"  qr <text> [--pbm]   any text as a QR code\n"
+		"  selftest            checks on this device's CPU: signatures, model, QR, DNS via agdns\n"
+		"                      (aigw-selftest runs it with the service checks)\n"
 		"  version             agctl version\n"
 		"\n"
 		"  -j                  print raw JSON\n");
@@ -1275,6 +1277,11 @@ int main(int argc, char **argv)
 		qr_pbm = i + 1 < argc && !strcmp(argv[i + 1], "--pbm");
 		print_qr(argv[i]);
 		return 0;
+	}
+	if (!strcmp(cmd, "selftest")) {             /* on this CPU: crypto, model, QR, DNS through agdns */
+		int agctl_selftest(void);
+
+		return agctl_selftest() ? 1 : 0;
 	}
 	if (!strcmp(cmd, "trust") && i < argc)     /* files only: agd reads the keys at each offer */
 		return trust(argv[i]);

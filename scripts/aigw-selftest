@@ -1,0 +1,156 @@
+#!/bin/sh
+# aigw-selftest: is AIGW healthy on this device, and within its budget?
+#
+#   aigw-selftest          safe checks: nothing changes
+#   aigw-selftest --full   also restarts agd (does procd bring it back?), reloads
+#                          the firewall, and turns remote access on and off once
+#
+# One line per check: PASS, FAIL or INFO. The exit code is the number of
+# failures. Runs on OpenWRT routers and on a PC as AP; the QEMU test in
+# platform/openwrt runs it inside OpenWRT, and on real routers you run it
+# yourself and send the output.
+set -u
+
+FULL=0
+[ "${1:-}" = --full ] && FULL=1
+PASSED=0 FAILED=0
+pass() { echo "PASS $1: $2"; PASSED=$((PASSED + 1)); }
+fail() { echo "FAIL $1: $2"; FAILED=$((FAILED + 1)); }
+info() { echo "INFO $1: $2"; }
+ok_if() { name=$1 msg=$2; shift 2; if "$@" >/dev/null 2>&1; then pass "$name" "$msg"; else fail "$name" "$msg"; fi; }
+
+# budgets (KB), from docs/ARCHITECTURE.md section 14
+BUDGET_AGD=10240 BUDGET_AGDNS=4096 BUDGET_RAM=16384 BUDGET_FLASH=1024
+
+OWRT=0
+[ -f /etc/openwrt_release ] && OWRT=1
+json() { sed -n "s/.*\"$1\": *\"\{0,1\}\([^\",}]*\).*/\1/p" | head -1; }
+rss() { r=$(sed -n 's/^VmRSS:[[:space:]]*\([0-9]*\) kB/\1/p' "/proc/$1/status" 2>/dev/null); echo "${r:-0}"; }
+
+# ---- the device
+if [ $OWRT = 1 ]; then
+	. /etc/openwrt_release
+	info device "$DISTRIB_DESCRIPTION, $DISTRIB_ARCH, $(sed -n 's/^MemTotal: *//p' /proc/meminfo) RAM"
+else
+	info device "$(uname -sm), $(sed -n 's/^MemTotal: *//p' /proc/meminfo) RAM"
+fi
+info aigw "$(agctl version 2>/dev/null)"
+
+# ---- services
+AGD=$(pidof agd | cut -d' ' -f1)
+AGDNS=$(pidof agdns | cut -d' ' -f1)
+if [ -n "$AGD" ]; then pass agd "running (pid $AGD)"; else fail agd "not running"; fi
+if [ -n "$AGDNS" ]; then pass agdns "running (pid $AGDNS)"; else fail agdns "not running"; fi
+STATUS=$(agctl -j status 2>/dev/null)
+PHASE=$(echo "$STATUS" | json phase)
+if [ -n "$PHASE" ]; then pass ubus "agd answers (phase $PHASE)"; else fail ubus "agd does not answer on ubus"; fi
+if [ $OWRT = 1 ]; then
+	SVC=$(ubus call service list '{"name":"aigw"}' 2>/dev/null)
+	n=$(echo "$SVC" | grep -c '"running": true')
+	if [ "$n" -ge 2 ]; then pass procd "agd and agdns are procd instances"; else fail procd "procd does not run both instances"; fi
+	if echo "$SVC" | grep -q '"ujail"\|"jail"'; then info jail "agdns runs in a ujail"; else info jail "no ujail on this router (agdns runs unconfined)"; fi
+fi
+
+# ---- kernel rules and firewall
+ok_if nft "table inet ag is loaded" nft list table inet ag
+if [ $OWRT = 1 ]; then
+	ok_if fw4 "firewall include keeps the table across reloads" sh -c '[ "$(uci -q get firewall.aigw)" = include ]'
+	if [ $FULL = 1 ]; then
+		fw4 reload >/dev/null 2>&1
+		ok_if fw4-reload "table still there after fw4 reload" nft list table inet ag
+	fi
+fi
+
+# ---- on this CPU: signatures, model, QR, DNS through agdns
+agctl selftest > /tmp/aigw-selftest.$$ 2>&1
+while IFS= read -r line; do
+	case $line in
+	PASS*) PASSED=$((PASSED + 1)); echo "$line" ;;
+	FAIL*) FAILED=$((FAILED + 1)); echo "$line" ;;
+	*) echo "$line" ;;
+	esac
+done < /tmp/aigw-selftest.$$
+rm -f /tmp/aigw-selftest.$$
+
+# ---- footprint
+if [ -n "$AGD" ] && [ -n "$AGDNS" ]; then
+	a=$(rss "$AGD") d=$(rss "$AGDNS") p=0 np=0
+	for s in /proc/[0-9]*/stat; do               # plug-ins: agd's children
+		pid=${s#/proc/}; pid=${pid%/stat}
+		ppid=$(cut -d' ' -f4 "$s" 2>/dev/null)
+		[ "$ppid" = "$AGD" ] || continue
+		r=$(rss "$pid"); p=$((p + ${r:-0})); np=$((np + 1))
+	done
+	total=$((a + d + p))
+	[ "$a" -gt 0 ] && [ "$d" -gt 0 ] || fail ram "could not read memory use from /proc"
+	if [ "$a" -le $BUDGET_AGD ]; then pass ram-agd "$a KB (budget $BUDGET_AGD)"; else fail ram-agd "$a KB, over the budget of $BUDGET_AGD"; fi
+	if [ "$d" -le $BUDGET_AGDNS ]; then pass ram-agdns "$d KB (budget $BUDGET_AGDNS)"; else fail ram-agdns "$d KB, over the budget of $BUDGET_AGDNS"; fi
+	if [ $total -le $BUDGET_RAM ]; then pass ram-total "$total KB with $np plug-in process(es) (budget $BUDGET_RAM)"
+	else fail ram-total "$total KB with $np plug-in process(es), over the budget of $BUDGET_RAM"; fi
+fi
+files=""
+for b in agd agdns agctl aigw-nft aigw-remote aigw-selftest; do
+	f=$(command -v $b 2>/dev/null) && files="$files $f"
+done
+share=/usr/share/aigw
+[ -d $share ] || share=/usr/local/share/aigw
+# shellcheck disable=SC2086
+flash=$(du -ck $files $share 2>/dev/null | tail -1 | cut -f1)
+if [ "${flash:-0}" -le $BUDGET_FLASH ]; then pass flash "$flash KB installed (budget $BUDGET_FLASH)"
+else fail flash "$flash KB installed, over the budget of $BUDGET_FLASH"; fi
+
+# ---- optional parts
+if agctl -j plugin bridge 2>/dev/null | grep -q '"name": "bridge"'; then
+	st=$(agctl -j plugin bridge | json state)
+	case $st in running|waiting) pass bridge "plug-in $st" ;; *) fail bridge "plug-in $st" ;; esac
+fi
+ACL=/usr/share/rpcd/acl.d/luci-app-aigw.json
+if [ -f $ACL ]; then
+	if command -v jsonfilter >/dev/null; then ok_if luci-acl "rpcd ACL is valid JSON" jsonfilter -i $ACL -e '@'; fi
+	SID=$(ubus call session login '{"username":"root","password":""}' 2>/dev/null | json ubus_rpc_session)
+	if [ -n "$SID" ]; then
+		acc=$(ubus call session access "{\"ubus_rpc_session\":\"$SID\",\"scope\":\"ubus\",\"object\":\"ag\",\"function\":\"status\"}" 2>/dev/null)
+		if echo "$acc" | grep -q '"access": true'; then pass luci-rpc "LuCI may call ag status"; else fail luci-rpc "LuCI may not call ag status"; fi
+		ubus call session destroy "{\"ubus_rpc_session\":\"$SID\"}" >/dev/null 2>&1
+	else
+		info luci-rpc "skipped (root has a password: log in to LuCI to check the pages)"
+	fi
+fi
+
+# ---- disruptive checks (--full)
+if [ $FULL = 1 ] && [ -n "$AGD" ]; then
+	kill -9 "$AGD"
+	i=0 new=""
+	while [ $i -lt 30 ]; do
+		sleep 1
+		new=$(pidof agd | cut -d' ' -f1)
+		[ -n "$new" ] && [ "$new" != "$AGD" ] && agctl status >/dev/null 2>&1 && break
+		i=$((i + 1))
+	done
+	if [ -n "$new" ] && [ "$new" != "$AGD" ]; then pass respawn "agd killed and back in ${i}s (pid $new)"
+	else fail respawn "agd did not come back within 30s"; fi
+fi
+if [ $FULL = 1 ] && command -v aigw-remote >/dev/null && command -v wg >/dev/null; then
+	if agctl -j remote | grep -q '"enabled": 0\|"enabled": false'; then
+		if agctl remote on 192.0.2.1 >/dev/null 2>&1; then
+			ok_if remote-on "WireGuard interface up" ip link show agwg
+			if [ $OWRT = 1 ]; then
+				ok_if remote-fw "firewall zone and port rule added" sh -c '[ "$(uci -q get firewall.aigw_remote)" = zone ] && [ "$(uci -q get firewall.aigw_remote_port.dest_port)" = 51820 ]'
+			fi
+			ok_if remote-peer "a peer can be added and revoked" sh -c 'agctl remote add aigw-selftest && agctl remote revoke aigw-selftest'
+			agctl remote off >/dev/null 2>&1
+			ok_if remote-off "interface gone after remote off" sh -c '! ip link show agwg'
+			if [ $OWRT = 1 ]; then
+				ok_if remote-fw-off "firewall port closed again" sh -c '! uci -q get firewall.aigw_remote_port'
+			fi
+			uci -q delete aigw.remote.endpoint 2>/dev/null && uci -q commit aigw 2>/dev/null
+		else
+			fail remote-on "agctl remote on failed: $(agctl remote on 192.0.2.1 2>&1 | tail -1)"
+		fi
+	else
+		info remote "already on here: not touched"
+	fi
+fi
+
+echo "selftest: $PASSED passed, $FAILED failed"
+exit $FAILED

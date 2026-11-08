@@ -1,0 +1,27 @@
+{
+	"luci-app-aigw": {
+		"description": "Grant access to AIGW (status, devices, decisions, keys, remote access, plug-ins)",
+		"read": {
+			"ubus": {
+				"ag": [ "status" ],
+				"ag.device": [ "list" ],
+				"ag.alert": [ "list" ],
+				"ag.decision": [ "list" ],
+				"ag.plugin": [ "list" ],
+				"ag.model": [ "list" ],
+				"ag.remote": [ "list" ],
+				"ag.wifi": [ "keys" ]
+			}
+		},
+		"write": {
+			"ubus": {
+				"ag.decision": [ "request", "approve", "reject", "revert" ],
+				"ag.device": [ "zone" ],
+				"ag.plugin": [ "set" ],
+				"ag.model": [ "rollback" ],
+				"ag.remote": [ "on", "off", "add", "revoke" ],
+				"ag.wifi": [ "key_add", "key_revoke" ]
+			}
+		}
+	}
+}

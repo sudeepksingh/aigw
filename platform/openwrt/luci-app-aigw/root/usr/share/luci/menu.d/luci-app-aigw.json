@@ -1,0 +1,33 @@
+{
+	"admin/aigw": {
+		"title": "AIGW",
+		"order": 45,
+		"action": { "type": "firstchild" },
+		"depends": { "acl": [ "luci-app-aigw" ] }
+	},
+	"admin/aigw/overview": {
+		"title": "Overview",
+		"order": 10,
+		"action": { "type": "view", "path": "aigw/overview" }
+	},
+	"admin/aigw/devices": {
+		"title": "Devices",
+		"order": 20,
+		"action": { "type": "view", "path": "aigw/devices" }
+	},
+	"admin/aigw/decisions": {
+		"title": "Alerts and decisions",
+		"order": 30,
+		"action": { "type": "view", "path": "aigw/decisions" }
+	},
+	"admin/aigw/access": {
+		"title": "Wi-Fi keys and remote access",
+		"order": 40,
+		"action": { "type": "view", "path": "aigw/access" }
+	},
+	"admin/aigw/plugins": {
+		"title": "Plug-ins and models",
+		"order": 50,
+		"action": { "type": "view", "path": "aigw/plugins" }
+	}
+}

@@ -1,7 +1,7 @@
 {
   "name": "bridge",
   "kind": "connector",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Links this gateway to cortex: fleet history, signed model updates, suggestions from the AI assistant (they wait for your OK)",
   "exec": "ag-bridge",
   "caps": ["devices.read", "decision.propose", "model.offer"],

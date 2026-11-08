@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.9.0
+PKG_VERSION:=0.10.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -96,6 +96,24 @@ define Package/aigw-remote/description
   for the UDP port (51820) the first time.
 endef
 
+define Package/luci-app-aigw
+  SECTION:=luci
+  CATEGORY:=LuCI
+  SUBMENU:=3. Applications
+  TITLE:=LuCI pages for AIGW
+  # needs LuCI itself (luci-base); not a build dependency, so the package
+  # builds from the base feed alone
+  DEPENDS:=+aigw +rpcd
+  PKGARCH:=all
+endef
+
+define Package/luci-app-aigw/description
+  AIGW in the router's web interface (menu "AIGW"): overview, devices with
+  quarantine / priority / zone, alerts and decisions with approve, reject
+  and undo, per-device Wi-Fi keys and remote access with QR codes,
+  plug-ins and models.
+endef
+
 CMAKE_OPTIONS += -DAIGW_TESTS=OFF
 
 define Build/Prepare
@@ -120,6 +138,7 @@ define Package/aigw/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agdns $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-nft $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-dhcp-event $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-selftest $(1)/usr/sbin/
 	$(INSTALL_DATA) ./files/aigw.hotplug-dhcp $(1)/etc/hotplug.d/dhcp/90-aigw
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/agctl $(1)/usr/bin/
 	$(INSTALL_BIN) ./files/aigw.init $(1)/etc/init.d/aigw
@@ -144,6 +163,32 @@ define Package/aigw-remote/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-remote $(1)/usr/sbin/
 endef
 
+define Package/aigw-remote/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+# take the tunnel, the open port and the firewall zone away with the package
+agctl remote off >/dev/null 2>&1 || /usr/sbin/aigw-remote down agwg >/dev/null 2>&1
+exit 0
+endef
+
+LUCI_SRC:=$(AIGW_SRC)/platform/openwrt/luci-app-aigw
+
+define Package/luci-app-aigw/install
+	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d $(1)/usr/share/rpcd/acl.d \
+		$(1)/www/luci-static/resources/view/aigw
+	$(INSTALL_DATA) $(LUCI_SRC)/root/usr/share/luci/menu.d/luci-app-aigw.json $(1)/usr/share/luci/menu.d/
+	$(INSTALL_DATA) $(LUCI_SRC)/root/usr/share/rpcd/acl.d/luci-app-aigw.json $(1)/usr/share/rpcd/acl.d/
+	$(INSTALL_DATA) $(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/*.js $(1)/www/luci-static/resources/view/aigw/
+endef
+
+define Package/luci-app-aigw/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
+/etc/init.d/rpcd reload 2>/dev/null
+exit 0
+endef
+
 define Package/aigw/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
@@ -161,3 +206,4 @@ $(eval $(call BuildPackage,aigw))
 $(eval $(call BuildPackage,aigw-mqtt))
 $(eval $(call BuildPackage,aigw-bridge))
 $(eval $(call BuildPackage,aigw-remote))
+$(eval $(call BuildPackage,luci-app-aigw))

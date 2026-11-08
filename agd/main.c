@@ -34,6 +34,7 @@
 #include "agd.h"
 #include "ag/dns.h"
 #include "ag/domfeat.h"
+#include "ag/qr.h"
 
 #define DNSLOG_MAX 512
 #define POLL_MS    5000
@@ -175,6 +176,27 @@ static void on_dhcp_event(struct ubus_context *ctx, struct ubus_event_handler *e
 	d->last_seen = ag_wall_s();
 	dev_guess_type(d);
 	plugin_dispatch(AG_EV_DHCP, msg, NULL);
+}
+
+/* a QR code as rows of '1' (dark) and '0', for screens that draw it (LuCI) */
+void agd_qr_rows(struct blob_buf *bb, const char *field, const char *text)
+{
+	struct ag_qr q;
+	char row[AG_QR_MAX_SIZE + 1];
+	void *arr;
+	int x, y;
+
+	if (ag_qr_encode(&q, (const uint8_t *)text, strlen(text), AG_QR_ECC_M) < 0 &&
+	    ag_qr_encode(&q, (const uint8_t *)text, strlen(text), AG_QR_ECC_L) < 0)
+		return;
+	arr = blobmsg_open_array(bb, field);
+	for (y = 0; y < q.size; y++) {
+		for (x = 0; x < q.size; x++)
+			row[x] = q.m[y][x] ? '1' : '0';
+		row[q.size] = '\0';
+		blobmsg_add_string(bb, NULL, row);
+	}
+	blobmsg_close_array(bb, arr);
 }
 
 /* ---------- ubus API ---------- */

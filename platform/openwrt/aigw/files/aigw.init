@@ -1,32 +1,54 @@
 #!/bin/sh /etc/rc.common
 # AIGW on OpenWRT: starts the brain (agd) and the DNS sensor (agdns) under
 # procd, then loads the AIGW nftables table.
+#
+# procd: both restart when they crash (agdns quickly and without limit: DNS
+# matters most; agd up to 5 times in a row, then procd stops trying and
+# logs it); output goes to the system log (logread -e agd); no core dumps on
+# small flash; a config change (uci commit aigw) restarts them with it.
+# agdns runs in a ujail when the router has one (option main.jail).
 
 START=95
 STOP=10
 USE_PROCD=1
 
 start_service() {
-	local enabled
+	local enabled jail
 
 	config_load aigw
 	config_get_bool enabled main enabled 1
+	config_get_bool jail main jail 1
 	[ "$enabled" -eq 1 ] || return 0
 	command -v nft >/dev/null || {
 		logger -t aigw "nft not found: AIGW needs firewall4 (OpenWRT 22.03 or newer)"
 		return 1
 	}
+	mkdir -p /var/run/aigw
 
 	procd_open_instance agd
 	procd_set_param command /usr/sbin/agd
-	procd_set_param respawn
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
 	procd_set_param stderr 1
+	procd_set_param limits core="0" nofile="2048"
+	procd_set_param term_timeout 10
+	procd_set_param file /etc/config/aigw
 	procd_close_instance
 
 	procd_open_instance agdns
 	procd_set_param command /usr/sbin/agdns
 	procd_set_param respawn 3600 1 0
+	procd_set_param stdout 1
 	procd_set_param stderr 1
+	procd_set_param limits core="0"
+	procd_set_param file /etc/config/aigw
+	if [ "$jail" -eq 1 ] && [ -x /sbin/ujail ]; then
+		# only what it needs: ubus, the log, its config, resolvers and the block list
+		procd_add_jail agdns log ubus
+		procd_add_jail_mount /etc/config/aigw /etc/TZ /etc/resolv.conf
+		procd_add_jail_mount /tmp/resolv.conf.d /tmp/resolv.conf.auto
+		procd_add_jail_mount /var/run/aigw
+	fi
 	procd_close_instance
 
 	/usr/sbin/aigw-nft apply
@@ -34,11 +56,6 @@ start_service() {
 
 stop_service() {
 	/usr/sbin/aigw-nft remove
-}
-
-reload_service() {
-	stop
-	start
 }
 
 service_triggers() {

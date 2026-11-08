@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.9**, phases P0–P5 built (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.10**, phases P0–P5 built, P6 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -523,6 +523,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | state tables | — | ~4 MB |
 | `agdns` | ~150 KB | ~3 MB |
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
+| *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |
@@ -556,7 +557,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P3 Act** | Policy engine, guardrails, nft/tc/dns/wifi actuators, TTL + revert | Quarantine/priority work and auto-revert; DNS/DHCP never blocked | v0.5, completed in v0.6 |
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
-| **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | |
+| **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | v0.10: LuCI, procd, self-test, OpenWRT in QEMU; real routers next |
 | **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | |
 
 Real-router testing of every phase so far is planned for the end of the project (P6).
@@ -642,6 +643,27 @@ models, rollback across a restart, MCP session, anonymous reports).
 
 Verified by `tests/remote-test.sh` (two namespaces, a real WireGuard tunnel, DNS through agdns, restart, revoke, off) and the extended `tests/outside-test.sh`.
 Not covered yet: IPv6 inside the tunnel, the OpenWRT firewall integration on a real router (P6), federated *learning* (model training across homes without sharing labels: P7).
+
+**As built in v0.10 (P6, first part).** Everything a router needs, checked on real OpenWRT userspace before real hardware:
+
+| Piece | As built |
+|-------|----------|
+| procd | agd: respawn 3600/5/5, stdout+stderr to logd, no core dumps, nofile 2048, restarted on `/etc/config/aigw` changes. agdns: respawn without limit, in a **ujail** when the router has one (`main.jail`), with only ubus, the log, its config, resolvers and the block list. |
+| `aigw-selftest` | PASS/FAIL per check, exit code = failures. It checks: the services and procd instances; the jail; `table inet ag`; the fw4 include (and a reload with `--full`); `agctl selftest` (SHA-512 and Ed25519 vectors, the packaged model's scores, a QR code, a real DNS query through agdns: all on this CPU); RAM per daemon and in total against the budget; installed flash; the bridge; the LuCI ACL through an rpcd session. `--full` adds: agd killed and back under procd, remote access on → zone, rule, peer → off, closed again. |
+| QEMU harness | `platform/openwrt/qemu-test.sh` boots the official OpenWRT x86-64 image (KVM in CI, software emulation otherwise). It fetches the built packages from the host and installs them with opkg, so dependencies come from the real feeds. Then it runs `aigw-selftest --full` over the serial console. A CI job does this for every build. `KEEP=1` leaves it running with LuCI on :8080. |
+| `luci-app-aigw` | LuCI JS views over rpcd (`acl.d/luci-app-aigw.json`). Pages: overview; devices (quarantine, priority, zone); alerts and decisions (approve, reject, undo); Wi-Fi keys and remote access with QR codes (agd adds `qr_rows`, LuCI draws SVG); plug-ins (on/off, allow) and models (rollback). |
+| Packaging | `aigw-remote` prerm closes the tunnel, the port and the zone. `luci-app-aigw` reloads rpcd. `build-sdk.sh` retries flaky mirror downloads. |
+
+QEMU result (OpenWRT 24.10.8 x86-64, 256 MB): all 25 self-test checks and all 12 LuCI checks pass, including the ujail, procd respawn and remote access through fw4. Measured footprint, idle with the bridge waiting:
+
+| | Measured | Budget |
+|--|---------|--------|
+| agd RAM | 1.6 MB | 10 MB |
+| agdns RAM | 0.8 MB | 4 MB |
+| AIGW RAM in total | 2.5 MB | 16 MB |
+| installed flash (core, remote, self-test, models, plug-ins) | 476 KB | 1 MB |
+
+Busy homes (hundreds of devices and endpoints, plug-ins running) still need measuring on real routers. The checklist is [testing-on-routers.md](testing-on-routers.md).
 
 ---
 
