@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.8.0
+PKG_VERSION:=0.9.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -80,6 +80,22 @@ define Package/aigw-bridge/description
   Set it up with: agctl bridge <cortex URL>; agctl bridge token.
 endef
 
+define Package/aigw-remote
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=AIGW remote access over WireGuard (peers with QR codes)
+  DEPENDS:=+aigw +wireguard-tools +kmod-wireguard
+  PKGARCH:=all
+endef
+
+define Package/aigw-remote/description
+  Remote access into the home over WireGuard, managed by AIGW: one peer per
+  phone, set up by scanning a QR code; lookups from the phone go through
+  AIGW wherever it is. Turn it on with: agctl remote on <public address or
+  DDNS name>; then: agctl remote add <name>. Adds a firewall zone and a rule
+  for the UDP port (51820) the first time.
+endef
+
 CMAKE_OPTIONS += -DAIGW_TESTS=OFF
 
 define Build/Prepare
@@ -123,6 +139,11 @@ define Package/aigw-bridge/install
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/bridge/manifest.json $(1)/usr/share/aigw/plugins/bridge/
 endef
 
+define Package/aigw-remote/install
+	$(INSTALL_DIR) $(1)/usr/sbin
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-remote $(1)/usr/sbin/
+endef
+
 define Package/aigw/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
@@ -139,3 +160,4 @@ endef
 $(eval $(call BuildPackage,aigw))
 $(eval $(call BuildPackage,aigw-mqtt))
 $(eval $(call BuildPackage,aigw-bridge))
+$(eval $(call BuildPackage,aigw-remote))

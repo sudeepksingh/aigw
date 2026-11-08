@@ -2,8 +2,8 @@
 """The cortex HTTP API that gateways' bridges talk to.
 
     POST /v1/report              gateway state: status, devices, alerts, decisions, models
-    GET  /v1/models              newest signed model per name
-    GET  /v1/models/<file>       a model (.agm) or its signature (.agm.sig)
+    GET  /v1/models              newest signed model (and list, e.g. threat-intel) per name
+    GET  /v1/models/<file>       a model (.agm) or list (.list), or its signature (.sig)
     GET  /v1/proposals           suggestions waiting for this gateway (sent once)
     POST /v1/proposals/<id>      how the gateway took one: {ok, decision, error}
 
@@ -19,7 +19,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 MAX_BODY = 4 * 1024 * 1024
-FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.agm(\.sig)?$")
+FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list)(\.sig)?$")
 
 
 def make_handler(store, log=True):

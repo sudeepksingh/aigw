@@ -77,6 +77,31 @@ any refused offer. `agctl model rollback` goes back one step and holds the
 newer version off, so the bridge doesn't fetch it again.
 `agctl model install file.agm [file.sig] [--force]` installs one by hand.
 
+## Shared threat intelligence
+
+```bash
+python3 -m aigw_cortex publish-intel               # default: --min-homes 2
+```
+
+This publishes a signed list (`threat-intel`) of names that people
+confirmed as threats anywhere (an approved action from an alert, or `label
+<name> risky`), plus names that looked machine-generated in at least
+`--min-homes` homes. A name anyone called a false alarm never goes on it.
+Gateways fetch the list like a model. A lookup of a listed name, or anything
+under it, raises a `known-threat` alert there. Only names and a short reason
+travel. On a gateway, `agctl models` shows the list's version, and
+`agctl model rollback threat-intel` takes it back.
+
+## Signed plug-ins
+
+```bash
+python3 -m aigw_cortex sign-plugin path/to/my-plugin   # writes my-plugin/plugin.sig
+```
+
+The signature covers every file in the folder. Gateways that trust cortex's
+key run the plug-in with its privileged capabilities, without
+`agctl plugin allow`. Changing any file takes that trust away.
+
 ## Ask your home (MCP)
 
 ```json
@@ -101,7 +126,7 @@ Every request carries `Authorization: Bearer <token>`.
 | | |
 |-|-|
 | `POST /v1/report` | `{status, models, alerts, decisions, devices}`; answers `{ok, labels}` |
-| `GET /v1/models` | `{models: [{name, version, file, sig, sha256, size}]}`, the newest version of each |
-| `GET /v1/models/<file>` | the `.agm` or its `.agm.sig` |
+| `GET /v1/models` | `{models: [{name, version, file, sig, sha256, size}]}`, the newest version of each (models and the threat list) |
+| `GET /v1/models/<file>` | the `.agm` or `.list`, or its `.sig` |
 | `GET /v1/proposals` | suggestions waiting for this gateway (each is sent once) |
 | `POST /v1/proposals/<id>` | `{ok, decision, error}`: how the gateway took it |

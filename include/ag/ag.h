@@ -113,6 +113,14 @@ struct ag_config {
 	char models_dir[256];     /* installed updates; the packaged ones stay in model_dir */
 	char trusted_keys[256];   /* usign public keys whose signatures are accepted */
 	int models_require_sig;   /* 0: also accept unsigned updates (development only) */
+	/* remote access (WireGuard) */
+	int remote_enabled;
+	char remote_endpoint[128];/* host or address phones use to reach this home */
+	int remote_port;          /* UDP */
+	char remote_subnet[32];   /* tunnel network, e.g. 10.77.0.0/24; the gateway is .1 */
+	char remote_iface[16];
+	int remote_full;          /* 1: all of a phone's traffic goes home (AIGW protects it everywhere) */
+	char remote_dir[256];     /* keys and peers */
 	/* per-device Wi-Fi keys */
 	char wifi_keys[256];      /* hostapd wpa_psk_file that agd manages */
 	int key_ttl;              /* an unused join key expires after this many seconds */

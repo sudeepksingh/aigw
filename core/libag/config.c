@@ -157,6 +157,11 @@ void ag_config_load(struct ag_config *c)
 	copy(c->models_dir, sizeof(c->models_dir), "/etc/aigw/models");
 	copy(c->trusted_keys, sizeof(c->trusted_keys), "/etc/aigw/keys.d");
 	c->models_require_sig = 1;
+	c->remote_port = 51820;
+	copy(c->remote_subnet, sizeof(c->remote_subnet), "10.77.0.0/24");
+	copy(c->remote_iface, sizeof(c->remote_iface), "agwg");
+	c->remote_full = 1;
+	copy(c->remote_dir, sizeof(c->remote_dir), "/etc/aigw/remote");
 	copy(c->wifi_keys, sizeof(c->wifi_keys), "/etc/aigw/wifi-keys");
 	c->key_ttl = 86400;
 
@@ -253,6 +258,19 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "models", "require_signature");
 		if (v)
 			c->models_require_sig = atoi(v) != 0;
+		v = opt(ctx, p, "remote", "enabled");
+		if (v)
+			c->remote_enabled = atoi(v) != 0;
+		copy(c->remote_endpoint, sizeof(c->remote_endpoint), opt(ctx, p, "remote", "endpoint"));
+		v = opt(ctx, p, "remote", "port");
+		if (v && atoi(v) > 0 && atoi(v) < 65536)
+			c->remote_port = atoi(v);
+		copy(c->remote_subnet, sizeof(c->remote_subnet), opt(ctx, p, "remote", "subnet"));
+		copy(c->remote_iface, sizeof(c->remote_iface), opt(ctx, p, "remote", "iface"));
+		v = opt(ctx, p, "remote", "full_tunnel");
+		if (v)
+			c->remote_full = atoi(v) != 0;
+		copy(c->remote_dir, sizeof(c->remote_dir), opt(ctx, p, "remote", "dir"));
 		copy(c->wifi_keys, sizeof(c->wifi_keys), opt(ctx, p, "wifi", "keys"));
 		v = opt(ctx, p, "wifi", "key_ttl");
 		if (v && atoi(v) >= 60)
@@ -284,6 +302,7 @@ defaults:
 	if (!policies_configured) {
 		add_policy(c, "dga", "dga", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 		add_policy(c, "iot_new_site", "new-destination", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
+		add_policy(c, "known_threat", "known-threat", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 	}
 }
 

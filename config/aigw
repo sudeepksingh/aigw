@@ -74,7 +74,7 @@ config act 'act'
 # action ("<plugin>.<action>", see agctl plugins). 'option zone iot' limits a
 # policy to devices in that zone. Skills (plug-ins) bring policies of their own.
 # (Blocking a domain is never automatic: run 'agctl block <domain>'.)
-# Without any policy sections, these two are built in.
+# Without any policy sections, these three are built in.
 config policy 'dga'
 	option alert 'dga'
 	option action 'quarantine'
@@ -84,6 +84,12 @@ config policy 'iot_new_site'
 	# only "stable" devices (cameras, plugs, TVs) raise new-destination alerts
 	option alert 'new-destination'
 	option action 'quarantine'
+
+config policy 'known_threat'
+	# a name on the shared threat list from cortex (agctl models: threat-intel)
+	option alert 'known-threat'
+	option action 'quarantine'
+	option ttl '3600'
 
 # config policy 'upload_spike'
 #	option alert 'upload-spike'
@@ -131,6 +137,18 @@ config plugins 'plugins'
 #	option devices 'names'
 #	option models '1'
 #	option proposals '1'
+
+config remote 'remote'
+	# Remote access over WireGuard: 'agctl remote on <public address or DDNS
+	# name>', then 'agctl remote add <name>' for a QR code. Behind another
+	# router, forward UDP <port> to this gateway.
+	option enabled '0'
+	# option endpoint 'home.example.net'
+	# option port '51820'
+	# option subnet '10.77.0.0/24'
+	# 1: all of a phone's traffic goes home, so AIGW protects it everywhere;
+	# 0: only the tunnel and the home networks
+	# option full_tunnel '1'
 
 config models 'models'
 	# Model updates (from cortex through the bridge, or 'agctl model install')

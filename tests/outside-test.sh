@@ -15,6 +15,11 @@
 #   proposals   a suggestion made through the MCP server reaches the gateway and
 #               waits for a person, even in enforce mode; cortex learns how it went
 #   mcp         initialize, tools/list, read tools answer from the reports
+#   intel       names people confirmed become a signed threat list that every
+#               gateway loads; a lookup under a listed name raises "known-threat"
+#               and the built-in policy acts; false alarms stay off the list
+#   signed      a plug-in folder signed with cortex's key is trusted without
+#               "agctl plugin allow"; changing a file takes the trust away
 #   privacy     reports carry state, not traffic; "devices anonymous" drops names,
 #               addresses and reasons
 # Needs root, python3, curl; numpy + scikit-learn for a real retrain (otherwise
@@ -142,7 +147,7 @@ config models 'models'
 config plugin 'bridge'
 	option interval '2'
 EOF
-echo "1999999999 $MAC 192.0.2.10 smoke-host *" > "$T/leases"
+printf '1999999999 %s 192.0.2.10 smoke-host *\n1999999999 02:00:00:00:97:11 192.0.2.11 tablet *\n' "$MAC" > "$T/leases"
 export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_NFT=/bin/true
 
 "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
@@ -270,6 +275,41 @@ wait_for 15 decisions -- "any(d['state'] == 'proposed' and d['origin'] == 'plug-
 	'AI assistant' in d['reason'] for d in j['decisions'])" "MCP proposal should wait on the gateway (enforce mode)"
 cx_wait 10 "any(p['state'] == 'waiting for approval' and p['decision'] > 0 for p in s.proposals())" \
 	"cortex should learn the proposal is waiting"
+
+echo "== shared threat intelligence: a confirmed name protects every home"
+cortex label evil-cnc.example risky > /dev/null
+cortex label kofamuveliza.top risky > /dev/null
+cortex publish-intel > "$T/intel.out" || fail "publish-intel"
+grep -q "with 2 names" "$T/intel.out" || { cat "$T/intel.out"; fail "intel should hold the 2 confirmed names \
+(and not xkqjzvbwptmr.com, a false alarm)"; }
+wait_for 15 models -- "any(m['name'] == 'threat-intel' and m['version'] == 1 and m['entries'] == 2 and \
+	m['source'] == 'update' for m in j['models'])" "threat list not loaded"
+"$UBUS" -s "$AIGW_UBUS" send ag.dns '{"client":"192.0.2.11","qname":"www.evil-cnc.example","qtype":1}'
+wait_for 10 alerts -- "any(a['kind'] == 'known-threat' and a['subject'] == 'evil-cnc.example' for a in j['alerts'])" \
+	"a lookup under a listed name should raise a known-threat alert"
+wait_for 5 decisions -- "any(d['action'] == 'quarantine' and d['origin'] == 'policy known_threat' and \
+	d['device'] == 'tablet' for d in j['decisions'])" \
+	"the built-in known_threat policy should act"
+agctl model rollback threat-intel > /dev/null || fail "rolling back the list"
+wait_for 5 models -- "any(m['name'] == 'threat-intel' and not m['loaded'] and m['held_back'] == 1 for m in j['models'])" \
+	"rolling back the only list should unload it and hold it off"
+
+echo "== a signed plug-in is trusted without 'agctl plugin allow'"
+mkdir -p "$T/src/signed-dev"
+cat > "$T/src/signed-dev/manifest.json" <<'EOF'
+{"name":"signed-dev","kind":"sensor","version":"1.0","exec":"run.sh","caps":["devices.read"]}
+EOF
+printf '#!/bin/sh\nwhile read -r l; do :; done\n' > "$T/src/signed-dev/run.sh"
+chmod 755 "$T/src/signed-dev/run.sh"
+cortex sign-plugin "$T/src/signed-dev" > /dev/null || fail "sign-plugin"
+agctl plugin add "$T/src/signed-dev" > /dev/null 2>&1 || fail "plugin add"
+wait_for 15 plugin signed-dev -- "j['plugins'][0]['state'] == 'running' and j['plugins'][0]['trusted'] and \
+	len(j['plugins'][0]['signed_by']) == 16 and not j['plugins'][0]['waiting_for_ok']" "signed plug-in should be trusted"
+echo "# changed" >> "$T/user/signed-dev/run.sh"
+agctl plugin disable signed-dev > /dev/null && agctl plugin enable signed-dev > /dev/null
+wait_for 15 plugin signed-dev -- "j['plugins'][0]['state'] == 'running' and not j['plugins'][0]['trusted'] and \
+	'does not match' in j['plugins'][0]['signature'] and 'devices.read' in j['plugins'][0]['waiting_for_ok']" \
+	"a changed signed plug-in should lose its trust"
 
 echo "== devices anonymous: no names, addresses or reasons leave the home"
 agctl plugin config bridge devices anonymous > /dev/null || fail "plugin config"

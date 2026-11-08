@@ -209,6 +209,11 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u32(&b, "working", (uint32_t)plugin_count(1));
 	blobmsg_close_table(&b, s);
 	blobmsg_add_u32(&b, "wifi_keys", (uint32_t)keys_count());
+	s = blobmsg_open_table(&b, "remote");
+	blobmsg_add_u8(&b, "enabled", (uint8_t)cfg.remote_enabled);
+	blobmsg_add_u32(&b, "peers", (uint32_t)remote_count(0));
+	blobmsg_add_u32(&b, "online", (uint32_t)remote_count(1));
+	blobmsg_close_table(&b, s);
 	s = blobmsg_open_table(&b, "models");
 	if (alerts_model_trees())
 		blobmsg_add_u32(&b, alerts_model_name(), (uint32_t)alerts_model_trees());
@@ -572,6 +577,61 @@ static struct ubus_object model_obj = {
 	.name = "ag.model", .type = &model_type, .methods = model_methods, .n_methods = ARRAY_SIZE(model_methods),
 };
 
+/* ---------- remote access ---------- */
+
+enum { RM_NAME, RM_ENDPOINT, __RM_MAX };
+static const struct blobmsg_policy remote_policy[__RM_MAX] = {
+	[RM_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[RM_ENDPOINT] = { .name = "endpoint", .type = BLOBMSG_TYPE_STRING },
+};
+
+static int m_remote_list(struct ubus_context *ctx, struct ubus_object *obj,
+			 struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	blob_buf_init(&b, 0);
+	remote_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static int m_remote_change(struct ubus_context *ctx, struct ubus_object *obj,
+			   struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__RM_MAX];
+	char err[256] = "";
+	int rc;
+
+	blobmsg_parse(remote_policy, __RM_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (!strcmp(method, "on") || !strcmp(method, "off")) {
+		rc = remote_enable(method[1] == 'n', tb[RM_ENDPOINT] ? blobmsg_get_string(tb[RM_ENDPOINT]) : NULL,
+				   err, sizeof(err));
+	} else {
+		if (!tb[RM_NAME])
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		if (!strcmp(method, "add"))
+			rc = remote_add(blobmsg_get_string(tb[RM_NAME]), &b, err, sizeof(err));
+		else
+			rc = remote_revoke(blobmsg_get_string(tb[RM_NAME]), err, sizeof(err));
+	}
+	blobmsg_add_u8(&b, "ok", rc == 0);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method remote_methods[] = {
+	UBUS_METHOD_NOARG("list", m_remote_list),
+	UBUS_METHOD("on", m_remote_change, remote_policy),
+	UBUS_METHOD("off", m_remote_change, remote_policy),
+	UBUS_METHOD("add", m_remote_change, remote_policy),
+	UBUS_METHOD("revoke", m_remote_change, remote_policy),
+};
+static struct ubus_object_type remote_type = UBUS_OBJECT_TYPE("ag.remote", remote_methods);
+static struct ubus_object remote_obj = {
+	.name = "ag.remote", .type = &remote_type, .methods = remote_methods, .n_methods = ARRAY_SIZE(remote_methods),
+};
+
 /* ---------- per-device Wi-Fi keys ---------- */
 
 enum { WK_NAME, WK_ZONE, WK_TTL, __WK_MAX };
@@ -719,7 +779,7 @@ static void on_ubus_connect(struct ubus_context *ctx)
 	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj) ||
 	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj) ||
 	    ubus_add_object(ctx, &decision_obj) || ubus_add_object(ctx, &plugin_obj) ||
-	    ubus_add_object(ctx, &wifi_obj) || ubus_add_object(ctx, &model_obj))
+	    ubus_add_object(ctx, &wifi_obj) || ubus_add_object(ctx, &model_obj) || ubus_add_object(ctx, &remote_obj))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;
@@ -745,6 +805,7 @@ static void poll_cb(struct uloop_timeout *t)
 	baseline_tick();
 	act_tick();
 	keys_tick();
+	remote_tick();
 	plugin_tick();
 	uloop_timeout_set(t, POLL_MS);
 }
@@ -773,6 +834,7 @@ int main(int argc, char **argv)
 	models_init();
 	dev_state_load();
 	act_init();
+	remote_init();                  /* before the flow sensor: tunnel clients are part of the home */
 	flow_init();
 	wifi_init();
 	keys_init();

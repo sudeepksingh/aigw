@@ -71,6 +71,13 @@ static void usage(void)
 		"  bridge [url]        link to cortex: show the bridge, or set cortex's address\n"
 		"  bridge token        set this gateway's token (paste it; read from stdin)\n"
 		"\n"
+		"  remote              remote access: on or off, peers, who is connected\n"
+		"  remote on <address> turn it on; <address>: how phones reach this home (public IP or\n"
+		"                      DDNS name; forward UDP 51820 to the gateway if it is behind a router)\n"
+		"  remote off          turn it off\n"
+		"  remote add <name> [--conf]  a WireGuard QR code for a phone (--conf: the config as text)\n"
+		"  remote revoke <name>        take a peer's access away\n"
+		"\n"
 		"  keys                Wi-Fi keys of individual devices\n"
 		"  key add <name> [zone] [time]  new key and a QR code to scan; the first device to\n"
 		"                                join with it owns it (zone e.g. iot; time: how long it waits)\n"
@@ -226,6 +233,15 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 			printf("  plug-ins        %llu found, %llu working\n", (unsigned long long)fnum(p, "found"),
 			       (unsigned long long)fnum(p, "working"));
 		printf("  wi-fi keys      %llu per-device keys\n", (unsigned long long)fnum(msg, "wifi_keys"));
+		if (field(msg, "remote")) {
+			struct blob_attr *r = field(msg, "remote");
+
+			if (fnum(r, "enabled"))
+				printf("  remote access   on, %llu peers, %llu connected\n", (unsigned long long)fnum(r, "peers"),
+				       (unsigned long long)fnum(r, "online"));
+			else
+				printf("  remote access   off\n");
+		}
 	}
 	{
 		struct blob_attr *m = field(msg, "models"), *v = field(msg, "model_versions"), *e;
@@ -646,7 +662,8 @@ static void show_plugins(struct ubus_request *req, int type, struct blob_attr *m
 				printf("%-16s %-10s %-11s %-8s %-8s %s\n", "NAME", "KIND", "STATE", "FROM", "VERSION", "NOTE");
 			if (!device_filter) {
 				printf("%-16.16s %-10s %-11s %-8s %-8.8s %s\n", fstr(p, "name"), fstr(p, "kind"), fstr(p, "state"),
-				       fstr(p, "source"), fstr(p, "version"), orb(fstr(p, "why"), fstr(p, "description")));
+				       fstr(p, "signed_by") && *fstr(p, "signed_by") ? "signed" : fstr(p, "source"),
+				       fstr(p, "version"), orb(fstr(p, "why"), fstr(p, "description")));
 				continue;
 			}
 			{
@@ -660,6 +677,10 @@ static void show_plugins(struct ubus_request *req, int type, struct blob_attr *m
 				printf("  state           %s%s%s\n", fstr(p, "state"), *fstr(p, "why") ? ": " : "", fstr(p, "why"));
 				printf("  from            %s (%s), %s\n", fstr(p, "source"), fstr(p, "dir"),
 				       fnum(p, "trusted") ? "trusted" : "privileged capabilities need your OK");
+				if (fstr(p, "signed_by") && *fstr(p, "signed_by"))
+					printf("  signed by       key %s (trusted)\n", fstr(p, "signed_by"));
+				else if (fstr(p, "signature") && *fstr(p, "signature"))
+					printf("  signed          %s\n", fstr(p, "signature"));
 				list_line("emits", field(p, "emits"));
 				list_line("listens to", field(p, "subscribes"));
 				list_line("actions", field(p, "actions"));
@@ -721,10 +742,14 @@ static void show_models(struct ubus_request *req, int type, struct blob_attr *ms
 			const char *src = orb(fstr(e, "source"), "-");
 
 			if (!fnum(e, "loaded")) {
-				printf("  %-12s not loaded\n", fstr(e, "name"));
-				continue;
-			}
-			if (!strcmp(src, "package"))
+				printf("  %-12s %s\n", fstr(e, "name"), !strcmp(orb(fstr(e, "kind"), ""), "list") ?
+				       "none yet (comes from cortex through the bridge)" : "not loaded");
+			} else if (!strcmp(orb(fstr(e, "kind"), ""), "list")) {
+				printf("  %-12s version %llu, %llu names, from %s, signed by %s, published %s\n", fstr(e, "name"),
+				       (unsigned long long)fnum(e, "version"), (unsigned long long)fnum(e, "entries"),
+				       orb(fstr(e, "origin"), "?"), orb(fstr(e, "signer"), "nobody (unsigned)"),
+				       orb(fstr(e, "trained"), "?"));
+			} else if (!strcmp(src, "package"))
 				printf("  %-12s packaged model, %llu trees\n", fstr(e, "name"), (unsigned long long)fnum(e, "trees"));
 			else
 				printf("  %-12s version %llu, %llu trees, from %s, signed by %s, trained %s, since %s\n",
@@ -745,6 +770,59 @@ static void show_models(struct ubus_request *req, int type, struct blob_attr *ms
 		}
 	if (!k)
 		printf("  none: model updates are refused until you trust a key (agctl trust <key.pub>)\n");
+}
+
+static int remote_conf;
+
+static void show_remote(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "peers"), *e;
+	size_t rem;
+	char t[32], rx[16], tx[16];
+	int k = 0;
+
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "enabled")) {
+		printf("Remote access is off. Turn it on: agctl remote on <public address or DDNS name>\n");
+		return;
+	}
+	printf("Remote access %s: %s, UDP %llu, tunnel %s (%s)\n", fnum(msg, "running") ? "on" : "NOT running",
+	       orb(fstr(msg, "endpoint"), "(no endpoint)"), (unsigned long long)fnum(msg, "port"), fstr(msg, "subnet"),
+	       fnum(msg, "full_tunnel") ? "all traffic goes home" : "home networks only");
+	if (fstr(msg, "error") && *fstr(msg, "error"))
+		printf("  problem: %s\n", fstr(msg, "error"));
+	if (arr)
+		blobmsg_for_each_attr(e, arr, rem) {
+			if (!k++)
+				printf("  %-20s %-12s %-10s %-22s %s\n", "PEER", "ADDRESS", "STATE", "FROM", "TRAFFIC");
+			printf("  %-20.20s %-12s %-10s %-22.22s %s in, %s out\n", fstr(e, "name"), fstr(e, "ip"),
+			       fnum(e, "online") ? "online" : fnum(e, "handshake") ? "away" : "never yet",
+			       *fstr(e, "endpoint") ? fstr(e, "endpoint") : "-", human_bytes(fnum(e, "rx"), rx, sizeof(rx)),
+			       human_bytes(fnum(e, "tx"), tx, sizeof(tx)));
+			if (fnum(e, "handshake") && !fnum(e, "online"))
+				printf("  %-20s last seen %s\n", "", ago(fnum(e, "handshake"), t, sizeof(t)));
+		}
+	if (!k)
+		printf("  no peers yet: agctl remote add <name>\n");
+}
+
+static void show_remote_added(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	if (json_out) {
+		print_json(msg);
+	} else if (!fnum(msg, "ok")) {
+		fprintf(stderr, "agctl: %s\n", fstr(msg, "error"));
+	} else {
+		printf("Scan this with the WireGuard app (+ > scan from QR code) on %s's phone.\n", fstr(msg, "name"));
+		print_qr(fstr(msg, "config"));
+		if (remote_conf)
+			printf("\n%s\n", fstr(msg, "config"));
+		printf("Tunnel address %s. The private key is not kept: this is the only time it is shown.\n",
+		       fstr(msg, "ip"));
+	}
+	if (!fnum(msg, "ok"))
+		change_failed = 1;
 }
 
 static void show_model_change(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -1374,6 +1452,25 @@ int main(int argc, char **argv)
 		} else {
 			rc = plugin_config("bridge", "url", argv[i]);
 		}
+	} else if (!strcmp(cmd, "remote")) {
+		const char *sub = i < argc ? argv[i++] : "";
+
+		blob_buf_init(&args, 0);
+		if (!*sub) {
+			rc = call("ag.remote", "list", NULL, show_remote);
+		} else if (!strcmp(sub, "on") || !strcmp(sub, "off")) {
+			if (i < argc)
+				blobmsg_add_string(&args, "endpoint", argv[i]);
+			rc = call("ag.remote", sub, args.head, show_ok) || change_failed;
+		} else if ((!strcmp(sub, "add") || !strcmp(sub, "revoke")) && i < argc) {
+			blobmsg_add_string(&args, "name", argv[i++]);
+			remote_conf = i < argc && !strcmp(argv[i], "--conf");
+			rc = call("ag.remote", sub, args.head, !strcmp(sub, "add") ? show_remote_added : show_ok) || change_failed;
+		} else {
+			usage();
+			rc = 1;
+		}
+		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "keys")) {
 		rc = call("ag.wifi", "keys", NULL, show_keys);
 	} else if (!strcmp(cmd, "key") && i + 1 < argc) {

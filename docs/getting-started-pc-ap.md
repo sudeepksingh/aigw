@@ -109,6 +109,18 @@ With Home Assistant's MQTT integration on the same broker, every device shows
 up with presence and a Quarantine switch. `sudo agctl plugin disable mqtt`
 turns it off.
 
+### Remote access
+
+```bash
+sudo agctl remote on home.example.net      # your public IP or a DDNS name
+sudo agctl remote add "My phone"           # scan the QR code with the WireGuard app
+agctl remote
+```
+
+Forward UDP 51820 from your internet router to this PC (on WSL2, see
+[Windows (WSL2)](#windows-wsl2) for getting it from Windows into WSL). Away from home, the phone's traffic and lookups
+go through AIGW.
+
 ### Cortex (optional): retraining, signed model updates, MCP
 
 Cortex can run on this same PC. Retraining needs numpy and scikit-learn,
@@ -154,6 +166,12 @@ and `-Distro Ubuntu-24.04` if AIGW is not in your default distribution.
 WSL's kernel cannot read the distribution's firmware files directly.
 `aigw-ap` copies the Wi-Fi firmware and the regulatory database to
 `/mnt/wsl/firmware` and points the kernel there, so no manual step is needed.
+
+Remote access on WSL2: WSL sits behind Windows' own NAT, and Windows' port
+proxy only forwards TCP. To let a phone's WireGuard (UDP 51820) in, use WSL's
+mirrored networking (`networkingMode=mirrored` under `[wsl2]` in
+`%UserProfile%\.wslconfig`, then `wsl --shutdown`), allow UDP 51820 in the
+Windows firewall, and forward it from your internet router to the Windows PC.
 
 ## Settings
 

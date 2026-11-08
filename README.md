@@ -18,7 +18,7 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.8, phase 5 "outside".** AIGW knows every device (identity, Wi-Fi,
+> **Status: v0.9, phase 5 "outside" complete.** AIGW knows every device (identity, Wi-Fi,
 > lookups, connections, traffic), learns what is normal for each one, and
 > runs an on-device AI model that recognises machine-generated names used by
 > malware. It explains in plain words what deserves attention and can act on
@@ -26,10 +26,13 @@ illustrated version.
 > and an undo, guardrails that nothing can override, and by default **nothing
 > changes until you approve it**. Plug-ins wire themselves in with no
 > configuration; every device can have its own Wi-Fi key; Home Assistant sees
-> it all. New in v0.8: **cortex**, the optional services outside. Your answers
-> to AIGW's alerts **retrain the model**, the new model is **signed and reaches
-> the gateways, which load it without a restart**, and you can **ask your home
-> from an AI assistant (MCP)**, which can only *suggest* actions.
+> it all. With **cortex**, the optional services outside, your answers to
+> AIGW's alerts **retrain the model**, which is **signed and loaded by the
+> gateways without a restart**, and you can **ask your home from an AI
+> assistant (MCP)**, which can only *suggest* actions. New in v0.9: **remote
+> access** (WireGuard, a QR code per phone, AIGW protection away from home),
+> **shared threat intelligence** (a threat confirmed in one home protects all)
+> and **signed plug-ins**.
 > See the [roadmap](docs/ARCHITECTURE.md#16-roadmap).
 
 ---
@@ -289,7 +292,39 @@ read devices, alerts, decisions and models; its one write tool,
 proposal that waits for your `agctl approve`, even in enforce mode. See
 [cortex/README.md](cortex/README.md).
 
-## What you get in v0.8
+## Remote access
+
+```bash
+sudo agctl remote on home.example.net      # how phones reach this home (public IP or DDNS name)
+sudo agctl remote add "Anna's phone"       # a QR code for the WireGuard app
+agctl remote                               # peers, who is connected, traffic
+sudo agctl remote revoke "Anna's phone"
+```
+
+Each phone gets its own WireGuard peer. Its private key is shown once, in the
+QR code, and never stored on the gateway. By default all of the phone's
+traffic goes home, so its lookups pass through AIGW wherever it is; it shows
+up as a device named after its peer, with alerts and decisions like any
+other. If the gateway sits behind another router, forward UDP 51820 to it.
+On OpenWRT: `opkg install aigw-remote` (WireGuard), which also adds a
+firewall zone and a rule for the port.
+
+## Shared threat intelligence and signed plug-ins
+
+Cortex publishes a signed list of names that people confirmed as threats,
+or that looked machine-generated in several homes, never any a person called
+a false alarm (`python3 -m aigw_cortex publish-intel`). Gateways fetch it like
+a model update; a lookup of a listed name, or anything under it, raises a
+`known-threat` alert, and the built-in `known_threat` policy quarantines the
+device (or proposes it, in advise mode). Only names and a short reason
+travel. `agctl models` shows the list's version; `agctl model rollback
+threat-intel` takes it back.
+
+Plug-ins signed with a key the gateway trusts (`python3 -m aigw_cortex
+sign-plugin <folder>`, or usign) get their privileged capabilities without
+`agctl plugin allow`. Changing any file in the folder takes that trust away.
+
+## What you get in v0.9
 
 | Component | What it does |
 |-----------|--------------|
@@ -300,10 +335,12 @@ proposal that waits for your `agctl approve`, even in enforce mode. See
 | Plug-in host | Finds plug-ins by itself, checks manifest, host, trust and needs, wires events, actions and skill policies, runs them unprivileged with restarts and budgets. See above. |
 | Wi-Fi keys | A key and QR code per device, bound to its MAC on first join, zoned, revocable on its own. |
 | `ag-mqtt` | Connector plug-in: MQTT 3.1.1 telemetry in, state out, Home Assistant discovery. |
-| Model updates | Signed (usign-compatible Ed25519, verified by libag), checked against this build's features, hot-loaded, with rollback and hold-off. |
+| Model updates | Signed (usign-compatible Ed25519, verified by libag), checked against this build's features, hot-loaded, with rollback and hold-off. The shared threat list travels the same way. |
+| Remote access | WireGuard peers with QR codes; DNS from the tunnel goes to agdns; `aigw-remote` sets up the interface, rules and NAT. |
+| Signed plug-ins | A trusted signature over every file of a plug-in folder grants its privileges. |
 | `ag-bridge` | Connector plug-in to cortex over HTTPS (curl): reports state, fetches signed models, brings proposals. Devices can be reported by name, anonymously or not at all. |
 | cortex | Python, optional: fleet history (SQLite), labels from your answers, retraining, signing and publishing, HTTP API for bridges, MCP server. |
-| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge` |
+| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge`, `remote` |
 | `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
 | `aigw-ap` | PC as AP: hostapd, DHCP (with fingerprint hook), NAT and the services |
 
@@ -325,6 +362,7 @@ ubus call ag.wifi key_add '{"name": "Doorbell", "zone": "iot"}'   # also: keys, 
 ubus call ag.device zone '{"device": "tv", "zone": "iot"}'
 ubus call ag.model list                         # also: install '{"file": "...", "sig": "..."}', rollback
 ubus call ag.plugin config '{"name": "bridge", "key": "interval", "value": "600"}'
+ubus call ag.remote list                        # also: on '{"endpoint": "..."}', off, add/revoke '{"name": "..."}'
 ubus listen ag.dns ag.flow ag.wifi ag.alert ag.decision ag.plugin ag.model 'iot.*'
 ```
 
@@ -336,11 +374,13 @@ core/libag/          shared library: logging, config (UCI), DNS parser, .agm run
                      SHA-512 + Ed25519 verification (sign.c)
 agd/                 the brain: devices, endpoints (DNS<->flow join), flow and Wi-Fi sensors,
                      alerts, baselines, decisions (act.c: policies, guardrails, actuators),
-                     plug-in host (plugin.c), per-device Wi-Fi keys (keys.c), models (models.c)
+                     plug-in host (plugin.c), per-device Wi-Fi keys (keys.c), models (models.c),
+                     threat list (intel.c), remote access (remote.c)
 agdns/               the DNS sensor
 agctl/               command line
 plugins/             first-party plug-ins (mqtt, bridge, iot-guard) and examples for your own
-scripts/             aigw-nft (kernel rules), aigw-dhcp-event (DHCP hook), build-deps.sh
+scripts/             aigw-nft (kernel rules), aigw-remote (WireGuard), aigw-dhcp-event (DHCP hook),
+                     build-deps.sh
 config/aigw          default configuration (UCI, used on every host)
 platform/pc-ap/      PC as AP: installer, aigw-ap, systemd units, WSL launcher
 platform/openwrt/    OpenWRT package (feed) and SDK build script
@@ -349,7 +389,8 @@ cortex/aigw_cortex/  cortex: fleet history, retraining, signing, HTTP API, MCP s
 cortex/training/     Python training pipelines that produce the models
 tests/               unit tests, model parity test, smoke test, network-namespace tests (flow, baseline,
                      act), plug-in test (plug-ins, skills, Wi-Fi keys, MQTT), outside test
-                     (bridge, cortex, retrain, signed hot-loaded model, MCP)
+                     (bridge, cortex, retrain, signed hot-loaded model, MCP, threat list, signed
+                     plug-ins), remote test (WireGuard)
 docs/                architecture and getting-started guides
 ```
 
@@ -364,7 +405,9 @@ sudo tests/flow-test.sh build         # client/server namespaces: DNS<->flow joi
 sudo tests/baseline-test.sh build     # behaviour baselines on a fast clock (1 s = 1 hour)
 sudo tests/act-test.sh build          # decisions, guardrails and actuators against real nft rules
 sudo tests/plug-test.sh build         # plug-ins, skills, budgets, Wi-Fi keys, MQTT + Home Assistant
-sudo tests/outside-test.sh build      # bridge + cortex: labels, retrain, signed hot-load, rollback, MCP
+sudo tests/outside-test.sh build      # bridge + cortex: labels, retrain, signed hot-load, rollback, MCP,
+                                      # threat list, signed plug-ins
+sudo tests/remote-test.sh build       # a real WireGuard tunnel between namespaces: DNS through AIGW, revoke
 ```
 
 The namespace tests are safe to run on a machine that is itself running

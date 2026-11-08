@@ -114,6 +114,17 @@ Your own plug-ins: `agctl plugin add <folder>` (they live in
 `/etc/aigw/plugins`, kept across firmware upgrades), and
 `agctl plugin allow <name>` for privileged capabilities.
 
+### Remote access
+
+```bash
+opkg install /tmp/aigw-remote_*.ipk               # pulls in WireGuard
+agctl remote on home.example.net                   # your public IP or DDNS name
+agctl remote add "My phone"                        # scan the QR code with the WireGuard app
+```
+
+The first `remote on` adds a firewall zone `aigw_remote` (forwarding to lan
+and wan) and a rule opening UDP 51820 from wan.
+
 ### Cortex (optional)
 
 To take model updates from your cortex (see
