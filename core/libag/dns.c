@@ -148,6 +148,94 @@ int ag_dns_parse(const uint8_t *buf, size_t len, struct ag_dns_msg *m)
 	return 0;
 }
 
+/* Skips the header and questions; *off ends at the first record. */
+static int skip_questions(const uint8_t *buf, size_t len, size_t *off)
+{
+	unsigned i, qd;
+
+	if (!buf || len < AG_DNS_HDR_LEN)
+		return -1;
+	qd = rd16(buf + 4);
+	*off = AG_DNS_HDR_LEN;
+	for (i = 0; i < qd; i++) {
+		if (read_name(buf, len, off, NULL, 0) < 0 || *off + 4 > len)
+			return -1;
+		*off += 4;
+	}
+	return 0;
+}
+
+int ag_dns_edns(const uint8_t *buf, size_t len, uint16_t *udp_size, int *do_bit)
+{
+	size_t off;
+	unsigned i, n;
+
+	*udp_size = 512;
+	*do_bit = 0;
+	if (skip_questions(buf, len, &off) < 0)
+		return -1;
+	n = (unsigned)rd16(buf + 6) + rd16(buf + 8) + rd16(buf + 10);
+	for (i = 0; i < n; i++) {
+		uint16_t type, rdlen;
+
+		if (read_name(buf, len, &off, NULL, 0) < 0 || off + 10 > len)
+			return -1;
+		type = rd16(buf + off);
+		rdlen = rd16(buf + off + 8);
+		if (type == 41) {
+			uint16_t sz = rd16(buf + off + 2);
+
+			*udp_size = sz < 512 ? 512 : sz;
+			*do_bit = (buf[off + 6] & 0x80) != 0;
+			return 1;
+		}
+		off += 10;
+		if (off + rdlen > len)
+			return -1;
+		off += rdlen;
+	}
+	return 0;
+}
+
+long ag_dns_ttls(uint8_t *buf, size_t len, uint32_t age, uint32_t floor_ttl)
+{
+	size_t off;
+	unsigned i, n;
+	long min = -1;
+
+	if (skip_questions(buf, len, &off) < 0)
+		return -1;
+	n = (unsigned)rd16(buf + 6) + rd16(buf + 8) + rd16(buf + 10);
+	for (i = 0; i < n; i++) {
+		uint16_t type, rdlen;
+		uint32_t ttl;
+
+		if (read_name(buf, len, &off, NULL, 0) < 0 || off + 10 > len)
+			return -1;
+		type = rd16(buf + off);
+		ttl = rd32(buf + off + 4);
+		rdlen = rd16(buf + off + 8);
+		if (type != 41) { /* OPT's "TTL" holds EDNS flags */
+			if (ttl > 0x7fffffffu)
+				ttl = 0; /* RFC 2181: treat as zero */
+			if (min < 0 || ttl < (uint32_t)min)
+				min = ttl;
+			if (age) {
+				ttl = ttl > age ? ttl - age : floor_ttl;
+				buf[off + 4] = (uint8_t)(ttl >> 24);
+				buf[off + 5] = (uint8_t)(ttl >> 16);
+				buf[off + 6] = (uint8_t)(ttl >> 8);
+				buf[off + 7] = (uint8_t)ttl;
+			}
+		}
+		off += 10;
+		if (off + rdlen > len)
+			return -1;
+		off += rdlen;
+	}
+	return min;
+}
+
 int ag_dns_make_nxdomain(uint8_t *buf, size_t len, const struct ag_dns_msg *q)
 {
 	if (!buf || !q || q->qdcount == 0 || q->qend < AG_DNS_HDR_LEN || q->qend > len)

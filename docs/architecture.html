@@ -275,7 +275,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand">AI<span>GW</span></div>
-  <div class="ver">architecture v0.3 · code v0.10 · 2026-11-08</div>
+  <div class="ver">architecture v0.3 · code v0.11 · 2026-11-08</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1172,8 +1172,8 @@ agctl plugin add ag-sensor-zigbee</code></pre>
     <div class="ph"><div class="p">P3<small>act</small></div><div><h4>Policies and enforcement</h4><p>Policy engine, guardrails, nft / tc / dns / wifi actuators, TTL and revert.</p></div><div class="exit"><b>Exit test</b>Quarantine and priority work and auto-revert; DNS/DHCP never blocked.<br><span class="status-ok">built · v0.5, v0.6</span></div></div>
     <div class="ph"><div class="p">P4<small>plug &amp; IoT</small></div><div><h4>Plug-ins and IoT</h4><p>Manifest and auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant connector.</p></div><div class="exit"><b>Exit test</b>A third-party plug-in installs and activates with no config.<br><span class="status-ok">built · v0.7</span></div></div>
     <div class="ph"><div class="p">P5<small>outside</small></div><div><h4>Cortex and cloud use cases</h4><p>Bridge, fleet history, training loop, OTA models, LLM agent via MCP, remote access.</p></div><div class="exit"><b>Exit test</b>A model retrained from feedback reaches a fleet and is hot-loaded.<br><span class="status-ok">built · v0.8, v0.9</span></div></div>
-    <div class="ph"><div class="p">P6<small>hardware</small></div><div><h4>Real routers</h4><p>LuCI app, procd tuning, tests on OpenWRT One and Wi-Fi 7 boards, footprint validation.</p></div><div class="exit"><b>Exit test</b>Same test suite passes on routers within budget.<br><span class="status-warn">under way · v0.10</span> (LuCI, procd, self-test, OpenWRT in QEMU; real routers next)</div></div>
-    <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.</div></div>
+    <div class="ph"><div class="p">P6<small>hardware</small></div><div><h4>Real routers</h4><p>LuCI app, procd tuning, tests on OpenWRT One and Wi-Fi 7 boards, footprint validation.</p></div><div class="exit"><b>Exit test</b>Same test suite passes on routers within budget.<br><span class="status-warn">v0.10 · waiting for real routers</span> (LuCI, procd, self-test, OpenWRT in QEMU on three CPUs)</div></div>
+    <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.<br><span class="status-warn">under way · v0.11</span> (DNS cache with prefetch and stale answers; TLS and QUIC connection names)</div></div>
   </div>
   <h3 style="margin-top:18px">As built in v0.6 (P3 act, complete)</h3>
   <div class="tbl"><table>
@@ -1228,6 +1228,17 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Not yet</td><td>IPv6 inside the tunnel; the OpenWRT firewall part on a real router (P6); federated learning (P7).</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.11 (P7 advanced, first part)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>DNS cache</td><td><code>agdns</code> keeps answers for their TTL and serves them with the TTLs counted down: <b>0.3 ms instead of 51 ms</b> against a 50 ms upstream in the test. Every answer still reaches the brain. <code>agctl dns cache</code>, LuCI overview.</td></tr>
+      <tr><td>Prefetch</td><td>A name in use is asked for again just before it expires, so busy names never wait for the upstream (a 10 s name asked every half second for 14 s: slowest answer 1.4 ms).</td></tr>
+      <tr><td>Stale answers</td><td>When the upstream fails, or is silent for 1.8 s, an expired answer is served with a 30 s TTL (RFC 8767): the home keeps working through an upstream outage.</td></tr>
+      <tr><td>Connection names</td><td>The kernel copies the first packets of each new HTTPS connection to <code>agd</code> (NFLOG; a copy, nothing waits). <code>agd</code> reads the server name from the TLS ClientHello, or from the QUIC Initial, whose protection anyone can remove (RFC 9001). Connections an app made without AIGW's DNS (DNS over HTTPS, hard-coded addresses) get their real name, and that name is judged like a lookup: <code>dga</code>, <code>known-threat</code>, <code>dns-bypass</code>. A connection without any name still counts as "no DNS" after 3 s.</td></tr>
+      <tr><td>Not yet</td><td>Encrypted Client Hello hides the site by design (the outer name is not judged); with fw4 flow offloading a name late in a two-segment post-quantum ClientHello can be missed.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1252,7 +1263,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Wi-Fi regulatory database not loaded on the PC</td><td>5 GHz AP may be refused</td><td>Load wireless-regdb, set country code; 2.4 GHz fallback</td></tr>
       <tr><td>USB Wi-Fi AP stability (rtw88 over USB/IP)</td><td>Brief disconnects</td><td>hostapd watchdog; mt76 adapters recommended</td></tr>
       <tr><td>One adapter can't be AP and sensor at once</td><td>No presence sensing while AP</td><td>Second USB adapter on the PC; routers have several radios</td></tr>
-      <tr><td>DNS bypass (DoH, private relays, hard-coded resolvers)</td><td>Partial DNS view</td><td>Port-53 redirect, canary domain, DoH detection, flow-side signals</td></tr>
+      <tr><td>DNS bypass (DoH, private relays, hard-coded resolvers)</td><td>Partial DNS view</td><td>Port-53 redirect, DoH detection, flow-side signals; since v0.11 connections are named from their TLS / QUIC handshakes</td></tr>
       <tr><td>False positives</td><td>Users lose trust</td><td>Observe / advise first, TTL on every action, one-tap feedback</td></tr>
       <tr><td>C parsing untrusted data</td><td>Gateway compromise</td><td>Fuzzing, ASan, sandboxing, small parsers</td></tr>
       <tr><td>Third-party plug-ins</td><td>Misbehaving code on the gateway</td><td>Signatures, declared permissions, RAM/CPU budgets, ujail</td></tr>
@@ -1268,7 +1279,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.10 (phases P0–P5, P6 under way) · 2026-11-08</footer>
+<footer>AIGW architecture v0.3 · implementation v0.11 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-08</footer>
 </main>
 </div>
 

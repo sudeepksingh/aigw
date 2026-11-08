@@ -125,12 +125,18 @@ void ag_config_load(struct ag_config *c)
 	copy(c->dns_listen, sizeof(c->dns_listen), "0.0.0.0");
 	c->dns_port = 5300;
 	copy(c->dns_upstream, sizeof(c->dns_upstream), "auto");
+	c->dns_cache = 1000;
+	c->dns_prefetch = 1;
+	c->dns_stale = 86400;
+	c->dns_max_ttl = 86400;
 	/* OpenWRT: flash wears out, so save hourly; PCs: every 5 minutes */
 	copy(c->state_file, sizeof(c->state_file), owrt ? "/etc/aigw/agd-state.json" : "/var/lib/aigw/agd-state.json");
 	c->state_interval = owrt ? 3600 : 300;
 	c->flow_enabled = 1;
 	c->flow_poll = 30;
 	c->flow_warmup = 600;
+	c->flow_sni = 1;
+	c->flow_sni_group = 4419;
 	copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), owrt ? "/var/run/hostapd" : "/run/aigw/hostapd");
 	copy(c->model_dir, sizeof(c->model_dir), AG_DATADIR "/models");
 	c->alerts_enabled = 1;
@@ -178,6 +184,18 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "dns", "port");
 		if (v && atoi(v) > 0 && atoi(v) < 65536)
 			c->dns_port = atoi(v);
+		v = opt(ctx, p, "dns", "cache");
+		if (v && atoi(v) >= 0)
+			c->dns_cache = atoi(v) > 100000 ? 100000 : atoi(v);
+		v = opt(ctx, p, "dns", "prefetch");
+		if (v)
+			c->dns_prefetch = atoi(v) != 0;
+		v = opt(ctx, p, "dns", "stale");
+		if (v && atoi(v) >= 0)
+			c->dns_stale = atoi(v);
+		v = opt(ctx, p, "dns", "max_ttl");
+		if (v && atoi(v) >= 1)
+			c->dns_max_ttl = atoi(v);
 		v = opt(ctx, p, "main", "state_file");
 		if (v)
 			snprintf(c->state_file, sizeof(c->state_file), "%s", v); /* may be "" */
@@ -193,6 +211,12 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "flow", "warmup");
 		if (v && atoi(v) >= 0)
 			c->flow_warmup = atoi(v);
+		v = opt(ctx, p, "flow", "sni");
+		if (v)
+			c->flow_sni = atoi(v) != 0;
+		v = opt(ctx, p, "flow", "sni_group");
+		if (v && atoi(v) > 0 && atoi(v) < 65536)
+			c->flow_sni_group = atoi(v);
 		copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), opt(ctx, p, "wifi", "ctrl_dir"));
 		copy(c->model_dir, sizeof(c->model_dir), opt(ctx, p, "main", "model_dir"));
 		read_list(ctx, uci_lookup_section(ctx, p, "lan"), "iface", c->lan_ifaces, sizeof(c->lan_ifaces));

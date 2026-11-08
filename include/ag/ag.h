@@ -74,11 +74,17 @@ struct ag_config {
 	char dns_listen[64];
 	int dns_port;
 	char dns_upstream[128];   /* "auto", "ip" or "ip#port" */
+	int dns_cache;            /* answers agdns keeps; 0 = no cache */
+	int dns_prefetch;         /* refresh names in use before they expire */
+	int dns_stale;            /* seconds an expired answer may still be served when upstream fails; 0 = never */
+	int dns_max_ttl;          /* longest time an answer is kept fresh */
 	char state_file[256];     /* device history; "" = don't save */
 	int state_interval;       /* seconds between saves */
 	int flow_enabled;         /* conntrack flow sensor */
 	int flow_poll;            /* seconds between traffic counter refreshes */
 	int flow_warmup;          /* seconds after start before flagging "no DNS" */
+	int flow_sni;             /* name connections from TLS / QUIC handshakes (NFLOG) */
+	int flow_sni_group;       /* NFLOG group the kernel copies those packets to */
 	char wifi_ctrl[128];      /* hostapd control socket directory */
 	char model_dir[256];      /* .agm models */
 	char lan_ifaces[256];     /* space-separated; clients on these are "the home" */

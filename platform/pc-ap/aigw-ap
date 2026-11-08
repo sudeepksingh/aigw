@@ -28,6 +28,7 @@ PASSPHRASE=${PASSPHRASE:-}
 COUNTRY=${COUNTRY:-}
 BAND=${BAND:-2.4}
 CHANNEL=${CHANNEL:-6}
+WIDTH=${WIDTH:-auto}
 SUBNET=${SUBNET:-10.42.0}
 UPLINK=${UPLINK:-auto}
 
@@ -54,11 +55,64 @@ supports_ap() {
 	iw phy "$phy" info 2>/dev/null | grep -qE '^[[:space:]]+\* AP$'
 }
 
+# WSL2 sees a USB adapter only after Windows hands it over (usbipd-win).
+# WSL can run Windows programs, so do it from here: find the adapter in
+# `usbipd list` (USB_BUSID in the config, or the first Wi-Fi device) and
+# attach it. Sharing it (bind) needs administrator rights once; that stays
+# with aigw-wsl.cmd. Never fatal: without an adapter, `up` explains.
+usbipd_exe() {
+	for u in "$(command -v usbipd.exe 2>/dev/null)" "/mnt/c/Program Files/usbipd-win/usbipd.exe"; do
+		[ -n "$u" ] && [ -x "$u" ] && { echo "$u"; return 0; }
+	done
+	return 1
+}
+
+wsl_attach() {
+	is_wsl || return 0
+	[ -n "$(wifi_ifaces)" ] && return 0
+	u=$(usbipd_exe) || { say "usbipd-win not found on Windows (winget install usbipd)"; return 0; }
+	lines=$("$u" list 2>/dev/null | tr -d '\r' | sed -n '/^Connected:/,/^$/p' | grep -E '^[0-9]+-[0-9]+ ')
+	if [ -n "${USB_BUSID:-}" ]; then
+		line=$(echo "$lines" | grep -E "^$USB_BUSID " | head -1)
+	else
+		line=$(echo "$lines" | grep -iE 'wireless|wlan|wi-?fi|802\.11' | head -1)
+	fi
+	[ -n "$line" ] || { say "no USB Wi-Fi adapter plugged into Windows"; return 0; }
+	bus=${line%% *}
+	vidpid=$(echo "$line" | awk '{print $2}')
+	case $line in
+	*"Not shared"*)
+		say "adapter $bus is not shared with WSL yet: run platform\\pc-ap\\wsl\\aigw-wsl.cmd once from Windows (asks for administrator approval)"
+		return 0 ;;
+	*Attached*)
+		;;
+	*)
+		say "attaching USB adapter $bus to WSL"
+		"$u" attach --wsl --busid "$bus" >/dev/null 2>&1 || say "usbipd could not attach $bus"
+		;;
+	esac
+	# wait for the USB device itself; the Wi-Fi interface follows once the
+	# driver finds its firmware (below)
+	i=0
+	while ! usb_present "$vidpid" && [ $i -lt 20 ]; do
+		sleep 0.5
+		i=$((i + 1))
+	done
+}
+
+usb_present() {
+	for d in /sys/bus/usb/devices/*; do
+		[ -f "$d/idVendor" ] && [ "$(cat "$d/idVendor"):$(cat "$d/idProduct")" = "$1" ] && return 0
+	done
+	return 1
+}
+
 # WSL2's kernel cannot read the distro's /lib/firmware (or compressed
 # firmware), so expose uncompressed copies on the shared /mnt/wsl tmpfs and
 # reload the USB Wi-Fi driver. Also makes the regulatory database visible.
 wsl_prepare() {
 	is_wsl || return 0
+	wsl_attach
 	mkdir -p "$FW"
 	for pattern in 'rtw88/*' 'rtw89/*' 'rtlwifi/*' 'rtl_bt/*' 'mediatek/WIFI_*MT79*' \
 		'mediatek/mt76*' 'ath9k_htc/*' 'regulatory.db*'; do
@@ -109,8 +163,42 @@ pick_iface() {
 	done
 }
 
+# Channel width settings for hostapd (width $1: 20, 40 or 80 MHz). 40 MHz
+# pairs the channel with its neighbour (HT40+ below, HT40- above); 80 MHz
+# (5 GHz, 802.11ac) uses the block of four channels the channel is in.
+width_lines() {
+	w=$1
+	[ "$w" = 20 ] && return 0
+	if [ "$BAND" = 5 ]; then
+		if [ "$CHANNEL" -ge 149 ]; then base=149; else base=36; fi
+		if [ $(( (CHANNEL - base) / 4 % 2 )) = 0 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
+		if [ "$w" = 80 ]; then
+			echo "vht_oper_chwidth=1"
+			echo "vht_oper_centr_freq_seg0_idx=$(( base + (CHANNEL - base) / 16 * 16 + 6 ))"
+		fi
+	else
+		if [ "$CHANNEL" -le 7 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
+	fi
+}
+
+# The widths to try, widest first: what WIDTH asks for, then narrower ones.
+widths() {
+	w=$WIDTH
+	if [ "$w" = auto ]; then
+		if [ "$BAND" = 5 ]; then w=80; else w=20; fi
+	fi
+	[ "$BAND" = 5 ] || [ "$w" != 80 ] || w=40       # 80 MHz is 5 GHz only
+	[ "$BAND" = 5 ] && [ "$CHANNEL" = 165 ] && w=20  # channel 165 has no partner
+	case $w in
+	80) echo "80 40 20" ;;
+	40) echo "40 20" ;;
+	*) echo "20" ;;
+	esac
+}
+
 write_hostapd() {
 	iface=$1
+	width=${2:-20}
 	if [ "$BAND" = 5 ]; then
 		[ -n "$COUNTRY" ] || die "5 GHz needs COUNTRY set in $CONF"
 		hw_mode=a
@@ -135,6 +223,7 @@ write_hostapd() {
 		fi
 		echo "ieee80211n=1"
 		if [ "$BAND" = 5 ]; then echo "ieee80211ac=1"; fi
+		width_lines "$width"
 		echo "wmm_enabled=1"
 		echo "auth_algs=1"
 		echo "wpa=2"
@@ -182,7 +271,7 @@ up() {
 	up_if=$(uplink_iface)
 	[ -n "$up_if" ] || die "no internet connection found (no default route)"
 	iface=$(pick_iface "$up_if")
-	[ -n "$iface" ] || die "no Wi-Fi adapter with AP mode found. On WSL, attach the USB adapter first (platform/pc-ap/wsl/aigw-wsl.cmd)."
+	[ -n "$iface" ] || die "no Wi-Fi adapter with AP mode found.$(is_wsl && echo " On WSL: is the USB adapter plugged in and shared? (usbipd list; platform/pc-ap/wsl/aigw-wsl.cmd shares it once)")"
 	[ -e "/sys/class/net/$iface" ] || die "interface $iface not found"
 	[ "$iface" != "$up_if" ] || die "$iface is your internet connection; set AP_IFACE to another adapter in $CONF"
 	[ ${#PASSPHRASE} -ge 8 ] || die "PASSPHRASE must be 8-63 characters ($CONF)"
@@ -197,11 +286,21 @@ up() {
 	ip addr flush dev "$iface"
 	ip addr add "$SUBNET.1/24" dev "$iface"
 
-	write_hostapd "$iface"
-	if ! hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" > "$RUN/hostapd.log" 2>&1; then
+	started=""
+	for w in $(widths); do
+		write_hostapd "$iface" "$w"
+		if hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" > "$RUN/hostapd.log" 2>&1; then
+			started=$w
+			break
+		fi
+		kill_pidfile "$RUN/hostapd.pid"
+		say "hostapd refused $w MHz on channel $CHANNEL; trying narrower"
+	done
+	if [ -z "$started" ]; then
 		cat "$RUN/hostapd.log" >&2
 		die "hostapd could not start the access point on $iface"
 	fi
+	echo "$started" > "$RUN/width"
 	ip link set "$iface" up
 
 	dnsmasq --conf-file=/dev/null --port=0 --interface="$iface" --bind-interfaces \
@@ -239,7 +338,7 @@ EOF
 
 	say "AIGW access point is up"
 	say "  Wi-Fi     $SSID  (password in $CONF)"
-	say "  adapter   $iface, $BAND GHz channel $CHANNEL"
+	say "  adapter   $iface, $BAND GHz channel $CHANNEL, $started MHz wide"
 	say "  clients   $SUBNET.20-250, internet via $up_if"
 	say "Watch it:  agctl watch all   |   agctl devices   |   sudo aigw-ap status"
 }

@@ -56,6 +56,17 @@ if [ $OWRT = 0 ] && ! nft list table inet ag >/dev/null 2>&1 && ! pidof hostapd 
 	info nft "kernel rules load with the access point (sudo aigw-ap up); it is not running"
 else
 	ok_if nft "table inet ag is loaded" nft list table inet ag
+	if nft list table inet ag >/dev/null 2>&1 && [ "$(uci -q get aigw.flow.sni 2>/dev/null)" != 0 ]; then
+		ok_if nft-names "table inet ag_sni copies HTTPS handshakes to agd" nft list table inet ag_sni
+	fi
+fi
+SNI=$(echo "$STATUS" | grep -o '"sni": *[a-z0-9]*' | head -1 | sed 's/.*: *//')   # sensors.sni, not the sni table
+if [ "$SNI" = 1 ] || [ "$SNI" = true ]; then
+	pass names "connections are named from their TLS / QUIC handshakes"
+elif [ $OWRT = 1 ] && [ "$(uci -q get aigw.flow.sni)" != 0 ]; then
+	fail names "connection-name sensor is off (kmod-nfnetlink-log missing? see logread -e agd)"
+else
+	info names "connection names from handshakes are off: names come from DNS only"
 fi
 if [ $OWRT = 1 ]; then
 	ok_if fw4 "firewall include keeps the table across reloads" sh -c '[ "$(uci -q get firewall.aigw)" = include ]'
@@ -65,7 +76,8 @@ if [ $OWRT = 1 ]; then
 	fi
 fi
 
-# ---- on this CPU: signatures, model, QR, DNS through agdns
+# ---- on this CPU: signatures, model, QR, DNS through agdns (twice: the second from its cache)
+CACHE0=$(agctl -j dns cache 2>/dev/null)
 agctl selftest > /tmp/aigw-selftest.$$ 2>&1
 while IFS= read -r line; do
 	case $line in
@@ -74,6 +86,16 @@ while IFS= read -r line; do
 	*) echo "$line" ;;
 	esac
 done < /tmp/aigw-selftest.$$
+CACHE1=$(agctl -j dns cache 2>/dev/null)
+if [ -z "$CACHE1" ]; then
+	info dns-cache "agdns does not answer on ubus (ag.dnscache)"
+elif case "$(echo "$CACHE1" | json cache)" in 1|true) false ;; *) true ;; esac; then
+	info dns-cache "off (dns.cache 0)"
+elif grep -q '^PASS dns:' /tmp/aigw-selftest.$$; then
+	h0=$(echo "$CACHE0" | json hits) h1=$(echo "$CACHE1" | json hits)
+	if [ "${h1:-0}" -gt "${h0:-0}" ]; then pass dns-cache "a repeated lookup came from the cache ($(echo "$CACHE1" | json entries) answers kept)"
+	else fail dns-cache "a repeated lookup did not come from the cache"; fi
+fi
 rm -f /tmp/aigw-selftest.$$
 
 # ---- footprint

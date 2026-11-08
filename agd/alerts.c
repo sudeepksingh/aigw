@@ -258,12 +258,56 @@ void alerts_on_flow(const char *client, const char *dst, const char *domain, con
 		alerts_raise("dns-bypass", "info", client, domain && *domain ? domain : dst, 0, reason);
 		return;
 	}
-	if (no_dns) {
+	if (no_dns)
+		alerts_no_dns(client, dst, proto, dport);
+}
+
+void alerts_no_dns(const char *client, const char *dst, const char *proto, unsigned dport)
+{
+	char reason[400], name[64], mac[18];
+
+	if (!cfg.alerts_enabled)
+		return;
+	device_names(client, mac, name);
+	snprintf(reason, sizeof(reason),
+		 "%s connected to %s (%s/%u) without looking up any name first. "
+		 "Apps rarely do this; malware and hard-coded trackers do.", name, dst, proto, dport);
+	alerts_raise("no-dns", "info", client, dst, 0, reason);
+}
+
+/* A name from a connection's handshake that AIGW never saw looked up (or saw
+ * for another address): judged like a lookup. An Encrypted Client Hello's
+ * outer name is the provider's, not the site's, so it is not judged. */
+void alerts_on_sni(const char *client, const char *dst, const char *sni, unsigned dport, int ech)
+{
+	char reason[400], name[64], mac[18], label[256], hit[NAME_LEN], why[128];
+	double s;
+
+	if (!cfg.alerts_enabled || ech || is_local(client))
+		return;
+	device_names(client, mac, name);
+	if (in_list(sni, resolver_names)) {
 		snprintf(reason, sizeof(reason),
-			 "%s connected to %s (%s/%u) without looking up any name first. "
-			 "Apps rarely do this; malware and hard-coded trackers do.", name, dst, proto, dport);
-		alerts_raise("no-dns", "info", client, dst, 0, reason);
+			 "%s uses its own encrypted DNS (DNS over HTTPS to %s, named in the connection's handshake), "
+			 "so AIGW can't see what it looks up. Often a browser or phone \"private DNS\" setting.", name, sni);
+		alerts_raise("dns-bypass", "info", client, sni, 0, reason);
+		return;
 	}
+	if (intel_match(sni, hit, sizeof(hit), why, sizeof(why))) {
+		snprintf(reason, sizeof(reason), "%.63s connected to %.90s (%s), a known threat (%.50s%s%.50s), "
+			 "without looking it up through AIGW.", name, sni, dst,
+			 strcmp(hit, sni) ? hit : "", strcmp(hit, sni) ? ": " : "", why);
+		alerts_raise("known-threat", "warning", client, hit, 1.0, reason);
+		return;
+	}
+	s = alerts_domain_score(sni, label, sizeof(label), NULL);
+	if (s < cfg.dga_threshold || (int)strlen(label) < cfg.dga_min_label)
+		return;
+	snprintf(reason, sizeof(reason),
+		 "%s connected to %s (port %u), a name that looks machine-generated (score %.2f), without looking "
+		 "it up through AIGW. Malware generates names like this to find its control servers.",
+		 name, sni, dport, s);
+	alerts_raise("dga", "warning", client, sni, s, reason);
 }
 
 uint64_t alerts_total(void)

@@ -82,7 +82,8 @@ def luci_check(base):
     out = []
     sid = rpc("0" * 32, "session", "login", {"username": "root", "password": ""})["result"][1]["ubus_rpc_session"]
     for obj, method in [("ag", "status"), ("ag.device", "list"), ("ag.alert", "list"), ("ag.decision", "list"),
-                        ("ag.plugin", "list"), ("ag.model", "list"), ("ag.remote", "list"), ("ag.wifi", "keys")]:
+                        ("ag.plugin", "list"), ("ag.model", "list"), ("ag.remote", "list"), ("ag.wifi", "keys"),
+                        ("ag.dnscache", "stats")]:
         res = rpc(sid, obj, method).get("result", [-1])
         out.append((res[0] == 0, f"luci-{obj}-{method}", f"rpcd answers for the AIGW pages (code {res[0]})"))
     err = rpc(sid, "ag.model", "install", {"file": "/etc/passwd"}).get("error")

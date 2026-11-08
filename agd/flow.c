@@ -8,6 +8,11 @@
  * Every new connection is joined with the endpoint table: its destination
  * gets the DNS name the device looked up, or is flagged "no DNS" when the
  * device connected to a public address it never resolved.
+ *
+ * HTTPS connections (TCP or UDP 443) also carry their server name in the
+ * handshake (sni.c). A connection without a DNS name waits up to
+ * SNI_JUDGE_MS for it before it counts as "no DNS"; when it comes, the
+ * connection is named after it and the name is judged like a lookup.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -23,9 +28,15 @@
 #include <libubox/uloop.h>
 
 #include "agd.h"
+#include "ag/sni.h"
 
-#define ACT_MAX    4096          /* active flows tracked (hash, linear probing) */
-#define RECENT_MAX 256           /* finished flows kept for "agctl flows" */
+#define ACT_MAX      4096        /* active flows tracked (hash, linear probing) */
+#define RECENT_MAX   256         /* finished flows kept for "agctl flows" */
+#define SNI_JUDGE_MS 3000        /* how long an unnamed HTTPS connection waits for its handshake */
+#define EARLY_MAX    16          /* names that arrived before their connection */
+
+enum { BY_NONE, BY_DNS, BY_NEARBY, BY_SNI };
+static const char *const by_name[] = { "", "dns", "nearby", "sni" };
 
 struct aflow {
 	int used;
@@ -34,9 +45,11 @@ struct aflow {
 	char dst[IP_LEN];
 	char domain[NAME_LEN];
 	uint8_t proto;
-	uint16_t dport;
+	uint8_t named_by;
+	uint16_t sport, dport;
 	int no_dns;
 	int64_t start;
+	uint64_t judge_at;              /* ms: judge "no DNS" then, unless a name came; 0 = not waiting */
 	uint64_t up_seen, down_seen;    /* counters already credited */
 };
 
@@ -46,16 +59,28 @@ struct rflow {
 	char dst[IP_LEN];
 	char domain[NAME_LEN];
 	uint8_t proto;
+	uint8_t named_by;
 	uint16_t dport;
 	int no_dns;
 	uint64_t up, down;
 };
 
-uint64_t flows_total, flows_no_dns_total;
+struct early {
+	uint64_t at;                    /* ms */
+	char client[IP_LEN], dst[IP_LEN];
+	uint8_t proto;
+	uint16_t sport, dport;
+	struct ag_sni s;
+};
+
+uint64_t flows_total, flows_no_dns_total, flows_sni_total;
 
 static struct nfct_handle *ev_h, *dump_h;
 static struct uloop_fd ev_fd;
-static struct uloop_timeout dump_timer;
+static struct uloop_timeout dump_timer, judge_timer;
+static int judging;
+static struct early early[EARLY_MAX];
+static unsigned early_head;
 static struct aflow act[ACT_MAX];
 static struct rflow recent[RECENT_MAX];
 static unsigned recent_head, recent_count;
@@ -109,7 +134,7 @@ static void act_remove(struct aflow *f)
 struct tuple {
 	char src[IP_LEN], dst[IP_LEN];
 	uint8_t proto;
-	uint16_t dport;
+	uint16_t sport, dport;
 	uint32_t id;
 };
 
@@ -131,8 +156,11 @@ static int read_tuple(struct nf_conntrack *ct, struct tuple *t)
 		return -1;
 	}
 	t->proto = nfct_get_attr_u8(ct, ATTR_ORIG_L4PROTO);
-	if ((t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP) && nfct_attr_is_set(ct, ATTR_ORIG_PORT_DST))
+	if ((t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP) && nfct_attr_is_set(ct, ATTR_ORIG_PORT_DST)) {
 		t->dport = ntohs(nfct_get_attr_u16(ct, ATTR_ORIG_PORT_DST));
+		if (nfct_attr_is_set(ct, ATTR_ORIG_PORT_SRC))
+			t->sport = ntohs(nfct_get_attr_u16(ct, ATTR_ORIG_PORT_SRC));
+	}
 	t->id = nfct_attr_is_set(ct, ATTR_ID) ? nfct_get_attr_u32(ct, ATTR_ID) : 0;
 	return 0;
 }
@@ -193,6 +221,7 @@ static void emit(const char *what, const struct aflow *f, uint64_t up, uint64_t 
 	blobmsg_add_string(&b, "proto", proto_name(f->proto));
 	blobmsg_add_u32(&b, "dport", f->dport);
 	blobmsg_add_u8(&b, "no_dns", f->no_dns ? 1 : 0);
+	blobmsg_add_string(&b, "named_by", by_name[f->named_by]);
 	if (!strcmp(what, "end")) {
 		blobmsg_add_u64(&b, "bytes_up", up);
 		blobmsg_add_u64(&b, "bytes_down", down);
@@ -202,30 +231,139 @@ static void emit(const char *what, const struct aflow *f, uint64_t up, uint64_t 
 	blob_buf_free(&b);
 }
 
+static uint64_t now_ms(void)
+{
+	return ag_mono_us() / 1000;
+}
+
+/* No DNS name, and no handshake name in time: "no DNS" after all. */
+static void judge_no_dns(struct aflow *f)
+{
+	struct device *d = dev_find_ip(f->client, 1);
+
+	if (f->judge_at)
+		judging--;
+	f->judge_at = 0;
+	f->no_dns = 1;
+	d->flows_no_dns++;
+	flows_no_dns_total++;
+	alerts_no_dns(f->client, f->dst, proto_name(f->proto), f->dport);
+}
+
+static void judge_cb(struct uloop_timeout *t)
+{
+	uint64_t now = now_ms();
+	int i;
+
+	for (i = 0; i < ACT_MAX && judging > 0; i++)
+		if (act[i].used && act[i].judge_at && now >= act[i].judge_at)
+			judge_no_dns(&act[i]);
+	if (judging > 0)
+		uloop_timeout_set(t, 500);
+}
+
+/* The handshake named the connection. A DNS name stays when the handshake
+ * shows only an Encrypted Client Hello's outer name, or the same name. */
+static void apply_name(struct aflow *f, const struct ag_sni *s)
+{
+	int had_dns = f->named_by == BY_DNS;
+
+	if (had_dns && (s->ech || !strcmp(f->domain, s->name)))
+		return;
+	snprintf(f->domain, sizeof(f->domain), "%.*s", (int)sizeof(f->domain) - 1, s->name);
+	f->named_by = BY_SNI;
+	flows_sni_total++;
+	if (f->judge_at) {          /* it had a name after all: not "no DNS" */
+		f->judge_at = 0;
+		judging--;
+	}
+	/* not added to the endpoint table: other connections to this address
+	 * still need a lookup (or their own handshake) to count as named */
+	emit("named", f, 0, 0);
+	alerts_on_sni(f->client, f->dst, s->name, f->dport, s->ech);
+}
+
+void flow_named(const char *client, const char *dst, uint8_t proto, uint16_t sport, uint16_t dport,
+		const struct ag_sni *s)
+{
+	struct early *e;
+	int i;
+
+	for (i = 0; i < ACT_MAX; i++) {
+		struct aflow *f = &act[i];
+
+		if (f->used && f->proto == proto && f->sport == sport && f->dport == dport &&
+		    !strcmp(f->client, client) && !strcmp(f->dst, dst)) {
+			apply_name(f, s);
+			return;
+		}
+	}
+	/* QUIC: the first packet is the handshake, and its copy can beat the
+	 * conntrack event here. Keep the name for the connection's start. */
+	e = &early[early_head];
+	early_head = (early_head + 1) % EARLY_MAX;
+	e->at = now_ms();
+	snprintf(e->client, sizeof(e->client), "%s", client);
+	snprintf(e->dst, sizeof(e->dst), "%s", dst);
+	e->proto = proto;
+	e->sport = sport;
+	e->dport = dport;
+	e->s = *s;
+}
+
+static struct early *early_take(const struct tuple *t)
+{
+	uint64_t now = now_ms();
+	int i;
+
+	for (i = 0; i < EARLY_MAX; i++) {
+		struct early *e = &early[i];
+
+		if (e->at && now - e->at < 5000 && e->proto == t->proto && e->sport == t->sport &&
+		    e->dport == t->dport && !strcmp(e->client, t->src) && !strcmp(e->dst, t->dst)) {
+			e->at = 0;
+			return e;
+		}
+	}
+	return NULL;
+}
+
 /* A flow we first meet (event or dump): set it up and join it with DNS. */
 static struct aflow *flow_begin(const struct tuple *t, int seen_start)
 {
 	struct aflow *f = act_find(t->id, 1);
+	struct early *e;
 	struct device *d;
 	const char *dom;
+	int judge;
 
 	if (!f)
 		return NULL;
 	snprintf(f->client, sizeof(f->client), "%s", t->src);
 	snprintf(f->dst, sizeof(f->dst), "%s", t->dst);
 	f->proto = t->proto;
+	f->sport = t->sport;
 	f->dport = t->dport;
 	f->start = seen_start ? ag_wall_s() : 0;
 	dom = ep_lookup(t->dst);
 	if (dom) {
 		snprintf(f->domain, sizeof(f->domain), "%s", dom);
+		f->named_by = BY_DNS;
 	} else if ((dom = ep_lookup_near(t->dst))) {
 		/* same /24 as a name the home looked up: an app's own server list */
 		snprintf(f->domain, sizeof(f->domain), "%.100s (nearby)", dom);
+		f->named_by = BY_NEARBY;
 	}
 	/* only judge connections we saw start, once the endpoint table is warm */
-	f->no_dns = seen_start && !dom && !is_private(t->dst) &&
-		    ag_wall_s() - started >= cfg.flow_warmup;
+	judge = seen_start && !dom && !is_private(t->dst) && ag_wall_s() - started >= cfg.flow_warmup;
+	/* HTTPS: its handshake may name it in a moment */
+	if (judge && sni_active() && t->dport == 443 && (t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP)) {
+		judge = 0;
+		f->judge_at = now_ms() + SNI_JUDGE_MS;
+		if (judging++ == 0)
+			uloop_timeout_set(&judge_timer, 500);
+	}
+	f->no_dns = judge;
 
 	d = dev_find_ip(t->src, 1);
 	d->last_seen = ag_wall_s();
@@ -238,6 +376,8 @@ static struct aflow *flow_begin(const struct tuple *t, int seen_start)
 		}
 		emit("new", f, 0, 0);
 		alerts_on_flow(f->client, f->dst, f->domain, proto_name(f->proto), f->dport, f->no_dns);
+		if ((e = early_take(t)))
+			apply_name(f, &e->s);
 	}
 	return f;
 }
@@ -246,6 +386,8 @@ static void flow_end(struct aflow *f, uint64_t up, uint64_t down)
 {
 	struct rflow *r = &recent[recent_head];
 
+	if (f->judge_at)
+		judge_no_dns(f);        /* ended before its handshake named it */
 	credit(f, up, down);
 	memset(r, 0, sizeof(*r));
 	r->start = f->start;
@@ -256,6 +398,7 @@ static void flow_end(struct aflow *f, uint64_t up, uint64_t down)
 	r->proto = f->proto;
 	r->dport = f->dport;
 	r->no_dns = f->no_dns;
+	r->named_by = f->named_by;
 	r->up = up;
 	r->down = down;
 	recent_head = (recent_head + 1) % RECENT_MAX;
@@ -370,6 +513,7 @@ int flow_init(void)
 	ev_fd.cb = ev_cb;
 	uloop_fd_add(&ev_fd, ULOOP_READ);
 
+	judge_timer.cb = judge_cb;
 	dump_timer.cb = dump_cb_timer;
 	uloop_timeout_set(&dump_timer, 1000);
 	active = 1;
@@ -404,6 +548,7 @@ void flow_blob_recent(struct blob_buf *b, unsigned limit)
 		blobmsg_add_string(b, "proto", proto_name(r->proto));
 		blobmsg_add_u32(b, "dport", r->dport);
 		blobmsg_add_u8(b, "no_dns", r->no_dns ? 1 : 0);
+		blobmsg_add_string(b, "named_by", by_name[r->named_by]);
 		blobmsg_add_u64(b, "bytes_up", r->up);
 		blobmsg_add_u64(b, "bytes_down", r->down);
 		blobmsg_close_table(b, t);

@@ -18,6 +18,15 @@ config dns 'dns'
 	# Or an address: '1.1.1.1' / '9.9.9.9#53'
 	option upstream 'auto'
 	option intercept '1'
+	# answers kept and served with their TTLs counted down; 0 turns the cache off
+	option cache '1000'
+	# refresh a name in use shortly before it expires, so it never waits for upstream
+	option prefetch '1'
+	# seconds an expired answer may still be served (TTL 30) when upstream fails
+	# or takes longer than 1.8 s (RFC 8767); 0 = never
+	option stale '86400'
+	# longest an answer counts as fresh, whatever its TTL
+	option max_ttl '86400'
 
 config flow 'flow'
 	# what devices connect to and how much they transfer (conntrack)
@@ -26,6 +35,12 @@ config flow 'flow'
 	option poll '30'
 	# seconds after start before flagging "connection without a DNS lookup"
 	option warmup '600'
+	# name HTTPS connections from their TLS / QUIC handshake (the server name a
+	# device asks for), also when it skipped AIGW's DNS. The kernel copies the
+	# first packets of each new connection to agd (NFLOG); nothing waits for it.
+	option sni '1'
+	# NFLOG group for those copies; change it only if another program uses it
+	option sni_group '4419'
 
 config alerts 'alerts'
 	# alerts explain what AIGW noticed; acting on them is set in 'act' below

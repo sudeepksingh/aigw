@@ -39,6 +39,16 @@ int ag_dns_parse(const uint8_t *buf, size_t len, struct ag_dns_msg *m);
  * it dropped. Returns the answer's length, or -1. */
 int ag_dns_make_nxdomain(uint8_t *buf, size_t len, const struct ag_dns_msg *q);
 
+/* EDNS of a message: 1 when it has an OPT record (udp_size and the DO bit
+ * filled in), 0 when it has none, -1 when the message does not parse. */
+int ag_dns_edns(const uint8_t *buf, size_t len, uint16_t *udp_size, int *do_bit);
+
+/* Walks every record of every section (OPT excepted). Returns the smallest
+ * TTL, or -1 when the message does not parse or has no records. When age is
+ * non-zero, subtracts it from each TTL in place; a TTL that runs out becomes
+ * floor_ttl (0, or the short TTL a stale answer is served with). */
+long ag_dns_ttls(uint8_t *buf, size_t len, uint32_t age, uint32_t floor_ttl);
+
 /* 1 when qname is name or one of its subdomains ("ads.example.com" matches
  * "example.com"); both lower-case, without a trailing dot. */
 int ag_dns_name_under(const char *qname, const char *name);

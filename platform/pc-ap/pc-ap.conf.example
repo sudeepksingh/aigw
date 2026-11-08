@@ -15,11 +15,20 @@ COUNTRY=
 
 # 2.4 or 5
 BAND=2.4
-# 2.4 GHz: 1, 6 or 11.  5 GHz: 36, 40, 44, 48 (no radar detection needed)
+# 2.4 GHz: 1, 6 or 11.  5 GHz: 36, 40, 44, 48 (no radar detection needed;
+# in many countries, e.g. IN and US, also 149, 153, 157, 161, 165)
 CHANNEL=6
+# Channel width in MHz: 20, 40, 80 (5 GHz only) or auto (80 on 5 GHz, 20 on
+# 2.4 GHz). Wider is faster but reaches less far; if the adapter refuses a
+# width, aigw-ap falls back to the next narrower one.
+WIDTH=auto
 
 # Client network: <SUBNET>.1 is this PC, clients get <SUBNET>.20-.250
 SUBNET=10.42.0
 
 # Interface with internet access ("auto" = default route)
 UPLINK=auto
+
+# WSL only: the USB adapter aigw-ap attaches from Windows when it is missing
+# (bus id from `usbipd list`; empty = the first Wi-Fi adapter listed)
+USB_BUSID=
