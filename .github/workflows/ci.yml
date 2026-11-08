@@ -89,6 +89,11 @@ jobs:
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
+        # architecture-independent packages (e.g. aigw-remote_*_all.ipk) come from
+        # every target with the same name: upload one of each
         run: |
-          find dist -type f \( -name '*.ipk' -o -name '*.apk' \) -print0 |
-            xargs -0 gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --generate-notes
+          mkdir -p up
+          find dist -type f \( -name '*.ipk' -o -name '*.apk' \) | sort | while read -r f; do
+            [ -e "up/$(basename "$f")" ] || cp "$f" up/
+          done
+          gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --generate-notes up/*
