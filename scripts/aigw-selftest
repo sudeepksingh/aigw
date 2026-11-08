@@ -61,7 +61,7 @@ else
 	fi
 fi
 SNI=$(echo "$STATUS" | json sni)
-if [ "$SNI" = 1 ]; then
+if [ "$SNI" = 1 ] || [ "$SNI" = true ]; then
 	pass names "connections are named from their TLS / QUIC handshakes"
 elif [ $OWRT = 1 ] && [ "$(uci -q get aigw.flow.sni)" != 0 ]; then
 	fail names "connection-name sensor is off (kmod-nfnetlink-log missing? see logread -e agd)"
@@ -89,7 +89,7 @@ done < /tmp/aigw-selftest.$$
 CACHE1=$(agctl -j dns cache 2>/dev/null)
 if [ -z "$CACHE1" ]; then
 	info dns-cache "agdns does not answer on ubus (ag.dnscache)"
-elif [ "$(echo "$CACHE1" | json cache)" != 1 ]; then
+elif case "$(echo "$CACHE1" | json cache)" in 1|true) false ;; *) true ;; esac; then
 	info dns-cache "off (dns.cache 0)"
 elif grep -q '^PASS dns:' /tmp/aigw-selftest.$$; then
 	h0=$(echo "$CACHE0" | json hits) h1=$(echo "$CACHE1" | json hits)
