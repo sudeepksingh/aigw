@@ -9,7 +9,8 @@
 		"ag.domain": { "methods": [ "score" ] },
 		"ag.decision": { "methods": [ "list", "request", "approve", "reject", "revert" ] },
 		"ag.plugin": { "methods": [ "list" ] },
-		"ag.model": { "methods": [ "list" ] }
+		"ag.model": { "methods": [ "list" ] },
+		"ag.remote": { "methods": [ "list" ] }
 	},
 	"listen": [ "ag.dns", "ag.flow", "ag.wifi", "ag.alert", "ag.decision", "ag.plugin", "ag.model", "iot.*" ]
 }

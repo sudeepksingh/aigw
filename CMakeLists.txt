@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.8.0 LANGUAGES C)
+project(aigw VERSION 0.9.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -48,7 +48,7 @@ add_subdirectory(agdns)
 add_subdirectory(agctl)
 add_subdirectory(plugins)
 
-install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event DESTINATION sbin)
+install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote DESTINATION sbin)
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)
 
 if(AIGW_TESTS)

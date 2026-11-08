@@ -11,6 +11,8 @@
     python3 -m aigw_cortex labels | models | proposals [gateway]
     python3 -m aigw_cortex propose <gateway> <action> <target> <reason...>
     python3 -m aigw_cortex mcp                        MCP server on stdio
+    python3 -m aigw_cortex sign-plugin <folder>       sign a plug-in folder (plugin.sig)
+    python3 -m aigw_cortex publish-intel [--min-homes N]  signed list of known threats
 
 Data (database, signing key, published models) lives in --data, default
 $AIGW_CORTEX_DATA or ~/.aigw-cortex.
@@ -71,6 +73,56 @@ def publish(store, path, notes=""):
     sha = hashlib.sha256(data).hexdigest()
     store.add_model(name, version, fname, sha, len(data), notes)
     return name, version, fname
+
+
+def publish_intel(store, min_homes=2):
+    entries = store.intel(min_homes)
+    version = store.next_version("threat-intel")
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    lines = ["# aigw-list threat-intel", f"# version {version}", f"# published {stamp}",
+             f"# names confirmed by people, or flagged in at least {min_homes} homes"]
+    lines += [f"{name}\t{reason}" for name, reason in entries]
+    data = ("\n".join(lines) + "\n").encode()
+    sec, _ = signing_key(store.dir)
+    fname = f"threat-intel-{version}.list"
+    out = os.path.join(store.models_dir(), fname)
+    with open(out + ".sig.tmp", "w") as f:
+        f.write(usign.sign(sec, data))
+    with open(out + ".tmp", "wb") as f:
+        f.write(data)
+    os.replace(out + ".sig.tmp", out + ".sig")
+    os.replace(out + ".tmp", out)
+    store.add_model("threat-intel", version, fname, hashlib.sha256(data).hexdigest(), len(data),
+                    f"{len(entries)} names")
+    return version, len(entries)
+
+
+def plugin_digest(folder):
+    """The text a plug-in signature covers (same as agd/plugin.c check_signature)."""
+    paths = []
+    for root, dirs, files in os.walk(folder):
+        for n in dirs + files:
+            full = os.path.join(root, n)
+            rel = os.path.relpath(full, folder).replace(os.sep, "/")
+            if os.path.islink(full):
+                raise ValueError(f"{rel}: links can't be signed")
+            if n in files and rel != "plugin.sig":
+                paths.append(rel)
+    out = []
+    for rel in sorted(paths, key=lambda s: s.encode()):
+        with open(os.path.join(folder, rel), "rb") as f:
+            out.append(f"{hashlib.sha512(f.read()).hexdigest()}  {rel}\n")
+    return "".join(out).encode()
+
+
+def sign_plugin(store, folder):
+    if not os.path.isfile(os.path.join(folder, "manifest.json")):
+        sys.exit(f"{folder} has no manifest.json")
+    sec, pub = signing_key(store.dir)
+    sig = usign.sign(sec, plugin_digest(folder))
+    with open(os.path.join(folder, "plugin.sig"), "w") as f:
+        f.write(sig)
+    return pub
 
 
 def retrain(store, args):
@@ -137,6 +189,8 @@ def main(argv=None):
     p = sub.add_parser("history")
     p.add_argument("gateway", nargs="?")
     sub.add_parser("mcp")
+    sub.add_parser("sign-plugin").add_argument("folder")
+    sub.add_parser("publish-intel").add_argument("--min-homes", type=int, default=2)
     a = ap.parse_args(argv)
 
     store = Store(a.data)
@@ -184,6 +238,13 @@ def main(argv=None):
     elif a.cmd == "mcp":
         from .mcp import run
         run(store)
+    elif a.cmd == "publish-intel":
+        version, n = publish_intel(store, a.min_homes)
+        print(f"published threat-intel version {version} with {n} names; gateways pick it up at their next check-in")
+    elif a.cmd == "sign-plugin":
+        pub = sign_plugin(store, a.folder)
+        print(f"signed {a.folder}/plugin.sig; gateways that trust {pub} run it with its privileges "
+              "(any later change to the folder breaks the signature)")
 
 
 if __name__ == "__main__":

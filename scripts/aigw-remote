@@ -1,0 +1,108 @@
+#!/bin/sh
+# aigw-remote: the kernel side of AIGW remote access (WireGuard). agd runs it.
+#
+#   aigw-remote up   IFACE GATEWAY/PREFIX NETWORK/PREFIX PORT CONF DNSPORT
+#   aigw-remote sync IFACE CONF          new peer list, no reconnects
+#   aigw-remote down IFACE
+#
+# up: creates the WireGuard interface, loads CONF (wg setconf format), and
+# loads table "inet ag_remote": accept the UDP port, let tunnel clients
+# through, send their DNS to agdns (so AIGW protects them away from home)
+# and NAT them out. On OpenWRT it also adds a firewall zone and a rule for
+# the port (fw4 drops what its own chains don't accept).
+set -eu
+
+die() { echo "aigw-remote: $*" >&2; exit 1; }
+
+openwrt_fw() {
+	[ -f /etc/openwrt_release ] && command -v uci >/dev/null || return 0
+	changed=0
+	if ! uci -q get firewall.aigw_remote >/dev/null; then
+		uci -q batch <<EOF
+set firewall.aigw_remote=zone
+set firewall.aigw_remote.name='aigw_remote'
+add_list firewall.aigw_remote.device='$1'
+set firewall.aigw_remote.input='ACCEPT'
+set firewall.aigw_remote.output='ACCEPT'
+set firewall.aigw_remote.forward='ACCEPT'
+set firewall.aigw_remote_lan=forwarding
+set firewall.aigw_remote_lan.src='aigw_remote'
+set firewall.aigw_remote_lan.dest='lan'
+set firewall.aigw_remote_wan=forwarding
+set firewall.aigw_remote_wan.src='aigw_remote'
+set firewall.aigw_remote_wan.dest='wan'
+EOF
+		changed=1
+	fi
+	if [ "$(uci -q get firewall.aigw_remote_port.dest_port)" != "$2" ]; then
+		uci -q batch <<EOF
+set firewall.aigw_remote_port=rule
+set firewall.aigw_remote_port.name='AIGW remote access'
+set firewall.aigw_remote_port.src='wan'
+set firewall.aigw_remote_port.proto='udp'
+set firewall.aigw_remote_port.dest_port='$2'
+set firewall.aigw_remote_port.target='ACCEPT'
+EOF
+		changed=1
+	fi
+	if [ $changed = 1 ]; then
+		uci commit firewall
+		fw4 reload >/dev/null 2>&1 || true
+	fi
+}
+
+case "${1:-}" in
+up)
+	[ $# -eq 7 ] || die "usage: aigw-remote up IFACE GATEWAY/PREFIX NETWORK/PREFIX PORT CONF DNSPORT"
+	IF=$2 ADDR=$3 NET=$4 PORT=$5 CONF=$6 DNS=$7
+	GW=${ADDR%/*}
+	command -v wg >/dev/null || die "wg not found (install wireguard-tools)"
+	if ip link show "$IF" >/dev/null 2>&1; then
+		wg syncconf "$IF" "$CONF"       # already up (agd restarted): keep connected phones connected
+	else
+		ip link add "$IF" type wireguard || die "no WireGuard in this kernel"
+		wg setconf "$IF" "$CONF"
+	fi
+	ip addr replace "$ADDR" dev "$IF"
+	ip link set "$IF" up
+	sysctl -q -w net.ipv4.ip_forward=1 >/dev/null 2>&1 || true
+	nft -f - <<EOF
+table inet ag_remote
+delete table inet ag_remote
+table inet ag_remote {
+	chain input {
+		type filter hook input priority filter - 5; policy accept;
+		udp dport $PORT accept
+		iifname "$IF" accept
+	}
+	chain forward {
+		type filter hook forward priority filter - 5; policy accept;
+		iifname "$IF" accept
+		oifname "$IF" ct state established,related accept
+	}
+	chain dstnat {
+		type nat hook prerouting priority dstnat - 5; policy accept;
+		iifname "$IF" ip daddr $GW udp dport 53 redirect to :$DNS
+		iifname "$IF" ip daddr $GW tcp dport 53 redirect to :$DNS
+	}
+	chain srcnat {
+		type nat hook postrouting priority srcnat - 5; policy accept;
+		ip saddr $NET oifname != "$IF" masquerade
+	}
+}
+EOF
+	openwrt_fw "$IF" "$PORT"
+	;;
+sync)
+	[ $# -eq 3 ] || die "usage: aigw-remote sync IFACE CONF"
+	wg syncconf "$2" "$3"
+	;;
+down)
+	[ $# -eq 2 ] || die "usage: aigw-remote down IFACE"
+	ip link del "$2" 2>/dev/null || true
+	nft delete table inet ag_remote 2>/dev/null || true
+	;;
+*)
+	die "usage: aigw-remote up|sync|down ..."
+	;;
+esac

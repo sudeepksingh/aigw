@@ -12,6 +12,10 @@
  *   install ── written to models.dir (the previous update kept as .prev), then
  *              swapped in between two lookups; an ag.model event says so
  *
+ * Signed lists travel the same way: "threat-intel" (intel.c), names other
+ * homes confirmed as threats, has no packaged version and only comes from
+ * cortex.
+ *
  * The packaged model (model_dir, from the package) needs no signature and is
  * the fallback: a broken or untrusted update is refused and the running model
  * stays. `agctl model rollback` goes back one step and holds that version off.
@@ -35,14 +39,62 @@
 #define MODEL_MAX_BYTES (8 * 1024 * 1024)
 #define KEY_MAX         32
 
+/* what a slot holds: an .agm model, or a signed list (threat intelligence) */
+struct ops {
+	const char *ext;           /* file name extension in models.dir */
+	const char *kind;          /* "model" or "list" */
+	const char *size_word;     /* "trees" or "entries" */
+	void *(*parse)(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);
+	int (*check)(const void *obj, char *err, size_t n);
+	void (*use)(void *obj);
+	void (*release)(void *obj);
+	int (*version)(const void *obj, char *date, size_t n);
+	int (*size)(const void *obj);
+};
+
+static int meta_int(const struct ag_model *m, const char *key, char *str, size_t sn);
+
+static void *agm_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en)
+{
+	char why[160];
+	struct ag_model *m = ag_model_parse(data, len, why, sizeof(why));
+
+	if (!m) {
+		snprintf(err, en, "not a usable .agm file: %s", why);
+		return NULL;
+	}
+	snprintf(name, nn, "%s", ag_model_name(m));
+	return m;
+}
+static int agm_check(const void *o, char *err, size_t n) { return alerts_model_check(o, err, n); }
+static void agm_use(void *o) { alerts_model_use(o); }
+static void agm_release(void *o) { ag_model_free(o); }
+static int agm_version(const void *o, char *date, size_t n) { return meta_int(o, "version", date, n); }
+static int agm_size(const void *o) { return ag_model_ntrees(o); }
+
+static const struct ops agm_ops = {
+	".agm", "model", "trees", agm_parse, agm_check, agm_use, agm_release, agm_version, agm_size,
+};
+static const struct ops list_ops = {
+	".list", "list", "entries", intel_parse, intel_check, intel_use, intel_free, intel_version, intel_size,
+};
+
+static const struct ops *ops_for(const uint8_t *data, size_t len)
+{
+	if (len >= 4 && !memcmp(data, "AGM1", 4))
+		return &agm_ops;
+	if (len >= 12 && !memcmp(data, "# aigw-list ", 12))
+		return &list_ops;
+	return NULL;
+}
+
 struct slot {
 	const char *name;
-	int (*check)(const struct ag_model *m, char *err, size_t n);
-	void (*use)(struct ag_model *m);
+	const struct ops *ops;
 
 	int loaded;
-	int version;               /* from the model's META "version"; packaged models are 0 */
-	int trees;
+	int version;               /* from the model's META "version" / the list's header; packaged = 0 */
+	int trees;                 /* trees, or entries of a list */
 	char source[12];           /* "package" or "update" */
 	char signer[17];           /* key fingerprint, "" for the package */
 	char origin[64];           /* who offered it */
@@ -54,7 +106,8 @@ struct slot {
 };
 
 static struct slot slots[] = {
-	{ .name = "domain-risk", .check = alerts_model_check, .use = alerts_model_use },
+	{ .name = "domain-risk", .ops = &agm_ops },
+	{ .name = "threat-intel", .ops = &list_ops },     /* no packaged version: only from cortex */
 };
 #define NSLOTS ((int)(sizeof(slots) / sizeof(slots[0])))
 
@@ -97,7 +150,7 @@ static uint8_t *read_file(const char *path, size_t max, size_t *len, char *err, 
 }
 
 /* 0 when sigfile is a trusted key's signature of data; the key's fingerprint in signer */
-static int verify(const uint8_t *data, size_t len, const char *sigfile, char signer[17], char *err, size_t n)
+int models_verify(const uint8_t *data, size_t len, const char *sigfile, char signer[17], char *err, size_t n)
 {
 	uint8_t fp[8], sig[64], kfp[8], pk[32];
 	char *text, kpath[512];
@@ -172,52 +225,71 @@ static int meta_int(const struct ag_model *m, const char *key, char *str, size_t
 
 static void paths(const struct slot *s, const char *suffix, char *out, size_t n)
 {
-	snprintf(out, n, "%s/%s.agm%s", cfg.models_dir, s->name, suffix);
+	snprintf(out, n, "%s/%s%s%s", cfg.models_dir, s->name, s->ops->ext, suffix);
 }
 
-/* parse + verify + check; the model on success */
-static struct ag_model *load(struct slot *want, const uint8_t *data, size_t len, const char *sigfile, int need_sig,
-			     struct slot **which, char signer[17], char *err, size_t n)
+/* the slot a file is for, from its name inside (NULL if none) */
+static struct slot *slot_of(const uint8_t *data, size_t len)
 {
-	struct ag_model *m;
+	const struct ops *o = ops_for(data, len);
+	char name[64], err[160];
 	struct slot *s;
-	char why[200];
+	void *obj;
+
+	if (!o || !(obj = o->parse(data, len, name, sizeof(name), err, sizeof(err))))
+		return NULL;
+	o->release(obj);
+	s = slot_find(name);
+	return s && s->ops == o ? s : NULL;
+}
+
+/* verify + parse + check; the object on success */
+static void *load(struct slot *want, const uint8_t *data, size_t len, const char *sigfile, int need_sig,
+		  struct slot **which, char signer[17], char *err, size_t n)
+{
+	const struct ops *o;
+	struct slot *s;
+	char why[200], name[64];
+	void *obj;
 
 	signer[0] = '\0';
 	if (need_sig || (sigfile && *sigfile && !access(sigfile, F_OK))) {
-		if (verify(data, len, sigfile, signer, err, n))
+		if (models_verify(data, len, sigfile, signer, err, n))
 			return NULL;
 	}
-	m = ag_model_parse(data, len, why, sizeof(why));
-	if (!m) {
-		snprintf(err, n, "not a usable .agm file: %s", why);
+	if (!(o = ops_for(data, len))) {
+		snprintf(err, n, "neither an .agm model nor an aigw list");
 		return NULL;
 	}
-	s = slot_find(ag_model_name(m));
-	if (!s || (want && s != want)) {
-		snprintf(err, n, "model '%s' is not one this gateway uses", ag_model_name(m));
-		ag_model_free(m);
+	if (!(obj = o->parse(data, len, name, sizeof(name), why, sizeof(why)))) {
+		snprintf(err, n, "%s", why);
 		return NULL;
 	}
-	if (s->check(m, why, sizeof(why))) {
+	s = slot_find(name);
+	if (!s || s->ops != o || (want && s != want)) {
+		snprintf(err, n, "%s '%s' is not one this gateway uses", o->kind, name);
+		o->release(obj);
+		return NULL;
+	}
+	if (o->check(obj, why, sizeof(why))) {
 		snprintf(err, n, "%s %s", s->name, why);
-		ag_model_free(m);
+		o->release(obj);
 		return NULL;
 	}
 	*which = s;
-	return m;
+	return obj;
 }
 
-static void use(struct slot *s, struct ag_model *m, const char *source, const char *signer, const char *origin)
+static void use(struct slot *s, void *obj, const char *source, const char *signer, const char *origin)
 {
-	s->version = meta_int(m, "version", s->trained, sizeof(s->trained));
-	s->trees = ag_model_ntrees(m);
+	s->version = s->ops->version(obj, s->trained, sizeof(s->trained));
+	s->trees = s->ops->size(obj);
 	s->loaded = 1;
 	snprintf(s->source, sizeof(s->source), "%s", source);
 	snprintf(s->signer, sizeof(s->signer), "%s", signer ? signer : "");
 	snprintf(s->origin, sizeof(s->origin), "%s", origin ? origin : "");
 	s->installed = ag_wall_s();
-	s->use(m);
+	s->ops->use(obj);
 }
 
 static void event(const struct slot *s, const char *what, const char *why)
@@ -240,11 +312,11 @@ static int load_package(struct slot *s, char *err, size_t n)
 {
 	char path[512], signer[17];
 	struct slot *w;
-	struct ag_model *m;
+	void *m;
 	uint8_t *data;
 	size_t len;
 
-	snprintf(path, sizeof(path), "%s/%s.agm", cfg.model_dir, s->name);
+	snprintf(path, sizeof(path), "%s/%s%s", cfg.model_dir, s->name, s->ops->ext);
 	data = read_file(path, MODEL_MAX_BYTES, &len, err, n);
 	if (!data)
 		return -1;
@@ -291,7 +363,7 @@ void models_init(void)
 	for (i = 0; i < NSLOTS; i++) {
 		struct slot *s = &slots[i], *w;
 		char path[512], sig[512], err[256], signer[17];
-		struct ag_model *m = NULL;
+		void *m = NULL;
 		uint8_t *data;
 		size_t len;
 
@@ -309,8 +381,10 @@ void models_init(void)
 					signer[0] ? signer : "nobody");
 				continue;
 			}
-			AG_WARN("model %s: installed update not used: %s; using the packaged one", s->name, err);
+			AG_WARN("%s %s: installed update not used: %s", s->ops->kind, s->name, err);
 		}
+		if (s->ops == &list_ops)
+			continue;                    /* lists only come as updates */
 		if (load_package(s, err, sizeof(err)))
 			AG_WARN("model %s not loaded (%s); other alerts still work", s->name, err);
 	}
@@ -348,7 +422,7 @@ int models_offer(const char *file, const char *sig, const char *origin, int forc
 {
 	char dst[512], dsig[512], prev[512], psig[512], signer[17];
 	struct slot *s = NULL;
-	struct ag_model *m;
+	void *m;
 	uint8_t *data, *sdata = NULL;
 	size_t len, slen = 0;
 	int v;
@@ -362,18 +436,13 @@ int models_offer(const char *file, const char *sig, const char *origin, int forc
 		return -1;
 	m = load(NULL, data, len, sig, cfg.models_require_sig, &s, signer, err, errlen);
 	if (!m) {
-		/* name the slot in the refusal when the file at least says which model it is */
-		struct ag_model *peek = ag_model_parse(data, len, dst, sizeof(dst));
-
-		if (peek) {
-			refuse(slot_find(ag_model_name(peek)), origin, err);
-			ag_model_free(peek);
-		}
-		AG_WARN("model offered by %s refused: %s", origin, err);
+		/* name the slot in the refusal when the file at least says what it is */
+		refuse(slot_of(data, len), origin, err);
+		AG_WARN("update offered by %s refused: %s", origin, err);
 		free(data);
 		return -1;
 	}
-	v = meta_int(m, "version", NULL, 0);
+	v = s->ops->version(m, NULL, 0);
 	if (!force && s->loaded && v <= s->version) {
 		snprintf(err, errlen, "%s version %d is not newer than the one in use (%d)", s->name, v, s->version);
 		goto refused;
@@ -420,7 +489,7 @@ refused:
 	refuse(s, origin, err);
 	AG_INFO("model offered by %s refused: %s", origin, err);
 fail:
-	ag_model_free(m);
+	s->ops->release(m);
 	free(data);
 	free(sdata);
 	return -1;
@@ -430,17 +499,18 @@ int models_rollback(const char *name, char *err, size_t errlen)
 {
 	struct slot *s = slot_find(name && *name ? name : "domain-risk"), *w;
 	char dst[512], dsig[512], prev[512], psig[512], signer[17], why[256];
-	struct ag_model *m = NULL;
+	void *m = NULL;
 	uint8_t *data;
 	size_t len;
 	int from;
 
 	if (!s) {
-		snprintf(err, errlen, "no model '%s'", name);
+		snprintf(err, errlen, "no model or list '%s' (domain-risk, threat-intel)", name);
 		return -1;
 	}
 	if (strcmp(s->source, "update")) {
-		snprintf(err, errlen, "%s is already the packaged model", s->name);
+		snprintf(err, errlen, s->ops == &list_ops ? "%s has no update to roll back" :
+			 "%s is already the packaged model", s->name);
 		return -1;
 	}
 	from = s->version;
@@ -455,7 +525,7 @@ int models_rollback(const char *name, char *err, size_t errlen)
 	if (m) {
 		if (rename(prev, dst) || (rename(psig, dsig) && errno != ENOENT)) {
 			snprintf(err, errlen, "cannot restore %s: %s", prev, strerror(errno));
-			ag_model_free(m);
+			s->ops->release(m);
 			return -1;
 		}
 		use(s, m, "update", signer, "rollback");
@@ -464,9 +534,13 @@ int models_rollback(const char *name, char *err, size_t errlen)
 		unlink(dsig);
 		unlink(prev);
 		unlink(psig);
-		if (load_package(s, err, errlen))
+		if (s->ops == &list_ops) {          /* nothing before it: the list is gone */
+			s->ops->use(NULL);
+			s->loaded = s->version = s->trees = 0;
+			s->source[0] = s->signer[0] = s->trained[0] = '\0';
+		} else if (load_package(s, err, errlen)) {
 			return -1;
-		s->origin[0] = '\0';
+		}
 		snprintf(s->origin, sizeof(s->origin), "rollback");
 	}
 	s->hold = from > s->hold ? from : s->hold;
@@ -496,9 +570,10 @@ void models_blob(struct blob_buf *b, const char *name)
 
 		t = blobmsg_open_table(b, NULL);
 		blobmsg_add_string(b, "name", s->name);
+		blobmsg_add_string(b, "kind", s->ops->kind);
 		blobmsg_add_u8(b, "loaded", (uint8_t)s->loaded);
 		blobmsg_add_u32(b, "version", (uint32_t)s->version);
-		blobmsg_add_u32(b, "trees", (uint32_t)s->trees);
+		blobmsg_add_u32(b, s->ops->size_word, (uint32_t)s->trees);
 		blobmsg_add_string(b, "source", s->source);
 		blobmsg_add_string(b, "signer", s->signer);
 		blobmsg_add_string(b, "origin", s->origin);

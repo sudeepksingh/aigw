@@ -219,6 +219,18 @@ void alerts_on_dns(const char *client, const char *qname)
 
 	if (!cfg.alerts_enabled || is_local(client))
 		return;
+	{
+		char hit[NAME_LEN], why[128];
+
+		/* a name other homes (or you) confirmed as a threat: no model needed */
+		if (intel_match(qname, hit, sizeof(hit), why, sizeof(why))) {
+			device_names(client, mac, name);
+			snprintf(reason, sizeof(reason), "%.63s looked up %.90s, a known threat (%.50s%s%.50s).", name, qname,
+				 strcmp(hit, qname) ? hit : "", strcmp(hit, qname) ? ": " : "", why);
+			alerts_raise("known-threat", "warning", client, hit, 1.0, reason);
+			return;
+		}
+	}
 	s = alerts_domain_score(qname, label, sizeof(label), NULL);
 	if (s < cfg.dga_threshold || (int)strlen(label) < cfg.dga_min_label)
 		return;

@@ -22,7 +22,7 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
 	build-essential cmake pkg-config git ca-certificates libjson-c-dev libnetfilter-conntrack-dev \
 	hostapd dnsmasq-base nftables iw iproute2 wireless-regdb kmod procps \
-	zstd xz-utils dnsutils curl >/dev/null
+	zstd xz-utils dnsutils curl wireguard-tools >/dev/null
 
 step "Building OpenWRT libraries (libubox, ubus, uci)"
 PREFIX=$PREFIX sh "$REPO/scripts/build-deps.sh"

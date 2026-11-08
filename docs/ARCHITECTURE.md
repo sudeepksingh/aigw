@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.8**, phases P0–P4 built, P5 in progress (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.9**, phases P0–P5 built (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -467,14 +467,15 @@ aigw/
   core/libag/           logging, UCI config, DNS parser, .agm runtime, domain features, QR,
                         SHA-512 + Ed25519 verification
   agd/                  brain: devices, sensors, alerts, baselines, decisions, plug-in host,
-                        Wi-Fi keys, models (signed updates, hot-load, rollback)
+                        Wi-Fi keys, models (signed updates, hot-load, rollback), threat list,
+                        remote access
   agdns/                AI DNS
   agctl/                CLI
   plugins/              first-party plug-ins (mqtt and bridge connectors, iot-guard skill), examples
   cortex/aigw_cortex/   Python: fleet history, labels, retrain/sign/publish, bridge API, MCP server
   cortex/training/      Python training pipelines (domain-risk)
   models/               packaged .agm models
-  scripts/              aigw-nft (kernel rules), build-deps.sh (OpenWRT libs for PCs)
+  scripts/              aigw-nft (kernel rules), aigw-remote (WireGuard), build-deps.sh (OpenWRT libs for PCs)
   config/aigw           default UCI configuration, shared by every host
   platform/pc-ap/       installer, aigw-ap, systemd units, WSL launcher
   platform/openwrt/     package feed (Makefile, procd init, uci-defaults), SDK build script
@@ -554,7 +555,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P2 Understand** | `.agm` runtime, domain-risk + device-type models, baselines, DNS ⇄ flow signals | Correct device types; explained alerts on test cases | v0.3, v0.4 (device type is rule-based) |
 | **P3 Act** | Policy engine, guardrails, nft/tc/dns/wifi actuators, TTL + revert | Quarantine/priority work and auto-revert; DNS/DHCP never blocked | v0.5, completed in v0.6 |
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
-| **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8 (remote access and signed plug-ins next) |
+| **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | |
 | **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | |
 
@@ -596,8 +597,8 @@ or AP isolation); band steering needs a multi-band AP and moves to P7 with the r
 
 Trust is simple: packages are trusted (the package manager installed them as root);
 for plug-ins you added, privileged capabilities wait for `agctl plugin allow`. Signed
-side-loaded plug-ins (ed25519, same trusted keys as models since v0.8) follow later in P5;
-`ujail` sandboxing with P6.
+side-loaded plug-ins (ed25519, same trusted keys as models) arrived in v0.9; `ujail`
+sandboxing with P6.
 
 IoT onboarding (`keys.c`): `agctl key add <name> [zone]` → a fresh passphrase with a `keyid`
 in hostapd's `wpa_psk_file` + `RELOAD_WPA_PSK` + a `WIFI:` QR code (encoder in `libag`). The
@@ -630,7 +631,17 @@ even in enforce mode, and reports back how it was taken. Plug-ins also gained `$
 (an own writable directory), `config:<key>` needs and `agctl plugin config`. Verified by
 `tests/outside-test.sh` (private cortex, real retrain with scikit-learn, tampered and untrusted
 models, rollback across a restart, MCP session, anonymous reports).
-Next in P5: remote access, signed side-loaded plug-ins (same keys), federated threat intelligence.
+
+**As built in v0.9 (P5, complete).**
+
+| Piece | As built |
+|-------|----------|
+| Remote access | `remote.c` + `aigw-remote`: a WireGuard interface (`agwg`, `10.77.0.0/24`, UDP 51820) with one peer per phone. `agctl remote add` makes the peer's key pair with `wg`, keeps only the public key, and returns a compact config that fits a QR code (version 10, ECC L). Full tunnel by default. Table `inet ag_remote` accepts the port, redirects tunnel DNS to agdns, forwards and masquerades; on OpenWRT a firewall zone and a port rule are added. The tunnel joins `lan.iface` at run time, so its clients are devices (named after their peer) for every sensor, alert and decision. `wg syncconf` keeps phones connected across agd restarts; revoke removes the peer at once. Package `aigw-remote` (wireguard-tools, kmod-wireguard) |
+| Shared threat intelligence | cortex `publish-intel`: names people confirmed (any home), or flagged `dga` in ≥ N homes, minus anything called a false alarm, as a signed `# aigw-list threat-intel` with a version. `models.c` treats signed lists like models (same keys, versions, refusal, rollback, hold-off; no packaged version). `intel.c` matches a lookup and its parent domains (binary search); alert `known-threat`, built-in policy `known_threat` → quarantine |
+| Signed plug-ins | `plugin.sig` = usign signature over "sha512  path" lines for every file of the folder (sorted). Checked when a plug-in is found and before every start; a trusted signature grants privileged capabilities without `allow`, a changed file revokes it (it then runs as any added plug-in). cortex `sign-plugin` |
+
+Verified by `tests/remote-test.sh` (two namespaces, a real WireGuard tunnel, DNS through agdns, restart, revoke, off) and the extended `tests/outside-test.sh`.
+Not covered yet: IPv6 inside the tunnel, the OpenWRT firewall integration on a real router (P6), federated *learning* (model training across homes without sharing labels: P7).
 
 ---
 

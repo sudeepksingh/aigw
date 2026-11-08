@@ -136,13 +136,24 @@ struct ag_model;
 int alerts_model_check(const struct ag_model *m, char *err, size_t n);
 void alerts_model_use(struct ag_model *m);
 
-/* models.c: packaged models, signed updates (hot-loaded), rollback */
+/* intel.c: shared threat intelligence, a signed list delivered like a model */
+void *intel_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);
+int intel_check(const void *obj, char *err, size_t n);
+void intel_use(void *obj);
+void intel_free(void *obj);
+int intel_version(const void *obj, char *published, size_t n);
+int intel_size(const void *obj);
+int intel_match(const char *qname, char *hit, size_t hn, char *why, size_t wn);
+
+/* models.c: packaged models, signed updates (hot-loaded), rollback; also signed lists */
 void models_init(void);
 int models_offer(const char *file, const char *sig, const char *origin, int force, int *version,
 		 char *err, size_t errlen);
 int models_rollback(const char *name, char *err, size_t errlen);
 void models_blob(struct blob_buf *b, const char *name);
 int models_version(const char *name);
+/* 0 when sigfile is a trusted key's usign signature of data; the key's fingerprint in signer */
+int models_verify(const uint8_t *data, size_t len, const char *sigfile, char signer[17], char *err, size_t n);
 
 /* act.c: decisions, guardrails, actuators */
 struct act_opts {
@@ -195,6 +206,15 @@ int keys_add(const char *name, const char *zone, int ttl, struct blob_buf *reply
 int keys_revoke(const char *name, char *err, size_t errlen);
 void keys_blob(struct blob_buf *b, const char *only);
 int keys_count(void);
+
+/* remote.c: remote access over WireGuard (peers with QR codes) */
+void remote_init(void);
+void remote_tick(void);
+int remote_enable(int on, const char *endpoint, char *err, size_t n);
+int remote_add(const char *name, struct blob_buf *reply, char *err, size_t n);
+int remote_revoke(const char *name, char *err, size_t n);
+int remote_count(int online);
+void remote_blob(struct blob_buf *b);
 
 /* baseline.c */
 void baseline_domain(struct device *d, const char *qname);

@@ -18,7 +18,7 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends \
             build-essential cmake pkg-config git libjson-c-dev libnetfilter-conntrack-dev \
             dnsutils nftables dnsmasq-base curl python3 mosquitto mosquitto-clients zbar-tools \
-            python3-numpy python3-sklearn python3-cryptography
+            python3-numpy python3-sklearn python3-cryptography wireguard-tools
       - name: OpenWRT libraries
         run: sudo ./scripts/build-deps.sh
       - name: Build
@@ -39,8 +39,10 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/plug-test.sh build
       - name: Outside test (bridge, cortex, retrain, signed hot-loaded model, MCP)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/outside-test.sh build
+      - name: Remote access test (WireGuard between network namespaces)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/remote-test.sh build
       - name: Shell syntax
-        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh; do sh -n "$f"; done
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh; do sh -n "$f"; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}

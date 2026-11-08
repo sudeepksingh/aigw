@@ -152,6 +152,23 @@ class Store:
             return self.q("SELECT * FROM labels WHERE kind = ? ORDER BY ts", (kind,))
         return self.q("SELECT * FROM labels ORDER BY ts")
 
+    # ---------- shared threat intelligence ----------
+
+    def intel(self, min_homes=2):
+        """Names for the shared threat list: confirmed by a person anywhere, or
+        flagged as machine-generated in at least min_homes homes; never a name
+        anyone called a false alarm. Returns [(name, reason)]."""
+        benign = {r["subject"] for r in self.q("SELECT DISTINCT subject FROM labels WHERE label = 0")}
+        out = {}
+        for r in self.q("SELECT subject, COUNT(DISTINCT gateway) homes FROM labels WHERE label = 1 "
+                        "GROUP BY subject"):
+            n = r["homes"]
+            out[r["subject"]] = f"confirmed by people in {n} home{'s' if n != 1 else ''}"
+        for r in self.q("SELECT LOWER(subject) subject, COUNT(DISTINCT gateway) homes FROM alerts "
+                        "WHERE kind = 'dga' GROUP BY LOWER(subject) HAVING homes >= ?", (int(min_homes),)):
+            out.setdefault(r["subject"], f"looked machine-generated in {r['homes']} homes")
+        return sorted((k, v) for k, v in out.items() if k not in benign and "." in k)
+
     # ---------- proposals ----------
 
     def propose(self, gw, action, target, ttl=0, reason="", origin="cortex"):

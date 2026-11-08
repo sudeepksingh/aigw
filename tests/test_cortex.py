@@ -50,6 +50,42 @@ class Feedback(unittest.TestCase):
             s.report(gid, {"decisions": "not a list"})       # bad input never breaks the store
 
 
+class Intel(unittest.TestCase):
+    def test_list(self):
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            a, _ = s.enroll("a")
+            b, _ = s.enroll("b")
+            c, _ = s.enroll("c")
+            s.report(a, {"alerts": [{"id": 1, "kind": "dga", "subject": "Twice.example", "first": 1},
+                                    {"id": 2, "kind": "dga", "subject": "once.example", "first": 1}]})
+            s.report(b, {"alerts": [{"id": 1, "kind": "dga", "subject": "twice.example", "first": 1}]})
+            s.report(c, {"alerts": [{"id": 1, "kind": "dga", "subject": "twice.example", "first": 1}]})
+            s.label("confirmed.example", "dga", 1)
+            s.label("both.example", "dga", 1)
+            s.label("both.example", "dga", 0, source="someone else")   # one false alarm keeps it off
+            names = dict(s.intel(min_homes=2))
+            self.assertEqual(set(names), {"twice.example", "confirmed.example"})
+            self.assertIn("3 homes", names["twice.example"])
+            self.assertEqual(set(dict(s.intel(min_homes=1))), {"twice.example", "once.example", "confirmed.example"})
+
+
+class PluginDigest(unittest.TestCase):
+    def test_digest(self):
+        sys.path.insert(0, os.path.join(HERE, "..", "cortex"))
+        from aigw_cortex.__main__ import plugin_digest
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "lib"))
+            for name, body in (("manifest.json", b"{}"), ("run.sh", b"x"), ("lib/a.sh", b"y"), ("plugin.sig", b"z")):
+                with open(os.path.join(d, name), "wb") as f:
+                    f.write(body)
+            text = plugin_digest(d).decode()
+            lines = text.splitlines()
+            self.assertEqual([ln.split("  ")[1] for ln in lines], ["lib/a.sh", "manifest.json", "run.sh"])
+            self.assertTrue(all(len(ln.split("  ")[0]) == 128 for ln in lines))
+            self.assertNotIn("plugin.sig", text)
+
+
 class AgmStamp(unittest.TestCase):
     def test_stamp_keeps_model(self):
         data = open(MODEL, "rb").read()

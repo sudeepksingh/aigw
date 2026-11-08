@@ -70,6 +70,7 @@
 #include <uci.h>
 
 #include "agd.h"
+#include "ag/sign.h"
 
 #define PLUGIN_MAX     32
 #define LIST_MAX       8
@@ -111,6 +112,8 @@ struct plugin {
 	int state;
 	char why[200];
 	int allowed;                        /* you allowed its privileged capabilities */
+	int signed_ok;                      /* signed by a trusted key (plugin.sig): trusted like a package */
+	char signer[17], sig_note[120];
 	int disabled;
 
 	/* process */
@@ -143,12 +146,13 @@ static struct plugin plugins[PLUGIN_MAX];
 
 static void evaluate(struct plugin *p);
 static void stop(struct plugin *p, int state, const char *why);
+static void check_signature(struct plugin *p);
 
 /* ---------- small helpers ---------- */
 
 static int trusted(const struct plugin *p)
 {
-	return p->system || p->allowed;
+	return p->system || p->allowed || p->signed_ok;
 }
 
 static int priv_cap(const char *cap)
@@ -758,6 +762,7 @@ static int start(struct plugin *p)
 		set_state(p, P_FAILED, "user '%s' (plugins.user) does not exist", cfg.plugin_user);
 		return -1;
 	}
+	check_signature(p);                 /* again: the folder may have changed since it was found */
 	/* its own writable directory: downloads, caches; nobody else's plug-in can touch it */
 	state_dir(p, sdir, sizeof(sdir));
 	if ((mkdir(cfg.plugin_state, 0755) && errno != EEXIST) || (mkdir(sdir, 0700) && errno != EEXIST) ||
@@ -1339,6 +1344,125 @@ out:
 	return rc;
 }
 
+/* ---------- signed plug-ins ----------
+ *
+ * plugin.sig in a plug-in folder is a usign signature of the folder's digest:
+ * one line "<sha512 hex>  <relative path>\n" per file, sorted by path, every
+ * file except plugin.sig itself (aigw_cortex sign-plugin makes it). Signed by
+ * a key in models.keys, an added plug-in is trusted like a package. A changed
+ * file breaks the signature: it then runs as any added plug-in. */
+
+#define SIG_FILES     256
+#define SIG_FILE_MAX  (16 * 1024 * 1024)
+
+static int collect(const char *root, const char *rel, char (*paths)[200], int *n, int depth, char *err, size_t en)
+{
+	char dir[600];
+	DIR *d;
+	struct dirent *e;
+	int rc = 0;
+
+	snprintf(dir, sizeof(dir), "%s%s%s", root, *rel ? "/" : "", rel);
+	if (!(d = opendir(dir))) {
+		snprintf(err, en, "cannot read %.150s", dir);
+		return -1;
+	}
+	while (!rc && (e = readdir(d))) {
+		char r[200], full[800];
+		struct stat st;
+
+		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+			continue;
+		if (!*rel && !strcmp(e->d_name, "plugin.sig"))
+			continue;
+		if ((size_t)snprintf(r, sizeof(r), "%s%s%s", rel, *rel ? "/" : "", e->d_name) >= sizeof(r)) {
+			snprintf(err, en, "path too long in the folder");
+			rc = -1;
+			break;
+		}
+		snprintf(full, sizeof(full), "%s/%s", root, r);
+		if (lstat(full, &st)) {
+			rc = -1;
+		} else if (S_ISDIR(st.st_mode) && depth < 4) {
+			rc = collect(root, r, paths, n, depth + 1, err, en);
+		} else if (S_ISREG(st.st_mode) && *n < SIG_FILES) {
+			snprintf(paths[(*n)++], 200, "%s", r);
+		} else {
+			snprintf(err, en, "%.80s: links, special files, deep folders or over %d files can't be signed", r, SIG_FILES);
+			rc = -1;
+		}
+	}
+	closedir(d);
+	return rc;
+}
+
+static int cmp_path(const void *a, const void *b)
+{
+	return strcmp((const char *)a, (const char *)b);
+}
+
+static void check_signature(struct plugin *p)
+{
+	char sig[300], (*paths)[200] = NULL, err[200] = "";
+	char *text = NULL;
+	size_t len = 0, cap = 0;
+	int n = 0, i, ok = -1;
+
+	p->signed_ok = 0;
+	p->signer[0] = p->sig_note[0] = '\0';
+	snprintf(sig, sizeof(sig), "%s/plugin.sig", p->dir);
+	if (p->system || access(sig, F_OK))
+		return;
+	paths = calloc(SIG_FILES, sizeof(*paths));
+	if (!paths || collect(p->dir, "", paths, &n, 0, err, sizeof(err)))
+		goto out;
+	qsort(paths, (size_t)n, sizeof(*paths), cmp_path);
+	for (i = 0; i < n; i++) {
+		char full[600], hex[129];
+		uint8_t h[64], *data;
+		struct stat st;
+		FILE *f;
+		int k;
+
+		snprintf(full, sizeof(full), "%s/%s", p->dir, paths[i]);
+		if (!(f = fopen(full, "rb")) || fstat(fileno(f), &st) || st.st_size > SIG_FILE_MAX) {
+			if (f)
+				fclose(f);
+			snprintf(err, sizeof(err), "%s: unreadable or too big", paths[i]);
+			goto out;
+		}
+		data = malloc((size_t)st.st_size + 1);
+		if (!data || fread(data, 1, (size_t)st.st_size, f) != (size_t)st.st_size) {
+			free(data);
+			fclose(f);
+			snprintf(err, sizeof(err), "%s: read failed", paths[i]);
+			goto out;
+		}
+		fclose(f);
+		ag_sha512(data, (size_t)st.st_size, h);
+		free(data);
+		for (k = 0; k < 64; k++)
+			sprintf(hex + 2 * k, "%02x", h[k]);
+		if (len + 128 + 2 + strlen(paths[i]) + 2 > cap) {
+			char *nb = realloc(text, cap = cap ? cap * 2 : 16384);
+
+			if (!nb)
+				goto out;
+			text = nb;
+		}
+		len += (size_t)sprintf(text + len, "%s  %s\n", hex, paths[i]);
+	}
+	ok = models_verify((const uint8_t *)(text ? text : ""), len, sig, p->signer, err, sizeof(err));
+out:
+	p->signed_ok = ok == 0;
+	if (!p->signed_ok) {
+		snprintf(p->sig_note, sizeof(p->sig_note), "signature not accepted: %.95s", err[0] ? err : "?");
+		AG_INFO("plug-in %s: %s", p->name, p->sig_note);
+	}
+	free(text);
+	free(paths);
+}
+
 /* ---------- discovery ---------- */
 
 static void evaluate(struct plugin *p)
@@ -1449,6 +1573,7 @@ static void scan_dir(const char *dir, int system)
 		} else {
 			int rc = load_manifest(p, err, sizeof(err));
 
+			check_signature(p);
 			if (rc < 0)
 				p->state = P_INVALID;
 			if (rc != 0)
@@ -1729,6 +1854,8 @@ void plugin_blob(struct blob_buf *b, const char *name, const char *only)
 		blobmsg_add_string(b, "why", p->why);
 		blobmsg_add_string(b, "source", p->system ? "package" : "added");
 		blobmsg_add_u8(b, "trusted", (uint8_t)trusted(p));
+		blobmsg_add_string(b, "signed_by", p->signed_ok ? p->signer : "");
+		blobmsg_add_string(b, "signature", p->sig_note);
 		blobmsg_add_string(b, "dir", p->dir);
 		list_blob(b, "emits", &p->emits[0][0], p->n_emits, sizeof(p->emits[0]));
 		list_blob(b, "subscribes", &p->subs[0][0], p->n_subs, sizeof(p->subs[0]));
