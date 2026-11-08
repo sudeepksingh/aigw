@@ -43,7 +43,7 @@ cleanup() {
 	for p in $PIDS; do kill "$p" 2>/dev/null || true; done
 	[ -n "${AGD:-}" ] && kill "$AGD" 2>/dev/null || true
 	sleep 0.3
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

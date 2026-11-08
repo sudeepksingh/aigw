@@ -37,7 +37,7 @@ cleanup() {
 	fi
 	[ -n "$TW_OLD" ] && echo "$TW_OLD" > "$TW" 2>/dev/null || true
 	[ -n "$UDPT_OLD" ] && echo "$UDPT_OLD" > "$UDPT" 2>/dev/null || true
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 fail() { echo "SNI TEST FAIL: $*" >&2; echo "--- logs" >&2; tail -n 60 "$T"/*.log >&2 2>/dev/null || true; exit 1; }

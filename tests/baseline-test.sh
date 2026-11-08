@@ -28,7 +28,7 @@ cleanup() {
 		iptables -D FORWARD -i "abc$R" -j ACCEPT 2>/dev/null || true
 		iptables -D FORWARD -i "abs$R" -j ACCEPT 2>/dev/null || true
 	fi
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

@@ -18,7 +18,7 @@ T=$(mktemp -d)
 PIDS=""
 cleanup() {
 	for p in $PIDS; do kill "$p" 2>/dev/null || true; done
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 fail() { echo "DNS CACHE TEST FAIL: $*" >&2; echo "--- logs" >&2; tail -n 40 "$T"/*.log >&2 2>/dev/null || true; exit 1; }
