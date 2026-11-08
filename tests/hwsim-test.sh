@@ -135,7 +135,13 @@ sleep 0.5
 echo "== agd steers the client to 5 GHz"
 i=0
 until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 5'; do
-	i=$((i + 1)); [ $i -gt 90 ] && fail "client still on 2.4 GHz after 90 s"; sleep 1
+	i=$((i + 1))
+	if [ $i -gt 90 ]; then
+		echo "--- agd's view"; "$BIN/agctl/agctl" wifi || true
+		echo "--- hostapd's station entry"; hostapd_cli -p "$T/run/hostapd" -i "$AP24" all_sta 2>&1 || true
+		fail "client still on 2.4 GHz after 90 s"
+	fi
+	sleep 1
 done
 echo "   moved after ${i}s: $(ip netns exec "$NC" iw dev "$STA" link | grep -E 'freq' | tr -s ' \t' ' ')"
 sleep 20      # agd's check, 15 s after asking
