@@ -9,6 +9,7 @@
 #   plug     2.4 GHz, -40 dBm, 2.4 GHz only         -> never moved
 #   tv       2.4 GHz, -40 dBm, dual, 802.11v, in act.protect -> never moved
 #   stubborn 2.4 GHz, -40 dBm, dual, 802.11v, ignores requests -> left alone after 3 misses
+#   watch    2.4 GHz, -42 dBm, 802.11v, lists no bands -> asked anyway (it may decline), moves to 5 GHz
 #   visitor  joins, then leaves                     -> "arrived", then "left" (presence)
 #
 # Needs root (private ubusd) and python3.
@@ -22,7 +23,7 @@ T=$(mktemp -d)
 PIDS=""
 cleanup() {
 	for p in $PIDS; do kill "$p" 2>/dev/null || true; done
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 fail() { echo "STEER TEST FAIL: $*" >&2; echo "--- logs" >&2; tail -n 60 "$T"/agd.log "$T"/hostapd.log >&2 2>/dev/null || true; exit 1; }
@@ -50,6 +51,7 @@ st = {
     "02:00:00:00:51:05": ["wlan24", -40, -45, True, True, True, now - 100],   # tv (protected)
     "02:00:00:00:51:06": ["wlan24", -40, -45, True, True, False, now - 100],  # stubborn
     "02:00:00:00:51:07": ["wlan24", -60, -66, False, False, True, now - 100], # visitor
+    "02:00:00:00:51:08": ["wlan24", -42, -48, True, None, True, now - 100],   # watch: no bands listed
 }
 deny = {"wlan24": set(), "wlan5": set()}
 socks = {}
@@ -63,8 +65,9 @@ def present(ap):
 def sta(ap, m):
     v = st[m]
     sig = v[1] if ap == "wlan24" else v[2]
+    ops = DUAL if v[4] else "" if v[4] is None else ONLY24
     return "%s\nflags=[AUTH][ASSOC][AUTHORIZED][WMM][HT]\nsignal=%d\nconnected_time=%d\ntx_rate_info=1440\n%s\n%s\n" % (
-        m, sig, int(time.time() - v[6]), BTM if v[3] else NOBTM, DUAL if v[4] else ONLY24)
+        m, sig, int(time.time() - v[6]), BTM if v[3] else NOBTM, ops)
 while True:
     r, _, _ = select.select(list(socks), [], [])
     for s in r:
@@ -175,6 +178,7 @@ want("02:00:00:00:51:03", "2.4", "far device moved down, and not back")
 want("02:00:00:00:51:04", "2.4", "2.4 GHz-only plug untouched")
 want("02:00:00:00:51:05", "2.4", "protected tv untouched")
 want("02:00:00:00:51:06", "2.4", "stubborn device")
+want("02:00:00:00:51:08", "5", "802.11v device that lists no bands, asked anyway")
 if "BSS_TM_REQ 02:00:00:00:51:01" not in hlog: problems.append("no BSS_TM_REQ for the phone")
 if "neighbor=02:aa:00:00:00:05,0x0000000f,115,36,9" not in hlog: problems.append("BSS_TM_REQ without the 5 GHz neighbour")
 if "wlan24 DENY_ACL ADD_MAC 02:00:00:00:51:02" not in hlog: problems.append("laptop not refused on 2.4 GHz")
@@ -190,7 +194,7 @@ if "moved as asked" not in watch or "stayed where it was" not in watch: problems
 if "left" not in watch: problems.append("no 'left' event for the visitor")
 st = r["steering"]
 print("  steering: %d moves asked, %d done" % (st["moves_asked"], st["moves_done"]))
-if not st["dual_band"] or st["moves_done"] != 3: problems.append("steering summary: %s" % st)
+if not st["dual_band"] or st["moves_done"] != 4: problems.append("steering summary: %s" % st)
 for p in problems: print("  -", p)
 sys.exit(1 if problems else 0)
 EOF

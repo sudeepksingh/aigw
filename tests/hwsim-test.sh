@@ -6,7 +6,8 @@
 # (802.11v) to move to 5 GHz, and it does.
 #
 # Needs root, the mac80211_hwsim module (Ubuntu: linux-modules-extra), hostapd,
-# wpa_supplicant, iw. Prints SKIP and succeeds where hwsim is missing (WSL).
+# wpa_supplicant, iw. Prints SKIP and succeeds where hwsim is missing (WSL),
+# unless AIGW_REQUIRE_HWSIM=1 (CI), where a skip is a failure.
 #
 #   sudo tests/hwsim-test.sh [build-dir]
 set -eu
@@ -25,18 +26,21 @@ cleanup() {
 	ip link del "$BR" 2>/dev/null || true
 	sleep 0.5
 	[ "$LOADED" = 1 ] && rmmod mac80211_hwsim 2>/dev/null || true
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 fail() { echo "HWSIM TEST FAIL: $*" >&2; echo "--- logs" >&2; tail -n 40 "$T"/*.log >&2 2>/dev/null || true; exit 1; }
 
+skip() {
+	[ "${AIGW_REQUIRE_HWSIM:-0}" = 1 ] && fail "cannot run here: $* (AIGW_REQUIRE_HWSIM=1)"
+	echo "HWSIM TEST SKIP: $*"
+	exit 0
+}
 [ "$(id -u)" = 0 ] || fail "run as root"
-for t in hostapd wpa_supplicant iw; do command -v $t >/dev/null || { echo "HWSIM TEST SKIP: no $t"; exit 0; }; done
-if lsmod | grep -q '^mac80211_hwsim'; then
-	echo "HWSIM TEST SKIP: mac80211_hwsim already loaded (in use by something else)"; exit 0
-fi
+for t in hostapd wpa_supplicant iw; do command -v $t >/dev/null || skip "no $t"; done
+lsmod | grep -q '^mac80211_hwsim' && skip "mac80211_hwsim already loaded (in use by something else)"
 before=$(ls /sys/class/ieee80211 2>/dev/null || true)
-modprobe mac80211_hwsim radios=3 2>/dev/null || { echo "HWSIM TEST SKIP: no mac80211_hwsim in this kernel"; exit 0; }
+modprobe mac80211_hwsim radios=3 2>/dev/null || skip "no mac80211_hwsim in this kernel"
 LOADED=1
 sleep 1
 phys=""
@@ -48,7 +52,20 @@ set -- $phys
 ifof() { ls "/sys/class/ieee80211/$1/device/net" | head -1; }
 AP5=$(ifof "$1") AP24=$(ifof "$2") STA=$(ifof "$3") STAPHY=$3
 echo "== radios: $AP5 (5 GHz), $AP24 (2.4 GHz), $STA (client)"
+# the kernel reads the regulatory database once; a freshly installed one
+# (wireless-regdb) needs a reload before a country can be set
+iw reg reload 2>/dev/null || true
 iw reg set US 2>/dev/null || true
+n=0
+until iw reg get | grep -q '^country US'; do
+	n=$((n + 1))
+	if [ $n -gt 10 ]; then
+		iw reg get | head -3
+		fail "the kernel did not take the country (regulatory database not loaded: wireless-regdb?)"
+	fi
+	sleep 0.5
+done
+echo "   regulatory: $(iw reg get | grep -m1 '^country')"
 
 echo "== access points from aigw-ap's own configs, in one bridge"
 printf 'SSID=AIGW-HWSIM\nPASSPHRASE=hwsim-test-pass\nCOUNTRY=US\n' > "$T/pc-ap.conf"
@@ -57,8 +74,25 @@ AP="sh $REPO/platform/pc-ap/aigw-ap"
 ip link add "$BR" type bridge
 ip link set "$BR" up
 ip addr add 10.95.0.1/24 dev "$BR"
+# hostapd in the foreground: its whole log stays (with -B, errors after the
+# fork are lost); up = AP-ENABLED in that log within 20 s
+start_hapd() {   # conf log pidfile
+	hostapd -t "$1" > "$2" 2>&1 &
+	echo $! > "$3"
+	n=0
+	while [ $n -lt 40 ]; do
+		grep -q AP-ENABLED "$2" && return 0
+		kill -0 "$(cat "$3")" 2>/dev/null || return 1
+		sleep 0.5; n=$((n + 1))
+	done
+	return 1
+}
+regdump() {
+	echo "--- regulatory"; iw reg get 2>&1 | head -30
+	echo "--- $AP5 channel 36"; iw phy "$(basename "$(readlink -f /sys/class/net/$AP5/phy80211)")" info 2>&1 | grep -E "5180|5200" | head -4
+}
 $AP conf "$AP24" 2.4 6 20 "$BR" > "$T/h24.conf"
-hostapd -B -P "$T/h24.pid" "$T/h24.conf" > "$T/hostapd24.log" 2>&1 || fail "2.4 GHz hostapd did not start"
+start_hapd "$T/h24.conf" "$T/hostapd24.log" "$T/h24.pid" || fail "2.4 GHz hostapd did not start"
 
 echo "== the client joins (only 2.4 GHz is up yet)"
 ip netns add "$NC"
@@ -82,9 +116,14 @@ echo "== the 5 GHz access point comes up"
 w5=""
 for w in 80 40 20; do
 	$AP conf "$AP5" 5 36 $w "$BR" > "$T/h5.conf"
-	if hostapd -B -P "$T/h5.pid" "$T/h5.conf" > "$T/hostapd5.log" 2>&1; then w5=$w; break; fi
+	if start_hapd "$T/h5.conf" "$T/hostapd5-$w.log" "$T/h5.pid"; then w5=$w; break; fi
+	kill "$(cat "$T/h5.pid")" 2>/dev/null || true
+	echo "   5 GHz at $w MHz did not come up: $(grep -iE 'fail|not allowed|could not|error|DFS|NO-IR|disabled' "$T/hostapd5-$w.log" | head -3 | tr '\n' ' ')"
 done
-[ -n "$w5" ] || fail "5 GHz hostapd did not start"
+if [ -z "$w5" ]; then
+	regdump
+	fail "5 GHz hostapd did not start"
+fi
 echo "   5 GHz channel 36, $w5 MHz"
 
 mkdir -p "$T/config"
@@ -131,7 +170,14 @@ sleep 0.5
 echo "== agd steers the client to 5 GHz"
 i=0
 until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 5'; do
-	i=$((i + 1)); [ $i -gt 90 ] && fail "client still on 2.4 GHz after 90 s"; sleep 1
+	i=$((i + 1))
+	if [ $i -gt 90 ]; then
+		echo "--- agd's view"; "$BIN/agctl/agctl" wifi || true
+		echo "--- 5 GHz hostapd"; tail -n 15 "$T/hostapd5-$w5.log"; regdump
+		echo "--- hostapd's station entry"; hostapd_cli -p "$T/run/hostapd" -i "$AP24" all_sta 2>&1 || true
+		fail "client still on 2.4 GHz after 90 s"
+	fi
+	sleep 1
 done
 echo "   moved after ${i}s: $(ip netns exec "$NC" iw dev "$STA" link | grep -E 'freq' | tr -s ' \t' ' ')"
 sleep 20      # agd's check, 15 s after asking

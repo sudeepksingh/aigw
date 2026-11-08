@@ -94,7 +94,7 @@ elif case "$(echo "$CACHE1" | json cache)" in 1|true) false ;; *) true ;; esac; 
 elif grep -q '^PASS dns:' /tmp/aigw-selftest.$$; then
 	h0=$(echo "$CACHE0" | json hits) h1=$(echo "$CACHE1" | json hits)
 	if [ "${h1:-0}" -gt "${h0:-0}" ]; then pass dns-cache "a repeated lookup came from the cache ($(echo "$CACHE1" | json entries) answers kept)"
-	else fail dns-cache "a repeated lookup did not come from the cache"; fi
+	else fail dns-cache "a repeated lookup did not come from the cache ($(echo "$CACHE1" | json uncached_ttl0) answers with TTL 0, $(echo "$CACHE1" | json uncached_other) others not kept)"; fi
 fi
 rm -f /tmp/aigw-selftest.$$
 

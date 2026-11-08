@@ -4,9 +4,11 @@
  * (two radios: a dual-band router, or two adapters on a PC), each device is
  * moved to the band that suits it.
  *
- *   up    on 2.4 GHz, can use 5 GHz, smoothed signal >= wifi.steer_up
- *         (-60 dBm) for wifi.steer_hold seconds: close enough for 5 GHz's
- *         speed
+ *   up    on 2.4 GHz, smoothed signal >= wifi.steer_up (-60 dBm) for
+ *         wifi.steer_hold seconds: close enough for 5 GHz's speed. Only a
+ *         device known to use 5 GHz, or one that takes 802.11v requests
+ *         (many don't list their bands when joining; a device that can't
+ *         move declines, and three declines leave it alone for a day)
  *   down  on 5 GHz, signal <= wifi.steer_down (-75 dBm) for steer_hold:
  *         2.4 GHz reaches further
  *
@@ -193,7 +195,11 @@ void steer_tick(void)
 
 		if (!d->used || !d->wifi_connected || !d->wifi_band || d->steer_check_at)
 			continue;
-		up = d->wifi_band == 2 && d->wifi_dual && d->wifi_sig_avg >= cfg.steer_up && !strcmp(d->wifi_iface, a2->iface);
+		/* 5 GHz-capable as far as seen, or takes 802.11v requests: such a
+		 * device simply declines a move it can't make (a miss), while a
+		 * refusal on its band would cut a 2.4 GHz-only device off */
+		up = d->wifi_band == 2 && (d->wifi_dual || d->wifi_btm) && d->wifi_sig_avg >= cfg.steer_up &&
+		     !strcmp(d->wifi_iface, a2->iface);
 		down = d->wifi_band == 5 && d->wifi_sig_avg && d->wifi_sig_avg <= cfg.steer_down &&
 		       !strcmp(d->wifi_iface, a5->iface);
 		if (!up && !down) {

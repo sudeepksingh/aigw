@@ -29,7 +29,7 @@ cleanup() {
 	for p in $PIDS; do kill "$p" 2>/dev/null || true; done
 	[ -n "${AGD:-}" ] && kill "$AGD" 2>/dev/null || true
 	for n in "$NC" "$NG"; do ip netns del "$n" 2>/dev/null || true; done
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

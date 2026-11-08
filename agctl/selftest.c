@@ -191,9 +191,15 @@ static void check_dns(const struct ag_config *c)
 	}
 	result((m.flags & 0xf) == 0 && m.n_ans > 0, "dns", "%s through agdns: rcode %d, %d address%s", name,
 	       m.flags & 0xf, m.n_ans, m.n_ans == 1 ? "" : "es");
-	if (ask(c, name, (uint16_t)(id + 1), &m2, &us2) > 0)
-		printf("INFO dns-time: %.2f ms, asked again %.2f ms%s\n", us / 1000.0, us2 / 1000.0,
-		       c->dns_cache ? " (from the cache)" : "");
+	/* asked again, twice: an answer upstream marks "don't cache" (TTL 0: its
+	 * own copy expiring right now) is fetched afresh once, then cached */
+	if (ask(c, name, (uint16_t)(id + 1), &m2, &us2) > 0) {
+		uint64_t us3 = 0;
+
+		ask(c, name, (uint16_t)(id + 2), &m2, &us3);
+		printf("INFO dns-time: %.2f ms, asked again %.2f ms and %.2f ms%s\n", us / 1000.0, us2 / 1000.0,
+		       us3 / 1000.0, c->dns_cache ? " (from the cache)" : "");
+	}
 }
 
 int agctl_selftest(void)

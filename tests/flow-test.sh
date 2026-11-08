@@ -31,7 +31,7 @@ cleanup() {
 		iptables -D FORWARD -i "ags$R" -j ACCEPT 2>/dev/null || true
 	fi
 	[ -n "$TW_OLD" ] && echo "$TW_OLD" > "$TW" 2>/dev/null || true
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 

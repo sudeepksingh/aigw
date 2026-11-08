@@ -247,6 +247,8 @@ static void show_dnscache(struct ubus_request *req, int type, struct blob_attr *
 	printf("  prefetched    %llu names refreshed before they expired\n", (unsigned long long)fnum(msg, "prefetches"));
 	printf("  stale         %llu expired answers served while upstream failed\n",
 	       (unsigned long long)fnum(msg, "stale"));
+	printf("  not kept      %llu answers marked \"don't cache\" (TTL 0), %llu others (errors, truncated)\n",
+	       (unsigned long long)fnum(msg, "uncached_ttl0"), (unsigned long long)fnum(msg, "uncached_other"));
 	printf("  blocked       %llu   timeouts %llu   dropped %llu\n", (unsigned long long)fnum(msg, "blocked"),
 	       (unsigned long long)fnum(msg, "timeouts"), (unsigned long long)fnum(msg, "dropped"));
 }

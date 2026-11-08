@@ -49,9 +49,14 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/steer-test.sh build
       - name: Simulated radios (mac80211_hwsim, hostapd, wpa_supplicant)
         run: |
-          sudo apt-get install -y -qq --no-install-recommends hostapd wpasupplicant iw wireless-regdb \
-            "linux-modules-extra-$(uname -r)" || true
-          sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/hwsim-test.sh build
+          sudo apt-get install -y -qq --no-install-recommends hostapd wpasupplicant iw wireless-regdb
+          # mac80211_hwsim lives in the kernel's extra modules package
+          if ! modinfo mac80211_hwsim >/dev/null 2>&1; then
+            sudo apt-get install -y -qq --no-install-recommends "linux-modules-extra-$(uname -r)" ||
+              echo "no linux-modules-extra-$(uname -r) for this kernel"
+          fi
+          modinfo -F filename mac80211_hwsim
+          sudo AIGW_REQUIRE_HWSIM=1 PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH" tests/hwsim-test.sh build
       - name: Shell syntax
         run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh; do sh -n "$f"; done
 

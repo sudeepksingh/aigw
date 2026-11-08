@@ -43,7 +43,7 @@ cleanup() {
 	for p in $PIDS; do kill "$p" 2>/dev/null || true; done
 	[ -n "${AGD:-}" ] && kill "$AGD" 2>/dev/null || true
 	sleep 0.3
-	rm -rf "$T"
+	sleep 0.3; rm -rf "$T" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
@@ -167,8 +167,9 @@ pid=$(agctl -j plugin bridge | python3 -c "import json,sys; print(json.load(sys.
 [ "$(ps -o user= -p "$pid" | tr -d ' ')" = nobody ] || fail "bridge does not run as nobody"
 [ "$(stat -c '%U %a' "$T/pstate/bridge")" = "nobody 700" ] || fail "bridge state dir should be nobody's, mode 700"
 [ "$(stat -c '%a' "$T/pstate/bridge/curl.conf")" = 600 ] || fail "curl.conf (token) should be mode 600"
-grep -q "$TOKEN" "$T/pstate/bridge/curl.conf" || fail "token not in curl.conf"
-ps -o args= -p "$pid" | grep -q "$TOKEN" && fail "token visible on a command line"
+# -F --: a token is URL-safe base64 and may start with "-"
+grep -qF -- "$TOKEN" "$T/pstate/bridge/curl.conf" || fail "token not in curl.conf"
+ps -o args= -p "$pid" | grep -qF -- "$TOKEN" && fail "token visible on a command line"
 
 echo "== the gateway checks in: state, not traffic"
 cx_wait 15 "s.gateway('home')['last_seen'] > 0" "no report reached cortex"

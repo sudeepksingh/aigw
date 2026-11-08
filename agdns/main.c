@@ -96,6 +96,7 @@ static int tcp_children;
 static struct {
 	uint64_t queries, answers, dropped, timeouts, tcp, blocked;
 	uint64_t hits, misses, prefetches, stale, evictions;
+	uint64_t uncached_ttl0, uncached_other;    /* answers not kept, and why */
 	uint64_t hit_us, upstream_us, upstream_n;  /* latency sums, for the averages */
 } stats;
 static int stale_waiting;
@@ -418,15 +419,27 @@ static void cache_store(const uint8_t *r, size_t n, uint8_t kflags)
 	uint32_t h;
 	long ttl;
 
-	if (!ctab || n > CACHE_MAX_LEN || ag_dns_parse(r, n, &m) < 0 || m.qdcount != 1 || !m.qend ||
-	    (m.flags & 0x0200) || !AG_DNS_IS_RESPONSE(m.flags))
+	if (!ctab)
 		return;
+	if (n > CACHE_MAX_LEN || ag_dns_parse(r, n, &m) < 0 || m.qdcount != 1 || !m.qend ||
+	    (m.flags & 0x0200) || !AG_DNS_IS_RESPONSE(m.flags)) {
+		stats.uncached_other++;
+		return;
+	}
 	rcode = AG_DNS_RCODE(m.flags);
-	if (rcode != 0 && rcode != 3)
+	if (rcode != 0 && rcode != 3) {
+		stats.uncached_other++;
 		return;
+	}
 	ttl = ag_dns_ttls((uint8_t *)r, n, 0, 0); /* age 0: reads only */
-	if (ttl <= 0)
-		return; /* nothing to go by, or "don't cache" */
+	if (ttl <= 0) {
+		/* "don't cache" (TTL 0, e.g. an upstream cache's copy expiring now), or no records */
+		if (ttl == 0)
+			stats.uncached_ttl0++;
+		else
+			stats.uncached_other++;
+		return;
+	}
 	if ((rcode == 3 || m.ancount == 0) && ttl > NEG_MAX_TTL)
 		ttl = NEG_MAX_TTL;
 	if (ttl > cfg.dns_max_ttl)
@@ -1051,6 +1064,8 @@ static int m_stats(struct ubus_context *ctx, struct ubus_object *obj, struct ubu
 	blobmsg_add_u64(&sb, "prefetches", stats.prefetches);
 	blobmsg_add_u64(&sb, "stale", stats.stale);
 	blobmsg_add_u64(&sb, "evictions", stats.evictions);
+	blobmsg_add_u64(&sb, "uncached_ttl0", stats.uncached_ttl0);
+	blobmsg_add_u64(&sb, "uncached_other", stats.uncached_other);
 	blobmsg_add_u64(&sb, "blocked", stats.blocked);
 	blobmsg_add_u64(&sb, "timeouts", stats.timeouts);
 	blobmsg_add_u64(&sb, "dropped", stats.dropped);
