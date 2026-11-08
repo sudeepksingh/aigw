@@ -1,16 +1,19 @@
 <#
 .SYNOPSIS
-  Runs AIGW "PC as AP" on Windows through WSL2: hands the USB Wi-Fi adapter to
-  WSL, keeps WSL running, and starts the access point.
+  Runs AIGW "PC as AP" on Windows through WSL2: hands the USB Wi-Fi adapters to
+  WSL (one, or two for a dual-band access point), keeps WSL running, and starts
+  the access point.
 
 .EXAMPLE
-  aigw-wsl.cmd              # start
-  aigw-wsl.cmd -Stop        # stop and give the adapter back to Windows
-  aigw-wsl.cmd -BusId 1-6   # pick the USB device yourself (see: usbipd list)
+  aigw-wsl.cmd                  # start
+  aigw-wsl.cmd -Stop            # stop and give the adapters back to Windows
+  aigw-wsl.cmd -BusId 1-6,1-7   # pick the USB devices yourself (see: usbipd list)
 
 .NOTES
   Needs usbipd-win (winget install usbipd) and AIGW installed inside WSL
-  (sudo ./install.sh in the cloned repository).
+  (sudo ./install.sh in the cloned repository). Sharing a new adapter asks for
+  administrator approval once; after that `sudo aigw-ap up` inside WSL also
+  attaches the adapters by itself.
 #>
 param(
     [switch]$Stop,
@@ -36,28 +39,44 @@ function Invoke-Wsl([string]$Command) {
     & wsl.exe @WslArgs -u root -- sh -c $Command
 }
 
-function Find-Adapter {
-    $lines = & $Usbipd list 2>$null | Where-Object { $_ -match '^\s*\d+-\d+' }
-    if ($BusId) { return $lines | Where-Object { $_ -match "^\s*$([regex]::Escape($BusId))\s" } | Select-Object -First 1 }
-    return $lines | Where-Object { $_ -match 'Wireless|WLAN|Wi-?Fi|802\.11' } | Select-Object -First 1
+# Every Wi-Fi adapter usbipd lists (or the bus ids given), as their list lines.
+function Find-Adapters {
+    $lines = & $Usbipd list 2>$null | Where-Object { $_ -match '^\s*\d+-\d+\s' }
+    if ($BusId) {
+        $want = $BusId -split '[,\s]+' | Where-Object { $_ }
+        return @($lines | Where-Object { $want -contains ($_.ToString().Trim() -split '\s+')[0] })
+    }
+    return @($lines | Where-Object { $_ -match 'Wireless|WLAN|Wi-?Fi|802\.11' })
 }
 
-$line = Find-Adapter
-if (-not $line) {
+function Bus-Of($line) { return ($line.ToString().Trim() -split '\s+')[0] }
+
+$adapters = Find-Adapters
+if ($adapters.Count -eq 0) {
     throw "No USB Wi-Fi adapter found. Plug one in, or pass -BusId (see 'usbipd list')."
 }
-$bus = ($line.ToString().Trim() -split '\s+')[0]
 
 if ($Stop) {
     Invoke-Wsl "aigw-ap down; pkill -f '^aigw-keepalive'" | Out-Host
-    if ($line -match 'Attached') { & $Usbipd detach --busid $bus 2>$null }
-    Write-Host "AIGW stopped; adapter $bus returned to Windows."
+    foreach ($line in $adapters) {
+        if ($line -match 'Attached') { & $Usbipd detach --busid (Bus-Of $line) 2>$null }
+    }
+    Write-Host "AIGW stopped; adapters returned to Windows."
     return
 }
 
-if ($line -match 'Not shared') {
+# Share new adapters with WSL (administrator approval, once per adapter). A
+# USB filter driver such as USBPcap makes a plain bind fail; then --force.
+foreach ($line in $adapters) {
+    if ($line -notmatch 'Not shared') { continue }
+    $bus = Bus-Of $line
     Write-Host "Sharing adapter $bus with WSL (one time, needs administrator approval)..."
     Start-Process $Usbipd -ArgumentList "bind --busid $bus" -Verb RunAs -Wait
+    $now = Find-Adapters | Where-Object { (Bus-Of $_) -eq $bus }
+    if ($now -match 'Not shared') {
+        Write-Host "Plain sharing was refused (a USB filter driver?); sharing with --force..."
+        Start-Process $Usbipd -ArgumentList "bind --force --busid $bus" -Verb RunAs -Wait
+    }
 }
 
 # WSL shuts the distribution down when no session is open; keep one alive.
@@ -68,11 +87,15 @@ if ($running -ne "yes") {
     Start-Sleep 3
 }
 
-if (-not ((Find-Adapter) -match 'Attached')) {
+$attached = $false
+foreach ($line in Find-Adapters) {
+    if ($line -match 'Attached' -or $line -match 'Not shared') { continue }
+    $bus = Bus-Of $line
     Write-Host "Attaching adapter $bus to WSL..."
     & $Usbipd attach --wsl --busid $bus 2>$null
-    Start-Sleep 4
+    $attached = $true
 }
+if ($attached) { Start-Sleep 4 }
 
 Invoke-Wsl "aigw-ap up" | Out-Host
 if ($LASTEXITCODE -ne 0) { throw "aigw-ap up failed (see messages above)." }

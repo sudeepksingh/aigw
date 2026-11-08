@@ -121,6 +121,22 @@ config wifi 'wifi'
 	# option keys '/etc/aigw/wifi-keys'
 	# an unused key expires after this many seconds
 	# option key_ttl '86400'
+	# Band steering: with a 2.4 GHz and a 5 GHz access point with the same name
+	# (a dual-band router, or BAND=dual on a PC with two adapters), move each
+	# device to the band that suits it. Devices with 802.11v are asked to move;
+	# others (steer_kick) are refused on their band for 30 s and disconnected.
+	option steer '1'
+	# to 5 GHz at this signal or better, to 2.4 GHz at this signal or worse (dBm)
+	option steer_up '-60'
+	option steer_down '-75'
+	# seconds the signal must stay past the line; seconds between moves of one
+	# device; most moves a minute in the home. Devices in act.protect are never moved.
+	option steer_hold '30'
+	option steer_gap '300'
+	option steer_rate '2'
+	option steer_kick '1'
+	# a device unseen this long has left home (phones drop Wi-Fi to save power)
+	option presence_away '600'
 
 config plugins 'plugins'
 	# Plug-ins wire themselves in, no configuration needed: packages put them

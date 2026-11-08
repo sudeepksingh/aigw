@@ -11,7 +11,7 @@
 				"ag.plugin": [ "list" ],
 				"ag.model": [ "list" ],
 				"ag.remote": [ "list" ],
-				"ag.wifi": [ "keys" ]
+				"ag.wifi": [ "keys", "radios" ]
 			}
 		},
 		"write": {

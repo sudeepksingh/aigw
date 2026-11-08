@@ -130,6 +130,13 @@ static int in_words(const char *list, const char *s)
 	return 0;
 }
 
+/* the act.protect list: devices AIGW never acts on (also never band-steers) */
+int act_is_protected(const struct device *d)
+{
+	return in_words(cfg.act_protect, d->mac) || in_words(cfg.act_protect, d->ip) ||
+	       in_words(cfg.act_protect, d->hostname);
+}
+
 static struct decision *dec_get(uint32_t id)
 {
 	int i;

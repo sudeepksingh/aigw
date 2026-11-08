@@ -10,7 +10,7 @@
 set -eu
 
 CONF=${AIGW_PCAP_CONF:-/etc/aigw/pc-ap.conf}
-RUN=/run/aigw
+RUN=${AIGW_RUN:-/run/aigw}
 STATE=/var/lib/aigw
 FW=/mnt/wsl/firmware
 SERVICES="aigw-ubusd aigw-agd aigw-agdns"
@@ -29,6 +29,11 @@ COUNTRY=${COUNTRY:-}
 BAND=${BAND:-2.4}
 CHANNEL=${CHANNEL:-6}
 WIDTH=${WIDTH:-auto}
+# BAND=dual: two adapters, one access point per band, one name (band steering)
+CHANNEL_24=${CHANNEL_24:-6}
+WIDTH_24=${WIDTH_24:-20}
+AP_IFACE_24=${AP_IFACE_24:-auto}
+BRIDGE=aigwbr0
 SUBNET=${SUBNET:-10.42.0}
 UPLINK=${UPLINK:-auto}
 
@@ -56,10 +61,12 @@ supports_ap() {
 }
 
 # WSL2 sees a USB adapter only after Windows hands it over (usbipd-win).
-# WSL can run Windows programs, so do it from here: find the adapter in
-# `usbipd list` (USB_BUSID in the config, or the first Wi-Fi device) and
-# attach it. Sharing it (bind) needs administrator rights once; that stays
-# with aigw-wsl.cmd. Never fatal: without an adapter, `up` explains.
+# WSL can run Windows programs, so do it from here: find the adapters in
+# `usbipd list` (USB_BUSID in the config: one bus id or several, or every
+# Wi-Fi device) and attach them. Sharing one (bind) needs administrator
+# rights once; that stays with aigw-wsl.cmd. Never fatal: without an
+# adapter, `up` explains. WSL_ADAPTERS = how many Wi-Fi adapters WSL has.
+WSL_ADAPTERS=0
 usbipd_exe() {
 	for u in "$(command -v usbipd.exe 2>/dev/null)" "/mnt/c/Program Files/usbipd-win/usbipd.exe"; do
 		[ -n "$u" ] && [ -x "$u" ] && { echo "$u"; return 0; }
@@ -69,42 +76,58 @@ usbipd_exe() {
 
 wsl_attach() {
 	is_wsl || return 0
-	[ -n "$(wifi_ifaces)" ] && return 0
 	u=$(usbipd_exe) || { say "usbipd-win not found on Windows (winget install usbipd)"; return 0; }
 	lines=$("$u" list 2>/dev/null | tr -d '\r' | sed -n '/^Connected:/,/^$/p' | grep -E '^[0-9]+-[0-9]+ ')
 	if [ -n "${USB_BUSID:-}" ]; then
-		line=$(echo "$lines" | grep -E "^$USB_BUSID " | head -1)
+		pick=""
+		for b in $USB_BUSID; do pick="$pick$(echo "$lines" | grep -E "^$b ")
+"; done
 	else
-		line=$(echo "$lines" | grep -iE 'wireless|wlan|wi-?fi|802\.11' | head -1)
+		pick=$(echo "$lines" | grep -iE 'wireless|wlan|wi-?fi|802\.11')
 	fi
-	[ -n "$line" ] || { say "no USB Wi-Fi adapter plugged into Windows"; return 0; }
-	bus=${line%% *}
-	vidpid=$(echo "$line" | awk '{print $2}')
-	case $line in
-	*"Not shared"*)
-		say "adapter $bus is not shared with WSL yet: run platform\\pc-ap\\wsl\\aigw-wsl.cmd once from Windows (asks for administrator approval)"
-		return 0 ;;
-	*Attached*)
-		;;
-	*)
-		say "attaching USB adapter $bus to WSL"
-		"$u" attach --wsl --busid "$bus" >/dev/null 2>&1 || say "usbipd could not attach $bus"
-		;;
-	esac
-	# wait for the USB device itself; the Wi-Fi interface follows once the
-	# driver finds its firmware (below)
+	echo "$pick" | grep -q . || { say "no USB Wi-Fi adapter plugged into Windows"; return 0; }
+	ids=""
+	echo "$pick" | grep . > "$RUN/usb-adapters"
+	while read -r line; do
+		bus=${line%% *}
+		ids="$ids $(echo "$line" | awk '{print $2}')"
+		case $line in
+		*"Not shared"*)
+			say "adapter $bus is not shared with WSL yet: run platform\\pc-ap\\wsl\\aigw-wsl.cmd once from Windows (asks for administrator approval)"
+			continue ;;
+		*Attached*)
+			;;
+		*)
+			say "attaching USB adapter $bus to WSL"
+			"$u" attach --wsl --busid "$bus" >/dev/null 2>&1 || { say "usbipd could not attach $bus"; continue; }
+			;;
+		esac
+		WSL_ADAPTERS=$((WSL_ADAPTERS + 1))
+	done < "$RUN/usb-adapters"
+	# wait for the USB devices themselves; the Wi-Fi interfaces follow once
+	# the driver finds its firmware (below)
 	i=0
-	while ! usb_present "$vidpid" && [ $i -lt 20 ]; do
+	while [ "$(usb_count $ids)" -lt "$WSL_ADAPTERS" ] && [ $i -lt 20 ]; do
 		sleep 0.5
 		i=$((i + 1))
 	done
 }
 
-usb_present() {
+# USB devices with any of these vendor:product ids (two identical adapters count twice)
+usb_count() {
+	n=0
 	for d in /sys/bus/usb/devices/*; do
-		[ -f "$d/idVendor" ] && [ "$(cat "$d/idVendor"):$(cat "$d/idProduct")" = "$1" ] && return 0
+		[ -f "$d/idVendor" ] || continue
+		id="$(cat "$d/idVendor"):$(cat "$d/idProduct")"
+		for want in "$@"; do
+			[ "$id" = "$want" ] && { n=$((n + 1)); break; }
+		done
 	done
-	return 1
+	echo "$n"
+}
+
+wifi_count() {
+	wifi_ifaces | grep -c . || true
 }
 
 # WSL2's kernel cannot read the distro's /lib/firmware (or compressed
@@ -131,7 +154,9 @@ wsl_prepare() {
 		done
 	done
 	printf '%s' "$FW" > /sys/module/firmware_class/parameters/path
-	if [ -z "$(wifi_ifaces)" ]; then
+	# fewer Wi-Fi interfaces than adapters: the driver gave up on firmware
+	# before the path above existed; load it again
+	if [ "$(wifi_count)" -eq 0 ] || [ "$(wifi_count)" -lt "$WSL_ADAPTERS" ]; then
 		for m in rtw88_8821cu rtw88_8822bu rtw88_8822cu rtw88_8723du mt7921u mt76x2u mt76x0u rtl8xxxu ath9k_htc; do
 			if lsmod | grep -q "^$m "; then
 				modprobe -r "$m" 2>/dev/null || true
@@ -139,7 +164,7 @@ wsl_prepare() {
 			fi
 		done
 		i=0
-		while [ -z "$(wifi_ifaces)" ] && [ $i -lt 20 ]; do
+		while { [ "$(wifi_count)" -eq 0 ] || [ "$(wifi_count)" -lt "$WSL_ADAPTERS" ]; } && [ $i -lt 20 ]; do
 			sleep 0.5
 			i=$((i + 1))
 		done
@@ -148,47 +173,47 @@ wsl_prepare() {
 	iw reg reload 2>/dev/null || true
 }
 
-pick_iface() {
+# Access-point capable adapters, the internet connection ($1) excepted.
+# The ones named in AP_IFACE / AP_IFACE_24 come first, in that order.
+ap_ifaces() {
 	up_if=$1
-	if [ "$AP_IFACE" != auto ]; then
-		echo "$AP_IFACE"
-		return
-	fi
-	for i in $(wifi_ifaces); do
-		[ "$i" = "$up_if" ] && continue
-		if supports_ap "$i"; then
-			echo "$i"
-			return
-		fi
+	for i in "$AP_IFACE" "$AP_IFACE_24"; do
+		[ "$i" != auto ] && [ "$i" != "$up_if" ] && [ -e "/sys/class/net/$i" ] && echo "$i"
 	done
+	for i in $(wifi_ifaces); do
+		[ "$i" = "$up_if" ] || [ "$i" = "$AP_IFACE" ] || [ "$i" = "$AP_IFACE_24" ] && continue
+		supports_ap "$i" && echo "$i"
+	done
+	return 0
 }
 
-# Channel width settings for hostapd (width $1: 20, 40 or 80 MHz). 40 MHz
-# pairs the channel with its neighbour (HT40+ below, HT40- above); 80 MHz
-# (5 GHz, 802.11ac) uses the block of four channels the channel is in.
+# Channel width settings for hostapd: width $1 (20, 40 or 80 MHz) on band
+# $2 channel $3. 40 MHz pairs the channel with its neighbour (HT40+ below,
+# HT40- above); 80 MHz (5 GHz, 802.11ac) uses its block of four channels.
 width_lines() {
-	w=$1
+	w=$1 band=$2 ch=$3
 	[ "$w" = 20 ] && return 0
-	if [ "$BAND" = 5 ]; then
-		if [ "$CHANNEL" -ge 149 ]; then base=149; else base=36; fi
-		if [ $(( (CHANNEL - base) / 4 % 2 )) = 0 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
+	if [ "$band" = 5 ]; then
+		if [ "$ch" -ge 149 ]; then base=149; else base=36; fi
+		if [ $(( (ch - base) / 4 % 2 )) = 0 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
 		if [ "$w" = 80 ]; then
 			echo "vht_oper_chwidth=1"
-			echo "vht_oper_centr_freq_seg0_idx=$(( base + (CHANNEL - base) / 16 * 16 + 6 ))"
+			echo "vht_oper_centr_freq_seg0_idx=$(( base + (ch - base) / 16 * 16 + 6 ))"
 		fi
 	else
-		if [ "$CHANNEL" -le 7 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
+		if [ "$ch" -le 7 ]; then echo "ht_capab=[HT40+]"; else echo "ht_capab=[HT40-]"; fi
 	fi
 }
 
-# The widths to try, widest first: what WIDTH asks for, then narrower ones.
+# The widths to try on band $1 channel $2, widest first: what $3 asks for
+# (20, 40, 80 or auto), then narrower ones.
 widths() {
-	w=$WIDTH
+	band=$1 ch=$2 w=$3
 	if [ "$w" = auto ]; then
-		if [ "$BAND" = 5 ]; then w=80; else w=20; fi
+		if [ "$band" = 5 ]; then w=80; else w=20; fi
 	fi
-	[ "$BAND" = 5 ] || [ "$w" != 80 ] || w=40       # 80 MHz is 5 GHz only
-	[ "$BAND" = 5 ] && [ "$CHANNEL" = 165 ] && w=20  # channel 165 has no partner
+	[ "$band" = 5 ] || [ "$w" != 80 ] || w=40       # 80 MHz is 5 GHz only
+	[ "$band" = 5 ] && [ "$ch" = 165 ] && w=20      # channel 165 has no partner
 	case $w in
 	80) echo "80 40 20" ;;
 	40) echo "40 20" ;;
@@ -196,34 +221,38 @@ widths() {
 	esac
 }
 
+# hostapd config for one access point: interface $1, width $2, band $3,
+# channel $4, written to $5; $6 = bridge to join ("" = none)
 write_hostapd() {
-	iface=$1
-	width=${2:-20}
-	if [ "$BAND" = 5 ]; then
+	iface=$1 width=$2 band=$3 ch=$4 out=$5 br=$6
+	if [ "$band" = 5 ]; then
 		[ -n "$COUNTRY" ] || die "5 GHz needs COUNTRY set in $CONF"
 		hw_mode=a
 	else
 		hw_mode=g
 	fi
 	# per-device keys (agctl key add): hostapd refuses to start if the file is missing
-	keys=$(uci -q get aigw.wifi.keys || echo /etc/aigw/wifi-keys)
+	keys=${AIGW_WIFI_KEYS:-$(uci -q get aigw.wifi.keys || echo /etc/aigw/wifi-keys)}
 	umask 077
 	mkdir -p "$(dirname "$keys")"
 	[ -f "$keys" ] || : > "$keys"
 	{
 		echo "interface=$iface"
+		[ -n "$br" ] && echo "bridge=$br"
 		echo "driver=nl80211"
 		echo "ctrl_interface=$RUN/hostapd"
 		echo "ssid=$SSID"
 		echo "hw_mode=$hw_mode"
-		echo "channel=$CHANNEL"
+		echo "channel=$ch"
 		if [ -n "$COUNTRY" ]; then
 			echo "country_code=$COUNTRY"
 			echo "ieee80211d=1"
 		fi
 		echo "ieee80211n=1"
-		if [ "$BAND" = 5 ]; then echo "ieee80211ac=1"; fi
-		width_lines "$width"
+		if [ "$band" = 5 ]; then echo "ieee80211ac=1"; fi
+		width_lines "$width" "$band" "$ch"
+		# 802.11v: devices can be asked to move to the other band (agd band steering)
+		echo "bss_transition=1"
 		echo "wmm_enabled=1"
 		echo "auth_algs=1"
 		echo "wpa=2"
@@ -231,8 +260,33 @@ write_hostapd() {
 		echo "rsn_pairwise=CCMP"
 		echo "wpa_passphrase=$PASSPHRASE"
 		echo "wpa_psk_file=$keys"
-	} > "$RUN/hostapd.conf"
+	} > "$out"
 	umask 022
+}
+
+# One access point: interface $1, band $2, channel $3, width wanted $4,
+# bridge $5. Tries narrower widths when hostapd refuses one; prints the
+# width it runs at, or nothing.
+start_ap() {
+	iface=$1 band=$2 ch=$3 want=$4 br=$5
+	for w in $(widths "$band" "$ch" "$want"); do
+		write_hostapd "$iface" "$w" "$band" "$ch" "$RUN/hostapd-$iface.conf" "$br"
+		if hostapd -B -P "$RUN/hostapd-$iface.pid" "$RUN/hostapd-$iface.conf" > "$RUN/hostapd-$iface.log" 2>&1; then
+			echo "$w"
+			return 0
+		fi
+		kill_pidfile "$RUN/hostapd-$iface.pid"
+		say "hostapd refused $w MHz on channel $ch ($iface); trying narrower" >&2
+	done
+	cat "$RUN/hostapd-$iface.log" >&2
+	return 0
+}
+
+stop_aps() {
+	for p in "$RUN"/hostapd*.pid; do
+		[ -f "$p" ] && kill_pidfile "$p"
+	done
+	return 0
 }
 
 kill_pidfile() {
@@ -270,40 +324,65 @@ up() {
 
 	up_if=$(uplink_iface)
 	[ -n "$up_if" ] || die "no internet connection found (no default route)"
-	iface=$(pick_iface "$up_if")
-	[ -n "$iface" ] || die "no Wi-Fi adapter with AP mode found.$(is_wsl && echo " On WSL: is the USB adapter plugged in and shared? (usbipd list; platform/pc-ap/wsl/aigw-wsl.cmd shares it once)")"
-	[ -e "/sys/class/net/$iface" ] || die "interface $iface not found"
-	[ "$iface" != "$up_if" ] || die "$iface is your internet connection; set AP_IFACE to another adapter in $CONF"
+	set -- $(ap_ifaces "$up_if")
+	[ $# -ge 1 ] || die "no Wi-Fi adapter with AP mode found.$(is_wsl && echo " On WSL: is the USB adapter plugged in and shared? (usbipd list; platform/pc-ap/wsl/aigw-wsl.cmd shares it once)")"
+	[ -e "/sys/class/net/$1" ] || die "interface $1 not found"
+	[ "$1" != "$up_if" ] || die "$1 is your internet connection; set AP_IFACE to another adapter in $CONF"
 	[ ${#PASSPHRASE} -ge 8 ] || die "PASSPHRASE must be 8-63 characters ($CONF)"
 	for t in hostapd dnsmasq nft iw; do command -v $t >/dev/null || die "$t not installed"; done
 
-	# take the adapter away from other Wi-Fi managers
-	if command -v nmcli >/dev/null; then nmcli device set "$iface" managed no 2>/dev/null || true; fi
+	# what runs where: one band on the first adapter, or both bands on two
+	mode=$BAND ch5=$CHANNEL
+	if [ "$BAND" = dual ]; then
+		if [ $# -lt 2 ]; then
+			say "BAND=dual needs two Wi-Fi adapters; found one ($1): running 5 GHz only"
+			mode=5
+		fi
+		[ "$ch5" -ge 36 ] 2>/dev/null || ch5=36   # CHANNEL may still hold a 2.4 GHz channel
+	fi
+	iface=$1 iface24=""
+	[ "$mode" = dual ] && iface24=$2
+
+	# take the adapters away from other Wi-Fi managers
+	for i in $iface $iface24; do
+		if command -v nmcli >/dev/null; then nmcli device set "$i" managed no 2>/dev/null || true; fi
+	done
 	[ -n "$COUNTRY" ] && iw reg set "$COUNTRY" 2>/dev/null || true
 
-	kill_pidfile "$RUN/hostapd.pid"
+	stop_aps
 	kill_pidfile "$RUN/dnsmasq.pid"
-	ip addr flush dev "$iface"
-	ip addr add "$SUBNET.1/24" dev "$iface"
+	ip link del "$BRIDGE" 2>/dev/null || true
+	for i in $iface $iface24; do ip addr flush dev "$i"; done
 
-	started=""
-	for w in $(widths); do
-		write_hostapd "$iface" "$w"
-		if hostapd -B -P "$RUN/hostapd.pid" "$RUN/hostapd.conf" > "$RUN/hostapd.log" 2>&1; then
-			started=$w
-			break
+	if [ "$mode" = dual ]; then
+		# both access points in one bridge: one network, so a device keeps its
+		# address when it moves between bands
+		lan_if=$BRIDGE
+		ip link add "$BRIDGE" type bridge
+		ip link set "$BRIDGE" up
+		ip addr add "$SUBNET.1/24" dev "$BRIDGE"
+		w5=$(start_ap "$iface" 5 "$ch5" "$WIDTH" "$BRIDGE")
+		[ -n "$w5" ] || die "hostapd could not start the 5 GHz access point on $iface"
+		w24=$(start_ap "$iface24" 2.4 "$CHANNEL_24" "$WIDTH_24" "$BRIDGE")
+		if [ -z "$w24" ]; then
+			stop_aps
+			die "hostapd could not start the 2.4 GHz access point on $iface24"
 		fi
-		kill_pidfile "$RUN/hostapd.pid"
-		say "hostapd refused $w MHz on channel $CHANNEL; trying narrower"
-	done
-	if [ -z "$started" ]; then
-		cat "$RUN/hostapd.log" >&2
-		die "hostapd could not start the access point on $iface"
+		ip link set "$iface" up
+		ip link set "$iface24" up
+		desc="$iface 5 GHz channel $ch5 ($w5 MHz) + $iface24 2.4 GHz channel $CHANNEL_24 ($w24 MHz), band steering"
+	else
+		lan_if=$iface
+		ip addr add "$SUBNET.1/24" dev "$iface"
+		chan=$CHANNEL
+		[ "$mode" = 5 ] && chan=$ch5
+		w=$(start_ap "$iface" "$mode" "$chan" "$WIDTH" "")
+		[ -n "$w" ] || die "hostapd could not start the access point on $iface"
+		ip link set "$iface" up
+		desc="$iface, $mode GHz channel $chan, $w MHz wide"
 	fi
-	echo "$started" > "$RUN/width"
-	ip link set "$iface" up
 
-	dnsmasq --conf-file=/dev/null --port=0 --interface="$iface" --bind-interfaces \
+	dnsmasq --conf-file=/dev/null --port=0 --interface="$lan_if" --bind-interfaces \
 		--except-interface=lo --dhcp-authoritative \
 		--dhcp-range="$SUBNET.20,$SUBNET.250,255.255.255.0,12h" \
 		--dhcp-option=option:router,"$SUBNET.1" \
@@ -328,9 +407,10 @@ table ip aigw_nat {
 EOF
 
 	uci -q delete aigw.lan.iface || true
-	uci add_list aigw.lan.iface="$iface"
+	uci add_list aigw.lan.iface="$lan_if"
 	uci commit aigw
-	echo "$iface" > "$RUN/iface"
+	echo "$lan_if" > "$RUN/iface"
+	echo "$iface $iface24" > "$RUN/radios"
 
 	start_services
 	sleep 1
@@ -338,7 +418,7 @@ EOF
 
 	say "AIGW access point is up"
 	say "  Wi-Fi     $SSID  (password in $CONF)"
-	say "  adapter   $iface, $BAND GHz channel $CHANNEL, $started MHz wide"
+	say "  adapter   $desc"
 	say "  clients   $SUBNET.20-250, internet via $up_if"
 	say "Watch it:  agctl watch all   |   agctl devices   |   sudo aigw-ap status"
 }
@@ -347,14 +427,14 @@ down() {
 	aigw-nft remove 2>/dev/null || true
 	stop_services
 	kill_pidfile "$RUN/dnsmasq.pid"
-	kill_pidfile "$RUN/hostapd.pid"
+	stop_aps
 	nft delete table ip aigw_nat 2>/dev/null || true
-	if [ -f "$RUN/iface" ]; then
-		iface=$(cat "$RUN/iface")
-		ip addr flush dev "$iface" 2>/dev/null || true
-		ip link set "$iface" down 2>/dev/null || true
-		rm -f "$RUN/iface"
-	fi
+	for i in $(cat "$RUN/radios" 2>/dev/null) $(cat "$RUN/iface" 2>/dev/null); do
+		ip addr flush dev "$i" 2>/dev/null || true
+		ip link set "$i" down 2>/dev/null || true
+	done
+	ip link del "$BRIDGE" 2>/dev/null || true
+	rm -f "$RUN/iface" "$RUN/radios"
 	say "AIGW access point is down"
 }
 
@@ -363,10 +443,11 @@ status() {
 		say "access point: down"
 		return 0
 	fi
-	iface=$(cat "$RUN/iface")
-	say "access point: $iface"
-	iw dev "$iface" info 2>/dev/null | grep -E 'ssid|type|channel' | sed 's/^[[:space:]]*/  /'
-	say "  clients: $(iw dev "$iface" station dump 2>/dev/null | grep -c '^Station' || true)"
+	for iface in $(cat "$RUN/radios" 2>/dev/null || cat "$RUN/iface"); do
+		say "access point: $iface"
+		iw dev "$iface" info 2>/dev/null | grep -E 'ssid|type|channel' | sed 's/^[[:space:]]*/  /'
+		say "  clients: $(iw dev "$iface" station dump 2>/dev/null | grep -c '^Station' || true)"
+	done
 	if have_systemd; then
 		for s in $SERVICES; do say "service $s: $(systemctl is-active "$s" 2>/dev/null || true)"; done
 	fi
@@ -378,5 +459,9 @@ up) up ;;
 down) down ;;
 restart) down; up ;;
 status) status ;;
+conf)   # the hostapd config `up` writes: conf <iface> <band> <channel> <width> [bridge]
+	[ $# -ge 5 ] || die "usage: aigw-ap conf <iface> <2.4|5> <channel> <20|40|80> [bridge]"
+	mkdir -p "$RUN"
+	write_hostapd "$2" "$5" "$3" "$4" /dev/stdout "${6:-}" ;;
 *) echo "usage: sudo aigw-ap up|down|restart|status" >&2; exit 1 ;;
 esac

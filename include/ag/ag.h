@@ -14,6 +14,7 @@
 #define AG_EV_DNS  "ag.dns"
 #define AG_EV_FLOW "ag.flow"
 #define AG_EV_WIFI "ag.wifi"
+#define AG_EV_PRESENCE "ag.presence"  /* a device arrived home or left */
 #define AG_EV_DHCP "ag.dhcp"
 #define AG_EV_ALERT "ag.alert"
 #define AG_EV_DECISION "ag.decision"
@@ -86,6 +87,14 @@ struct ag_config {
 	int flow_sni;             /* name connections from TLS / QUIC handshakes (NFLOG) */
 	int flow_sni_group;       /* NFLOG group the kernel copies those packets to */
 	char wifi_ctrl[128];      /* hostapd control socket directory */
+	int steer;                /* band steering between a 2.4 and a 5 GHz access point with one name */
+	int steer_up;             /* dBm: a 2.4 GHz device this strong moves to 5 GHz */
+	int steer_down;           /* dBm: a 5 GHz device this weak moves to 2.4 GHz */
+	int steer_hold;           /* seconds a signal must stay past the line first */
+	int steer_gap;            /* seconds between two moves of one device */
+	int steer_kick;           /* devices without 802.11v may be moved by refusing them on one band */
+	int steer_rate;           /* most moves a minute in the whole home */
+	int presence_away;        /* seconds unseen before a device has left */
 	char model_dir[256];      /* .agm models */
 	char lan_ifaces[256];     /* space-separated; clients on these are "the home" */
 	int alerts_enabled;

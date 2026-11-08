@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.11**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.12**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -558,7 +558,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | v0.10: LuCI, procd, self-test, OpenWRT in QEMU; real routers next |
-| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names |
+| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence |
 
 Real-router testing of every phase so far is planned for the end of the project (P6).
 
@@ -703,6 +703,18 @@ Measured by `tests/dns-cache-test.sh` against an upstream that takes 50 ms per a
 
 Not covered yet: TCP ClientHellos split into segments that arrive out of order (waits for retransmission, which the copy window may miss); with fw4 flow offloading, the second segment of a post-quantum ClientHello can bypass the copy, so a name late in it is missed. ECH hides the real site name by design.
 
+**As built in v0.12 (P7, second part).** Both bands, and who is home:
+
+| Piece | As built |
+|-------|----------|
+| Dual-band PC AP | `aigw-ap` with `BAND=dual`: a 5 GHz access point on one adapter and a 2.4 GHz one on another, same name and password, both in bridge `aigwbr0` (one network: a device keeps its address when it changes band). `WIDTH` 20/40/80 MHz with fallback to narrower widths, `bss_transition=1` on every access point. On WSL it attaches every shared USB Wi-Fi adapter through `usbipd.exe` and reloads the driver when fewer interfaces than adapters came up; `aigw-wsl.ps1` shares new adapters (with `--force` where a USB filter driver is installed). `aigw-ap conf` prints a hostapd config exactly as `up` writes it. |
+| Wi-Fi sensor | Each access point's band, channel, BSSID and name from hostapd `STATUS`; each station's abilities from its `STA` entry: 802.11v BSS transition (extended capabilities bit 19) and 5 GHz (operating classes 115+, VHT, or seen there). A smoothed signal. A device found on another access point has `roamed`; listed by two for a moment, the newer join counts. |
+| Band steering (`steer.c`) | Needs a 2.4 and a 5 GHz access point with one name. Up: on 2.4 GHz, 5 GHz-capable, smoothed signal ≥ `steer_up` (−60 dBm); down: on 5 GHz, ≤ `steer_down` (−75 dBm); held for `steer_hold` (30 s). With 802.11v: `BSS_TM_REQ` naming the other access point (operating class, channel, PHY type); without: refused on its band for 30 s (`DENY_ACL`) and disconnected, unless `steer_kick 0` or it is already refused by a "disconnect" action. Checked 15 s later (`steered` / `steer-missed`). Guardrails: never `act.protect` devices, 20 s settling on an access point, `steer_gap` (300 s) per device, `steer_rate` (2) moves a minute for the home, three misses in a row → left alone for a day. `ag.wifi radios`, `agctl wifi`, `agctl watch wifi`. |
+| Presence (`presence.c`) | Present while on Wi-Fi or seen in the last `presence_away` (600 s; phones drop Wi-Fi to save power). `ag.presence` events `arrived` (with time away) and `left` (with time home); `home` in `ag status`; near / mid / far from the smoothed signal. |
+
+Verified by `tests/steer-test.sh` (a fake dual-band hostapd: a phone moved up by 802.11v, a laptop without it moved up by refusal and let back in after 30 s, a far device moved down without ping-pong, a 2.4 GHz-only plug and a protected TV never asked, a device that ignores requests left alone after three, a visitor's departure) and `tests/hwsim-test.sh` in CI (real hostapd with `aigw-ap`'s configs and a real `wpa_supplicant` on `mac80211_hwsim` radios: the client joins on 2.4 GHz, agd's 802.11v request moves it to 5 GHz).
+
+Not covered yet: channel self-healing (choosing and switching to a quieter channel), steering between more than two access points (mesh), and room-level presence or motion from signal patterns.
 ---
 
 ## 17. Status and risks

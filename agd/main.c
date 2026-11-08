@@ -213,6 +213,9 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
+	blobmsg_add_u32(&b, "home", (uint32_t)presence_count());
+	blobmsg_add_u32(&b, "radios", (uint32_t)wifi_n_aps);
+	blobmsg_add_u64(&b, "steered", steer_ok_total);
 	blobmsg_add_u64(&b, "dns_queries", dns_total);
 	blobmsg_add_u64(&b, "dns_last_event", (uint64_t)last_dns_event);
 	blobmsg_add_u64(&b, "flows", flows_total);
@@ -701,7 +704,56 @@ static int m_wifi_key_change(struct ubus_context *ctx, struct ubus_object *obj,
 	return 0;
 }
 
+/* ubus ag.wifi radios: access points, their stations, band steering */
+static int m_wifi_radios(struct ubus_context *ctx, struct ubus_object *obj,
+			 struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	void *arr, *t, *sa, *st;
+	int i, j;
+
+	blob_buf_init(&b, 0);
+	arr = blobmsg_open_array(&b, "radios");
+	for (i = 0; i < wifi_n_aps; i++) {
+		const struct wifi_ap *a = &wifi_aps[i];
+
+		t = blobmsg_open_table(&b, NULL);
+		blobmsg_add_string(&b, "iface", a->iface);
+		blobmsg_add_string(&b, "ssid", a->ssid);
+		blobmsg_add_string(&b, "bssid", a->bssid);
+		blobmsg_add_string(&b, "band", a->band == 5 ? "5" : a->band == 2 ? "2.4" : "");
+		blobmsg_add_u32(&b, "channel", (uint32_t)a->channel);
+		blobmsg_add_u32(&b, "freq", (uint32_t)a->freq);
+		sa = blobmsg_open_array(&b, "stations");
+		for (j = 0; j < DEV_MAX; j++) {
+			const struct device *d = &devs[j];
+
+			if (!d->used || !d->wifi_connected || strcmp(d->wifi_iface, a->iface))
+				continue;
+			st = blobmsg_open_table(&b, NULL);
+			blobmsg_add_string(&b, "mac", d->mac);
+			blobmsg_add_string(&b, "ip", d->ip);
+			blobmsg_add_string(&b, "hostname", d->hostname);
+			blobmsg_add_u32(&b, "signal", (uint32_t)d->wifi_signal);
+			blobmsg_add_u32(&b, "signal_avg", (uint32_t)(int)d->wifi_sig_avg);
+			blobmsg_add_u32(&b, "rate_kbps", d->wifi_rate_kbps);
+			blobmsg_add_string(&b, "near", presence_near(d));
+			blobmsg_add_u8(&b, "dual_band", d->wifi_dual);
+			blobmsg_add_u8(&b, "bss_transition", d->wifi_btm);
+			blobmsg_add_u32(&b, "steered", d->steer_moves);
+			blobmsg_add_u32(&b, "steer_missed", d->steer_misses);
+			blobmsg_close_table(&b, st);
+		}
+		blobmsg_close_array(&b, sa);
+		blobmsg_close_table(&b, t);
+	}
+	blobmsg_close_array(&b, arr);
+	steer_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method wifi_methods[] = {
+	UBUS_METHOD_NOARG("radios", m_wifi_radios),
 	UBUS_METHOD("keys", m_wifi_keys, key_policy),
 	UBUS_METHOD("key_add", m_wifi_key_change, key_policy),
 	UBUS_METHOD("key_revoke", m_wifi_key_change, key_policy),
@@ -827,6 +879,7 @@ static void poll_cb(struct uloop_timeout *t)
 	dev_poll_leases();
 	dev_poll_arp();
 	wifi_poll();
+	presence_tick();
 	baseline_tick();
 	act_tick();
 	keys_tick();

@@ -3,7 +3,8 @@
 # Apply changes: sudo aigw-ap restart
 
 # Wi-Fi interface that becomes the access point ("auto" = first one that
-# supports AP mode and is not your internet connection)
+# supports AP mode and is not your internet connection; with BAND=dual, the
+# one for 5 GHz)
 AP_IFACE=auto
 
 # Network name and WPA2 password (8-63 characters)
@@ -13,7 +14,9 @@ PASSPHRASE=change-me-please
 # Two-letter country code, e.g. US, GB, IN, DE. Required for 5 GHz.
 COUNTRY=
 
-# 2.4 or 5
+# 2.4, 5, or dual: two Wi-Fi adapters, a 5 GHz and a 2.4 GHz access point
+# with the same name, and AIGW moves each device to the band that suits it
+# (band steering). With dual, CHANNEL and WIDTH are for 5 GHz.
 BAND=2.4
 # 2.4 GHz: 1, 6 or 11.  5 GHz: 36, 40, 44, 48 (no radar detection needed;
 # in many countries, e.g. IN and US, also 149, 153, 157, 161, 165)
@@ -23,12 +26,19 @@ CHANNEL=6
 # width, aigw-ap falls back to the next narrower one.
 WIDTH=auto
 
+# BAND=dual: the 2.4 GHz access point's channel and width, and which adapter
+# takes which band (auto: the first adapter found takes 5 GHz)
+CHANNEL_24=6
+WIDTH_24=20
+AP_IFACE_24=auto
+
 # Client network: <SUBNET>.1 is this PC, clients get <SUBNET>.20-.250
 SUBNET=10.42.0
 
 # Interface with internet access ("auto" = default route)
 UPLINK=auto
 
-# WSL only: the USB adapter aigw-ap attaches from Windows when it is missing
-# (bus id from `usbipd list`; empty = the first Wi-Fi adapter listed)
+# WSL only: the USB adapters aigw-ap attaches from Windows when they are
+# missing (bus ids from `usbipd list`, e.g. "1-6 1-7"; empty = every Wi-Fi
+# adapter listed)
 USB_BUSID=

@@ -65,8 +65,28 @@ struct device {
 	char wifi_iface[24];
 	unsigned wifi_seen;             /* poll sequence */
 	char wifi_key[32];              /* name of its own Wi-Fi key, if it joined with one */
+	int wifi_band;                  /* 2 (2.4 GHz) or 5, 0 = unknown */
+	double wifi_sig_avg;            /* smoothed signal, dBm */
+	uint8_t wifi_btm;               /* takes 802.11v "please move" requests */
+	uint8_t wifi_dual;              /* can use 5 GHz (seen there, or says so when joining) */
 
-	char zone[16];                  /* "iot", ... ; policies can be limited to a zone */
+	/* band steering (steer.c) */
+	int64_t steer_cond_since;       /* signal past the line since; 0 = not */
+	int64_t steer_last;             /* last move asked */
+	int64_t steer_check_at;         /* see whether it moved, then */
+	int steer_from_band;
+	char steer_method[8];           /* "btm" or "kick" */
+	char steer_unban[24];           /* "kick": access point whose deny entry to lift */
+	int64_t steer_unban_at;
+	uint32_t steer_moves, steer_misses;
+	uint8_t steer_fails;            /* misses in a row */
+	int64_t steer_pause_until;      /* won't move: leave it be until then */
+
+	/* presence */
+	uint8_t present;
+	int64_t present_since;
+
+	char zone[16];                 /* "iot", ... ; policies can be limited to a zone */
 
 	/* plug-ins (MQTT telemetry, ...) that reported about this device */
 	uint32_t plugin_events;
@@ -242,6 +262,33 @@ void baseline_load(struct device *d, struct blob_attr *tbl);
 void wifi_init(void);
 void wifi_poll(void);
 int wifi_station_count(void);
+
+/* an access point (one hostapd interface) as of the last poll */
+struct wifi_ap {
+	char iface[24];
+	char bssid[18];
+	char ssid[33];
+	int freq, channel, band;        /* band 2 or 5 */
+	int stations;
+};
+#define WIFI_AP_MAX 8
+extern struct wifi_ap wifi_aps[WIFI_AP_MAX];
+extern int wifi_n_aps;
+/* one command to one access point; reply length or -1 */
+int wifi_cmd(const char *iface, const char *cmd, char *reply, size_t n);
+const struct wifi_ap *wifi_ap_find(const char *iface);
+
+/* steer.c: band steering */
+void steer_tick(void);
+int steer_ready(const struct wifi_ap **a2, const struct wifi_ap **a5);
+void steer_blob(struct blob_buf *b);
+extern uint64_t steer_total, steer_ok_total;
+
+/* presence: arrivals and departures */
+void presence_tick(void);
+const char *presence_near(const struct device *d);
+int presence_count(void);
+int act_is_protected(const struct device *d);
 int wifi_ban(const char *mac, int on, char *err, size_t errlen);
 /* every access point: send a command; returns how many answered OK (reply of the first in *reply) */
 int wifi_all(const char *cmd, char *reply, size_t n);

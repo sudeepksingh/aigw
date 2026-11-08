@@ -464,7 +464,22 @@ void dev_blob(struct blob_buf *b, const struct device *d, int full)
 		blobmsg_add_u32(b, "rate_kbps", d->wifi_rate_kbps);
 		blobmsg_add_u64(b, "since", (uint64_t)d->wifi_since);
 		blobmsg_add_string(b, "iface", d->wifi_iface);
+		if (d->wifi_band)
+			blobmsg_add_string(b, "band", d->wifi_band == 5 ? "5" : "2.4");
+		blobmsg_add_string(b, "near", presence_near(d));
 	}
+	if (d->mac[0] && (d->wifi_connected || d->wifi_dual || d->wifi_btm)) {
+		blobmsg_add_u8(b, "dual_band", d->wifi_dual);
+		blobmsg_add_u8(b, "bss_transition", d->wifi_btm);
+	}
+	if (d->steer_moves || d->steer_misses) {
+		blobmsg_add_u32(b, "steered", d->steer_moves);
+		blobmsg_add_u32(b, "steer_missed", d->steer_misses);
+	}
+	blobmsg_close_table(b, w);
+	w = blobmsg_open_table(b, "presence");
+	blobmsg_add_u8(b, "home", d->present);
+	blobmsg_add_u64(b, "since", (uint64_t)d->present_since);
 	blobmsg_close_table(b, w);
 	if (d->plugin_events) {
 		w = blobmsg_open_table(b, "plugins");

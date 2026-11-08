@@ -36,10 +36,11 @@ static void usage(void)
 		"  device <ip|mac|name>  one device in detail\n"
 		"  dns [N]             last N DNS lookups (default 30)\n"
 		"  dns cache           the DNS cache: hits, answer times, prefetches, stale answers\n"
+		"  wifi                access points (band, channel), their devices, band steering\n"
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
-		"  watch [dns|flows|wifi|alerts|decisions|plugins|models|all]   follow activity live (Ctrl+C to stop)\n"
+		"  watch [dns|flows|wifi|home|alerts|decisions|plugins|models|all]   follow activity live (Ctrl+C to stop)\n"
 		"\n"
 		"  decisions [N]       actions waiting for you, in effect, and past ones\n"
 		"  approve <id> [time] carry out a proposed action (optionally for another time limit)\n"
@@ -190,6 +191,44 @@ static void print_json(struct blob_attr *msg)
 	}
 }
 
+static void show_radios(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "radios"), *r, *s, *st = field(msg, "steering");
+	size_t rem, rem2;
+
+	if (json_out)
+		return print_json(msg);
+	if (!arr || !blobmsg_len(arr)) {
+		printf("No access point found (hostapd control sockets).\n");
+		return;
+	}
+	blobmsg_for_each_attr(r, arr, rem) {
+		printf("%s  \"%s\"  %s GHz channel %llu (%llu MHz)  %s\n", fstr(r, "iface"), fstr(r, "ssid"),
+		       orb(fstr(r, "band"), "?"), (unsigned long long)fnum(r, "channel"), (unsigned long long)fnum(r, "freq"),
+		       fstr(r, "bssid"));
+		blobmsg_for_each_attr(s, field(r, "stations"), rem2) {
+			printf("  %-17.17s %-15.15s %4d dBm %-4s %7.1f Mbit/s  %-13s %s",
+			       orb(fstr(s, "hostname"), fstr(s, "mac")), orb(fstr(s, "ip"), "-"), (int32_t)fnum(s, "signal"),
+			       fstr(s, "near"), fnum(s, "rate_kbps") / 1000.0,
+			       fnum(s, "dual_band") ? "2.4 + 5 GHz" : "2.4 GHz only", fnum(s, "bss_transition") ? "802.11v" : "");
+			if (fnum(s, "steered") || fnum(s, "steer_missed"))
+				printf("  moved %llu, stayed %llu", (unsigned long long)fnum(s, "steered"),
+				       (unsigned long long)fnum(s, "steer_missed"));
+			printf("\n");
+		}
+	}
+	if (st) {
+		if (!fnum(st, "dual_band"))
+			printf("band steering   needs a 2.4 GHz and a 5 GHz access point with one name\n");
+		else if (!fnum(st, "enabled"))
+			printf("band steering   off (wifi.steer 0)\n");
+		else
+			printf("band steering   on: to 5 GHz at %d dBm or better, to 2.4 GHz at %d dBm or worse; "
+			       "%llu moves asked, %llu done\n", (int32_t)fnum(st, "up_dbm"), (int32_t)fnum(st, "down_dbm"),
+			       (unsigned long long)fnum(st, "moves_asked"), (unsigned long long)fnum(st, "moves_done"));
+	}
+}
+
 static void show_dnscache(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	if (json_out)
@@ -228,8 +267,11 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 		return print_json(msg);
 	printf("AIGW %s on %s  (phase: %s)\n", fstr(msg, "version"), fstr(msg, "host"), fstr(msg, "phase"));
 	printf("  uptime          %llus\n", (unsigned long long)fnum(msg, "uptime_s"));
-	printf("  devices         %llu (%llu on Wi-Fi now)\n", (unsigned long long)fnum(msg, "devices"),
-	       (unsigned long long)fnum(msg, "wifi_stations"));
+	printf("  devices         %llu (%llu home, %llu on Wi-Fi now)\n", (unsigned long long)fnum(msg, "devices"),
+	       (unsigned long long)fnum(msg, "home"), (unsigned long long)fnum(msg, "wifi_stations"));
+	if (fnum(msg, "radios") > 1)
+		printf("  wi-fi           %llu access points, %llu band moves (agctl wifi)\n",
+		       (unsigned long long)fnum(msg, "radios"), (unsigned long long)fnum(msg, "steered"));
 	printf("  dns lookups     %llu (last %s)\n", (unsigned long long)fnum(msg, "dns_queries"),
 	       ago(fnum(msg, "dns_last_event"), t, sizeof(t)));
 	printf("  connections     %llu, %llu without a DNS lookup, %llu named from their handshake\n",
@@ -381,10 +423,19 @@ static void show_device(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("  seen            first %s, last %s\n", ago(fnum(d, "first_seen"), t1, sizeof(t1)),
 		       ago(fnum(d, "last_seen"), t2, sizeof(t2)));
 		if (w && fnum(w, "connected"))
-			printf("  wi-fi           %d dBm, %.1f Mbit/s, on %s since %s\n", (int32_t)fnum(w, "signal"),
-			       fnum(w, "rate_kbps") / 1000.0, fstr(w, "iface"), ago(fnum(w, "since"), t1, sizeof(t1)));
+			printf("  wi-fi           %d dBm (%s), %.1f Mbit/s, %s%s%son %s since %s\n", (int32_t)fnum(w, "signal"),
+			       orb(fstr(w, "near"), "-"), fnum(w, "rate_kbps") / 1000.0, *fstr(w, "band") ? fstr(w, "band") : "",
+			       *fstr(w, "band") ? " GHz " : "", "", fstr(w, "iface"), ago(fnum(w, "since"), t1, sizeof(t1)));
 		else
 			printf("  wi-fi           not connected\n");
+		if (w && (field(w, "dual_band") || fnum(w, "steered") || fnum(w, "steer_missed")))
+			printf("  bands           %s, %s; moved %llu times, stayed %llu\n",
+			       fnum(w, "dual_band") ? "2.4 and 5 GHz" : "2.4 GHz only (as far as seen)",
+			       fnum(w, "bss_transition") ? "takes 802.11v move requests" : "no 802.11v",
+			       (unsigned long long)fnum(w, "steered"), (unsigned long long)fnum(w, "steer_missed"));
+		if (field(d, "presence"))
+			printf("  home            %s since %s\n", fnum(field(d, "presence"), "home") ? "yes" : "no",
+			       ago(fnum(field(d, "presence"), "since"), t2, sizeof(t2)));
 		printf("  traffic         %s down, %s up, %llu connections (%llu without DNS)\n",
 		       human_bytes(fnum(d, "bytes_down"), b1, sizeof(b1)),
 		       human_bytes(fnum(d, "bytes_up"), b2, sizeof(b2)),
@@ -1223,16 +1274,34 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 			printf("  -- %s", fstr(msg, "note"));
 		printf("\n");
 	} else if (!strcmp(type, AG_EV_WIFI)) {
-		if (!strcmp(fstr(msg, "event"), "joined-with-key")) {
+		const char *ev = fstr(msg, "event"), *who = orb(fstr(msg, "hostname"), fstr(msg, "mac"));
+
+		if (!strcmp(ev, "joined-with-key")) {
 			printf("wifi  %-16s joined with its own key \"%s\"%s%s\n", fstr(msg, "mac"), fstr(msg, "key"),
 			       *fstr(msg, "zone") ? ", zone " : "", fstr(msg, "zone"));
+		} else if (!strcmp(ev, "steer")) {
+			printf("wifi  %-16s asked to move %s -> %s GHz (%s): %s\n", who, fstr(msg, "from"), fstr(msg, "to"),
+			       !strcmp(fstr(msg, "method"), "btm") ? "802.11v" : "refused on its band", fstr(msg, "reason"));
+		} else if (!strcmp(ev, "steered") || !strcmp(ev, "steer-missed")) {
+			printf("wifi  %-16s %s\n", who, !strcmp(ev, "steered") ? "moved as asked" : "stayed where it was");
 		} else {
-			printf("wifi  %-16s %s on %s", orb(fstr(msg, "hostname"), fstr(msg, "mac")),
-			       fstr(msg, "event"), fstr(msg, "iface"));
-			if (!strcmp(fstr(msg, "event"), "connected"))
-				printf(" (%d dBm)", (int32_t)fnum(msg, "signal"));
+			printf("wifi  %-16s %s on %s", who, ev, fstr(msg, "iface"));
+			if (*fstr(msg, "band"))
+				printf(" (%s GHz", fstr(msg, "band"));
+			if (!strcmp(ev, "connected") || !strcmp(ev, "roamed"))
+				printf("%s%d dBm", *fstr(msg, "band") ? ", " : " (", (int32_t)fnum(msg, "signal"));
+			if (*fstr(msg, "band") || !strcmp(ev, "connected") || !strcmp(ev, "roamed"))
+				printf(")");
 			printf("\n");
 		}
+	} else if (!strcmp(type, AG_EV_PRESENCE)) {
+		uint64_t s = fnum(msg, !strcmp(fstr(msg, "event"), "arrived") ? "away_s" : "home_s");
+
+		printf("home  %-16s %s", orb(fstr(msg, "hostname"), fstr(msg, "mac")), fstr(msg, "event"));
+		if (s)
+			printf(" (%s %lluh%02llum)", !strcmp(fstr(msg, "event"), "arrived") ? "away" : "home",
+			       (unsigned long long)(s / 3600), (unsigned long long)(s / 60 % 60));
+		printf("\n");
 	} else if (!strcmp(type, AG_EV_PLUGIN)) {
 		printf("PLUG-IN %s (%s): %s%s%s\n", fstr(msg, "plugin"), fstr(msg, "kind"), fstr(msg, "state"),
 		       *fstr(msg, "why") ? " -- " : "", fstr(msg, "why"));
@@ -1258,6 +1327,9 @@ static int watch(const char *what)
 	if ((all || !strcmp(what, "flows")) && ubus_register_event_handler(ctx, &ev, AG_EV_FLOW))
 		rc = 1;
 	if ((all || !strcmp(what, "wifi")) && ubus_register_event_handler(ctx, &ev, AG_EV_WIFI))
+		rc = 1;
+	if ((all || !strcmp(what, "wifi") || !strcmp(what, "home")) &&
+	    ubus_register_event_handler(ctx, &ev, AG_EV_PRESENCE))
 		rc = 1;
 	if ((all || !strcmp(what, "alerts")) && ubus_register_event_handler(ctx, &ev, AG_EV_ALERT))
 		rc = 1;
@@ -1340,6 +1412,8 @@ int main(int argc, char **argv)
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
 		rc = call("ag.alert", "list", args.head, show_alerts);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "wifi")) {
+		rc = call("ag.wifi", "radios", NULL, show_radios);
 	} else if (!strcmp(cmd, "dns") && i < argc && !strcmp(argv[i], "cache")) {
 		rc = call("ag.dnscache", "stats", NULL, show_dnscache);
 	} else if (!strcmp(cmd, "dns") || !strcmp(cmd, "flows")) {
