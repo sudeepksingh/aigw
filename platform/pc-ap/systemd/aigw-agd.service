@@ -1,5 +1,5 @@
 [Unit]
-Description=AIGW brain (agd)
+Description=AIGW OS brain (agd)
 Wants=aigw-ubusd.service
 After=aigw-ubusd.service
 

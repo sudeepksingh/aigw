@@ -1,6 +1,6 @@
 {
 	"luci-app-aigw": {
-		"description": "Grant access to AIGW (status, devices, decisions, keys, remote access, plug-ins)",
+		"description": "Grant access to AIGW OS (status, devices, decisions, keys, remote access, plug-ins)",
 		"read": {
 			"ubus": {
 				"ag": [ "status" ],

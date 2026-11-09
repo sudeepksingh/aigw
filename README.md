@@ -1,10 +1,35 @@
-# AIGW: AI-native home gateway
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-dark.svg">
+    <img src="docs/brand/logo.svg" alt="AIGW OS" width="440">
+  </picture>
+</h1>
 
-[![ci](https://github.com/sudeepksingh/aigw/actions/workflows/ci.yml/badge.svg)](https://github.com/sudeepksingh/aigw/actions/workflows/ci.yml)
+<h3 align="center">The AI-powered operating system for home gateways.</h3>
 
-**The gateway that understands the home, not just the network.**
+<p align="center">
+  <a href="https://github.com/sudeepksingh/aigw/actions/workflows/ci.yml"><img src="https://github.com/sudeepksingh/aigw/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/sudeepksingh/aigw/releases/latest"><img src="https://img.shields.io/github/v/release/sudeepksingh/aigw?color=0B8F87&label=release" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/sudeepksingh/aigw?color=4A53C2" alt="License"></a>
+  <img src="https://img.shields.io/badge/OpenWRT-24.10%20%7C%2025.12-0B8F87" alt="OpenWRT 24.10 and 25.12">
+  <img src="https://img.shields.io/badge/runs%20on-routers%20%26%20Linux%20PCs-4A53C2" alt="Runs on routers and Linux PCs">
+</p>
 
-AIGW is a small AI core that turns an **OpenWRT router**, or **any Linux PC
+<p align="center">
+  <b>On-device AI</b> · <b>Every device understood</b> · <b>Threats stopped at home</b> · <b>Private by design</b> · <b>Open source</b>
+</p>
+
+<p align="center">
+  <a href="docs/getting-started-openwrt.md">Get started on OpenWRT</a> ·
+  <a href="docs/getting-started-pc-ap.md">Get started on a PC</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="https://github.com/sudeepksingh/aigw/releases/latest">Download</a> ·
+  <a href="CONTRIBUTING.md">Contribute</a>
+</p>
+
+---
+
+AIGW OS is a small AI core that turns an **OpenWRT router**, or **any Linux PC
 acting as a Wi-Fi access point**, into a gateway that knows which devices are
 on the network, what each one does and what is normal, and acts on it.
 Everything runs on the gateway itself. Cloud services are optional, and
@@ -12,7 +37,10 @@ everything around the core is a plug-in.
 
 - C core, under 1 MB, built for 128 MB routers
 - The same code, API and plug-ins on OpenWRT and on a PC acting as AP
-- Fail-open: if AIGW stops, your network keeps working
+- Fail-open: if AIGW OS stops, your network keeps working
+
+Packages, commands and paths keep the short name `aigw` (`opkg install aigw`,
+`/etc/config/aigw`); the daemons are `agd` and `agdns`, the command line `agctl`.
 
 Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the

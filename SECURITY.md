@@ -1,6 +1,6 @@
 # Security policy
 
-AIGW sits between every device in a home and the internet, so security
+AIGW OS sits between every device in a home and the internet, so security
 problems matter more here than in most projects.
 
 ## Reporting a vulnerability

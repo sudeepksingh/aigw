@@ -1,4 +1,4 @@
-# Testing AIGW on a real router
+# Testing AIGW OS on a real router
 
 Phase 6 ends when the same checks that pass in CI pass on real routers,
 within the memory and flash budget. CI already installs every build on

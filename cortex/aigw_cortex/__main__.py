@@ -175,7 +175,7 @@ def fed_settings(a):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(prog="aigw_cortex", description="AIGW cortex")
+    ap = argparse.ArgumentParser(prog="aigw_cortex", description="AIGW OS cortex")
     ap.add_argument("--data", default=os.environ.get("AIGW_CORTEX_DATA", os.path.expanduser("~/.aigw-cortex")))
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("serve")

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 200" width="640" height="200" role="img" aria-label="AIGW OS">
+  <title>AIGW OS</title>
+  <defs>
+    <linearGradient id="aigw-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#12B5A9"/>
+      <stop offset="1" stop-color="#4A53C2"/>
+    </linearGradient>
+    <linearGradient id="aigw-os" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0B8F87"/>
+      <stop offset="1" stop-color="#4A53C2"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(4 4) scale(0.75)">
+    <rect width="256" height="256" rx="60" fill="url(#aigw-tile)"/>
+    <path d="M50 134 L128 60 L206 134" fill="none" stroke="#fff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+    <g stroke="#fff" stroke-width="9" stroke-linecap="round" opacity="0.9">
+      <line x1="128" y1="124" x2="88" y2="192"/>
+      <line x1="128" y1="124" x2="168" y2="192"/>
+      <line x1="88" y1="192" x2="168" y2="192"/>
+    </g>
+    <circle cx="88" cy="192" r="15" fill="#fff"/>
+    <circle cx="168" cy="192" r="15" fill="#fff"/>
+    <circle cx="128" cy="124" r="19" fill="#fff"/>
+    <circle cx="128" cy="124" r="8" fill="#2E86B8"/>
+  </g>
+  <text x="232" y="138" font-family="'IBM Plex Sans','Segoe UI','Helvetica Neue',Arial,sans-serif" font-size="116" font-weight="700" letter-spacing="-2" fill="#13222A">AIGW<tspan dx="26" fill="url(#aigw-os)">OS</tspan></text>
+</svg>

@@ -283,7 +283,7 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 
 	if (json_out)
 		return print_json(msg);
-	printf("AIGW %s on %s  (phase: %s)\n", fstr(msg, "version"), fstr(msg, "host"), fstr(msg, "phase"));
+	printf("AIGW OS %s on %s  (phase: %s)\n", fstr(msg, "version"), fstr(msg, "host"), fstr(msg, "phase"));
 	printf("  uptime          %llus\n", (unsigned long long)fnum(msg, "uptime_s"));
 	printf("  devices         %llu (%llu home, %llu on Wi-Fi now)\n", (unsigned long long)fnum(msg, "devices"),
 	       (unsigned long long)fnum(msg, "home"), (unsigned long long)fnum(msg, "wifi_stations"));

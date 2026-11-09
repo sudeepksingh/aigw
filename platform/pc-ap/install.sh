@@ -80,7 +80,7 @@ fi
 . /etc/aigw/pc-ap.conf
 step "Done"
 cat <<EOF
-AIGW $(agd --version | cut -d' ' -f2) is installed.
+AIGW OS $(agd --version | cut -d' ' -f2) is installed.
 
   Wi-Fi name   $SSID
   Password     $PASSPHRASE

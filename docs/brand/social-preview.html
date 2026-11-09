@@ -1,0 +1,38 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>AIGW OS social preview</title>
+<!-- Source of social-preview.png (1280x640, GitHub's social preview size).
+     Re-render with a headless browser at that window size after changing it. -->
+<style>
+  html,body{margin:0;width:1280px;height:640px;overflow:hidden}
+  body{background:#0B1418;font-family:'IBM Plex Sans','Segoe UI','Helvetica Neue',Arial,sans-serif;color:#EAF2F4;position:relative}
+  .glow{position:absolute;inset:0;background:
+    radial-gradient(600px 400px at 18% 30%,rgba(18,181,169,.28),transparent 70%),
+    radial-gradient(700px 500px at 95% 100%,rgba(74,83,194,.35),transparent 70%)}
+  .grid{position:absolute;inset:0;opacity:.07;background-image:
+    linear-gradient(#fff 1px,transparent 1px),linear-gradient(90deg,#fff 1px,transparent 1px);background-size:40px 40px}
+  .wrap{position:absolute;left:96px;right:96px;top:120px}
+  .row{display:flex;align-items:center;gap:40px}
+  h1{margin:0;font-size:128px;font-weight:700;letter-spacing:-3px;line-height:1}
+  h1 span{background:linear-gradient(90deg,#3CC4BA,#9EA6FF);-webkit-background-clip:text;background-clip:text;color:transparent}
+  p.tag{margin:44px 0 0;font-size:44px;font-weight:600;line-height:1.2}
+  .chips{margin-top:44px;display:flex;gap:16px;flex-wrap:wrap}
+  .chips b{font-weight:500;font-size:24px;padding:10px 20px;border:1px solid rgba(255,255,255,.22);border-radius:999px;background:rgba(255,255,255,.05)}
+  .url{position:absolute;left:96px;bottom:48px;font-size:24px;color:#91A5AC}
+</style></head>
+<body><div class="glow"></div><div class="grid"></div>
+<div class="wrap">
+  <div class="row">
+    <svg width="168" height="168" viewBox="0 0 256 256" aria-hidden="true">
+      <defs><linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#12B5A9"/><stop offset="1" stop-color="#4A53C2"/></linearGradient></defs>
+      <rect width="256" height="256" rx="60" fill="url(#t)"/>
+      <path d="M50 134 L128 60 L206 134" fill="none" stroke="#fff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round"/>
+      <g stroke="#fff" stroke-width="9" stroke-linecap="round" opacity="0.9"><line x1="128" y1="124" x2="88" y2="192"/><line x1="128" y1="124" x2="168" y2="192"/><line x1="88" y1="192" x2="168" y2="192"/></g>
+      <circle cx="88" cy="192" r="15" fill="#fff"/><circle cx="168" cy="192" r="15" fill="#fff"/><circle cx="128" cy="124" r="19" fill="#fff"/><circle cx="128" cy="124" r="8" fill="#2E86B8"/>
+    </svg>
+    <h1>AIGW <span>OS</span></h1>
+  </div>
+  <p class="tag">The AI-powered operating system for home gateways.</p>
+  <div class="chips"><b>On-device AI</b><b>OpenWRT routers</b><b>Linux PCs</b><b>Private by design</b><b>Open source</b></div>
+</div>
+<div class="url">github.com/sudeepksingh/aigw</div>
+</body></html>

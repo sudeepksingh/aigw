@@ -125,7 +125,7 @@ class Server:
             if method == "initialize":
                 result = {"protocolVersion": PROTOCOL, "capabilities": {"tools": {"listChanged": False}},
                           "serverInfo": {"name": "aigw-cortex", "version": __version__},
-                          "instructions": "AIGW home gateways. Read tools are safe. propose_action only "
+                          "instructions": "AIGW OS home gateways. Read tools are safe. propose_action only "
                                           "suggests; a person approves on the gateway."}
             elif method == "ping":
                 result = {}

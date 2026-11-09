@@ -449,7 +449,7 @@ EOF
 	sleep 1
 	aigw-nft apply
 
-	say "AIGW access point is up"
+	say "AIGW OS access point is up"
 	say "  Wi-Fi     $SSID  (password in $CONF)"
 	say "  adapter   $desc"
 	say "  clients   $SUBNET.20-250, internet via $up_if"
@@ -468,7 +468,7 @@ down() {
 	done
 	ip link del "$BRIDGE" 2>/dev/null || true
 	rm -f "$RUN/iface" "$RUN/radios"
-	say "AIGW access point is down"
+	say "AIGW OS access point is down"
 }
 
 status() {

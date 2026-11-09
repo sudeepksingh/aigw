@@ -1,5 +1,5 @@
 [Unit]
-Description=AIGW access point (PC as AP)
+Description=AIGW OS access point (PC as AP)
 Wants=network-online.target
 After=network-online.target
 

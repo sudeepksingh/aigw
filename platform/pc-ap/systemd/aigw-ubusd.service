@@ -1,5 +1,5 @@
 [Unit]
-Description=AIGW message bus (ubusd)
+Description=AIGW OS message bus (ubusd)
 Documentation=https://openwrt.org/docs/techref/ubus
 
 [Service]
