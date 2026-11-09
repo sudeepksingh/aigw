@@ -136,6 +136,12 @@ int baseline_steady(const struct device *d)
 	       d->bl.known >= (uint32_t)cfg.min_known;
 }
 
+int baseline_quiet_hour(const struct device *d)
+{
+	return d->bl.since && d->bl.buckets >= (uint32_t)cfg.unusual_min_days * 24 &&
+	       d->bl.active[hour_of(bucket_start(ag_wall_s()))] == 0;
+}
+
 static const char *dev_label(const struct device *d)
 {
 	return d->hostname[0] ? d->hostname : d->mac[0] ? d->mac : d->ip;

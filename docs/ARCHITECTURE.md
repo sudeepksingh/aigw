@@ -786,6 +786,29 @@ The golden test data now includes `www.`, `cdn.` and `mail.` names, so the C fea
 
 **v0.16.2: AIGW OS, and a flow sensor race fixed.** The project is named **AIGW OS**, *the AI-powered operating system for home gateways*, with a logo and brand guide in `docs/brand/`; packages, paths and commands keep the short name `aigw`. The flow sensor had a race: the counter refresh (a conntrack dump) could read a connection before agd read its "new" event, and agd then took it for a connection older than itself, so it was not counted, never checked for a missing DNS lookup and raised no alerts. A "new" event for such a connection now completes its start. Forcing the race (events read 300 ms late, a refresh every 20 ms), the old code counted 1 of 4 connections in flow-test and the new code all 4, with the `no-dns` alert.
 
+**As built in v0.17: lookup bursts, behaviour instead of names.** Malware with a name generator tries many names until one answers. Most get "no such name", and none was ever used in the home. The name model can't see the generators whose names look like words. Measured on 1,000 names per family with the shipped model at 0.98:
+
+| Generator | flagged by the name model |
+|-----------|---------------------------|
+| base32 | 99.6 % |
+| hex | 93.2 % |
+| random letters and digits | 74.6 % |
+| random letters | 67.0 % |
+| letters, then digits | 61.8 % |
+| pronounceable syllables | 12.7 % |
+| dictionary words (`rivergarden.net`) | 0.0 % |
+
+| Piece | As built |
+|-------|----------|
+| Home memory (`burst.c`) | Every registrable domain that resolved for any device (rcode 0 with an address), in two 8 KB Bloom filter generations (k = 3, 4,000 sites each, about 0.5 % false "used" per generation). A site in use is re-added to the newer one, so turning over (the newer becomes the older, the older is dropped) forgets only sites nobody uses any more. Saved in the state file (`home_sites`). |
+| Per device | A ring of its last 32 lookups of never-used registrable domains, each counted once (a retry is not another name): time, hash, NXDOMAIN or not, and whether the name model flagged it. Not saved. |
+| `dga-burst` | Within `alerts.burst_window` (600 s), at least `alerts.burst_min` (8) of them got NXDOMAIN, and they are at least `alerts.burst_share` (75 %) of its never-used names then; one alert per window. The reason gives the count, how many the name model flagged, and "at an hour it is normally idle" when the baseline says so. A never-used name that answers within 15 s of a failed one is the likely control server: named in the alert, or in a second alert (subject: that domain) if it comes later in the window, with the `agctl block` command. Built-in policy `dga_burst`: quarantine, 1 h (a proposal in advise mode). |
+| Not counted | Names AIGW blocked (`blocked` in agdns's event), `0.0.0.0` / `::` answers (filtering resolvers), empty answers (NODATA), server failures, local names (no registrable domain). Names that don't exist or that AIGW blocked are no longer learned into the device's baseline either: a burst would otherwise fill its Bloom filter with junk. |
+
+Verified by `tests/burst-test.sh` (four devices behind a bridge, a fake DNS that answers its list, `0.0.0.0` for ad names and NXDOMAIN otherwise): an infected laptop tries 25 generated names, half pronounceable and half dictionary words, of which the 14th was registered. The name model flags 3 of the 25; the burst alert comes at the 8th failed lookup, a quarantine is proposed, and the 14th name is named as the control server. No alert for a phone visiting 40 new sites with 4 typos, a TV retrying one dead name 30 times, a tablet behind a filtering resolver, or names AIGW blocks. The laptop's baseline learns none of the names that don't exist. The home memory is the same after an agd restart, and known sites aren't learned again.
+
+Limits: a generator that makes fewer than 8 attempts in 10 minutes (slow, or most of its names registered or sinkholed so they answer) stays below the line; lookups that bypass AIGW (DNS over HTTPS) are not seen here (`dns-bypass` says so). The first days after installing, the home memory is empty: every working site counts as never-used, which only makes a burst harder to reach (the share), never easier.
+
 ---
 
 ## 17. Status and risks

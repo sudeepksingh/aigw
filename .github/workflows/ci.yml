@@ -33,6 +33,8 @@ jobs:
         run: sudo tests/flow-test.sh build
       - name: Behaviour baseline test (network namespaces, fast clock)
         run: sudo tests/baseline-test.sh build
+      - name: Lookup burst test (generated names that look like words, caught by behaviour)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/burst-test.sh build
       - name: Act test (decisions, guardrails, nft and DNS actuators)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/act-test.sh build
       - name: Plug-in test (plug-ins, skills, Wi-Fi keys, MQTT and Home Assistant)

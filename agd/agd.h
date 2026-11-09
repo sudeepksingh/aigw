@@ -38,6 +38,24 @@ struct baseline {
 	uint8_t spike_alerted, unusual_alerted;
 };
 
+/* Its recent lookups of names nobody in the home ever used (burst.c). Not saved. */
+#define BURST_RING 32
+struct burst_item {
+	int64_t ts;
+	uint32_t h;                     /* registrable domain, hashed */
+	uint8_t nx;                     /* got "no such name" */
+	uint8_t flagged;                /* the name model calls it machine-generated */
+};
+struct burst {
+	struct burst_item it[BURST_RING];
+	unsigned head;
+	int64_t alerted;                /* last burst alert */
+	int64_t hit_until;              /* a never-used name answering before this is named */
+	uint8_t hit_named;
+	char cand[NAME_LEN];            /* a never-used name that answered right after a failed one */
+	int64_t cand_ts;
+};
+
 struct device {
 	int used;
 	char ip[IP_LEN];
@@ -94,6 +112,7 @@ struct device {
 	int64_t plugin_last_ts;
 
 	struct baseline bl;
+	struct burst burst;
 
 	/* traffic meter (meter.c, eBPF): kernel totals per MAC, live rates */
 	uint64_t meter_up, meter_down, meter_pkts;
@@ -155,7 +174,8 @@ int alerts_init(void);
 const char *alerts_model_name(void);
 int alerts_model_trees(void);
 double alerts_domain_score(const char *qname, char *label, size_t n, float *features);
-void alerts_on_dns(const char *client, const char *qname);
+/* the name's score as judged (1 for a known threat), -1 when not judged */
+double alerts_on_dns(const char *client, const char *qname);
 void alerts_on_sni(const char *client, const char *dst, const char *name, unsigned dport, int ech);
 void alerts_no_dns(const char *client, const char *dst, const char *proto, unsigned dport);
 void alerts_on_flow(const char *client, const char *dst, const char *domain, const char *proto,
@@ -307,6 +327,15 @@ void baseline_domain(struct device *d, const char *qname);
 void baseline_traffic(struct device *d, uint64_t up, uint64_t down);
 void baseline_tick(void);
 int baseline_steady(const struct device *d);
+/* the device has a week of history and was never active in this hour of day */
+int baseline_quiet_hour(const struct device *d);
+
+/* burst.c: many never-used names that don't exist, from one device */
+enum { BURST_IGNORE, BURST_NX, BURST_OK };
+void burst_dns(struct device *d, const char *qname, int outcome, int flagged);
+void burst_blob(struct blob_buf *b);
+void burst_save(struct blob_buf *b);
+void burst_load(struct blob_attr *tbl);
 void baseline_blob(struct blob_buf *b, const struct device *d, int full);
 void baseline_load(struct device *d, struct blob_attr *tbl);
 

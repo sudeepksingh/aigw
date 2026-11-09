@@ -105,6 +105,10 @@ struct ag_config {
 	int alerts_enabled;
 	double dga_threshold;     /* domain-risk score that raises an alert */
 	int dga_min_label;        /* shorter names are not judged */
+	int burst_enabled;        /* lookup bursts: many never-used names that don't exist, from one device */
+	int burst_window;         /* seconds the burst is counted over */
+	int burst_min;            /* at least this many distinct never-used names got NXDOMAIN */
+	double burst_share;       /* ... and they are at least this share of its never-used names then */
 	int fastpath_enabled;     /* established connections through the kernel flowtable (aigw-nft) */
 	int meter_enabled;        /* count each device's traffic in the kernel (eBPF on the LAN interfaces) */
 	int fed_enabled;         /* take part in federated learning rounds (names never leave) */

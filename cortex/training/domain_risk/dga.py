@@ -12,8 +12,8 @@ main styles seen in the wild without reproducing any malware code:
   syllables        pronounceable random syllables     (hardest: looks word-like)
 
 Dictionary-based DGAs (concatenated real words) are deliberately not covered:
-from the name alone they look like ordinary brands. Catching those needs
-behaviour (never-seen domain + no history), which comes from baselines.
+from the name alone they look like ordinary brands. Those are caught by
+behaviour instead (agd/burst.c: many never-used names that don't exist).
 """
 import random
 import string
