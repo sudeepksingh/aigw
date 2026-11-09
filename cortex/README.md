@@ -130,3 +130,27 @@ Every request carries `Authorization: Bearer <token>`.
 | `GET /v1/models/<file>` | the `.agm` or `.list`, or its `.sig` |
 | `GET /v1/proposals` | suggestions waiting for this gateway (each is sent once) |
 | `POST /v1/proposals/<id>` | `{ok, decision, error}`: how the gateway took it |
+| `GET /v1/fed` | the open federated learning round: `{round, center, scale, weights, lr, epochs, clip, noise}` (`{round: 0}` with `--no-fed`) |
+| `POST /v1/fed/update` | a home's change for that round: `{round, delta[14], n, noise, clip}`; one per home per round |
+
+## Federated learning
+
+Gateways train a 14-number layer over the domain-risk model on the answers
+kept in each home, and send only a clipped, noised change: no names, no
+features, no verdicts. When `--fed-min-homes` (3) changes are in and the round
+is `--fed-gap` seconds (a day) old, cortex averages them (every home the same
+weight), signs the new layer (`domain-adapter-<n>.adapter`) and lists it in
+`/v1/models`; each gateway checks it before use.
+
+```sh
+python3 -m aigw_cortex serve --fed-min-homes 3 --fed-gap 86400 --fed-noise 1.0
+python3 -m aigw_cortex fed               # rounds, homes, per-round epsilon
+python3 -m aigw_cortex fed aggregate     # close the open round now
+```
+
+Privacy is per home and adds up over rounds: ε ≈ 5.3 for one round at noise
+1.0 (δ = 1e-5), about 20 after ten. Gateways never use less noise than their
+own `alerts.fed_noise` and can stop at `alerts.fed_budget`. Less noise learns
+faster with a small fleet and protects less; with three homes and noise 1.0
+the noise outweighs what they learn. For cortex to learn only this way, set
+the bridges' `alert_names` to `0` (alerts then arrive without subjects).

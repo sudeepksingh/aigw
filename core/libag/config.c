@@ -155,6 +155,9 @@ void ag_config_load(struct ag_config *c)
 	c->alerts_enabled = 1;
 	c->dga_threshold = 0.98;
 	c->dga_min_label = 8;
+	c->fed_enabled = 1;
+	c->fed_noise = 1.0;
+	c->fed_min_examples = 3;
 	c->bucket_seconds = 3600;
 	c->learn_minutes = 1440;
 	c->min_known = 20;
@@ -281,6 +284,18 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "alerts", "dga_min_label");
 		if (v && atoi(v) >= 1)
 			c->dga_min_label = atoi(v);
+		v = opt(ctx, p, "alerts", "fed");
+		if (v)
+			c->fed_enabled = atoi(v) != 0;
+		v = opt(ctx, p, "alerts", "fed_noise");
+		if (v && atof(v) >= 0 && atof(v) <= 100)
+			c->fed_noise = atof(v);
+		v = opt(ctx, p, "alerts", "fed_min_examples");
+		if (v && atoi(v) >= 1)
+			c->fed_min_examples = atoi(v);
+		v = opt(ctx, p, "alerts", "fed_budget");
+		if (v && atof(v) >= 0)
+			c->fed_budget = atof(v);
 		v = opt(ctx, p, "baseline", "bucket_seconds");
 		if (v && atoi(v) >= 1)
 			c->bucket_seconds = atoi(v);

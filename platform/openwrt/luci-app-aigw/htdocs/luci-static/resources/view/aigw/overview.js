@@ -52,6 +52,7 @@ return view.extend({
 		var mods = (models.models || []).filter(function(m) { return m.loaded; }).map(function(m) {
 			return m.kind == 'list'
 				? _('%s v%d (%d names)').format(m.name, m.version, m.entries)
+				: m.kind == 'layer' ? _('%s v%d (learned by homes together)').format(m.name, m.version)
 				: m.version ? _('%s v%d (%d trees)').format(m.name, m.version, m.trees)
 				: _('%s (packaged, %d trees)').format(m.name, m.trees);
 		});

@@ -724,7 +724,10 @@ int act_request(const char *action, const char *what, int ttl, const struct act_
 	d->rate = g.rate;
 	snprintf(d->note, sizeof(d->note), "%s", note);
 	*id = d->id;
-	return apply(d, 0, err, errlen);
+	if (apply(d, 0, err, errlen) < 0)
+		return -1;
+	fed_on_answer(d->alert_id, 1);          /* asking for what was proposed: the alert was right */
+	return 0;
 }
 
 int act_approve(uint32_t id, int ttl, char *err, size_t errlen)
@@ -750,7 +753,10 @@ int act_approve(uint32_t id, int ttl, char *err, size_t errlen)
 	d->ttl = ttl;
 	snprintf(d->origin + strlen(d->origin), sizeof(d->origin) - strlen(d->origin), ", approved by you");
 	snprintf(d->note, sizeof(d->note), "%s", note);
-	return apply(d, 0, err, errlen);
+	if (apply(d, 0, err, errlen) < 0)
+		return -1;
+	fed_on_answer(d->alert_id, 1);          /* approved: the alert was right (a learning example) */
+	return 0;
 }
 
 int act_reject(uint32_t id, char *err, size_t errlen)
@@ -763,6 +769,7 @@ int act_reject(uint32_t id, char *err, size_t errlen)
 	}
 	snprintf(d->note, sizeof(d->note), "rejected by you");
 	set_state(d, D_REJECTED);
+	fed_on_answer(d->alert_id, 0);          /* a false alarm */
 	return 0;
 }
 
@@ -778,6 +785,8 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 	unactuate(d);
 	snprintf(d->note, sizeof(d->note), "undone by you");
 	set_state(d, D_REVERTED);
+	if (d->automatic)
+		fed_on_answer(d->alert_id, 0);  /* taken on its own, and you undid it: a false alarm */
 	return 0;
 }
 

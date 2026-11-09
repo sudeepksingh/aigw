@@ -275,7 +275,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand">AI<span>GW</span></div>
-  <div class="ver">architecture v0.3 · code v0.13 · 2026-11-08</div>
+  <div class="ver">architecture v0.3 · code v0.14 · 2026-11-09</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1173,7 +1173,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
     <div class="ph"><div class="p">P4<small>plug &amp; IoT</small></div><div><h4>Plug-ins and IoT</h4><p>Manifest and auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant connector.</p></div><div class="exit"><b>Exit test</b>A third-party plug-in installs and activates with no config.<br><span class="status-ok">built · v0.7</span></div></div>
     <div class="ph"><div class="p">P5<small>outside</small></div><div><h4>Cortex and cloud use cases</h4><p>Bridge, fleet history, training loop, OTA models, LLM agent via MCP, remote access.</p></div><div class="exit"><b>Exit test</b>A model retrained from feedback reaches a fleet and is hot-loaded.<br><span class="status-ok">built · v0.8, v0.9</span></div></div>
     <div class="ph"><div class="p">P6<small>hardware</small></div><div><h4>Real routers</h4><p>LuCI app, procd tuning, tests on OpenWRT One and Wi-Fi 7 boards, footprint validation.</p></div><div class="exit"><b>Exit test</b>Same test suite passes on routers within budget.<br><span class="status-warn">v0.10 · waiting for real routers</span> (LuCI, procd, self-test, OpenWRT in QEMU on three CPUs)</div></div>
-    <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.<br><span class="status-warn">under way · v0.13</span> (DNS cache with prefetch and stale answers; TLS and QUIC connection names; dual-band PC AP, band steering, presence; channel self-healing)</div></div>
+    <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.<br><span class="status-warn">under way · v0.14</span> (DNS cache with prefetch and stale answers; TLS and QUIC connection names; dual-band PC AP, band steering, presence; channel self-healing; federated learning)</div></div>
   </div>
   <h3 style="margin-top:18px">As built in v0.6 (P3 act, complete)</h3>
   <div class="tbl"><table>
@@ -1225,7 +1225,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Remote access</td><td>WireGuard, one peer per phone: <code>agctl remote add &lt;name&gt;</code> shows a QR code for the WireGuard app, and the phone's private key is never stored. By default all its traffic goes home, so its lookups pass through AIGW anywhere; it appears as a device named after its peer. <code>aigw-remote</code> sets up the interface, DNS redirect, forwarding and NAT (and the firewall zone on OpenWRT).</td></tr>
       <tr><td>Shared threat intelligence</td><td>Cortex publishes a signed list of names people confirmed, or that several homes flagged, never ones anyone called a false alarm. Gateways load it like a model (same keys, versions, rollback); a lookup under a listed name raises <code>known-threat</code>, and the built-in policy quarantines.</td></tr>
       <tr><td>Signed plug-ins</td><td>A trusted signature over every file of a plug-in folder grants its privileges without <code>agctl plugin allow</code>; any change takes that away.</td></tr>
-      <tr><td>Not yet</td><td>IPv6 inside the tunnel; the OpenWRT firewall part on a real router (P6); federated learning (P7).</td></tr>
+      <tr><td>Not yet</td><td>IPv6 inside the tunnel; the OpenWRT firewall part on a real router (P6).</td></tr>
     </tbody>
   </table></div>
   <h3 style="margin-top:18px">As built in v0.11 (P7 advanced, first part)</h3>
@@ -1258,6 +1258,17 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>By hand</td><td><code>agctl channel 5 44</code>: the same decision, with a time limit and undo.</td></tr>
       <tr><td>Proof</td><td>A fake hostapd with a crowded channel (proposal, switch, undo), and in CI a real hostapd moving the 5 GHz access point while the real client follows.</td></tr>
       <tr><td>Limits</td><td>Needs a radio that reports channel time and announces switches (router chipsets such as mt76 and ath10k/11k). The PC's RTL8821CU does neither: there the channel isn't judged, and a manual switch restarts the access point.</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:18px">As built in v0.14 (P7 advanced, fourth part)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Federated learning</td><td>Your answers to alerts (a false alarm undone, a threat approved, or <code>agctl label</code>) stay on the gateway. In a round it trains a small shared layer (14 numbers) over the domain-risk model on them and sends cortex only the change, clipped and with noise added. Cortex averages the homes and publishes a signed layer; every gateway checks it before use.</td></tr>
+      <tr><td>Guards</td><td>A layer must keep flagging generated names (also behind <code>www.</code>) and the threats you named, and keep popular sites below the line; otherwise the gateway refuses it, without naming your names in the refusal.</td></tr>
+      <tr><td>Privacy</td><td>No names, features or verdicts leave. <code>agctl fed</code> shows the privacy spent (ε, about 5 per round at the default noise); a budget stops taking part at a limit. With <code>alert_names 0</code> the bridge's reports carry no alert names either.</td></tr>
+      <tr><td>Proof</td><td>Three homes on one PC with a private cortex: a Polish home's false alarms score lower in every home (also a Polish name nobody answered about), threats still alert, and none of the names reaches cortex.</td></tr>
+      <tr><td>Limits</td><td>Noise strong enough for a meaningful ε needs many homes to learn anything; CloudFront-style hash names look like generated ones and are refused, so they belong on an allow list.</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -1300,7 +1311,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.13 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-08</footer>
+<footer>AIGW architecture v0.3 · implementation v0.14 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-09</footer>
 </main>
 </div>
 

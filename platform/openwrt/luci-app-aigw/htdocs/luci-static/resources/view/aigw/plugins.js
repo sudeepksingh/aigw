@@ -82,8 +82,9 @@ return view.extend({
 	models: function(m) {
 		var self = this;
 		var rows = (m.models || []).map(function(e) {
-			var what = !e.loaded ? (e.kind == 'list' ? _('none yet (comes from cortex)') : _('not loaded'))
+			var what = !e.loaded ? (e.kind != 'model' ? _('none yet (comes from cortex)') : _('not loaded'))
 				: e.kind == 'list' ? _('version %d, %d names').format(e.version, e.entries)
+				: e.kind == 'layer' ? _('version %d, shared layer learned by homes together').format(e.version)
 				: e.source == 'package' ? _('packaged, %d trees').format(e.trees)
 				: _('version %d, %d trees').format(e.version, e.trees);
 			return E('tr', { 'class': 'tr' }, [

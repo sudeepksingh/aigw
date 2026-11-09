@@ -38,6 +38,10 @@
  *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status", "id": n}
  *                    {"model": {file, sig, id}}     offer a signed model update (capability
  *                                                   model.offer; files in its own $AIGW_STATE)
+ *                    {"fed": {round, center, scale, weights, lr, epochs, clip, noise, id}}
+ *                                                   train on this home's answers (capability
+ *                                                   fed.train); the reply holds only the
+ *                                                   clipped, noised change: {delta, n, noise}
  *                    {"log": "text"}
  *
  * Each plug-in runs in its folder with $AIGW_STATE, a directory only it (and
@@ -157,7 +161,8 @@ static int trusted(const struct plugin *p)
 
 static int priv_cap(const char *cap)
 {
-	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read") || !strcmp(cap, "model.offer");
+	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read") || !strcmp(cap, "model.offer") ||
+	       !strcmp(cap, "fed.train");
 }
 
 static void state_dir(const struct plugin *p, char *out, size_t n)
@@ -489,6 +494,44 @@ static void on_model(struct plugin *p, struct blob_attr *a)
 	}
 }
 
+/* a federated learning round: train here, hand back only the noisy change */
+static void on_fed(struct plugin *p, struct blob_attr *a)
+{
+	struct blob_buf d = { 0 };
+	struct fed_round r;
+	double delta[FED_W], noise = 0;
+	char err[256] = "";
+	int rc = -1, n = 0, i;
+
+	if (!has_cap(p, "fed.train"))
+		snprintf(err, sizeof(err), "plug-in %s may not run learning rounds (capability fed.train%s)", p->name,
+			 trusted(p) ? " not in its manifest" : " needs: agctl plugin allow");
+	else if (!fed_round_parse(a, &r, err, sizeof(err)))
+		rc = fed_train(&r, delta, &n, &noise, err, sizeof(err));
+	if (rc == 0)
+		dev_state_save();               /* the privacy budget spent is worth keeping */
+	if (!get(a, "id")) {
+		if (rc)
+			AG_INFO("plug-in %s: learning round not joined: %s", p->name, err);
+		return;
+	}
+	blob_buf_init(&d, 0);
+	blobmsg_add_u8(&d, "ok", rc == 0);
+	if (rc == 0) {
+		void *arr = blobmsg_open_array(&d, "delta");
+
+		for (i = 0; i < FED_W; i++)
+			blobmsg_add_double(&d, NULL, delta[i]);
+		blobmsg_close_array(&d, arr);
+		blobmsg_add_u32(&d, "round", r.round);
+		blobmsg_add_u32(&d, "n", (uint32_t)n);
+		blobmsg_add_double(&d, "noise", noise);
+		blobmsg_add_double(&d, "clip", r.clip);
+	}
+	reply(p, (int)gnum(a, "id", 0), &d, err);
+	blob_buf_free(&d);
+}
+
 static void on_query(struct plugin *p, const char *what, int id)
 {
 	struct blob_buf d = { 0 };
@@ -567,6 +610,8 @@ static void handle_line(struct plugin *p, char *line)
 			on_query(p, blobmsg_get_string(cur), (int)gnum(b.head, "id", 0));
 		else if (!strcmp(key, "model") && body)
 			on_model(p, body);
+		else if (!strcmp(key, "fed") && body)
+			on_fed(p, body);
 		else if (!strcmp(key, "log") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
 			AG_INFO("plug-in %s: %.300s", p->name, blobmsg_get_string(cur));
 		else
@@ -1108,7 +1153,7 @@ static int load_manifest(struct plugin *p, char *err, size_t n)
 	for (i = 0; i < p->n_caps; i++)
 		if (strcmp(p->caps[i], "decision.request") && strcmp(p->caps[i], "decision.propose") &&
 		    strcmp(p->caps[i], "devices.read") && strcmp(p->caps[i], "alert.raise") &&
-		    strcmp(p->caps[i], "model.offer")) {
+		    strcmp(p->caps[i], "model.offer") && strcmp(p->caps[i], "fed.train")) {
 			snprintf(err, n, "unknown capability '%s'", p->caps[i]);
 			goto out;
 		}

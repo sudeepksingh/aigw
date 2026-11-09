@@ -139,8 +139,8 @@ int alerts_model_trees(void)
 	return dga_model ? ag_model_ntrees(dga_model) : 0;
 }
 
-/* -1 when the name isn't judged (no model, no registrable label, too short) */
-double alerts_domain_score(const char *qname, char *label, size_t n, float *features)
+/* the trees alone; -1 when the name isn't judged (no model, no registrable label) */
+double alerts_tree_score(const char *qname, char *label, size_t n, float *features)
 {
 	float x[AG_DOMFEAT_N];
 
@@ -148,6 +148,27 @@ double alerts_domain_score(const char *qname, char *label, size_t n, float *feat
 		return -1;
 	ag_domain_features(qname, label, bigram, bigram_dim, features ? features : x);
 	return ag_model_prob(dga_model, features ? features : x);
+}
+
+/* what alerts use: the trees, then the shared layer homes learned together (fed.c) */
+double alerts_domain_score(const char *qname, char *label, size_t n, float *features)
+{
+	float x[AG_DOMFEAT_N], *f = features ? features : x;
+
+	return fed_adjust(alerts_tree_score(qname, label, n, f), f);
+}
+
+int alerts_subject(uint32_t id, char *kind, size_t kn, char *subject, size_t sn)
+{
+	int i;
+
+	for (i = 0; i < ALERT_MAX; i++)
+		if (alerts[i].used && alerts[i].id == id) {
+			snprintf(kind, kn, "%s", alerts[i].kind);
+			snprintf(subject, sn, "%s", alerts[i].subject);
+			return 0;
+		}
+	return -1;
 }
 
 static void device_names(const char *ip, char *mac, char *name)

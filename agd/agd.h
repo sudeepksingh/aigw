@@ -167,6 +167,35 @@ struct ag_model;
 int alerts_model_check(const struct ag_model *m, char *err, size_t n);
 void alerts_model_use(struct ag_model *m);
 
+/* the trees' own score (no adapter); the subject of an alert by id (0, or -1 if gone) */
+double alerts_tree_score(const char *qname, char *label, size_t n, float *features);
+int alerts_subject(uint32_t id, char *kind, size_t kn, char *subject, size_t sn);
+
+/* fed.c: federated learning: examples from your answers, local training, the shared layer */
+#define FED_W 14                    /* tree logit, 12 features, bias */
+struct fed_round {
+	uint32_t round;
+	double center[12], scale[12], w[FED_W];
+	double lr, clip, noise;
+	int epochs;
+};
+void *fed_adapter_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);
+int fed_adapter_check(const void *obj, char *err, size_t n);
+void fed_adapter_use(void *obj);
+void fed_adapter_free(void *obj);
+int fed_adapter_version(const void *obj, char *published, size_t n);
+int fed_adapter_size(const void *obj);
+double fed_adjust(double p, const float *features);
+int fed_label(const char *name, int label, const char *source, char *err, size_t n);
+int fed_forget(const char *name);
+void fed_on_answer(uint32_t alert_id, int label);
+int fed_round_parse(struct blob_attr *tbl, struct fed_round *r, char *err, size_t n);
+int fed_train(const struct fed_round *r, double *delta, int *n_used, double *noise, char *err, size_t n);
+double fed_epsilon(double rho);
+void fed_blob(struct blob_buf *b, int names);
+void fed_save(struct blob_buf *b);
+void fed_load(struct blob_attr *tbl);
+
 /* intel.c: shared threat intelligence, a signed list delivered like a model */
 void *intel_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);
 int intel_check(const void *obj, char *err, size_t n);

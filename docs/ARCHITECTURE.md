@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.13**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.14**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -558,7 +558,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | v0.10: LuCI, procd, self-test, OpenWRT in QEMU; real routers next |
-| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence; v0.13: channel self-healing |
+| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence; v0.13: channel self-healing; v0.14: federated learning |
 
 Real-router testing of every phase so far is planned for the end of the project (P6).
 
@@ -642,7 +642,7 @@ models, rollback across a restart, MCP session, anonymous reports).
 | Signed plug-ins | `plugin.sig` = usign signature over "sha512  path" lines for every file of the folder (sorted). Checked when a plug-in is found and before every start; a trusted signature grants privileged capabilities without `allow`, a changed file revokes it (it then runs as any added plug-in). cortex `sign-plugin` |
 
 Verified by `tests/remote-test.sh` (two namespaces, a real WireGuard tunnel, DNS through agdns, restart, revoke, off) and the extended `tests/outside-test.sh`.
-Not covered yet: IPv6 inside the tunnel, the OpenWRT firewall integration on a real router (P6), federated *learning* (model training across homes without sharing labels: P7).
+Not covered yet: IPv6 inside the tunnel, the OpenWRT firewall integration on a real router (P6). Federated *learning* (training across homes without sharing labels) arrived in v0.14.
 
 **As built in v0.10 (P6, first part).** Everything a router needs, checked on real OpenWRT userspace before real hardware:
 
@@ -727,6 +727,21 @@ Not covered yet: steering between more than two access points (mesh), and room-l
 Verified by `tests/chan-test.sh` (a fake hostapd and a stand-in `iw`: an 80 % busy channel 6 with 6 strong networks, channel 1 proposed, approval sends `CHAN_SWITCH 5 2412`, the re-check doesn't switch again, undo goes back, a manual switch, channel 14 refused) and in `tests/hwsim-test.sh` (CI): a real hostapd moves the 5 GHz access point from 36 to 44 and the real client follows the announcement.
 
 On the PC's RTL8821CU (`rtw88`) the driver reports no survey data and no channel switch announcement: the channel can't be judged there, and a switch restarts the access point (devices rejoin within seconds). Router radios (mt76, ath10k/ath11k) report both.
+
+**As built in v0.14 (P7, fourth part).** Federated learning: homes improve the domain-risk judgement together, and the names they answered about never leave.
+
+| Piece | As built |
+|-------|----------|
+| The layer (`fed.c`) | 14 numbers on top of the trees: score = sigmoid(w0·logit(trees) + Σ wi·(featureᵢ − centerᵢ)/scaleᵢ + b). w0 = 1, the rest 0, is the trees' own score. A signed `# aigw-adapter domain-adapter` file, delivered and rolled back like a model (`models.c` slot, no packaged version). `agctl score` shows the trees' score next to the final one. |
+| Examples | Kept on the gateway (state file), at most 200: a dga alert whose decision you rejected, or undid after it was taken automatically, is "safe"; one you approved is "threat"; `agctl label <name> safe|threat`; `agctl fed forget`. |
+| A round | The bridge (capability `fed.train`) fetches `GET /v1/fed` (round, center, scale, weights, lr, epochs, clip, noise) and hands it to agd (`{"fed": …}`). With at least `alerts.fed_min_examples` (3) answers, agd runs logistic regression from the shared weights on its examples plus fixed public anchors (machine-generated names, also under `www.`/`cdn.` and a two-part suffix; popular sites with and without `www.`), threats weighing double. The change is clipped to length C and Gaussian noise σ·C is added to each number, σ = max(cortex's, `alerts.fed_noise`, default 1.0). Only `{round, delta[14], n, noise, clip}` goes to `POST /v1/fed/update`. |
+| Cortex (`fed.py`) | One change per home per round. When `--fed-min-homes` (3) are in and the round is `--fed-gap` (a day) old: new = old + mean(changes), every home weighing the same. A layer whose trees' weight falls outside 0.2–5 is not published. Otherwise signed and listed in `/v1/models`; the next round starts from it. `aigw_cortex fed` shows rounds; `fed aggregate` closes one early. |
+| Gateway check | Before use: every anchor the trees flag must stay flagged, no machine-generated anchor may score lower than the trees give it (so a layer can't learn "more labels = safe"), popular sites stay below the threshold, and names you said are threats stay flagged. A refusal is reported without naming your names. |
+| Privacy | Names, features and verdicts stay home. Each round is a Gaussian mechanism over the whole home's data; rounds add up as zCDP (ρ = Σ 1/(2σ²)), shown as ε at δ = 1e-5 by `agctl fed`: 5.3 for one round at σ = 1, 20 after ten. `alerts.fed_budget` stops taking part before ε would pass it. The bridge's `alert_names 0` keeps alert subjects, reasons and block targets out of reports too, so cortex then learns only through rounds. |
+
+Verified by `tests/fed-test.sh` (three agd instances with their own bridges, a private cortex): a Polish home's false alarms (bydgoszcz.pl, pszczyna.pl, …, few vowels and long consonant runs) and a home's threats train three rounds; the published layer is loaded in every home without a restart; the false alarms score lower everywhere, also szczebrzeszyn.pl which nobody answered about (0.98 → 0.2–0.8); generated names still alert, also under `www.`; none of the answered names reaches cortex's database, files or log; a layer that drops a home's own threat is refused there without naming it; a budget stops a home after three rounds; malformed, late and repeated changes are refused. `tests/test_cortex.py` checks the averaging and publishing.
+
+Limits, measured: with σ = 1 and three homes the noise outweighs what the homes learned (the test uses σ = 0.1, which gives no meaningful ε); useful learning at σ ≈ 1 needs many homes. A false alarm that looks like a generated name under a subdomain in the 12 features (CloudFront hashes such as d2xqm7kjv0bh4f.cloudfront.net) can't be learned safely: every gateway refuses such a layer, and those belong on an allow list. The trees themselves score generated names lower under a subdomain (www.xkqjzvbwptmr.com 0.56 against 0.99): the layer pushes against that, the next tree retraining should include such names.
 ---
 
 ## 17. Status and risks
