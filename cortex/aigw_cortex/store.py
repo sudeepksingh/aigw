@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Fleet history in SQLite: gateways, their reports, labels for training,
-proposals on their way to a gateway, and published models.
+proposals on their way to a gateway, published models, and federated
+learning rounds (only noisy changes of the shared layer, never names).
 
 One file (cortex.db) in the cortex data directory. Gateways send features
 and decisions, never packets or DNS logs; the only names that arrive are
@@ -36,6 +37,12 @@ CREATE TABLE IF NOT EXISTS proposals (
 CREATE TABLE IF NOT EXISTS models (
     name TEXT, version INTEGER, file TEXT, sha256 TEXT, size INTEGER, published INTEGER, notes TEXT,
     PRIMARY KEY (name, version));
+CREATE TABLE IF NOT EXISTS fed_rounds (
+    round INTEGER PRIMARY KEY, started INTEGER, weights TEXT, state TEXT, closed INTEGER DEFAULT 0,
+    homes INTEGER DEFAULT 0, version INTEGER DEFAULT 0, note TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS fed_updates (
+    round INTEGER, gateway TEXT, delta TEXT, n INTEGER, noise REAL, clip REAL, ts INTEGER,
+    PRIMARY KEY (round, gateway));
 """
 
 # what a person's answer to a decision says about the alert behind it

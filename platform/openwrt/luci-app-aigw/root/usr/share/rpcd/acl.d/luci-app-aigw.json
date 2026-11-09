@@ -10,6 +10,7 @@
 				"ag.decision": [ "list" ],
 				"ag.plugin": [ "list" ],
 				"ag.model": [ "list" ],
+				"ag.fed": [ "status" ],
 				"ag.remote": [ "list" ],
 				"ag.wifi": [ "keys", "radios" ]
 			}

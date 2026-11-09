@@ -74,6 +74,10 @@ static void usage(void)
 		"  untrust <fingerprint>         stop accepting a key\n"
 		"  bridge [url]        link to cortex: show the bridge, or set cortex's address\n"
 		"  bridge token        set this gateway's token (paste it; read from stdin)\n"
+		"  fed                 federated learning: your answers, rounds joined, privacy spent\n"
+		"  label <domain> safe|threat    tell AIGW what a name is (kept here; it trains the\n"
+		"                      shared layer without the name leaving)\n"
+		"  fed forget [domain] drop one answer, or all of them\n"
 		"\n"
 		"  remote              remote access: on or off, peers, who is connected\n"
 		"  remote on <address> turn it on; <address>: how phones reach this home (public IP or\n"
@@ -579,6 +583,9 @@ static void show_score(struct ubus_request *req, int type, struct blob_attr *msg
 	printf("  label     %s\n", fstr(msg, "label"));
 	printf("  score     %.3f  (alert at %.2f)\n", blobmsg_get_double(s),
 	       field(msg, "threshold") ? blobmsg_get_double(field(msg, "threshold")) : 0);
+	if (field(msg, "trees"))
+		printf("  trees     %.3f  (before the layer homes learned together)\n",
+		       blobmsg_get_double(field(msg, "trees")));
 	printf("  verdict   %s\n", fstr(msg, "verdict"));
 	if (f) {
 		printf("  features ");
@@ -834,8 +841,13 @@ static void show_models(struct ubus_request *req, int type, struct blob_attr *ms
 			const char *src = orb(fstr(e, "source"), "-");
 
 			if (!fnum(e, "loaded")) {
-				printf("  %-12s %s\n", fstr(e, "name"), !strcmp(orb(fstr(e, "kind"), ""), "list") ?
+				printf("  %-12s %s\n", fstr(e, "name"), strcmp(orb(fstr(e, "kind"), ""), "model") ?
 				       "none yet (comes from cortex through the bridge)" : "not loaded");
+			} else if (!strcmp(orb(fstr(e, "kind"), ""), "layer")) {
+				printf("  %-12s version %llu, shared layer learned by homes together, from %s, signed by %s, "
+				       "published %s\n", fstr(e, "name"), (unsigned long long)fnum(e, "version"),
+				       orb(fstr(e, "origin"), "?"), orb(fstr(e, "signer"), "nobody (unsigned)"),
+				       orb(fstr(e, "trained"), "?"));
 			} else if (!strcmp(orb(fstr(e, "kind"), ""), "list")) {
 				printf("  %-12s version %llu, %llu names, from %s, signed by %s, published %s\n", fstr(e, "name"),
 				       (unsigned long long)fnum(e, "version"), (unsigned long long)fnum(e, "entries"),
@@ -862,6 +874,47 @@ static void show_models(struct ubus_request *req, int type, struct blob_attr *ms
 		}
 	if (!k)
 		printf("  none: model updates are refused until you trust a key (agctl trust <key.pub>)\n");
+}
+
+static double fdbl(struct blob_attr *tbl, const char *name)
+{
+	struct blob_attr *a = field(tbl, name);
+
+	return a && blobmsg_type(a) == BLOBMSG_TYPE_DOUBLE ? blobmsg_get_double(a) : (double)fnum(tbl, name);
+}
+
+static void show_fed(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *list = field(msg, "list"), *ad = field(msg, "adapter"), *e = field(msg, "epsilon"), *x;
+	size_t rem;
+	char t[32];
+	int k = 0;
+
+	if (json_out)
+		return print_json(msg);
+	printf("Federated learning %s (names never leave this home; each round sends 14 noisy numbers)\n",
+	       fnum(msg, "enabled") ? "on" : "OFF (alerts.fed)");
+	printf("  examples   %llu: %llu safe (false alarms), %llu threats; a round needs %llu\n",
+	       (unsigned long long)fnum(msg, "examples"), (unsigned long long)fnum(msg, "safe"),
+	       (unsigned long long)fnum(msg, "threat"), (unsigned long long)fnum(msg, "min_examples"));
+	printf("  rounds     %llu joined%s%s\n", (unsigned long long)fnum(msg, "rounds"),
+	       *fstr(msg, "last") ? "; last: " : "", fstr(msg, "last"));
+	if (e && blobmsg_type(e) == BLOBMSG_TYPE_STRING)
+		printf("  privacy    %s\n", blobmsg_get_string(e));
+	else
+		printf("  privacy    ε = %.2f at δ = %g over all rounds (noise at least %.2f)\n", fdbl(msg, "epsilon"),
+		       fdbl(msg, "delta"), fdbl(msg, "min_noise"));
+	if (ad && fnum(ad, "loaded"))
+		printf("  layer      version %llu in use\n", (unsigned long long)fnum(ad, "version"));
+	else
+		printf("  layer      none yet: the trees' own score is used\n");
+	if (list)
+		blobmsg_for_each_attr(x, list, rem) {
+			if (!k++)
+				printf("Your answers (kept here only):\n");
+			printf("  %-7s %-40s %s, %s\n", fstr(x, "label"), fstr(x, "name"), fstr(x, "source"),
+			       ago(fnum(x, "at"), t, sizeof(t)));
+		}
 }
 
 static int remote_conf;
@@ -1614,6 +1667,27 @@ int main(int argc, char **argv)
 			rc = 1;
 		}
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "fed") && (i == argc || !strcmp(argv[i], "forget"))) {
+		if (i == argc) {
+			rc = call("ag.fed", "status", NULL, show_fed);
+		} else {
+			blob_buf_init(&args, 0);
+			if (i + 1 < argc)
+				blobmsg_add_string(&args, "name", argv[i + 1]);
+			rc = call("ag.fed", "forget", args.head, show_ok) || change_failed;
+			blob_buf_free(&args);
+		}
+	} else if (!strcmp(cmd, "label") && i + 1 < argc) {
+		if (strcmp(argv[i + 1], "safe") && strcmp(argv[i + 1], "threat")) {
+			fprintf(stderr, "agctl: usage: agctl label <domain> safe|threat\n");
+			rc = 1;
+		} else {
+			blob_buf_init(&args, 0);
+			blobmsg_add_string(&args, "name", argv[i]);
+			blobmsg_add_string(&args, "label", argv[i + 1]);
+			rc = call("ag.fed", "label", args.head, show_ok) || change_failed;
+			blob_buf_free(&args);
+		}
 	} else if (!strcmp(cmd, "keys")) {
 		rc = call("ag.wifi", "keys", NULL, show_keys);
 	} else if (!strcmp(cmd, "key") && i + 1 < argc) {

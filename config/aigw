@@ -49,6 +49,13 @@ config alerts 'alerts'
 	option dga_threshold '0.98'
 	# shorter registrable names are not judged
 	option dga_min_label '8'
+	# federated learning: your answers train a shared layer with other homes;
+	# names never leave, each round sends 14 noisy numbers (needs the bridge)
+	option fed '1'
+	# at least this much noise on what leaves, whatever cortex asks (privacy)
+	option fed_noise '1.0'
+	# stop taking part before the privacy spent (epsilon) passes this; 0 = no limit
+	option fed_budget '0'
 
 config baseline 'baseline'
 	# what is normal for each device, learned continuously

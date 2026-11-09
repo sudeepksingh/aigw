@@ -11,6 +11,7 @@
 		"ag.decision": { "methods": [ "list", "request", "approve", "reject", "revert" ] },
 		"ag.plugin": { "methods": [ "list" ] },
 		"ag.model": { "methods": [ "list" ] },
+		"ag.fed": { "methods": [ "status" ] },
 		"ag.remote": { "methods": [ "list" ] },
 		"ag.wifi": { "methods": [ "radios", "keys" ] }
 	},

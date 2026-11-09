@@ -6,6 +6,8 @@
     GET  /v1/models/<file>       a model (.agm) or list (.list), or its signature (.sig)
     GET  /v1/proposals           suggestions waiting for this gateway (sent once)
     POST /v1/proposals/<id>      how the gateway took one: {ok, decision, error}
+    GET  /v1/fed                 the open federated learning round: shared layer, how to train
+    POST /v1/fed/update          a home's clipped, noisy change {round, delta, n, noise, clip}
 
 Every request carries "Authorization: Bearer <token>" from `enroll`. Use
 --cert/--key (or a reverse proxy) for HTTPS anywhere beyond your own LAN.
@@ -18,11 +20,15 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from . import fed
+
 MAX_BODY = 4 * 1024 * 1024
-FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list)(\.sig)?$")
+FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list|adapter)(\.sig)?$")
 
 
-def make_handler(store, log=True):
+def make_handler(store, log=True, fed_settings=None):
+    fs = fed_settings or fed.Settings()
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "aigw-cortex"
 
@@ -77,6 +83,8 @@ def make_handler(store, log=True):
                 return None
             if path == "/v1/proposals":
                 return self.send_json(200, {"proposals": store.take_proposals(gw["id"])})
+            if path == "/v1/fed":
+                return self.send_json(200, fed.round_for_gateway(store, fs))
             return self.send_json(404, {"error": "unknown path"})
 
         def do_POST(self):  # noqa: N802
@@ -90,6 +98,9 @@ def make_handler(store, log=True):
             if path == "/v1/report":
                 learned = store.report(gw["id"], body)
                 return self.send_json(200, {"ok": True, "gateway": gw["name"], "labels": learned})
+            if path == "/v1/fed/update":
+                code, answer = fed.accept(store, fs, gw["id"], body)
+                return self.send_json(code, answer)
             m = re.match(r"^/v1/proposals/(\d+)$", path)
             if m:
                 n = store.proposal_result(gw["id"], int(m.group(1)), bool(body.get("ok")),
@@ -100,8 +111,8 @@ def make_handler(store, log=True):
     return Handler
 
 
-def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True):
-    httpd = ThreadingHTTPServer((listen, port), make_handler(store, log))
+def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, fed_settings=None):
+    httpd = ThreadingHTTPServer((listen, port), make_handler(store, log, fed_settings))
     scheme = "http"
     if cert:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

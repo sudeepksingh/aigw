@@ -39,6 +39,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/plug-test.sh build
       - name: Outside test (bridge, cortex, retrain, signed hot-loaded model, MCP)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/outside-test.sh build
+      - name: Federated learning test (three homes, noisy updates, signed shared layer, no names leave)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/fed-test.sh build
       - name: Remote access test (WireGuard between network namespaces)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/remote-test.sh build
       - name: DNS cache test (answer times, prefetch, stale answers)

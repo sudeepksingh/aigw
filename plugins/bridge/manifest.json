@@ -1,10 +1,10 @@
 {
   "name": "bridge",
   "kind": "connector",
-  "version": "0.13.0",
-  "description": "Links this gateway to cortex: fleet history, signed model updates, suggestions from the AI assistant (they wait for your OK)",
+  "version": "0.14.0",
+  "description": "Links this gateway to cortex: fleet history, signed model updates, federated learning rounds (names stay home), suggestions from the AI assistant (they wait for your OK)",
   "exec": "ag-bridge",
-  "caps": ["devices.read", "decision.propose", "model.offer"],
+  "caps": ["devices.read", "decision.propose", "model.offer", "fed.train"],
   "needs": ["bin:curl", "config:url", "config:token"],
   "budget": { "ram_kb": 8192, "cpu_pct": 5 },
   "hosts": ["openwrt", "linux"],
@@ -14,10 +14,12 @@
     "interval": "300",
     "devices": "names",
     "models": "1",
-    "proposals": "1"
+    "proposals": "1",
+    "fed": "1",
+    "alert_names": "1"
   },
   "card": {
     "title": "Cortex",
-    "text": "Reports to your cortex, takes signed model updates (checked before use) and shows its suggestions for your approval."
+    "text": "Reports to your cortex, takes signed model updates (checked before use), joins learning rounds that never send names, and shows its suggestions for your approval."
   }
 }

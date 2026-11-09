@@ -14,7 +14,8 @@
  *
  * Signed lists travel the same way: "threat-intel" (intel.c), names other
  * homes confirmed as threats, has no packaged version and only comes from
- * cortex.
+ * cortex. So does "domain-adapter" (fed.c), the small layer on top of the
+ * domain-risk trees that homes train together without sharing names.
  *
  * The packaged model (model_dir, from the package) needs no signature and is
  * the fallback: a broken or untrusted update is refused and the running model
@@ -78,6 +79,10 @@ static const struct ops agm_ops = {
 static const struct ops list_ops = {
 	".list", "list", "entries", intel_parse, intel_check, intel_use, intel_free, intel_version, intel_size,
 };
+static const struct ops adapter_ops = {
+	".adapter", "layer", "weights", fed_adapter_parse, fed_adapter_check, fed_adapter_use, fed_adapter_free,
+	fed_adapter_version, fed_adapter_size,
+};
 
 static const struct ops *ops_for(const uint8_t *data, size_t len)
 {
@@ -85,6 +90,8 @@ static const struct ops *ops_for(const uint8_t *data, size_t len)
 		return &agm_ops;
 	if (len >= 12 && !memcmp(data, "# aigw-list ", 12))
 		return &list_ops;
+	if (len >= 15 && !memcmp(data, "# aigw-adapter ", 15))
+		return &adapter_ops;
 	return NULL;
 }
 
@@ -108,8 +115,15 @@ struct slot {
 static struct slot slots[] = {
 	{ .name = "domain-risk", .ops = &agm_ops },
 	{ .name = "threat-intel", .ops = &list_ops },     /* no packaged version: only from cortex */
+	{ .name = "domain-adapter", .ops = &adapter_ops }, /* the layer homes learn together (fed.c) */
 };
 #define NSLOTS ((int)(sizeof(slots) / sizeof(slots[0])))
+
+/* only .agm models come with the package; lists and the layer only from cortex */
+static int packaged(const struct slot *s)
+{
+	return s->ops == &agm_ops;
+}
 
 static struct slot *slot_find(const char *name)
 {
@@ -383,8 +397,8 @@ void models_init(void)
 			}
 			AG_WARN("%s %s: installed update not used: %s", s->ops->kind, s->name, err);
 		}
-		if (s->ops == &list_ops)
-			continue;                    /* lists only come as updates */
+		if (!packaged(s))
+			continue;                    /* lists and the layer only come as updates */
 		if (load_package(s, err, sizeof(err)))
 			AG_WARN("model %s not loaded (%s); other alerts still work", s->name, err);
 	}
@@ -505,11 +519,11 @@ int models_rollback(const char *name, char *err, size_t errlen)
 	int from;
 
 	if (!s) {
-		snprintf(err, errlen, "no model or list '%s' (domain-risk, threat-intel)", name);
+		snprintf(err, errlen, "no model or list '%s' (domain-risk, threat-intel, domain-adapter)", name);
 		return -1;
 	}
 	if (strcmp(s->source, "update")) {
-		snprintf(err, errlen, s->ops == &list_ops ? "%s has no update to roll back" :
+		snprintf(err, errlen, !packaged(s) ? "%s has no update to roll back" :
 			 "%s is already the packaged model", s->name);
 		return -1;
 	}
@@ -534,7 +548,7 @@ int models_rollback(const char *name, char *err, size_t errlen)
 		unlink(dsig);
 		unlink(prev);
 		unlink(psig);
-		if (s->ops == &list_ops) {          /* nothing before it: the list is gone */
+		if (!packaged(s)) {                 /* nothing before it: the list or layer is gone */
 			s->ops->use(NULL);
 			s->loaded = s->version = s->trees = 0;
 			s->source[0] = s->signer[0] = s->trained[0] = '\0';

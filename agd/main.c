@@ -374,7 +374,13 @@ static int m_domain_score(struct ubus_context *ctx, struct ubus_object *obj,
 	if (s < 0) {
 		blobmsg_add_string(&b, "verdict", alerts_model_trees() ? "not judged" : "model not loaded");
 	} else {
+		float tx[AG_DOMFEAT_N];
+		char tl[256];
+		double ts = alerts_tree_score(name, tl, sizeof(tl), tx);
+
 		blobmsg_add_double(&b, "score", s);
+		if (ts != s)                     /* the shared layer changed it */
+			blobmsg_add_double(&b, "trees", ts);
 		blobmsg_add_double(&b, "threshold", cfg.dga_threshold);
 		blobmsg_add_string(&b, "verdict",
 				   s >= cfg.dga_threshold && (int)strlen(label) >= cfg.dga_min_label ?
@@ -603,6 +609,55 @@ static struct ubus_method model_methods[] = {
 static struct ubus_object_type model_type = UBUS_OBJECT_TYPE("ag.model", model_methods);
 static struct ubus_object model_obj = {
 	.name = "ag.model", .type = &model_type, .methods = model_methods, .n_methods = ARRAY_SIZE(model_methods),
+};
+
+/* ---------- federated learning: your examples, rounds, privacy spent ---------- */
+
+enum { FD_NAME, FD_LABEL, __FD_MAX };
+static const struct blobmsg_policy fed_policy[__FD_MAX] = {
+	[FD_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
+	[FD_LABEL] = { .name = "label", .type = BLOBMSG_TYPE_STRING },     /* safe | threat */
+};
+
+static int m_fed(struct ubus_context *ctx, struct ubus_object *obj,
+		 struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__FD_MAX];
+	char err[200] = "";
+	int rc = 0;
+
+	blobmsg_parse(fed_policy, __FD_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (!strcmp(method, "status")) {
+		fed_blob(&b, 1);
+		ubus_send_reply(ctx, req, b.head);
+		return 0;
+	}
+	if (!strcmp(method, "label")) {
+		const char *l = tb[FD_LABEL] ? blobmsg_get_string(tb[FD_LABEL]) : "";
+
+		if (!tb[FD_NAME] || (strcmp(l, "safe") && strcmp(l, "threat")))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		rc = fed_label(blobmsg_get_string(tb[FD_NAME]), !strcmp(l, "threat"), "you", err, sizeof(err));
+	} else {
+		blobmsg_add_u32(&b, "forgotten", (uint32_t)fed_forget(tb[FD_NAME] ? blobmsg_get_string(tb[FD_NAME]) : NULL));
+	}
+	if (rc == 0)
+		dev_state_save();
+	blobmsg_add_u8(&b, "ok", rc == 0);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method fed_methods[] = {
+	UBUS_METHOD_NOARG("status", m_fed),
+	UBUS_METHOD("label", m_fed, fed_policy),
+	UBUS_METHOD("forget", m_fed, fed_policy),
+};
+static struct ubus_object_type fed_type = UBUS_OBJECT_TYPE("ag.fed", fed_methods);
+static struct ubus_object fed_obj = {
+	.name = "ag.fed", .type = &fed_type, .methods = fed_methods, .n_methods = ARRAY_SIZE(fed_methods),
 };
 
 /* ---------- remote access ---------- */
@@ -858,7 +913,8 @@ static void on_ubus_connect(struct ubus_context *ctx)
 	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj) ||
 	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj) ||
 	    ubus_add_object(ctx, &decision_obj) || ubus_add_object(ctx, &plugin_obj) ||
-	    ubus_add_object(ctx, &wifi_obj) || ubus_add_object(ctx, &model_obj) || ubus_add_object(ctx, &remote_obj))
+	    ubus_add_object(ctx, &wifi_obj) || ubus_add_object(ctx, &model_obj) || ubus_add_object(ctx, &remote_obj) ||
+	    ubus_add_object(ctx, &fed_obj))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;

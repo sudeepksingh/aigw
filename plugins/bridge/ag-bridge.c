@@ -9,6 +9,9 @@
  *     (agd checks the signature and hot-loads it; the bridge can't install anything itself)
  *   proposal, waits for you   ◄────── propose ◄ GET /v1/proposals  suggestions (e.g. from
  *                                     result ─► POST /v1/proposals/<id>   the MCP assistant)
+ *   learning round: agd trains ◄───── fed ◄──── GET /v1/fed      the shared layer (14 numbers)
+ *   on your answers, returns          update ─► POST /v1/fed/update   averaged with other homes',
+ *   only a clipped, noisy change                                   published as a signed layer
  *
  * Everything outward goes through curl (TLS, certificate checks), run as the
  * unprivileged plug-in user. What leaves the home: the gateway's counters,
@@ -22,6 +25,10 @@
  *   interval   seconds between check-ins (default 300)
  *   devices    names | anonymous | none
  *   models     1 = fetch model updates;  proposals  1 = fetch suggestions
+ *   fed        1 = take part in federated learning rounds (needs capability fed.train)
+ *   alert_names 0 = alerts and decisions leave without the names they are about
+ *              (subjects, block targets, reasons); cortex then learns only through
+ *              federated rounds
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -47,9 +54,9 @@
 
 static struct {
 	char url[128], token[128], devices[16], state[256], host[16], aigw[16];
-	int interval, models, proposals;
-	int can_read, can_propose, can_model;
-} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1 };
+	int interval, models, proposals, fed, alert_names;
+	int can_read, can_propose, can_model, can_fed;
+} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1 };
 
 static char *ibuf;
 static size_t ilen, icap;
@@ -191,6 +198,8 @@ static void on_hello(struct blob_attr *h)
 		c.interval = 2;
 	c.models = (int)fnum(conf, "models", 1);
 	c.proposals = (int)fnum(conf, "proposals", 1);
+	c.fed = (int)fnum(conf, "fed", 1);
+	c.alert_names = (int)fnum(conf, "alert_names", 1);
 	if ((g = field(h, "granted")))
 		blobmsg_for_each_attr(cur, g, rem) {
 			const char *cap = blobmsg_type(cur) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(cur) : "";
@@ -198,6 +207,7 @@ static void on_hello(struct blob_attr *h)
 			c.can_read |= !strcmp(cap, "devices.read");
 			c.can_propose |= !strcmp(cap, "decision.propose");
 			c.can_model |= !strcmp(cap, "model.offer");
+			c.can_fed |= !strcmp(cap, "fed.train");
 		}
 	configured = 1;
 }
@@ -460,11 +470,18 @@ static void add_list(struct blob_buf *r, const char *name, struct blob_attr *ite
 		return;
 	arr = blobmsg_open_array(r, name);
 	blobmsg_for_each_attr(e, items, rem) {
+		const char *action = fstr(e, "action");
+
 		t = blobmsg_open_table(r, NULL);
 		for (i = 0; keep[i]; i++) {
 			/* reasons and device names describe people's devices: only with devices = names */
 			if (anon && (!strcmp(keep[i], "reason") || !strcmp(keep[i], "device") || !strcmp(keep[i], "ip") ||
 				     !strcmp(keep[i], "mac")))
+				continue;
+			/* alert_names 0: the names alerts are about stay home (reasons and notes quote them) */
+			if (!c.alert_names && (!strcmp(keep[i], "subject") || !strcmp(keep[i], "reason") ||
+					       !strcmp(keep[i], "note") ||
+					       (!strcmp(keep[i], "target") && action && !strcmp(action, "block"))))
 				continue;
 			copy_attr(r, keep[i], field(e, keep[i]));
 		}
@@ -683,6 +700,78 @@ static void fetch_proposals(void)
 	blob_buf_free(&list);
 }
 
+/* ---------- federated learning ---------- */
+
+static long fed_done;                /* the last round this gateway sent its change for */
+static char fed_note[256];
+
+static void fed_round(void)
+{
+	struct blob_buf r = { 0 }, b = { 0 };
+	struct blob_attr *cur, *d;
+	char out[300], body[300], rout[300], path[300];
+	long round;
+	size_t rem;
+	void *t;
+	int id = next_id++;
+	FILE *f;
+
+	snprintf(path, sizeof(path), "%s/fed.round", c.state);
+	if (!fed_done && (f = fopen(path, "r"))) {
+		if (fscanf(f, "%ld", &fed_done) != 1)
+			fed_done = 0;
+		fclose(f);
+	}
+	snprintf(out, sizeof(out), "%s/fed.json", c.state);
+	if (http("GET", "/v1/fed", NULL, out) || read_json(out, &r)) {
+		blob_buf_free(&r);
+		return;
+	}
+	round = fnum(r.head, "round", 0);
+	if (round <= 0 || round <= fed_done) {
+		blob_buf_free(&r);
+		return;
+	}
+	/* hand the round to agd as it came; agd checks every number */
+	blob_buf_init(&b, 0);
+	t = blobmsg_open_table(&b, "fed");
+	blob_for_each_attr(cur, r.head, rem)
+		if (strcmp(blobmsg_name(cur), "id"))
+			blobmsg_add_blob(&b, cur);
+	blobmsg_add_u32(&b, "id", (uint32_t)id);
+	blobmsg_close_table(&b, t);
+	d = ask(&b, id);
+	if (!d || !fnum(d, "ok", 0)) {
+		if (strcmp(fed_note, reply_err))
+			logf_("learning round %ld not joined: %s", round, reply_err);
+		snprintf(fed_note, sizeof(fed_note), "%s", reply_err);
+		goto out;
+	}
+	/* only the clipped, noisy change and a count leave: no names, no features */
+	blob_buf_init(&r, 0);
+	blobmsg_add_u32(&r, "round", (uint32_t)round);
+	copy_attr(&r, "delta", field(d, "delta"));
+	copy_attr(&r, "n", field(d, "n"));
+	copy_attr(&r, "noise", field(d, "noise"));
+	copy_attr(&r, "clip", field(d, "clip"));
+	snprintf(body, sizeof(body), "%s/fed-update.json", c.state);
+	snprintf(rout, sizeof(rout), "%s/fed-update.out", c.state);
+	if (write_json(body, &r) == 0 && http("POST", "/v1/fed/update", body, rout) == 0) {
+		fed_done = round;
+		fed_note[0] = '\0';
+		if ((f = fopen(path, "w"))) {
+			fprintf(f, "%ld\n", round);
+			fclose(f);
+		}
+		logf_("learning round %ld: change sent (%ld examples, noise %.2f)", round, fnum(d, "n", 0),
+		      field(d, "noise") && blobmsg_type(field(d, "noise")) == BLOBMSG_TYPE_DOUBLE ?
+		      blobmsg_get_double(field(d, "noise")) : 0.0);
+	}
+out:
+	blob_buf_free(&b);
+	blob_buf_free(&r);
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -709,8 +798,9 @@ int main(void)
 		logf_("setting 'token' has odd characters (agctl bridge token)");
 		return 1;
 	}
-	logf_("linking %s to %s every %d s (devices: %s%s%s)", c.host, c.url, c.interval, c.devices,
-	      c.models && c.can_model ? ", model updates" : "", c.proposals && c.can_propose ? ", proposals" : "");
+	logf_("linking %s to %s every %d s (devices: %s%s%s%s%s)", c.host, c.url, c.interval, c.devices,
+	      c.models && c.can_model ? ", model updates" : "", c.proposals && c.can_propose ? ", proposals" : "",
+	      c.fed && c.can_fed ? ", learning rounds" : "", c.alert_names ? "" : ", no alert names");
 	next = now_ms() + 1000;
 	for (;;) {
 		uint64_t t = now_ms();
@@ -721,6 +811,8 @@ int main(void)
 				fetch_models();
 			if (c.proposals && c.can_propose)
 				fetch_proposals();
+			if (c.fed && c.can_fed)
+				fed_round();
 			next = now_ms() + (uint64_t)c.interval * 1000;
 			continue;
 		}

@@ -105,6 +105,10 @@ struct ag_config {
 	int alerts_enabled;
 	double dga_threshold;     /* domain-risk score that raises an alert */
 	int dga_min_label;        /* shorter names are not judged */
+	int fed_enabled;          /* take part in federated learning rounds (names never leave) */
+	double fed_noise;         /* at least this noise multiplier on what leaves, whatever cortex asks */
+	int fed_min_examples;     /* answered examples needed before taking part in a round */
+	double fed_budget;        /* stop taking part before epsilon passes this; 0 = no limit */
 	/* per-device behaviour baselines */
 	int bucket_seconds;       /* length of one activity bucket (an hour) */
 	int learn_minutes;        /* watch a device this long before judging it */

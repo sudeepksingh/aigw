@@ -149,6 +149,49 @@ class Api(unittest.TestCase):
             httpd.shutdown()
 
 
+class Fed(unittest.TestCase):
+    def test_round(self):
+        from aigw_cortex import fed
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            st = fed.Settings(min_homes=2, gap=0, noise=1.0)
+            g = [s.enroll(n)[0] for n in ("a", "b", "c")]
+            r = fed.round_for_gateway(s, st)
+            self.assertEqual((r["round"], r["weights"]), (1, fed.IDENTITY))
+            up = lambda gw, delta, rnd=1, n=3: fed.accept(s, st, gw, {"round": rnd, "delta": delta, "n": n,
+                                                                    "noise": 1.0, "clip": 1.0})
+            z = [0.0] * fed.N_W
+            self.assertEqual(up(g[0], [1, 2])[0], 400)
+            self.assertEqual(up(g[0], z, n=0)[0], 400)
+            self.assertEqual(up(g[0], z[:-1] + [float("nan")])[0], 400)
+            self.assertEqual(up(g[0], z, rnd=7)[0], 409)
+            self.assertEqual(up(g[0], [0.0] * 13 + [-0.4])[0], 200)
+            self.assertEqual(up(g[0], z)[0], 409)                     # one change per home per round
+            code, ans = up(g[1], [0.0] * 13 + [-0.2])                 # second home: the round closes
+            self.assertEqual((code, ans["published"]), (200, 1))
+            self.assertAlmostEqual(fed.round_for_gateway(s, st)["weights"][-1], -0.3)   # mean, not sum
+            self.assertEqual(fed.round_for_gateway(s, st)["round"], 2)
+            m = [x for x in s.latest_models() if x["name"] == "domain-adapter"][0]
+            with open(os.path.join(s.models_dir(), m["file"]), "rb") as f:
+                data = f.read()
+            self.assertTrue(data.startswith(b"# aigw-adapter domain-adapter\n# version 1\n"))
+            self.assertIn(b"weights 1 0 0 0 0 0 0 0 0 0 0 0 0 -0.3", data)
+            self.assertTrue(os.path.exists(os.path.join(s.models_dir(), m["file"] + ".sig")))
+            # closing early with one home (fed aggregate) works; an average that would
+            # wreck the trees' weight is not published and the round's layer stays
+            up(g[0], [-0.4] + z[1:], rnd=2)
+            r = fed.aggregate(s, st, force=True)
+            self.assertEqual((r["homes"], r["version"]), (1, 2))
+            for gw in g[:2]:
+                up(gw, [-0.9] + z[1:], rnd=3)
+            last = fed.status(s, st)["rounds"]
+            self.assertEqual((last[1]["round"], last[1]["state"]), (3, "refused"))
+            self.assertIn("weight of the trees", last[1]["note"])
+            self.assertAlmostEqual(fed.round_for_gateway(s, st)["weights"][0], 0.6)
+            self.assertAlmostEqual(fed.epsilon(1.0), 5.30, places=2)          # zCDP, delta 1e-5
+            self.assertAlmostEqual(fed.epsilon(1.0, rounds=4), 11.6, places=1)  # adds up over rounds
+
+
 class Mcp(unittest.TestCase):
     def test_guard(self):
         with tempfile.TemporaryDirectory() as d:

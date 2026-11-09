@@ -13,6 +13,12 @@
     python3 -m aigw_cortex mcp                        MCP server on stdio
     python3 -m aigw_cortex sign-plugin <folder>       sign a plug-in folder (plugin.sig)
     python3 -m aigw_cortex publish-intel [--min-homes N]  signed list of known threats
+    python3 -m aigw_cortex fed [status]               federated learning: rounds, homes, privacy
+    python3 -m aigw_cortex fed aggregate              close the open round now (with what came in)
+
+serve takes the round settings: --fed-min-homes 3 --fed-gap 86400 (seconds
+between rounds) --fed-noise 1.0 --fed-clip 1.0 --fed-lr 0.5 --fed-epochs 50,
+or --no-fed.
 
 Data (database, signing key, published models) lives in --data, default
 $AIGW_CORTEX_DATA or ~/.aigw-cortex.
@@ -152,6 +158,22 @@ def show(rows):
     print(json.dumps(rows, indent=1))
 
 
+def fed_args(p):
+    p.add_argument("--no-fed", action="store_true", help="no federated learning rounds")
+    p.add_argument("--fed-min-homes", type=int, default=3, help="changes needed to close a round")
+    p.add_argument("--fed-gap", type=int, default=86400, help="seconds a round stays open at least")
+    p.add_argument("--fed-noise", type=float, default=1.0, help="noise multiplier homes are asked for")
+    p.add_argument("--fed-clip", type=float, default=1.0)
+    p.add_argument("--fed-lr", type=float, default=0.5)
+    p.add_argument("--fed-epochs", type=int, default=50)
+
+
+def fed_settings(a):
+    from .fed import Settings
+    return Settings(enabled=not a.no_fed, min_homes=a.fed_min_homes, gap=a.fed_gap, lr=a.fed_lr,
+                    epochs=a.fed_epochs, clip=a.fed_clip, noise=a.fed_noise)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="aigw_cortex", description="AIGW cortex")
     ap.add_argument("--data", default=os.environ.get("AIGW_CORTEX_DATA", os.path.expanduser("~/.aigw-cortex")))
@@ -162,6 +184,7 @@ def main(argv=None):
     p.add_argument("--cert")
     p.add_argument("--key")
     p.add_argument("--quiet", action="store_true")
+    fed_args(p)
     sub.add_parser("enroll").add_argument("name")
     sub.add_parser("gateways")
     sub.add_parser("remove").add_argument("name")
@@ -191,12 +214,28 @@ def main(argv=None):
     sub.add_parser("mcp")
     sub.add_parser("sign-plugin").add_argument("folder")
     sub.add_parser("publish-intel").add_argument("--min-homes", type=int, default=2)
+    p = sub.add_parser("fed")
+    p.add_argument("what", nargs="?", default="status", choices=("status", "aggregate"))
+    fed_args(p)
     a = ap.parse_args(argv)
 
     store = Store(a.data)
     if a.cmd == "serve":
         from .server import serve
-        serve(store, a.listen, a.port, a.cert, a.key, log=not a.quiet)
+        serve(store, a.listen, a.port, a.cert, a.key, log=not a.quiet, fed_settings=fed_settings(a))
+    elif a.cmd == "fed":
+        from . import fed
+        s = fed_settings(a)
+        if a.what == "aggregate":
+            r = fed.aggregate(store, s, force=True)
+            if not r:
+                print("no changes in the open round yet")
+            elif r.get("refused"):
+                print(f"round {r['round']} ({r['homes']} homes) not published: {r['refused']}")
+            else:
+                print(f"published domain-adapter version {r['version']}: {r['note']}")
+        else:
+            show(fed.status(store, s))
     elif a.cmd == "enroll":
         gid, token = store.enroll(a.name)
         print(f"gateway {a.name} ({gid}) enrolled. On the gateway, as root:\n"

@@ -543,6 +543,7 @@ int dev_state_save(void)
 	ep_save(&b);
 	alerts_save(&b);
 	act_save(&b);
+	fed_save(&b);
 
 	json = blobmsg_format_json(b.head, true);
 	snprintf(tmp, sizeof(tmp), "%s.tmp", cfg.state_file);
@@ -633,6 +634,8 @@ int dev_state_load(void)
 		return -1;
 	}
 	blob_for_each_attr(cur, b.head, rem) {
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "fed"))
+			fed_load(cur);
 		if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
 			continue;
 		if (!strcmp(blobmsg_name(cur), "devices"))

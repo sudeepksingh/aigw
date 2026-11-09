@@ -18,7 +18,12 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.13, phase 7 "advanced" under way:** **channel self-healing**
+> **Status: v0.14, phase 7 "advanced" under way:** **federated learning**
+> (your answers to alerts improve the domain-risk judgement in every home
+> while the names stay in yours: each gateway trains on its own answers and
+> sends cortex only 14 clipped, noisy numbers; cortex averages the homes and
+> publishes a signed layer that each gateway checks before using it).
+> v0.13 brought **channel self-healing**
 > (an access point whose channel stays crowded is moved to a quieter one, the
 > devices following without dropping; proposed for your approval, or automatic
 > in enforce mode). v0.12 brought **band steering** (a
@@ -378,7 +383,7 @@ CI runs it inside OpenWRT in QEMU after installing every build with opkg
 packages) and on emulated ARM64 (the Filogic packages). To try it on your own router, see
 [docs/testing-on-routers.md](docs/testing-on-routers.md).
 
-## What you get in v0.13
+## What you get in v0.14
 
 | Component | What it does |
 |-----------|--------------|
@@ -392,14 +397,15 @@ packages) and on emulated ARM64 (the Filogic packages). To try it on your own ro
 | Plug-in host | Finds plug-ins by itself, checks manifest, host, trust and needs, wires events, actions and skill policies, runs them unprivileged with restarts and budgets. See above. |
 | Wi-Fi keys | A key and QR code per device, bound to its MAC on first join, zoned, revocable on its own. |
 | `ag-mqtt` | Connector plug-in: MQTT 3.1.1 telemetry in, state out, Home Assistant discovery. |
-| Model updates | Signed (usign-compatible Ed25519, verified by libag), checked against this build's features, hot-loaded, with rollback and hold-off. The shared threat list travels the same way. |
+| Model updates | Signed (usign-compatible Ed25519, verified by libag), checked against this build's features, hot-loaded, with rollback and hold-off. The shared threat list and the federated layer travel the same way. |
+| Federated learning | Your answers (an alert you rejected or undid, one you approved, `agctl label <name> safe|threat`) stay on the gateway. In a round the gateway trains a 14-number layer over the model on them, clips the change and adds noise (at least `alerts.fed_noise`), and the bridge sends cortex only those numbers. Cortex averages the homes and publishes a signed `domain-adapter`; a gateway uses it only if the anchor names (machine-generated ones, also under `www.`, and popular sites) and the threats you named still score right. `agctl fed` shows your answers, the rounds and the privacy spent (ε); `alerts.fed_budget` stops at a limit. |
 | Remote access | WireGuard peers with QR codes; DNS from the tunnel goes to agdns; `aigw-remote` sets up the interface, rules and NAT. |
 | Signed plug-ins | A trusted signature over every file of a plug-in folder grants its privileges. |
 | `luci-app-aigw` | LuCI pages for everything above, QR codes drawn in the browser. |
 | `aigw-selftest` | Health and budget check on the device; `agctl selftest` for the CPU-level checks. |
-| `ag-bridge` | Connector plug-in to cortex over HTTPS (curl): reports state, fetches signed models, brings proposals. Devices can be reported by name, anonymously or not at all. |
-| cortex | Python, optional: fleet history (SQLite), labels from your answers, retraining, signing and publishing, HTTP API for bridges, MCP server. |
-| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge`, `remote`, `selftest` |
+| `ag-bridge` | Connector plug-in to cortex over HTTPS (curl): reports state, fetches signed models, brings proposals, runs learning rounds. Devices can be reported by name, anonymously or not at all; with `alert_names 0` alerts leave without the names they are about. |
+| cortex | Python, optional: fleet history (SQLite), labels from your answers, retraining, signing and publishing, federated rounds, HTTP API for bridges, MCP server. |
+| `agctl` | Command line: `status`, `devices`, `device`, `dns`, `flows`, `alerts`, `score`, `watch`, `decisions`, `approve`, `reject`, `undo`, `prioritize`, `deprioritize`, `throttle`, `block`, `quarantine`, `disconnect`, `do`, `plugins`, `plugin`, `keys`, `key`, `zone`, `qr`, `models`, `model`, `trust`, `untrust`, `bridge`, `fed`, `label`, `remote`, `selftest` |
 | `aigw-nft` | Kernel rules: `inet ag` (DNS interception, quarantine, priority, background and throttle sets, connection-mark actions), `inet ag_sni` (copies of HTTPS handshakes for connection names, where the kernel has NFLOG) and `bridge ag` (quarantine inside a bridged LAN, where the kernel supports it) |
 | `aigw-ap` | PC as AP: hostapd (one adapter, or two for both bands in one bridge), channel width up to 80 MHz, DHCP (with fingerprint hook), NAT and the services; on WSL it attaches the USB adapters from Windows by itself |
 
@@ -422,6 +428,7 @@ ubus call ag.plugin list                        # also: rescan, set '{"name": "x
 ubus call ag.wifi key_add '{"name": "Doorbell", "zone": "iot"}'   # also: keys, key_revoke
 ubus call ag.device zone '{"device": "tv", "zone": "iot"}'
 ubus call ag.model list                         # also: install '{"file": "...", "sig": "..."}', rollback
+ubus call ag.fed status                         # also: label '{"name": "...", "label": "safe"}', forget
 ubus call ag.plugin config '{"name": "bridge", "key": "interval", "value": "600"}'
 ubus call ag.remote list                        # also: on '{"endpoint": "..."}', off, add/revoke '{"name": "..."}'
 ubus listen ag.dns ag.flow ag.wifi ag.presence ag.alert ag.decision ag.plugin ag.model 'iot.*'
