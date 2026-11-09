@@ -46,6 +46,10 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.16.2:** the project is now **AIGW OS**, with its own logo, also in the
+> router's web interface. The flow sensor no longer misses a new connection's
+> "no DNS lookup" check when its counter refresh sees the connection first.
+>
 > **v0.16.1:** the domain-risk model is retrained so a machine-generated name
 > can't hide behind `www.` or any other subdomain (the old model caught none of
 > those; the new one catches them as often as bare names, with the same false

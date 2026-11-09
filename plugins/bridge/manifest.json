@@ -1,7 +1,7 @@
 {
   "name": "bridge",
   "kind": "connector",
-  "version": "0.16.1",
+  "version": "0.16.2",
   "description": "Links this gateway to cortex: fleet history, signed model updates, federated learning rounds (names stay home), suggestions from the AI assistant (they wait for your OK)",
   "exec": "ag-bridge",
   "caps": ["devices.read", "decision.propose", "model.offer", "fed.train"],
