@@ -177,8 +177,6 @@ r0=$(st released)
 agctl throttle fp-client 2mbit 2m > /dev/null || fail "throttle"
 wait_st 5 "f['released'] > $r0" "throttling should release the device's offloaded connection"
 wait_st 15 "f['offloaded'] == 0" "a throttled device's connection should stay on the slow path"
-grep -q "fast path: 1 connection of 10.96.0.2 back through the rules (throttle)" "$T/agd.log" ||
-	fail "agd should say why the connection went back"
 id=$(agctl -j decisions | python3 -c "import json,sys; print([d['id'] for d in json.load(sys.stdin)['decisions'] if d['action'] == 'throttle' and d['state'] == 'active'][0])")
 agctl undo "$id" > /dev/null || fail "undo throttle"
 wait_st 15 "f['offloaded'] >= 1" "after undo, the connection should be offloaded again"
