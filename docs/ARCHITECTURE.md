@@ -783,6 +783,9 @@ Not done: a back-end for real NPU hardware (each vendor's SDK; none available he
 | new, under a subdomain | 0.156 % | 68.15 % |
 
 The golden test data now includes `www.`, `cdn.` and `mail.` names, so the C feature extractor and runtime are checked on them too. Still weak, as before and by design: pronounceable generated names (syllables family, 11 % caught) and dictionary-word generators, which need behaviour (a never-seen domain, no history) rather than the name alone.
+
+**v0.16.2: AIGW OS, and a flow sensor race fixed.** The project is named **AIGW OS**, *the AI-powered operating system for home gateways*, with a logo and brand guide in `docs/brand/`; packages, paths and commands keep the short name `aigw`. The flow sensor had a race: the counter refresh (a conntrack dump) could read a connection before agd read its "new" event, and agd then took it for a connection older than itself, so it was not counted, never checked for a missing DNS lookup and raised no alerts. A "new" event for such a connection now completes its start. Forcing the race (events read 300 ms late, a refresh every 20 ms), the old code counted 1 of 4 connections in flow-test and the new code all 4, with the `no-dns` alert.
+
 ---
 
 ## 17. Status and risks
