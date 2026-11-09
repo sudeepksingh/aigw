@@ -184,10 +184,11 @@ LUCI_SRC:=$(AIGW_SRC)/platform/openwrt/luci-app-aigw
 
 define Package/luci-app-aigw/install
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d $(1)/usr/share/rpcd/acl.d \
-		$(1)/www/luci-static/resources/view/aigw
+		$(1)/www/luci-static/resources/view/aigw $(1)/www/luci-static/resources/aigw
 	$(INSTALL_DATA) $(LUCI_SRC)/root/usr/share/luci/menu.d/luci-app-aigw.json $(1)/usr/share/luci/menu.d/
 	$(INSTALL_DATA) $(LUCI_SRC)/root/usr/share/rpcd/acl.d/luci-app-aigw.json $(1)/usr/share/rpcd/acl.d/
 	$(INSTALL_DATA) $(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/*.js $(1)/www/luci-static/resources/view/aigw/
+	$(INSTALL_DATA) $(LUCI_SRC)/htdocs/luci-static/resources/aigw/logo-mark.svg $(1)/www/luci-static/resources/aigw/
 endef
 
 define Package/luci-app-aigw/postinst
