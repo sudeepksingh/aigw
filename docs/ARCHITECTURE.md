@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.15**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.16**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -370,7 +370,7 @@ with every decision, so explanations are never invented after the fact.
 | 1D-CNN (int8) | presence, char-level domains | ~15 KB |
 
 `.agm` = header (op family, input-schema hash, quantization) + weights + ed25519 signature. Schema
-hash mismatch → refused. NPU gateways can register an accelerated back-end for the same op families.
+hash mismatch → refused. NPU gateways can register an accelerated back-end for the same op families (since v0.16: [model-backends.md](model-backends.md)).
 
 | Starter model | Inputs | Output | Size |
 |---------------|--------|--------|------|
@@ -558,7 +558,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | v0.10: LuCI, procd, self-test, OpenWRT in QEMU; real routers next |
-| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence; v0.13: channel self-healing; v0.14: federated learning; v0.15: fast path (flowtable), eBPF traffic meter |
+| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence; v0.13: channel self-healing; v0.14: federated learning; v0.15: fast path (flowtable), eBPF traffic meter; v0.16: model back-ends (NPU interface, built-in flat back-end) |
 
 Real-router testing of every phase so far is planned for the end of the project (P6).
 
@@ -755,6 +755,23 @@ Limits, measured: with σ = 1 and three homes the noise outweighs what the homes
 Verified by `tests/fastpath-test.sh` (CI, network namespaces, on a kernel with `nf_flow_table`): a long download is offloaded and still counted for the device, and the meter sees it; throttling sends it back to the rules and keeps it there; after undo it is offloaded again; quarantine cuts off a connection that was offloaded before; with the fast path off there is no flowtable. `tests/meter-test.sh` (on the PC and in CI): a download's rate down matches curl's own speed, an upload's rate up, the kernel's byte counts cover the transfers, rates fall to zero afterwards; `meter.enabled 0` attaches nothing. Inside OpenWRT 24.10 in QEMU, `aigw-selftest` reports the meter running on x86_64, mipsel (MT7621's CPU) and aarch64.
 
 Not measured yet: the gain on a real router (the test's veth pair runs on one CPU, so its speed figures say nothing about a router) and hardware offload, which needs a router with a switch chip. The fast path stays off by default until then.
+
+**As built in v0.16 (P7, sixth part).** Model back-ends: NPU gateways register an accelerated back-end for the same models.
+
+| Piece | As built |
+|-------|----------|
+| Interface (`include/ag/backend.h`) | `struct ag_backend { abi, name, prepare(view), predict(handle, x, count, raw), release }`; the model view exposes the trees (node: feature, value, left, right; leaves feature −1), `base`, schema. A library exports `ag_backend_entry()`. On OpenWRT the header is installed for other packages (`Build/InstallDev`). |
+| Built in (`agm.c`, `agm_flat.c`) | `interp`: the reference interpreter. `flat`: every tree depth-first in one array of 12-byte nodes (left child next, right by index), thresholds as floats rounded down, so for float inputs every decision equals the reference's and the scores are bit-identical (checked on 20,000 inputs, including inputs on each threshold and the floats either side). |
+| Loading (`agd/backend.c`) | `*.so` files in `models.backend_dir` (`/usr/lib/aigw/backends`); the directory and the file must be root's and writable by nobody else; `dlopen`, ABI 1, unique name. |
+| Checking and choosing | On every model load: each back-end scores 300 probes (known names, and generated names of every kind, some under `www.`); it must give the reference's verdict at the alert threshold and be within 0.005 of its probability on each. Timed per score. `models.backend auto` takes the fastest that passed; a name takes that one if it passed, otherwise the reference. `agctl models` lists each one's result and speed. |
+
+Verified by `tests/test_agm.c` (flat equals interp bit for bit; speed on this PC: 2.9 against 3.5 µs per score), and `tests/backend-test.sh` with `plugins/examples/backend/example_backend.c`:
+- the example library computes in 32-bit floats, passes, and can be chosen;
+- a broken build of it is refused, naming the probe it got wrong, and asking for it falls back to the reference;
+- verdicts are the same under every back-end;
+- a library writable by others, or a directory writable by others, loads nothing.
+
+Not done: a back-end for real NPU hardware (each vendor's SDK; none available here), and the local LLM ("ask your home") those gateways could run.
 ---
 
 ## 17. Status and risks

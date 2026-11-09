@@ -893,6 +893,23 @@ static void show_models(struct ubus_request *req, int type, struct blob_attr *ms
 			if (fstr(e, "refused") && *fstr(e, "refused"))
 				printf("  %-12s last refused %s: %s\n", "", ago(fnum(e, "refused_at"), t, sizeof(t)), fstr(e, "refused"));
 		}
+	if (field(msg, "backends")) {
+		printf("Computed by (models.backend %s; libraries in %s)\n", fstr(msg, "backend_choice"),
+		       fstr(msg, "backend_dir"));
+		blobmsg_for_each_attr(e, field(msg, "backends"), rem) {
+			struct blob_attr *ns = field(e, "ns_per_score");
+			double v = ns && blobmsg_type(ns) == BLOBMSG_TYPE_DOUBLE ? blobmsg_get_double(ns) : 0;
+
+			if (fnum(e, "ok"))
+				printf("  %-12s %s%.2f µs per score, same verdicts as the reference, %s\n",
+				       fstr(e, "name"), fnum(e, "in_use") ? "IN USE, " : "", v / 1000, fstr(e, "source"));
+			else
+				printf("  %-12s not usable: %s (%s)\n", fstr(e, "name"), orb(fstr(e, "why"), "no model"),
+				       fstr(e, "source"));
+		}
+		if (*fstr(msg, "backend_notes"))
+			printf("  note: %s\n", fstr(msg, "backend_notes"));
+	}
 	printf("Trusted keys (%s)\n", fstr(msg, "keys_dir"));
 	if (keys)
 		blobmsg_for_each_attr(e, keys, rem) {

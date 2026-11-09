@@ -275,7 +275,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand">AI<span>GW</span></div>
-  <div class="ver">architecture v0.3 · code v0.15 · 2026-11-09</div>
+  <div class="ver">architecture v0.3 · code v0.16 · 2026-11-09</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1173,7 +1173,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
     <div class="ph"><div class="p">P4<small>plug &amp; IoT</small></div><div><h4>Plug-ins and IoT</h4><p>Manifest and auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant connector.</p></div><div class="exit"><b>Exit test</b>A third-party plug-in installs and activates with no config.<br><span class="status-ok">built · v0.7</span></div></div>
     <div class="ph"><div class="p">P5<small>outside</small></div><div><h4>Cortex and cloud use cases</h4><p>Bridge, fleet history, training loop, OTA models, LLM agent via MCP, remote access.</p></div><div class="exit"><b>Exit test</b>A model retrained from feedback reaches a fleet and is hot-loaded.<br><span class="status-ok">built · v0.8, v0.9</span></div></div>
     <div class="ph"><div class="p">P6<small>hardware</small></div><div><h4>Real routers</h4><p>LuCI app, procd tuning, tests on OpenWRT One and Wi-Fi 7 boards, footprint validation.</p></div><div class="exit"><b>Exit test</b>Same test suite passes on routers within budget.<br><span class="status-warn">v0.10 · waiting for real routers</span> (LuCI, procd, self-test, OpenWRT in QEMU on three CPUs)</div></div>
-    <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.<br><span class="status-warn">under way · v0.15</span> (DNS cache with prefetch and stale answers; TLS and QUIC connection names; dual-band PC AP, band steering, presence; channel self-healing; federated learning; fast path and eBPF traffic meter)</div></div>
+    <div class="ph"><div class="p">P7<small>advanced</small></div><div><h4>Speed and new senses</h4><p>eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end.</p></div><div class="exit"><b>Exit test</b>Measured latency and detection gains.<br><span class="status-warn">under way · v0.16</span> (DNS cache with prefetch and stale answers; TLS and QUIC connection names; dual-band PC AP, band steering, presence; channel self-healing; federated learning; fast path and eBPF traffic meter; model back-ends for NPUs)</div></div>
   </div>
   <h3 style="margin-top:18px">As built in v0.6 (P3 act, complete)</h3>
   <div class="tbl"><table>
@@ -1281,6 +1281,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Limits</td><td>The PC's kernel has no flowtable (the fast path is for routers). What the switch chip forwards isn't seen by the meter. Speed gains on real routers are not measured yet.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.16 (P7 advanced, sixth part)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Model back-ends</td><td>A router's NPU, DSP or a faster library can compute AIGW's model through one small C interface. A package puts its library in a root-only folder; AIGW uses it only after it gives the reference's verdicts on 300 probe names, and picks the fastest that does.</td></tr>
+      <tr><td>Built in</td><td>The reference interpreter, and a faster layout of the same trees that gives bit-identical scores.</td></tr>
+      <tr><td>Proof</td><td>An example library computing in 32-bit floats passes and can be chosen; a broken one is refused and the reference stays; the verdicts are the same whoever computes them.</td></tr>
+      <tr><td>Limits</td><td>No real NPU back-end yet: each vendor's SDK is needed. A guide for router makers is in <code>docs/model-backends.md</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1321,7 +1331,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.15 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-09</footer>
+<footer>AIGW architecture v0.3 · implementation v0.16 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-09</footer>
 </main>
 </div>
 

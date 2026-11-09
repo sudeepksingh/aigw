@@ -139,6 +139,8 @@ struct ag_config {
 	char models_dir[256];     /* installed updates; the packaged ones stay in model_dir */
 	char trusted_keys[256];   /* usign public keys whose signatures are accepted */
 	int models_require_sig;   /* 0: also accept unsigned updates (development only) */
+	char model_backend[32];   /* who computes scores: auto | interp | flat | a loaded back-end's name */
+	char backend_dir[256];    /* back-end libraries (an NPU's), root's only */
 	/* remote access (WireGuard) */
 	int remote_enabled;
 	char remote_endpoint[128];/* host or address phones use to reach this home */

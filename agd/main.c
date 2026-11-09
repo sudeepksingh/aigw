@@ -574,6 +574,7 @@ static int m_model_list(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_string(&b, "keys_dir", cfg.trusted_keys);
 	blobmsg_add_u8(&b, "require_signature", (uint8_t)cfg.models_require_sig);
 	models_blob(&b, "models");
+	backend_blob(&b);
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }

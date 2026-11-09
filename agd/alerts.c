@@ -119,14 +119,16 @@ void alerts_model_use(struct ag_model *m)
 	struct ag_model *old = dga_model;
 	int dim = 0;
 
+	/* the back-end is chosen (and checked) for the new model before lookups use it */
+	backend_select(m);
 	dga_model = m;
 	bigram = m ? ag_model_bigram(m, &dim) : NULL;
 	bigram_dim = dim;
 	if (old && old != m)
 		ag_model_free(old);
 	if (m)
-		AG_INFO("domain-risk model in use: %d trees, alert at score >= %.2f", ag_model_ntrees(m),
-			cfg.dga_threshold);
+		AG_INFO("domain-risk model in use: %d trees, alert at score >= %.2f, computed by %s", ag_model_ntrees(m),
+			cfg.dga_threshold, backend_name());
 }
 
 const char *alerts_model_name(void)
@@ -147,7 +149,7 @@ double alerts_tree_score(const char *qname, char *label, size_t n, float *featur
 	if (!dga_model || ag_domain_label(qname, label, n) < 0)
 		return -1;
 	ag_domain_features(qname, label, bigram, bigram_dim, features ? features : x);
-	return ag_model_prob(dga_model, features ? features : x);
+	return backend_prob(dga_model, features ? features : x);
 }
 
 /* what alerts use: the trees, then the shared layer homes learned together (fed.c) */

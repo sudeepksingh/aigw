@@ -60,6 +60,8 @@ jobs:
           fi
           modinfo -F filename nf_flow_table nf_flow_table_inet nft_flow_offload || true
           sudo AIGW_REQUIRE_FLOWTABLE=1 PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/fastpath-test.sh build
+      - name: Model back-end test (built-in and loaded back-ends, checked against the reference)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/backend-test.sh build
       - name: Traffic meter test (eBPF per device on the LAN interface, tcx)
         run: sudo AIGW_REQUIRE_METER=1 PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/meter-test.sh build
       - name: Simulated radios (mac80211_hwsim, hostapd, wpa_supplicant)

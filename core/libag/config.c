@@ -180,6 +180,8 @@ void ag_config_load(struct ag_config *c)
 	copy(c->models_dir, sizeof(c->models_dir), "/etc/aigw/models");
 	copy(c->trusted_keys, sizeof(c->trusted_keys), "/etc/aigw/keys.d");
 	c->models_require_sig = 1;
+	copy(c->model_backend, sizeof(c->model_backend), "auto");
+	copy(c->backend_dir, sizeof(c->backend_dir), "/usr/lib/aigw/backends");
 	c->remote_port = 51820;
 	copy(c->remote_subnet, sizeof(c->remote_subnet), "10.77.0.0/24");
 	copy(c->remote_iface, sizeof(c->remote_iface), "agwg");
@@ -356,6 +358,8 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "models", "require_signature");
 		if (v)
 			c->models_require_sig = atoi(v) != 0;
+		copy(c->model_backend, sizeof(c->model_backend), opt(ctx, p, "models", "backend"));
+		copy(c->backend_dir, sizeof(c->backend_dir), opt(ctx, p, "models", "backend_dir"));
 		v = opt(ctx, p, "remote", "enabled");
 		if (v)
 			c->remote_enabled = atoi(v) != 0;

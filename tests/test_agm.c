@@ -6,8 +6,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "ag/agm.h"
+#include "ag/backend.h"
 #include "ag/domfeat.h"
 
 static int failures;
@@ -109,6 +111,82 @@ static void test_damaged(const char *path)
 	free(copy);
 }
 
+/* the built-in back-ends: interp equals ag_model_raw, flat equals interp bit
+ * for bit (thresholds rounded down to floats), also on inputs that sit exactly
+ * on a threshold or next to it; and how much faster flat is */
+static uint32_t rng = 12345;
+static float rnd(float lo, float hi)
+{
+	rng = rng * 1103515245u + 12345u;
+	return lo + (hi - lo) * (float)((rng >> 8) & 0xffffff) / 16777216.0f;
+}
+
+static double secs(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec + ts.tv_nsec / 1e9;
+}
+
+static void test_backends(const struct ag_model *m)
+{
+	static const float lo[AG_DOMFEAT_N] = { 1, 0, 0, 0, 0, 0, 2, -9, -12, 0, 0.2f, 0 };
+	static const float hi[AG_DOMFEAT_N] = { 40, 5, 1, 1, 20, 4, 6, -1, -1, 20, 1, 1 };
+	enum { N = 20000 };
+	struct ag_model_view v;
+	float *x = malloc(sizeof(float) * AG_DOMFEAT_N * N);
+	double *a = malloc(sizeof(double) * N), *b = malloc(sizeof(double) * N), t0, ti, tf;
+	char err[128] = "";
+	void *hi_ = NULL, *hf = NULL;
+	int i, j, same = 0;
+
+	ag_model_view(m, &v);
+	CHECK(v.n_trees == (uint32_t)ag_model_ntrees(m) && v.n_features == AG_DOMFEAT_N, "model view");
+	for (i = 0; i < N; i++)
+		for (j = 0; j < AG_DOMFEAT_N; j++)
+			x[i * AG_DOMFEAT_N + j] = rnd(lo[j], hi[j]);
+	/* inputs on the thresholds themselves, and the floats either side of them */
+	for (i = 0; i < 3000 && i < N; i++) {
+		const struct ag_tree_view *t = &v.trees[i % v.n_trees];
+		const struct ag_node *nd = &t->nodes[0];
+
+		if (nd->feature >= 0) {
+			float f = (float)nd->value;
+
+			x[i * AG_DOMFEAT_N + nd->feature] = i % 3 == 0 ? f : i % 3 == 1 ? nextafterf(f, -1e30f) :
+							    nextafterf(f, 1e30f);
+		}
+	}
+	hi_ = ag_backend_interp.prepare(&v, err, sizeof(err));
+	hf = ag_backend_flat.prepare(&v, err, sizeof(err));
+	CHECK(hi_ && hf, "prepare: %s", err);
+	if (!hi_ || !hf)
+		goto out;
+	t0 = secs();
+	ag_backend_interp.predict(hi_, x, N, a);
+	ti = secs() - t0;
+	t0 = secs();
+	ag_backend_flat.predict(hf, x, N, b);
+	tf = secs() - t0;
+	for (i = 0; i < N; i++) {
+		same += a[i] == b[i];
+		if (i < 500)
+			CHECK(a[i] == ag_model_raw(m, x + i * AG_DOMFEAT_N), "interp back-end differs from ag_model_raw at %d", i);
+	}
+	CHECK(same == N, "flat differs from the reference on %d of %d inputs", N - same, N);
+	printf("back-ends: flat equals interp on %d inputs; %.2f us vs %.2f us per score (%.1fx)\n", N,
+	       tf * 1e6 / N, ti * 1e6 / N, ti / tf);
+out:
+	if (hi_)
+		ag_backend_interp.release(hi_);
+	if (hf)
+		ag_backend_flat.release(hf);
+	free(x);
+	free(a);
+	free(b);
+}
+
 static void test_registrable(void)
 {
 	static const char *const cases[][2] = {
@@ -155,6 +233,7 @@ int main(int argc, char **argv)
 	CHECK(ag_model_schema(m) == ag_fnv1a(AG_DOMFEAT_SCHEMA), "schema mismatch");
 	CHECK(ag_model_nfeatures(m) == AG_DOMFEAT_N, "feature count %d", ag_model_nfeatures(m));
 	test_golden(m, argv[2]);
+	test_backends(m);
 	test_damaged(argv[1]);
 	CHECK(ag_model_load("/nonexistent.agm", err, sizeof(err)) == NULL, "missing file accepted");
 	printf("model: %s, %d trees\n", ag_model_name(m), ag_model_ntrees(m));
