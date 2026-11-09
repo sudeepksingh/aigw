@@ -72,6 +72,16 @@ how many answers it learned from and how far it agrees with them
 (`feedback_agreement`). To publish a model you trained yourself:
 `python3 -m aigw_cortex publish model.agm --notes "why"`.
 
+Before publishing a model trained by hand, compare it with the one in use on
+the same held-out names, as listed and under a subdomain such as `www.`:
+
+```bash
+python3 cortex/training/domain_risk/train.py --out new.agm --golden '' --compare models/domain-risk.agm
+```
+
+Training puts 35% of names of both kinds under a subdomain
+(`--subdomain-share`), so a generated name can't escape by adding `www.`.
+
 On the gateway: `agctl models` shows the version in use, who signed it and
 any refused offer. `agctl model rollback` goes back one step and holds the
 newer version off, so the bridge doesn't fetch it again.

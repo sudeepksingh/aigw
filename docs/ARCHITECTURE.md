@@ -741,7 +741,7 @@ On the PC's RTL8821CU (`rtw88`) the driver reports no survey data and no channel
 
 Verified by `tests/fed-test.sh` (three agd instances with their own bridges, a private cortex): a Polish home's false alarms (bydgoszcz.pl, pszczyna.pl, …, few vowels and long consonant runs) and a home's threats train three rounds; the published layer is loaded in every home without a restart; the false alarms score lower everywhere, also szczebrzeszyn.pl which nobody answered about (0.98 → 0.2–0.8); generated names still alert, also under `www.`; none of the answered names reaches cortex's database, files or log; a layer that drops a home's own threat is refused there without naming it; a budget stops a home after three rounds; malformed, late and repeated changes are refused. `tests/test_cortex.py` checks the averaging and publishing.
 
-Limits, measured: with σ = 1 and three homes the noise outweighs what the homes learned (the test uses σ = 0.1, which gives no meaningful ε); useful learning at σ ≈ 1 needs many homes. A false alarm that looks like a generated name under a subdomain in the 12 features (CloudFront hashes such as d2xqm7kjv0bh4f.cloudfront.net) can't be learned safely: every gateway refuses such a layer, and those belong on an allow list. The trees themselves score generated names lower under a subdomain (www.xkqjzvbwptmr.com 0.56 against 0.99): the layer pushes against that, the next tree retraining should include such names.
+Limits, measured: with σ = 1 and three homes the noise outweighs what the homes learned (the test uses σ = 0.1, which gives no meaningful ε); useful learning at σ ≈ 1 needs many homes. A false alarm that looks like a generated name under a subdomain in the 12 features (CloudFront hashes such as d2xqm7kjv0bh4f.cloudfront.net) can't be learned safely: every gateway refuses such a layer, and those belong on an allow list. The trees themselves scored generated names lower under a subdomain (www.xkqjzvbwptmr.com 0.56 against 0.99): fixed by the v0.16.1 retraining below.
 
 **As built in v0.15 (P7, fifth part).** Fast path and eBPF traffic meter:
 
@@ -772,6 +772,17 @@ Verified by `tests/test_agm.c` (flat equals interp bit for bit; speed on this PC
 - a library writable by others, or a directory writable by others, loads nothing.
 
 Not done: a back-end for real NPU hardware (each vendor's SDK; none available here), and the local LLM ("ask your home") those gateways could run.
+
+**v0.16.1: the domain-risk model retrained for names under a subdomain.** Every generated training name used to be a bare `label.tld` (2 labels), while popular sites include `bbc.co.uk`-style names, so the trees learned that more labels mean safe. A malware author needed only `www.` in front: on held-out generated names under a subdomain the old model caught **0.00%**. Training now puts 35% of both kinds under a common host (`www.`, `mail.`, `cdn.`, …, `--subdomain-share`), so the label count says nothing about risk; features and schema are unchanged, so gateways, the federated layer and back-ends keep working. `train.py --compare old.agm` reports both models on the same held-out names:
+
+| At score ≥ 0.98 | false alarms on popular sites | generated names caught |
+|-----------------|------------------------------|------------------------|
+| old, names as listed | 0.151 % | 68.35 % |
+| old, under a subdomain | 0.000 % | 0.00 % |
+| new, names as listed | 0.159 % | 68.24 % |
+| new, under a subdomain | 0.156 % | 68.15 % |
+
+The golden test data now includes `www.`, `cdn.` and `mail.` names, so the C feature extractor and runtime are checked on them too. Still weak, as before and by design: pronounceable generated names (syllables family, 11 % caught) and dictionary-word generators, which need behaviour (a never-seen domain, no history) rather than the name alone.
 ---
 
 ## 17. Status and risks

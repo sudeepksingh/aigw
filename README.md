@@ -18,6 +18,11 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.16.1:** the domain-risk model is retrained so a machine-generated name
+> can't hide behind `www.` or any other subdomain (the old model caught none of
+> those; the new one catches them as often as bare names, with the same false
+> alarms).
+>
 > **Status: v0.16, phase 7 "advanced" done in code:** **model back-ends** (a
 > router's NPU, DSP or a faster library can compute AIGW's model through one
 > small C interface, used only after it gives the reference's verdicts on 300
