@@ -406,6 +406,12 @@ static int actuate(struct decision *d, char *err, size_t errlen)
 			snprintf(err, errlen, "nft failed");
 		return -1;
 	}
+	/* connections already in the fast path skip the rules: send them back (a no-op
+	 * when none are offloaded, as on every re-check) */
+	if (!strcmp(d->action, "quarantine"))
+		fastpath_release_mac(d->target, d->action);
+	else
+		fastpath_release(d->target, d->action);
 	if (!strcmp(d->action, "quarantine")) {
 		/* LAN-to-LAN through a bridge; the table only exists where the kernel has nft bridge */
 		snprintf(cmd, sizeof(cmd),

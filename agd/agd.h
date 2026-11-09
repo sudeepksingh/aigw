@@ -196,6 +196,12 @@ void fed_blob(struct blob_buf *b, int names);
 void fed_save(struct blob_buf *b);
 void fed_load(struct blob_attr *tbl);
 
+/* fastpath.c: established connections through the kernel flowtable; back to the rules on an action */
+int fastpath_release(const char *ip, const char *why);
+int fastpath_release_mac(const char *mac, const char *why);
+void fastpath_tick(void);
+void fastpath_blob(struct blob_buf *b);
+
 /* intel.c: shared threat intelligence, a signed list delivered like a model */
 void *intel_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);
 int intel_check(const void *obj, char *err, size_t n);

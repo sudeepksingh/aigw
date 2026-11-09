@@ -139,6 +139,64 @@ table inet ag_sni {
 EOF
 }
 
+# Fast path (agd/fastpath.c): established connections, past their first
+# packets, of devices AIGW isn't acting on go through the kernel flowtable and
+# skip the forwarding rules ("offload 1": the switch chip, where there is one).
+# A device under an action stays on the slow path: agd sends its offloaded
+# connections back when the action starts. Needs nf_flow_table
+# (kmod-nft-offload on OpenWRT); turn fw4's own flow offloading off, or it
+# offloads devices AIGW is acting on.
+render_fastpath() {
+	[ "$(uci_get fastpath.enabled)" = 1 ] || return 0
+	devs=$(uci_get fastpath.ifaces)
+	if [ -z "$devs" ]; then
+		devs="$(uci_get lan.iface) $(ip route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -1)"
+	fi
+	list=""
+	for i in $devs; do
+		ip link show "$i" > /dev/null 2>&1 || continue
+		case " $list " in *"\"$i\""*) continue ;; esac
+		[ -n "$list" ] && list="$list, "
+		list="$list\"$i\""
+	done
+	[ -n "$list" ] || return 0
+	flags=""
+	[ "$(uci_get fastpath.offload)" = 1 ] && flags="flags offload;"
+	cat <<EOF
+
+table inet ag {
+	flowtable fast {
+		hook ingress priority filter
+		devices = { $list }
+		$flags
+		counter
+	}
+
+	# after the action chains (filter - 5, - 4) and the handshake copies
+	chain fastpath {
+		type filter hook forward priority filter + 5; policy accept;
+		ct state != established return
+		ct original packets < 8 return
+		ct mark & 0x000000ff != 0 return
+		ether saddr @quarantine return
+		ip saddr @priority4 return
+		ip daddr @priority4 return
+		ip saddr @bulk4 return
+		ip daddr @bulk4 return
+		ip saddr @throttle4 return
+		ip daddr @throttle4 return
+		ip6 saddr @priority6 return
+		ip6 daddr @priority6 return
+		ip6 saddr @bulk6 return
+		ip6 daddr @bulk6 return
+		ip6 saddr @throttle6 return
+		ip6 daddr @throttle6 return
+		meta l4proto { tcp, udp } counter flow add @fast
+	}
+}
+EOF
+}
+
 # Quarantine inside a bridge (e.g. br-lan on OpenWRT): frames between two LAN
 # ports never reach the inet forward hook. Needs nft bridge support in the
 # kernel (kmod-nft-bridge on OpenWRT); skipped where it is missing.
@@ -182,6 +240,22 @@ apply)
 		nft delete table inet ag_sni 2>/dev/null || true
 	fi
 	rm -f "$NFT_FILE.sni"
+	render_fastpath > "$NFT_FILE.fast"
+	if [ -s "$NFT_FILE.fast" ]; then
+		cat "$NFT_FILE.tmp" "$NFT_FILE.fast" > "$NFT_FILE.both"
+		if nft -c -f "$NFT_FILE.both" 2>/dev/null; then
+			mv "$NFT_FILE.both" "$NFT_FILE.tmp"
+		elif grep -q "flags offload" "$NFT_FILE.fast" &&
+		     sed '/flags offload;/d' "$NFT_FILE.fast" | cat "$NFT_FILE.tmp" - > "$NFT_FILE.both" &&
+		     nft -c -f "$NFT_FILE.both" 2>/dev/null; then
+			echo "aigw-nft: no hardware flow offload here; fast path in software" >&2
+			mv "$NFT_FILE.both" "$NFT_FILE.tmp"
+		else
+			echo "aigw-nft: no flowtable support (nf_flow_table, kmod-nft-offload): no fast path" >&2
+			rm -f "$NFT_FILE.both"
+		fi
+	fi
+	rm -f "$NFT_FILE.fast"
 	mv "$NFT_FILE.tmp" "$NFT_FILE"
 	nft -f "$NFT_FILE"
 	render_bridge > "$NFT_FILE.bridge"
@@ -207,6 +281,7 @@ show)
 render)
 	render
 	render_sni
+	render_fastpath
 	render_bridge
 	;;
 render-sni)

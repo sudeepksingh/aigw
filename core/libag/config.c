@@ -284,6 +284,9 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "alerts", "dga_min_label");
 		if (v && atoi(v) >= 1)
 			c->dga_min_label = atoi(v);
+		v = opt(ctx, p, "fastpath", "enabled");
+		if (v)
+			c->fastpath_enabled = atoi(v) != 0;
 		v = opt(ctx, p, "alerts", "fed");
 		if (v)
 			c->fed_enabled = atoi(v) != 0;
