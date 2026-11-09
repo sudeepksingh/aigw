@@ -76,7 +76,7 @@ void agd_emit(const char *type, struct blob_buf *msg)
 
 /* ---------- sensor events ---------- */
 
-enum { EV_CLIENT, EV_QNAME, EV_QTYPE, EV_RCODE, EV_LAT, EV_ANSWERS, EV_TTL, __EV_MAX };
+enum { EV_CLIENT, EV_QNAME, EV_QTYPE, EV_RCODE, EV_LAT, EV_ANSWERS, EV_TTL, EV_BLOCKED, __EV_MAX };
 
 static const struct blobmsg_policy ev_policy[__EV_MAX] = {
 	[EV_CLIENT]  = { .name = "client", .type = BLOBMSG_TYPE_STRING },
@@ -86,6 +86,7 @@ static const struct blobmsg_policy ev_policy[__EV_MAX] = {
 	[EV_LAT]     = { .name = "latency_us", .type = BLOBMSG_TYPE_INT32 },
 	[EV_ANSWERS] = { .name = "answers", .type = BLOBMSG_TYPE_ARRAY },
 	[EV_TTL]     = { .name = "ttl", .type = BLOBMSG_TYPE_INT32 },
+	[EV_BLOCKED] = { .name = "blocked", .type = BLOBMSG_TYPE_INT8 },
 };
 
 static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev,
@@ -93,9 +94,12 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 {
 	struct blob_attr *tb[__EV_MAX], *cur;
 	struct dnslog *e;
+	struct device *d = NULL;
 	const char *client, *qname;
-	uint32_t ttl;
+	uint32_t ttl, rcode;
 	size_t rem;
+	int outcome = BURST_IGNORE;
+	double s;
 
 	blobmsg_parse(ev_policy, __EV_MAX, tb, blob_data(msg), blob_len(msg));
 	if (!tb[EV_CLIENT] || !tb[EV_QNAME])
@@ -103,17 +107,38 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 	client = blobmsg_get_string(tb[EV_CLIENT]);
 	qname = blobmsg_get_string(tb[EV_QNAME]);
 	ttl = tb[EV_TTL] ? blobmsg_get_u32(tb[EV_TTL]) : 0;
+	rcode = tb[EV_RCODE] ? blobmsg_get_u32(tb[EV_RCODE]) : 0;
 
 	dns_total++;
 	last_dns_event = ag_wall_s();
 
-	if (!is_local(client)) {
-		struct device *d = dev_find_ip(client, 1);
+	/* what the answer says about the name: it doesn't exist, or it works. Not
+	 * counted: names AIGW blocked, 0.0.0.0 from a filtering resolver, empty answers */
+	if (!(tb[EV_BLOCKED] && blobmsg_get_u8(tb[EV_BLOCKED]))) {
+		if (rcode == 3)
+			outcome = BURST_NX;
+		else if (rcode == 0 && tb[EV_ANSWERS]) {
+			blobmsg_for_each_attr(cur, tb[EV_ANSWERS], rem) {
+				const char *a = blobmsg_type(cur) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(cur) : "";
 
+				if (!strcmp(a, "0.0.0.0") || !strcmp(a, "::")) {
+					outcome = BURST_IGNORE;
+					break;
+				}
+				if (*a)
+					outcome = BURST_OK;
+			}
+		}
+	}
+
+	if (!is_local(client)) {
+		d = dev_find_ip(client, 1);
 		d->last_seen = last_dns_event;
 		d->queries++;
 		top_add(d->doms, DEV_DOM_MAX, qname, 1);
-		baseline_domain(d, qname);
+		/* a name that doesn't exist, or that AIGW blocked, is not a site the device uses */
+		if (outcome != BURST_NX && !(tb[EV_BLOCKED] && blobmsg_get_u8(tb[EV_BLOCKED])))
+			baseline_domain(d, qname);
 	}
 
 	e = &dlog[dlog_head];
@@ -140,7 +165,10 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 		dlog_count++;
 
 	/* DGA malware mostly gets NXDOMAIN, so every answer is judged */
-	alerts_on_dns(client, qname);
+	s = alerts_on_dns(client, qname);
+	/* ... and many failed lookups of never-used names is behaviour, whatever the names look like */
+	if (d)
+		burst_dns(d, qname, outcome, s >= cfg.dga_threshold);
 	plugin_dispatch(AG_EV_DNS, msg, NULL);
 }
 
@@ -223,6 +251,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u64(&b, "flows_sni", flows_sni_total);
 	blobmsg_add_u32(&b, "endpoints", (uint32_t)ep_count());
 	blobmsg_add_u64(&b, "alerts", alerts_total());
+	burst_blob(&b);
 	blobmsg_add_string(&b, "mode", ag_mode_str(cfg.act_mode));
 	s = blobmsg_open_table(&b, "decisions");
 	blobmsg_add_u32(&b, "waiting", (uint32_t)act_count(0));

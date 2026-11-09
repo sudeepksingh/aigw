@@ -68,6 +68,14 @@ config alerts 'alerts'
 	option dga_threshold '0.98'
 	# shorter registrable names are not judged
 	option dga_min_label '8'
+	# lookup bursts: malware trying generated names until one answers, caught
+	# by behaviour whatever the names look like. A device whose lookups of
+	# names nobody here ever used get "no such name" at least burst_min times
+	# within burst_window seconds, and at least burst_share of the time
+	option burst '1'
+	option burst_window '600'
+	option burst_min '8'
+	option burst_share '0.75'
 	# federated learning: your answers train a shared layer with other homes;
 	# names never leave, each round sends 14 noisy numbers (needs the bridge)
 	option fed '1'
@@ -115,7 +123,7 @@ config act 'act'
 # action ("<plugin>.<action>", see agctl plugins). 'option zone iot' limits a
 # policy to devices in that zone. Skills (plug-ins) bring policies of their own.
 # (Blocking a domain is never automatic: run 'agctl block <domain>'.)
-# Without any policy sections, these three are built in.
+# Without any policy sections, these five are built in.
 config policy 'dga'
 	option alert 'dga'
 	option action 'quarantine'
@@ -125,6 +133,13 @@ config policy 'iot_new_site'
 	# only "stable" devices (cameras, plugs, TVs) raise new-destination alerts
 	option alert 'new-destination'
 	option action 'quarantine'
+
+config policy 'dga_burst'
+	# many never-used names that don't exist, from one device (malware hunting
+	# for its control server; the alert names the server when one answers)
+	option alert 'dga-burst'
+	option action 'quarantine'
+	option ttl '3600'
 
 config policy 'known_threat'
 	# a name on the shared threat list from cortex (agctl models: threat-intel)

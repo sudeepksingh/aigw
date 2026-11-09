@@ -295,6 +295,14 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 	printf("  connections     %llu, %llu without a DNS lookup, %llu named from their handshake\n",
 	       (unsigned long long)fnum(msg, "flows"), (unsigned long long)fnum(msg, "flows_no_dns"),
 	       (unsigned long long)fnum(msg, "flows_sni"));
+	{
+		struct blob_attr *bu = field(msg, "bursts");
+
+		if (bu && fnum(bu, "enabled"))
+			printf("  lookup bursts   %llu, control servers named %llu; the home has used %llu sites\n",
+			       (unsigned long long)fnum(bu, "raised"), (unsigned long long)fnum(bu, "servers_named"),
+			       (unsigned long long)fnum(bu, "home_sites"));
+	}
 	if (s)
 		printf("  sensors         dns %s, flow %s, names %s, wifi %s\n",
 		       fnum(s, "dns") ? "on" : "waiting", fnum(s, "flow") ? "on" : "OFF",

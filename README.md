@@ -46,6 +46,14 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.17:** malware hunting for its control server is caught by **behaviour**,
+> whatever its generated names look like. AIGW remembers every site that works
+> for anyone in the home; a device whose lookups of names nobody here ever used
+> keep getting "no such name" raises `dga-burst`, and the one name that finally
+> answers is named as the likely control server. The name model passes 87% of
+> pronounceable generated names and every dictionary-word one; this signal
+> doesn't read the names at all.
+>
 > **v0.16.2:** the project is now **AIGW OS**, with its own logo, also in the
 > router's web interface. The flow sensor no longer misses a new connection's
 > "no DNS lookup" check when its counter refresh sees the connection first.
@@ -167,12 +175,22 @@ on popular sites (Tranco list) and synthetic machine-generated names.
 | Held-out test, alert at score >= 0.98 | |
 |---|---|
 | False alarms on popular sites | 0.15% |
-| Generated names caught, per name | 68% overall (hex 95%, base32 99%, random letters 66%, pronounceable 11%) |
+| Generated names caught, per name | 68% overall (hex 93%, base32 99.6%, random letters 67%, pronounceable 13%, dictionary words 0%) |
 
 Malware using a name generator looks up dozens of such names, so an infected
 device is flagged quickly even though single names can slip through.
-Pronounceable and dictionary-word generators are a known weak spot of the
-name model; per-device behaviour baselines cover part of that gap.
+Pronounceable and dictionary-word generators are the name model's weak spot
+(it flags 13% and 0% of them), so a second signal looks at behaviour instead:
+
+| Alert | When |
+|-------|------|
+| `dga-burst` | Within 10 minutes, one device looks up at least 8 names that **no device in the home ever used** and that **don't exist** (NXDOMAIN), and those are at least 75% of its never-used names then. A never-used name that answers right after a failed one is named as the likely control server, with the `agctl block` command for it. |
+
+The home's memory of sites that work is two 8 KB Bloom filters (the last
+4,000 to 8,000 sites; one nobody uses any more is forgotten), kept over restarts. Not counted: a name
+tried again, names AIGW blocks, `0.0.0.0` answers from filtering resolvers,
+empty answers. `agctl status` shows bursts raised and servers named; settings
+are `alerts.burst*` in `/etc/config/aigw`.
 
 ## Behaviour baselines
 
@@ -229,8 +247,10 @@ restarts its time limit (and, for throttle, sets the new rate).
 - `off`: alerts only.
 
 Built-in policies propose a quarantine for a device that looks up a
-machine-generated name (`dga`) and for a stable IoT device that suddenly uses
-a new site (`new-destination`). Add your own `config policy` sections.
+machine-generated name (`dga`), for a burst of failed lookups of never-used
+names (`dga-burst`), for a name on the shared threat list (`known-threat`) and
+for a stable IoT device that suddenly uses a new site (`new-destination`).
+Add your own `config policy` sections.
 
 **Guardrails**, checked for every action whoever asks (a policy, you, later
 the cloud):

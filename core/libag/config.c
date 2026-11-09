@@ -155,6 +155,10 @@ void ag_config_load(struct ag_config *c)
 	c->alerts_enabled = 1;
 	c->dga_threshold = 0.98;
 	c->dga_min_label = 8;
+	c->burst_enabled = 1;
+	c->burst_window = 600;
+	c->burst_min = 8;
+	c->burst_share = 0.75;
 	c->meter_enabled = 1;
 	c->fed_enabled = 1;
 	c->fed_noise = 1.0;
@@ -287,6 +291,18 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "alerts", "dga_min_label");
 		if (v && atoi(v) >= 1)
 			c->dga_min_label = atoi(v);
+		v = opt(ctx, p, "alerts", "burst");
+		if (v)
+			c->burst_enabled = atoi(v) != 0;
+		v = opt(ctx, p, "alerts", "burst_window");
+		if (v && atoi(v) >= 10)
+			c->burst_window = atoi(v);
+		v = opt(ctx, p, "alerts", "burst_min");
+		if (v && atoi(v) >= 2 && atoi(v) <= 32)
+			c->burst_min = atoi(v);
+		v = opt(ctx, p, "alerts", "burst_share");
+		if (v && atof(v) > 0 && atof(v) <= 1)
+			c->burst_share = atof(v);
 		v = opt(ctx, p, "fastpath", "enabled");
 		if (v)
 			c->fastpath_enabled = atoi(v) != 0;
@@ -405,6 +421,7 @@ defaults:
 		add_policy(c, "dga", "dga", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 		add_policy(c, "iot_new_site", "new-destination", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 		add_policy(c, "known_threat", "known-threat", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
+		add_policy(c, "dga_burst", "dga-burst", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 		/* a quieter channel for a day; then back, and judged again */
 		add_policy(c, "wifi_busy", "wifi-busy", "channel", NULL, 86400, 0, AG_MODE_ENFORCE);
 	}

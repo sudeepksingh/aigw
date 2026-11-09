@@ -7,6 +7,7 @@
  *   dga         a lookup of a name that looks machine-generated (domain-risk model)
  *   no-dns      a connection to a public address the device never looked up
  *   dns-bypass  a device using its own encrypted DNS, hidden from AIGW
+ *   dga-burst   many never-used names that don't exist, from one device (burst.c)
  *
  * Repeats of the same alert (same kind, device and subject within a day)
  * are counted, not raised again.
@@ -36,7 +37,7 @@ struct alert {
 	char device_name[64];
 	char subject[NAME_LEN];
 	double score;
-	char reason[400];
+	char reason[640];
 };
 
 static struct alert alerts[ALERT_MAX];
@@ -235,13 +236,13 @@ void alerts_raise(const char *kind, const char *severity, const char *ip, const 
 	act_on_alert(a->id, kind, ip, reason);
 }
 
-void alerts_on_dns(const char *client, const char *qname)
+double alerts_on_dns(const char *client, const char *qname)
 {
 	char label[256], reason[320], name[64], mac[18];
 	double s;
 
 	if (!cfg.alerts_enabled || is_local(client))
-		return;
+		return -1;
 	{
 		char hit[NAME_LEN], why[128];
 
@@ -251,17 +252,18 @@ void alerts_on_dns(const char *client, const char *qname)
 			snprintf(reason, sizeof(reason), "%.63s looked up %.90s, a known threat (%.50s%s%.50s).", name, qname,
 				 strcmp(hit, qname) ? hit : "", strcmp(hit, qname) ? ": " : "", why);
 			alerts_raise("known-threat", "warning", client, hit, 1.0, reason);
-			return;
+			return 1.0;
 		}
 	}
 	s = alerts_domain_score(qname, label, sizeof(label), NULL);
 	if (s < cfg.dga_threshold || (int)strlen(label) < cfg.dga_min_label)
-		return;
+		return s < cfg.dga_threshold ? s : -1;
 	device_names(client, mac, name);
 	snprintf(reason, sizeof(reason),
 		 "%s looked up %s, a name that looks machine-generated (score %.2f). "
 		 "Malware generates names like this to find its control servers.", name, qname, s);
 	alerts_raise("dga", "warning", client, qname, s, reason);
+	return s;
 }
 
 void alerts_on_flow(const char *client, const char *dst, const char *domain, const char *proto,

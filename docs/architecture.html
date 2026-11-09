@@ -278,7 +278,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand"><img src="brand/logo-mark.svg" alt="">AIGW <span>OS</span></div>
-  <div class="ver">architecture v0.3 · code v0.16 · 2026-11-09</div>
+  <div class="ver">architecture v0.3 · code v0.17 · 2026-11-09</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1294,6 +1294,17 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Limits</td><td>No real NPU back-end yet: each vendor's SDK is needed. A guide for router makers is in <code>docs/model-backends.md</code>.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.17: behaviour instead of names</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>The gap</td><td>The name model flags 93–99.6% of hex and base32 names, but 12.7% of pronounceable generated names and none made of dictionary words (<code>rivergarden.net</code>).</td></tr>
+      <tr><td>Home memory</td><td>Every site that works for anyone in the home, in two small Bloom filters (the last 4,000–8,000 sites), kept over restarts.</td></tr>
+      <tr><td><code>dga-burst</code></td><td>A device whose lookups of names nobody here ever used keep getting "no such name" (8 in 10 minutes, 75% of its never-used names) is hunting for its control server. The name that finally answers is named, with the command to block it; a quarantine is proposed.</td></tr>
+      <tr><td>Proof</td><td>An infected laptop's 25 word-like names: the name model flags 3, the burst alert comes at the 8th failure and names the server. No alert for a phone visiting 40 new sites with typos, a TV retrying a dead name, a filtering resolver's 0.0.0.0, or names AIGW blocks.</td></tr>
+      <tr><td>Limits</td><td>A slow generator (under 8 tries in 10 minutes) and lookups that bypass AIGW (DNS over HTTPS, reported as <code>dns-bypass</code>) are not caught by this signal.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1334,7 +1345,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.16 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-09</footer>
+<footer>AIGW architecture v0.3 · implementation v0.17 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-09</footer>
 </main>
 </div>
 
