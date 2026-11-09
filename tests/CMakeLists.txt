@@ -19,6 +19,12 @@ if(Python3_FOUND)
   add_test(NAME cortex COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_cortex.py)
 endif()
 
+# example model back-ends (plugins/examples/backend): one that agrees with the reference, one that doesn't
+add_library(example_backend MODULE ${PROJECT_SOURCE_DIR}/plugins/examples/backend/example_backend.c)
+add_library(example_backend_broken MODULE ${PROJECT_SOURCE_DIR}/plugins/examples/backend/example_backend.c)
+target_compile_definitions(example_backend_broken PRIVATE EXAMPLE_BROKEN)
+set_target_properties(example_backend example_backend_broken PROPERTIES PREFIX "")
+
 add_executable(test_agm test_agm.c)
 target_link_libraries(test_agm ag m)
 add_test(NAME agm_runtime COMMAND test_agm

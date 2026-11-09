@@ -7,18 +7,17 @@
 #include <string.h>
 
 #include "ag/agm.h"
+#include "ag/backend.h"
 
 #define AGM_MAX_FILE   (4 * 1024 * 1024)
 #define AGM_MAX_TREES  4096
 #define AGM_MAX_NODES  65536
 #define AGM_NODE_BYTES 20   /* i32 feature, f64 value, i32 left, i32 right */
 
-struct node {
-	int32_t feature;
-	double value;     /* threshold, or leaf value */
-	int32_t left, right;
-};
+/* nodes are the public type (backend.h): a threshold, or a leaf's value */
+#define node ag_node
 
+/* same layout as struct ag_tree_view, so a model can be viewed without copying */
 struct tree {
 	uint32_t n;
 	struct node *nodes;
@@ -315,3 +314,62 @@ double ag_model_prob(const struct ag_model *m, const float *x)
 {
 	return 1.0 / (1.0 + exp(-ag_model_raw(m, x)));
 }
+
+void ag_model_view(const struct ag_model *m, struct ag_model_view *v)
+{
+	_Static_assert(sizeof(struct tree) == sizeof(struct ag_tree_view), "tree layout");
+	v->kind = m->kind;
+	v->n_features = m->n_features;
+	v->schema = m->schema;
+	v->name = m->name;
+	v->base = m->base;
+	v->n_trees = m->n_trees;
+	v->trees = (const struct ag_tree_view *)m->trees;
+}
+
+/* ---------- the reference back-end: this interpreter ---------- */
+
+struct interp { struct ag_model_view v; };
+
+static void *interp_prepare(const struct ag_model_view *v, char *err, size_t n)
+{
+	struct interp *h;
+
+	if (v->kind != AGM_KIND_GBDT) {
+		seterr(err, n, "only gradient-boosted trees");
+		return NULL;
+	}
+	h = malloc(sizeof(*h));
+	if (h)
+		h->v = *v;
+	return h;
+}
+
+static int interp_predict(void *hv, const float *x, int count, double *raw)
+{
+	const struct interp *h = hv;
+	int k;
+
+	for (k = 0; k < count; k++, x += h->v.n_features) {
+		double sum = h->v.base;
+		uint32_t t;
+
+		for (t = 0; t < h->v.n_trees; t++) {
+			const struct ag_node *nodes = h->v.trees[t].nodes;
+			int32_t i = 0;
+
+			while (nodes[i].feature >= 0)
+				i = ((double)x[nodes[i].feature] <= nodes[i].value) ? nodes[i].left : nodes[i].right;
+			sum += nodes[i].value;
+		}
+		raw[k] = sum;
+	}
+	return 0;
+}
+
+static void interp_release(void *h) { free(h); }
+
+const struct ag_backend ag_backend_interp = {
+	.abi = AG_BACKEND_ABI, .name = "interp",
+	.prepare = interp_prepare, .predict = interp_predict, .release = interp_release,
+};

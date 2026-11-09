@@ -18,7 +18,11 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **Status: v0.15, phase 7 "advanced" under way:** a **fast path** (established
+> **Status: v0.16, phase 7 "advanced" done in code:** **model back-ends** (a
+> router's NPU, DSP or a faster library can compute AIGW's model through one
+> small C interface, used only after it gives the reference's verdicts on 300
+> probes; a built-in faster CPU back-end gives identical scores; see
+> [docs/model-backends.md](docs/model-backends.md)). v0.15 brought a **fast path** (established
 > connections of devices AIGW isn't acting on go through the kernel's
 > flowtable, or the switch chip on routers that have one, while devices under
 > an action stay on the rules) and an **eBPF traffic meter** (each device's
@@ -388,7 +392,7 @@ CI runs it inside OpenWRT in QEMU after installing every build with opkg
 packages) and on emulated ARM64 (the Filogic packages). To try it on your own router, see
 [docs/testing-on-routers.md](docs/testing-on-routers.md).
 
-## What you get in v0.15
+## What you get in v0.16
 
 | Component | What it does |
 |-----------|--------------|
@@ -405,6 +409,7 @@ packages) and on emulated ARM64 (the Filogic packages). To try it on your own ro
 | Wi-Fi keys | A key and QR code per device, bound to its MAC on first join, zoned, revocable on its own. |
 | `ag-mqtt` | Connector plug-in: MQTT 3.1.1 telemetry in, state out, Home Assistant discovery. |
 | Model updates | Signed (usign-compatible Ed25519, verified by libag), checked against this build's features, hot-loaded, with rollback and hold-off. The shared threat list and the federated layer travel the same way. |
+| Model back-ends | Who computes the model: `interp` (the reference), `flat` (built in: identical scores, faster) or a library a package puts in `/usr/lib/aigw/backends` (an NPU's, through `include/ag/backend.h`). Each is checked against the reference whenever a model loads and used only if it agrees; `models.backend auto` takes the fastest. `agctl models` shows each one's check and speed. [docs/model-backends.md](docs/model-backends.md) |
 | Federated learning | Your answers (an alert you rejected or undid, one you approved, `agctl label <name> safe|threat`) stay on the gateway. In a round the gateway trains a 14-number layer over the model on them, clips the change and adds noise (at least `alerts.fed_noise`), and the bridge sends cortex only those numbers. Cortex averages the homes and publishes a signed `domain-adapter`; a gateway uses it only if the anchor names (machine-generated ones, also under `www.`, and popular sites) and the threats you named still score right. `agctl fed` shows your answers, the rounds and the privacy spent (ε); `alerts.fed_budget` stops at a limit. |
 | Remote access | WireGuard peers with QR codes; DNS from the tunnel goes to agdns; `aigw-remote` sets up the interface, rules and NAT. |
 | Signed plug-ins | A trusted signature over every file of a plug-in folder grants its privileges. |

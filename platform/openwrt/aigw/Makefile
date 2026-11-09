@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.15.0
+PKG_VERSION:=0.16.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -124,10 +124,18 @@ define Build/Prepare
 		$(PKG_BUILD_DIR)/
 endef
 
+# a router maker's NPU back-end package builds against this header
+# (DEPENDS:=+aigw, #include <ag/backend.h>) and installs its library into
+# /usr/lib/aigw/backends
+define Build/InstallDev
+	$(INSTALL_DIR) $(1)/usr/include/ag
+	$(CP) $(AIGW_SRC)/include/ag/backend.h $(1)/usr/include/ag/
+endef
+
 define Package/aigw/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults \
 		$(1)/etc/hotplug.d/dhcp $(1)/usr/share/aigw/models $(1)/usr/share/aigw/plugins/iot-guard \
-		$(1)/lib/upgrade/keep.d
+		$(1)/lib/upgrade/keep.d $(1)/usr/lib/aigw/backends
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/models/domain-risk.agm $(1)/usr/share/aigw/models/
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
 		$(1)/usr/share/aigw/plugins/iot-guard/

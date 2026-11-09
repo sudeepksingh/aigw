@@ -231,6 +231,12 @@ config models 'models'
 	# option dir '/etc/aigw/models'
 	# option keys '/etc/aigw/keys.d'
 	option require_signature '1'
+	# who computes the model's scores: 'auto' (the fastest back-end that gives
+	# the reference's verdicts), 'interp' (the reference), 'flat' (built in,
+	# same scores, faster), or a back-end a package added (an NPU's), by name
+	option backend 'auto'
+	# back-end libraries; root's only (a package puts them here)
+	# option backend_dir '/usr/lib/aigw/backends'
 
 config lan 'lan'
 	# interfaces whose clients AIGW looks after (DNS interception, and the

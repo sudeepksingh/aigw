@@ -207,6 +207,12 @@ int fastpath_release_mac(const char *mac, const char *why);
 void fastpath_tick(void);
 void fastpath_blob(struct blob_buf *b);
 
+/* backend.c: who computes model scores (built in, or an NPU library), checked against the reference */
+void backend_select(const struct ag_model *m);
+double backend_prob(const struct ag_model *m, const float *x);
+const char *backend_name(void);
+void backend_blob(struct blob_buf *b);
+
 /* meter.c: per-device traffic counted in the kernel by an eBPF program (tcx) */
 void meter_init(void);
 void meter_tick(void);
