@@ -35,6 +35,68 @@ TRANCO_URL = "https://tranco-list.eu/top-1m.csv.zip"
 CACHE = os.path.join(os.path.expanduser("~"), ".cache", "aigw-train")
 THRESHOLD = 0.98   # alert level: chosen for few false alarms on everyday traffic
 
+# Hosts under a registrable domain. Generated names are trained under these as
+# often as popular ones, so the number of labels says nothing about risk: a
+# model that learned "more labels = safe" would miss www.<generated name>.
+SUBDOMAINS = ["www", "mail", "cdn", "api", "m", "app", "static", "img", "login", "portal", "news", "shop",
+              "blog", "dev", "files", "update", "secure", "ns1", "smtp", "web"]
+
+
+def with_subdomain(q, r):
+    host = r.choice(SUBDOMAINS)
+    if r.random() < 0.2:
+        host = r.choice(SUBDOMAINS) + "." + host
+    return host + "." + q
+
+
+def augment(items, share, r):
+    """(qname, label) pairs, a share of them moved under a subdomain (same label)."""
+    return [(with_subdomain(q, r), lab) if r.random() < share else (q, lab) for q, lab in items]
+
+
+def read_agm(path):
+    """(base, trees, bigram table) of an existing .agm, to compare a new model with it."""
+    with open(path, "rb") as f:
+        data = f.read()
+    n_sec = struct.unpack_from("<I", data, 48)[0]
+    off, base, trees, table = 52, 0.0, [], None
+    for _ in range(n_sec):
+        t, n = struct.unpack_from("<II", data, off)
+        off += 8
+        sec = data[off:off + n]
+        off += n
+        if t == 1:
+            base, nt = struct.unpack_from("<dI", sec, 0)
+            p = 12
+            for _ in range(nt):
+                (nn,) = struct.unpack_from("<I", sec, p)
+                p += 4
+                nodes = []
+                for _ in range(nn):
+                    f_, v, l, r = struct.unpack_from("<idii", sec, p)
+                    p += 20
+                    nodes.append((f_, v, l, r))
+                trees.append(nodes)
+        elif t == 2:
+            (dim,) = struct.unpack_from("<I", sec, 0)
+            table = np.frombuffer(sec[4:4 + dim * dim * 4], dtype="<f4").reshape(dim, dim).astype(np.float64)
+    return base, trees, table
+
+
+def report(name, score, b_test, d_test, r):
+    """False alarms and catch rate, for names as they are and under www. (a share of real lookups)."""
+    www = random.Random(r)
+    rows = []
+    for variant in ("as listed", "under a subdomain"):
+        sub = variant != "as listed"
+        pb = np.array([score(with_subdomain(q, www) if sub else q, lab) for q, lab in b_test])
+        pd = np.array([score(with_subdomain(q, www) if sub else q, lab) for _, lab, q in d_test])
+        rows.append((variant, float((pb >= THRESHOLD).mean()), float((pd >= THRESHOLD).mean())))
+    print(f"{name}: at score >= {THRESHOLD}")
+    for variant, fa, caught in rows:
+        print(f"  {variant:<18} false alarms {fa * 100:6.3f}%   caught {caught * 100:6.2f}%")
+    return rows
+
 
 def fnv1a(s):
     h = 2166136261
@@ -115,6 +177,7 @@ GOLDEN_NAMES = [
     "a.io", "1.2.3.4", "printer.local", "205.0.42.10.in-addr.arpa",
     "xkqjzvbwptmr.com", "q8f3k2l9z7x1v.net", "9f86d081884c7d659a2feaa0c55ad015.info",
     "mfrggzdfmztwq2lk.biz", "kofamuveliza.top", "zbqxwvkdpt4821.ru",
+    "www.xkqjzvbwptmr.com", "cdn.q8f3k2l9z7x1v.net", "www.bbc.co.uk", "mail.wikipedia.org",
 ]
 
 
@@ -131,6 +194,9 @@ def main():
     ap.add_argument("--feedback", help="people's answers: <domain>\\t<0 benign | 1 risky> per line")
     ap.add_argument("--feedback-weight", type=float, default=50.0,
                     help="how much one answer counts against one generated example")
+    ap.add_argument("--subdomain-share", type=float, default=0.35,
+                    help="share of training names (both kinds) put under a subdomain such as www.")
+    ap.add_argument("--compare", help="an existing .agm to compare with on the same held-out names")
     args = ap.parse_args()
     rng = random.Random(args.seed)
 
@@ -165,8 +231,11 @@ def main():
     dcut = int(len(dga) * 0.8)
     d_train, d_test = dga[:dcut], dga[dcut:]
 
-    X = np.vstack([featurize(b_train, table), featurize([(q, l) for _, l, q in d_train], table)])
-    y = np.array([0] * len(b_train) + [1] * len(d_train))
+    aug = random.Random(args.seed + 1)
+    b_fit = augment(b_train, args.subdomain_share, aug)
+    d_fit = augment([(q, l) for _, l, q in d_train], args.subdomain_share, aug)
+    X = np.vstack([featurize(b_fit, table), featurize(d_fit, table)])
+    y = np.array([0] * len(b_fit) + [1] * len(d_fit))
     w = np.ones(len(y))
     if fb_items:
         # a person's answer about a real lookup outweighs many synthetic examples
@@ -201,6 +270,14 @@ def main():
 
     trees = export_trees(clf)
     base = float(clf._raw_predict_init(X[:1])[0, 0])
+    new_rows = report("this model", lambda q, lab: 1 / (1 + np.exp(-tree_eval(trees, base, domain_features(q, lab, table)))),
+                      b_test, d_test, args.seed + 2)
+    old_rows = None
+    if args.compare:
+        ob, ot, otab = read_agm(args.compare)
+        old_rows = report(f"compared with {os.path.basename(args.compare)}",
+                          lambda q, lab: 1 / (1 + np.exp(-tree_eval(ot, ob, domain_features(q, lab, otab)))),
+                          b_test, d_test, args.seed + 2)
     sample = np.vstack([Xb[:500], Xd[:500]])
     ours = np.array([tree_eval(trees, base, x) for x in sample])
     diff = float(np.max(np.abs(ours - clf.decision_function(sample))))
@@ -221,6 +298,8 @@ def main():
         "trees": args.trees, "depth": args.depth, "threshold": THRESHOLD,
         "heldout_auc": round(auc, 4), "heldout_false_alarm_rate": round(fpr, 5),
         "heldout_recall_by_family": recall, "feature_importance": importance,
+        "subdomain_share": args.subdomain_share,
+        "heldout_under_subdomain": {"false_alarm_rate": round(new_rows[1][1], 5), "caught": round(new_rows[1][2], 4)},
     }
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     size = write_agm(args.out, "domain-risk", base, trees, table, meta)
