@@ -153,8 +153,12 @@ long > "$T/long1.out" 2>&1 & L=$!
 wait_st 20 "f['offloaded'] >= 1" "the download should be offloaded"
 gw nft list chain inet ag fastpath | grep -q "flow add @fast" || fail "fast path rule missing"
 if agctl -j status | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin)['meter']['active'] else 1)"; then
-	sleep 2
-	r=$(agctl -j devices | python3 -c "import json,sys; print([d.get('meter', {}).get('rate_down', 0) for d in json.load(sys.stdin)['devices'] if d.get('mac') == '$CMAC'][0])")
+	# the meter's byte counter over 4 s, not one 1-second rate: curl's
+	# --limit-rate sends in bursts, so a single second can be nearly empty
+	mbytes() { agctl -j devices | python3 -c "import json,sys; print([d.get('meter', {}).get('bytes_down', 0) for d in json.load(sys.stdin)['devices'] if d.get('mac') == '$CMAC'][0])"; }
+	sleep 1
+	b0=$(mbytes); sleep 4; b1=$(mbytes)
+	r=$(( (b1 - b0) * 8 / 4 ))
 	python3 -c "import sys; sys.exit(0 if $r > 0.8e6 else 1)" ||
 		fail "the eBPF meter should still see the offloaded download (rate down $r bit/s)"
 	echo "   the eBPF meter sees the offloaded download: $((r / 1000)) kbit/s"
