@@ -80,7 +80,13 @@ gw sysctl -qw net.ipv4.ip_forward=1
 gw sysctl -qw net.netfilter.nf_conntrack_acct=1 2>/dev/null || true
 
 gw nft -c -f - > "$T/probe.log" 2>&1 <<EOF || skip "this kernel has no flowtable support (nf_flow_table): $(tr '\n' ' ' < "$T/probe.log")"
-table inet probe { flowtable f { hook ingress priority filter; devices = { "$LIF", "$WIF" }; counter; } }
+table inet probe {
+	flowtable f {
+		hook ingress priority filter
+		devices = { "$LIF", "$WIF" }
+		counter
+	}
+}
 EOF
 
 mkdir -p "$T/www"
