@@ -1,9 +1,9 @@
-# AIGW — AI-Native Gateway Architecture
+# AIGW OS — Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.16**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.16**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Name: **AIGW OS** (daemons `agd`, `agdns`; packages and paths `aigw`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
-> **The gateway that understands the home, not just the network.**
+> **The AI-powered operating system for home gateways.**
 > One small AI core turns any OpenWRT router, or any PC acting as a Wi-Fi access point, into a
 > gateway that knows who is home, what every device and IoT gadget does, what is normal, and what
 > to do about it. It works fully inside the home, gets smarter with optional cloud services outside,

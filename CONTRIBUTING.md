@@ -1,4 +1,4 @@
-# Contributing to AIGW
+# Contributing to AIGW OS
 
 Thanks for helping build an open, AI-native gateway.
 

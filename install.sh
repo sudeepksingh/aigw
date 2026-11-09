@@ -1,5 +1,5 @@
 #!/bin/sh
-# AIGW installer.
+# AIGW OS installer.
 #
 #   PC as AP (Debian/Ubuntu, incl. WSL2):   sudo ./install.sh
 #   OpenWRT router:                         see docs/getting-started-openwrt.md

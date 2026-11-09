@@ -1,6 +1,6 @@
 {
 	"admin/aigw": {
-		"title": "AIGW",
+		"title": "AIGW OS",
 		"order": 45,
 		"action": { "type": "firstchild" },
 		"depends": { "acl": [ "luci-app-aigw" ] }

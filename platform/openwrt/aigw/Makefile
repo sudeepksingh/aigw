@@ -31,14 +31,15 @@ AIGW_SRC:=$(abspath $(CURDIR)/../../..)
 define Package/aigw
   SECTION:=net
   CATEGORY:=Network
-  TITLE:=AIGW AI-native gateway core (agd, agdns, agctl)
+  TITLE:=AIGW OS core: the AI-powered home gateway (agd, agdns, agctl)
   # nft and its kernel modules come with firewall4, the default firewall
   # since OpenWRT 22.03. The flow sensor needs conntrack netlink.
   DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libnetfilter-conntrack +kmod-nf-conntrack-netlink +kmod-nft-bridge +kmod-nfnetlink-log +kmod-nft-offload
 endef
 
 define Package/aigw/description
-  AIGW turns the router into a gateway that understands the home.
+  AIGW OS, the AI-powered operating system for home gateways, turns the
+  router into a gateway that understands the home.
   This package contains the core: agd (brain), agdns (DNS sensor),
   agctl (command line) and the nftables integration.
 endef
@@ -50,7 +51,7 @@ endef
 define Package/aigw-mqtt
   SECTION:=net
   CATEGORY:=Network
-  TITLE:=AIGW plug-in: MQTT connector with Home Assistant discovery
+  TITLE:=AIGW OS plug-in: MQTT connector with Home Assistant discovery
   DEPENDS:=+aigw +libubox +libblobmsg-json
 endef
 
@@ -65,7 +66,7 @@ endef
 define Package/aigw-bridge
   SECTION:=net
   CATEGORY:=Network
-  TITLE:=AIGW plug-in: bridge to cortex (fleet history, signed model updates)
+  TITLE:=AIGW OS plug-in: bridge to cortex (fleet history, signed model updates)
   # curl (TLS, certificate checks) is needed at run time; the plug-in waits
   # until it is installed. It is not a build dependency, so the package
   # builds from the base feed alone.
@@ -83,7 +84,7 @@ endef
 define Package/aigw-remote
   SECTION:=net
   CATEGORY:=Network
-  TITLE:=AIGW remote access over WireGuard (peers with QR codes)
+  TITLE:=AIGW OS remote access over WireGuard (peers with QR codes)
   DEPENDS:=+aigw +wireguard-tools +kmod-wireguard
   PKGARCH:=all
 endef
@@ -100,7 +101,7 @@ define Package/luci-app-aigw
   SECTION:=luci
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
-  TITLE:=LuCI pages for AIGW
+  TITLE:=LuCI pages for AIGW OS
   # needs LuCI itself (luci-base); not a build dependency, so the package
   # builds from the base feed alone
   DEPENDS:=+aigw +rpcd
@@ -108,7 +109,7 @@ define Package/luci-app-aigw
 endef
 
 define Package/luci-app-aigw/description
-  AIGW in the router's web interface (menu "AIGW"): overview, devices with
+  AIGW OS in the router's web interface (menu "AIGW OS"): overview, devices with
   quarantine / priority / zone, alerts and decisions with approve, reject
   and undo, per-device Wi-Fi keys and remote access with QR codes,
   plug-ins and models.

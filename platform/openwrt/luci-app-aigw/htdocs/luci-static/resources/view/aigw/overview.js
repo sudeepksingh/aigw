@@ -92,9 +92,9 @@ return view.extend({
 		}, 10);
 
 		return E('div', { 'class': 'cbi-map' }, [
-			E('h2', {}, T(_('AIGW'))),
+			E('h2', {}, T(_('AIGW OS'))),
 			E('div', { 'class': 'cbi-map-descr' },
-				T(_('The AI-native gateway: what is on your network, what it does, and what AIGW thinks you should know.'))),
+				T(_('The AI-powered operating system for home gateways: what is on your network, what it does, and what AIGW OS thinks you should know.'))),
 			E('div', { 'class': 'cbi-section' }, box)
 		]);
 	},
