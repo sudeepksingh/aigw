@@ -457,6 +457,16 @@ void dev_blob(struct blob_buf *b, const struct device *d, int full)
 	blobmsg_add_u32(b, "flows_no_dns", d->flows_no_dns);
 	blobmsg_add_u64(b, "bytes_up", d->bytes_up);
 	blobmsg_add_u64(b, "bytes_down", d->bytes_down);
+	if (d->meter_at && !full) {             /* the eBPF meter: live, includes the fast path */
+		void *m = blobmsg_open_table(b, "meter");
+
+		blobmsg_add_u64(b, "rate_up", d->rate_up);
+		blobmsg_add_u64(b, "rate_down", d->rate_down);
+		blobmsg_add_u64(b, "bytes_up", d->meter_up);
+		blobmsg_add_u64(b, "bytes_down", d->meter_down);
+		blobmsg_add_u64(b, "packets", d->meter_pkts);
+		blobmsg_close_table(b, m);
+	}
 	w = blobmsg_open_table(b, "wifi");
 	blobmsg_add_u8(b, "connected", d->wifi_connected ? 1 : 0);
 	if (d->wifi_connected) {

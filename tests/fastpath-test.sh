@@ -79,7 +79,7 @@ ip -n "$NS" route add default via 198.19.0.1
 gw sysctl -qw net.ipv4.ip_forward=1
 gw sysctl -qw net.netfilter.nf_conntrack_acct=1 2>/dev/null || true
 
-gw nft -c -f - > /dev/null 2>&1 <<EOF || skip "this kernel has no flowtable support (nf_flow_table)"
+gw nft -c -f - > "$T/probe.log" 2>&1 <<EOF || skip "this kernel has no flowtable support (nf_flow_table): $(tr '\n' ' ' < "$T/probe.log")"
 table inet probe { flowtable f { hook ingress priority filter; devices = { "$LIF", "$WIF" }; counter; } }
 EOF
 
@@ -146,6 +146,13 @@ echo "== offload: a long download goes through the flowtable, and is still count
 long > "$T/long1.out" 2>&1 & L=$!
 wait_st 20 "f['offloaded'] >= 1" "the download should be offloaded"
 gw nft list chain inet ag fastpath | grep -q "flow add @fast" || fail "fast path rule missing"
+if agctl -j status | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin)['meter']['active'] else 1)"; then
+	sleep 2
+	r=$(agctl -j devices | python3 -c "import json,sys; print([d.get('meter', {}).get('rate_down', 0) for d in json.load(sys.stdin)['devices'] if d.get('mac') == '$CMAC'][0])")
+	python3 -c "import sys; sys.exit(0 if $r > 0.8e6 else 1)" ||
+		fail "the eBPF meter should still see the offloaded download (rate down $r bit/s)"
+	echo "   the eBPF meter sees the offloaded download: $((r / 1000)) kbit/s"
+fi
 wait "$L" || fail "the offloaded download should finish"
 [ "$(cat "$T/long1.out")" = 4000000 ] || fail "download incomplete: $(cat "$T/long1.out")"
 i=0

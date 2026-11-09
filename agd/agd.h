@@ -94,6 +94,11 @@ struct device {
 	int64_t plugin_last_ts;
 
 	struct baseline bl;
+
+	/* traffic meter (meter.c, eBPF): kernel totals per MAC, live rates */
+	uint64_t meter_up, meter_down, meter_pkts;
+	uint64_t rate_up, rate_down;    /* bits/s over the last second */
+	int64_t meter_at;
 };
 
 /* main.c */
@@ -201,6 +206,12 @@ int fastpath_release(const char *ip, const char *why);
 int fastpath_release_mac(const char *mac, const char *why);
 void fastpath_tick(void);
 void fastpath_blob(struct blob_buf *b);
+
+/* meter.c: per-device traffic counted in the kernel by an eBPF program (tcx) */
+void meter_init(void);
+void meter_tick(void);
+int meter_active(void);
+void meter_blob(struct blob_buf *b);
 
 /* intel.c: shared threat intelligence, a signed list delivered like a model */
 void *intel_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);

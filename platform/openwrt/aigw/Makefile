@@ -34,7 +34,7 @@ define Package/aigw
   TITLE:=AIGW AI-native gateway core (agd, agdns, agctl)
   # nft and its kernel modules come with firewall4, the default firewall
   # since OpenWRT 22.03. The flow sensor needs conntrack netlink.
-  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libnetfilter-conntrack +kmod-nf-conntrack-netlink +kmod-nft-bridge +kmod-nfnetlink-log
+  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libnetfilter-conntrack +kmod-nf-conntrack-netlink +kmod-nft-bridge +kmod-nfnetlink-log +kmod-nft-offload
 endef
 
 define Package/aigw/description

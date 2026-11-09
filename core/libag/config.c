@@ -155,6 +155,7 @@ void ag_config_load(struct ag_config *c)
 	c->alerts_enabled = 1;
 	c->dga_threshold = 0.98;
 	c->dga_min_label = 8;
+	c->meter_enabled = 1;
 	c->fed_enabled = 1;
 	c->fed_noise = 1.0;
 	c->fed_min_examples = 3;
@@ -287,6 +288,9 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "fastpath", "enabled");
 		if (v)
 			c->fastpath_enabled = atoi(v) != 0;
+		v = opt(ctx, p, "meter", "enabled");
+		if (v)
+			c->meter_enabled = atoi(v) != 0;
 		v = opt(ctx, p, "alerts", "fed");
 		if (v)
 			c->fed_enabled = atoi(v) != 0;
