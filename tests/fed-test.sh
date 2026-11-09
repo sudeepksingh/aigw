@@ -221,7 +221,18 @@ grep -q "ε = " "$T/fed.txt" || { cat "$T/fed.txt"; fail "agctl fed should show 
 
 echo "== learning: the false alarms score lower in every home, threats still alert"
 # (qpwzkxvtrm.net: a generated name no home answered about, also tried under www.)
-sleep 6       # a couple more rounds
+# a few more rounds: wait until each home's layer has moved both names, up to
+# 40 s (a slow machine runs fewer rounds in the same time)
+lower() { python3 -c "import sys; sys.exit(0 if $1 < $2 - 0.03 else 1)"; }
+for H in hA hB hC; do
+	i=0
+	while :; do
+		a=$(score $H $CF1); g=$(score $H $CF7)
+		{ lower $a $BEFORE_CF1 && lower $g $BEFORE_CF7; } && break
+		i=$((i + 1)); [ $i -ge 40 ] && break
+		sleep 1
+	done
+done
 for H in hA hB hC; do
 	a=$(score $H $CF1); g=$(score $H $CF7)
 	python3 -c "import sys; sys.exit(0 if $a < $BEFORE_CF1 - 0.03 else 1)" ||
@@ -245,7 +256,11 @@ hcheck hA score $CF1 -- "'trees' in j and j['trees'] > j['score']" "score should
 
 echo "== home A's privacy budget: it stops taking part after three rounds"
 hwait 20 hA fed -- "j['rounds'] == 3 and j['epsilon'] < 250" "home A should take part in exactly three rounds"
-grep -q "privacy budget reached" "$T/hA/agd.log" || fail "home A should say its budget is reached"
+i=0   # it says so when the next round opens
+until grep -q "privacy budget reached" "$T/hA/agd.log"; do
+	i=$((i + 1)); [ $i -ge 30 ] && fail "home A should say its budget is reached"
+	sleep 1
+done
 
 echo "== a layer that would let home C's own threat through is refused there, without naming it"
 sign() {
