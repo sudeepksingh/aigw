@@ -105,7 +105,9 @@ struct ag_config {
 	int alerts_enabled;
 	double dga_threshold;     /* domain-risk score that raises an alert */
 	int dga_min_label;        /* shorter names are not judged */
-	int fed_enabled;          /* take part in federated learning rounds (names never leave) */
+	int fastpath_enabled;     /* established connections through the kernel flowtable (aigw-nft) */
+	int meter_enabled;        /* count each device's traffic in the kernel (eBPF on the LAN interfaces) */
+	int fed_enabled;         /* take part in federated learning rounds (names never leave) */
 	double fed_noise;         /* at least this noise multiplier on what leaves, whatever cortex asks */
 	int fed_min_examples;     /* answered examples needed before taking part in a round */
 	double fed_budget;        /* stop taking part before epsilon passes this; 0 = no limit */

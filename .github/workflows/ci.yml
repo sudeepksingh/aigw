@@ -51,6 +51,17 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/steer-test.sh build
       - name: Channel self-healing test (busy channel, proposal, channel switch, undo)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/chan-test.sh build
+      - name: Fast path test (kernel flowtable; actions send offloaded connections back)
+        run: |
+          # the flowtable modules live in the kernel's extra modules package on this runner
+          if ! modinfo nf_flow_table >/dev/null 2>&1; then
+            sudo apt-get install -y -qq --no-install-recommends "linux-modules-extra-$(uname -r)" ||
+              echo "no linux-modules-extra-$(uname -r) for this kernel"
+          fi
+          modinfo -F filename nf_flow_table nf_flow_table_inet nft_flow_offload || true
+          sudo AIGW_REQUIRE_FLOWTABLE=1 PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/fastpath-test.sh build
+      - name: Traffic meter test (eBPF per device on the LAN interface, tcx)
+        run: sudo AIGW_REQUIRE_METER=1 PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/meter-test.sh build
       - name: Simulated radios (mac80211_hwsim, hostapd, wpa_supplicant)
         run: |
           sudo apt-get install -y -qq --no-install-recommends hostapd wpasupplicant iw wireless-regdb

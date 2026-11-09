@@ -68,6 +68,21 @@ elif [ $OWRT = 1 ] && [ "$(uci -q get aigw.flow.sni)" != 0 ]; then
 else
 	info names "connection names from handshakes are off: names come from DNS only"
 fi
+# traffic meter (eBPF) and fast path (flowtable)
+METER=$(echo "$STATUS" | tr -d '\n' | sed -n 's/.*"meter": *{\([^}]*\)}.*/\1/p')
+if echo "$METER" | grep -q '"active": *\(true\|1\)'; then
+	pass meter "per-device traffic counted in the kernel (eBPF)"
+else
+	info meter "traffic meter off: $(echo "$METER" | json why) (rates come from connections when they end)"
+fi
+if [ "$(uci -q get aigw.fastpath.enabled)" = 1 ]; then
+	ok_if fastpath "flowtable carries established connections (table inet ag, flowtable fast)" nft list flowtable inet ag fast
+else
+	info fastpath "fast path off (aigw.fastpath.enabled)"
+fi
+if [ $OWRT = 1 ] && [ "$(uci -q get firewall.@defaults[0].flow_offloading)" = 1 ]; then
+	fail fw4-offload "fw4's own flow offloading is on: AIGW's actions miss offloaded connections; turn it off (firewall.@defaults[0].flow_offloading=0) and use aigw.fastpath.enabled=1"
+fi
 if [ $OWRT = 1 ]; then
 	ok_if fw4 "firewall include keeps the table across reloads" sh -c '[ "$(uci -q get firewall.aigw)" = include ]'
 	if [ $FULL = 1 ]; then

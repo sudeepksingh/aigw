@@ -42,6 +42,25 @@ config flow 'flow'
 	# NFLOG group for those copies; change it only if another program uses it
 	option sni_group '4419'
 
+config meter 'meter'
+	# count each device's traffic in the kernel as it passes (an eBPF program on
+	# the LAN interfaces, Linux 6.6+): live rates per device. It only counts,
+	# and is gone when agd stops.
+	option enabled '1'
+
+config fastpath 'fastpath'
+	# established connections of devices AIGW isn't acting on skip the
+	# forwarding rules (kernel flowtable): much faster forwarding on routers.
+	# A device under an action stays on the slow path. On OpenWRT, keep fw4's
+	# own flow offloading off: it would also offload devices AIGW acts on.
+	option enabled '0'
+	# '1': let the switch chip forward them (MT7621, Filogic); the meter then
+	# doesn't see those packets
+	option offload '0'
+	# interfaces traffic comes in on: default the LAN interfaces and the one
+	# with the default route
+	# option ifaces 'br-lan wan'
+
 config alerts 'alerts'
 	# alerts explain what AIGW noticed; acting on them is set in 'act' below
 	option enabled '1'

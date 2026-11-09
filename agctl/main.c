@@ -299,6 +299,26 @@ static void show_status(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("  sensors         dns %s, flow %s, names %s, wifi %s\n",
 		       fnum(s, "dns") ? "on" : "waiting", fnum(s, "flow") ? "on" : "OFF",
 		       fnum(s, "sni") ? "on" : "off", fnum(s, "wifi") ? "on" : "no stations");
+	{
+		struct blob_attr *m = field(msg, "meter"), *f = field(msg, "fastpath"), *e;
+		size_t rem;
+
+		if (m) {
+			printf("  traffic meter   ");
+			if (fnum(m, "active")) {
+				printf("eBPF on");
+				blobmsg_for_each_attr(e, field(m, "ifaces"), rem)
+					printf(" %s", blobmsg_get_string(e));
+				printf(" (live rates per device)\n");
+			} else {
+				printf("off: %s\n", orb(fstr(m, "why"), "?"));
+			}
+		}
+		if (f && fnum(f, "enabled"))
+			printf("  fast path       %llu connections offloaded (%llu by the switch chip), %llu sent back for actions\n",
+			       (unsigned long long)fnum(f, "offloaded"), (unsigned long long)fnum(f, "hw_offloaded"),
+			       (unsigned long long)fnum(f, "released"));
+	}
 	printf("  alerts          %llu\n", (unsigned long long)fnum(msg, "alerts"));
 	{
 		struct blob_attr *d = field(msg, "decisions");
@@ -458,6 +478,13 @@ static void show_device(struct ubus_request *req, int type, struct blob_attr *ms
 		       human_bytes(fnum(d, "bytes_down"), b1, sizeof(b1)),
 		       human_bytes(fnum(d, "bytes_up"), b2, sizeof(b2)),
 		       (unsigned long long)fnum(d, "flows"), (unsigned long long)fnum(d, "flows_no_dns"));
+		if (field(d, "meter")) {
+			struct blob_attr *m = field(d, "meter");
+
+			printf("  right now       %.2f Mbit/s down, %.2f Mbit/s up (kernel meter: %s down, %s up so far)\n",
+			       fnum(m, "rate_down") / 1e6, fnum(m, "rate_up") / 1e6,
+			       human_bytes(fnum(m, "bytes_down"), b1, sizeof(b1)), human_bytes(fnum(m, "bytes_up"), b2, sizeof(b2)));
+		}
 		{
 			struct blob_attr *bl = field(d, "baseline"), *h;
 			size_t r3;

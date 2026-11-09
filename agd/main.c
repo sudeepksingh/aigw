@@ -255,6 +255,8 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u8(&b, "wifi", wifi_station_count() > 0 ? 1 : 0);
 	blobmsg_close_table(&b, s);
 	sni_blob(&b);
+	fastpath_blob(&b);
+	meter_blob(&b);
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
@@ -938,6 +940,7 @@ static void poll_cb(struct uloop_timeout *t)
 	dev_poll_arp();
 	wifi_poll();
 	presence_tick();
+	fastpath_tick();
 	baseline_tick();
 	act_tick();
 	keys_tick();
@@ -973,6 +976,7 @@ int main(int argc, char **argv)
 	remote_init();                  /* before the flow sensor: tunnel clients are part of the home */
 	flow_init();
 	sni_init();                     /* after the flow sensor: it names its connections */
+	meter_init();
 	wifi_init();
 	keys_init();
 	plugin_init();
