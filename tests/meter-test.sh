@@ -66,8 +66,17 @@ mkdir -p "$T/www"
 head -c 3000000 /dev/urandom > "$T/www/file"
 head -c 2000000 /dev/urandom > "$T/up"
 cat > "$T/server.py" <<'EOF'
-import http.server, sys, os
+import http.server, sys, os, time
 class H(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/paced":
+            return super().do_GET()
+        # 40 chunks of 64 KB, one every 0.2 s: a steady 320 KB/s (2.62 Mbit/s) for 8 s
+        self.send_response(200); self.send_header("Content-Length", str(40 * 65536)); self.end_headers()
+        chunk, t0 = os.urandom(65536), time.time()
+        for i in range(40):
+            self.wfile.write(chunk); self.wfile.flush()
+            time.sleep(max(0, t0 + (i + 1) * 0.2 - time.time()))
     def do_POST(self):
         n = int(self.headers.get("Content-Length", 0))
         while n > 0:
@@ -130,18 +139,17 @@ agctl -j status | python3 -c "import json,sys; assert json.load(sys.stdin)['mete
 	fail "the meter should be on the LAN interface"
 cl ping -c 2 -W 1 198.20.0.2 > /dev/null || fail "traffic should pass"
 
-echo "== a download at about 400 KB/s shows as its rate down (compared with curl's own average)"
-cl curl -s -o /dev/null --limit-rate 400k --max-time 30 -w '%{size_download} %{speed_download}' \
-	http://198.20.0.2:8080/file > "$T/dl.out" &
+echo "== a download the server paces at 320 KB/s shows as about 2.6 Mbit/s down"
+cl curl -s -o /dev/null --max-time 30 -w '%{size_download}' http://198.20.0.2:8080/paced > "$T/dl.out" &
 C=$!
 sleep 3
 r1=$(dev "m.get('rate_down', 0)"); sleep 2; r2=$(dev "m.get('rate_down', 0)")
 wait "$C" || fail "the download should finish"
-read -r size speed < "$T/dl.out" || true      # curl's -w output has no newline
-[ "$size" = 3000000 ] || fail "download incomplete"
-python3 -c "import sys; a = ($r1 + $r2) / 2; s = $speed * 8; sys.exit(0 if 0.75 * s <= a <= 1.35 * s else 1)" ||
-	fail "rate down ($r1, $r2 bit/s) should match the download's speed (${speed%.*} B/s)"
-echo "   rate down $(((r1 + r2) / 2000)) kbit/s while curl averaged $(( ${speed%.*} * 8 / 1000 )) kbit/s"
+[ "$(cat "$T/dl.out")" = 2621440 ] || fail "download incomplete"
+python3 -c "import sys; a = ($r1 + $r2) / 2; sys.exit(0 if 0.8 * 2.62e6 <= a <= 1.3 * 2.62e6 else 1)" ||
+	fail "rate down ($r1, $r2 bit/s) should be about 2.62 Mbit/s"
+echo "   rate down $(((r1 + r2) / 2000)) kbit/s (paced at 2621)"
+cl curl -s -o /dev/null --max-time 30 http://198.20.0.2:8080/file || fail "a plain download"
 sleep 2
 b=$(dev "m.get('bytes_down', 0)")
 [ "$b" -ge 3000000 ] || fail "the kernel's byte count should cover the download ($b)"
