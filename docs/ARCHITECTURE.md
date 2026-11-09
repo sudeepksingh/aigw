@@ -1,6 +1,6 @@
 # AIGW — AI-Native Gateway Architecture
 
-Status: design **v0.3** (2026-11-07) · implementation **v0.14**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
+Status: design **v0.3** (2026-11-07) · implementation **v0.15**, phases P0–P5 built, P6 waiting for real routers, P7 under way (see [roadmap](#16-roadmap)) · Working name: **AIGW** (daemons `agd`, `agdns`)
 Hosts: **OpenWRT router** and **PC as AP** (same packages, same API) · Visual version: [architecture.html](architecture.html)
 
 > **The gateway that understands the home, not just the network.**
@@ -157,7 +157,7 @@ one tap → allow-list enforced → optional daily CVE check.
 │  iot     (MQTT, Matter, Zigbee) ──► policy engine + guardrails ──► notify (app)       │
 │  plug-ins (yours)   ──►  decision log · ubus ag.*                                     │
 │                                                                                        │
-│  KERNEL DATA PLANE: Wi-Fi AP · conntrack · nftables "inet ag" · tc · eBPF (later)     │
+│  KERNEL DATA PLANE: Wi-Fi AP · conntrack · nftables "inet ag" · flowtable · tc · eBPF │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -558,7 +558,7 @@ Every phase ships on both hosts; CI builds Linux x86-64 and the OpenWRT SDK from
 | **P4 Plug & IoT** | Manifest + auto-wiring, skills, QR onboarding, per-device keys, MQTT, Home Assistant | A third-party plug-in installs and activates with no config | v0.7 |
 | **P5 Outside** | Bridge, fleet history, training loop, OTA, LLM agent via MCP, remote access | A retrained model reaches a fleet and hot-loads | v0.8, completed in v0.9 |
 | **P6 Hardware** | LuCI app, procd tuning, OpenWRT One + Wi-Fi 7 boards, footprint validation | Same test suite passes on routers within budget | v0.10: LuCI, procd, self-test, OpenWRT in QEMU; real routers next |
-| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence; v0.13: channel self-healing; v0.14: federated learning |
+| **P7 Advanced** | eBPF fast path, QUIC SNI, prefetch, CSI presence, band steering, federated learning, NPU back-end | Measured latency and detection gains | v0.11: DNS cache with prefetch and stale answers, TLS/QUIC connection names; v0.12: dual-band PC AP, band steering, presence; v0.13: channel self-healing; v0.14: federated learning; v0.15: fast path (flowtable), eBPF traffic meter |
 
 Real-router testing of every phase so far is planned for the end of the project (P6).
 
@@ -742,6 +742,19 @@ On the PC's RTL8821CU (`rtw88`) the driver reports no survey data and no channel
 Verified by `tests/fed-test.sh` (three agd instances with their own bridges, a private cortex): a Polish home's false alarms (bydgoszcz.pl, pszczyna.pl, …, few vowels and long consonant runs) and a home's threats train three rounds; the published layer is loaded in every home without a restart; the false alarms score lower everywhere, also szczebrzeszyn.pl which nobody answered about (0.98 → 0.2–0.8); generated names still alert, also under `www.`; none of the answered names reaches cortex's database, files or log; a layer that drops a home's own threat is refused there without naming it; a budget stops a home after three rounds; malformed, late and repeated changes are refused. `tests/test_cortex.py` checks the averaging and publishing.
 
 Limits, measured: with σ = 1 and three homes the noise outweighs what the homes learned (the test uses σ = 0.1, which gives no meaningful ε); useful learning at σ ≈ 1 needs many homes. A false alarm that looks like a generated name under a subdomain in the 12 features (CloudFront hashes such as d2xqm7kjv0bh4f.cloudfront.net) can't be learned safely: every gateway refuses such a layer, and those belong on an allow list. The trees themselves score generated names lower under a subdomain (www.xkqjzvbwptmr.com 0.56 against 0.99): the layer pushes against that, the next tree retraining should include such names.
+
+**As built in v0.15 (P7, fifth part).** Fast path and eBPF traffic meter:
+
+| Piece | As built |
+|-------|----------|
+| Fast path (`aigw-nft`, `fastpath.c`) | With `fastpath.enabled 1`, table `inet ag` gets flowtable `fast` (devices: `fastpath.ifaces`, default the LAN interfaces and the default-route interface; `offload 1` adds `flags offload` for the switch chip, falling back to software where the hardware can't) and chain `fastpath` (forward, filter + 5, after the action chains): established connections past 8 packets in the original direction (so handshake copies for connection names are taken first), with no connection-mark action and neither end in the quarantine, priority, bulk or throttle sets, are offloaded (`flow add @fast`). Skipped with a note where the kernel has no `nf_flow_table` (the WSL kernel). |
+| Actions | Offloaded packets skip netfilter, so an action that starts on a device must take its connections back: right after the nft change, agd deletes that device's offloaded conntrack entries (status `IPS_OFFLOAD`, either address); their next packets build a new entry that goes through the rules and, the device now being in a set, stays on the slow path. A no-op on the minute's re-assert. After undo, the connections are offloaded again. |
+| Counts | The flowtable keeps the connection's counters (`counter`), so per-device bytes from conntrack stay right. `agctl status`: connections offloaded (by the switch chip), sent back for actions. `aigw-selftest` fails when fw4's own `flow_offloading` is on (it would also offload devices AIGW acts on). |
+| Meter (`meter.c`) | A 46-instruction eBPF program, written out as instructions in agd (no clang, libbpf or BPF toolchain in the build), loaded with `bpf(BPF_PROG_LOAD)` and attached with `BPF_LINK_CREATE` to each LAN interface's tcx ingress (key: source MAC, "up") and egress (destination MAC, "down"). It adds `skb->len` and 1 to an LRU hash map (1024 devices) with atomic adds and returns "next": it never changes a packet. agd reads the map every second: rate per device (`meter` in `ag.device list`, "right now" in `agctl device`). The links are agd's file descriptors, so the meter disappears when agd stops. It sees fast-path traffic (tc runs before the flowtable on ingress and in the transmit path on egress), not what the switch chip forwards. `meter.enabled 0` turns it off; it stays off with a reason where the kernel has no BPF or tcx (Linux < 6.6). |
+
+Verified by `tests/fastpath-test.sh` (CI, network namespaces, on a kernel with `nf_flow_table`): a long download is offloaded and still counted for the device, and the meter sees it; throttling sends it back to the rules and keeps it there; after undo it is offloaded again; quarantine cuts off a connection that was offloaded before; with the fast path off there is no flowtable. `tests/meter-test.sh` (on the PC and in CI): a download's rate down matches curl's own speed, an upload's rate up, the kernel's byte counts cover the transfers, rates fall to zero afterwards; `meter.enabled 0` attaches nothing. Inside OpenWRT 24.10 in QEMU, `aigw-selftest` reports the meter running on x86_64, mipsel (MT7621's CPU) and aarch64.
+
+Not measured yet: the gain on a real router (the test's veth pair runs on one CPU, so its speed figures say nothing about a router) and hardware offload, which needs a router with a switch chip. The fast path stays off by default until then.
 ---
 
 ## 17. Status and risks
