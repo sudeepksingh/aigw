@@ -328,34 +328,16 @@ static struct early *early_take(const struct tuple *t)
 	return NULL;
 }
 
-/* A flow we first meet (event or dump): set it up and join it with DNS. */
-static struct aflow *flow_begin(const struct tuple *t, int seen_start)
+/* A connection we saw start: count it, judge "no DNS", tell the alerts. */
+static void flow_started(struct aflow *f, const struct tuple *t)
 {
-	struct aflow *f = act_find(t->id, 1);
 	struct early *e;
 	struct device *d;
-	const char *dom;
 	int judge;
 
-	if (!f)
-		return NULL;
-	snprintf(f->client, sizeof(f->client), "%s", t->src);
-	snprintf(f->dst, sizeof(f->dst), "%s", t->dst);
-	f->proto = t->proto;
-	f->sport = t->sport;
-	f->dport = t->dport;
-	f->start = seen_start ? ag_wall_s() : 0;
-	dom = ep_lookup(t->dst);
-	if (dom) {
-		snprintf(f->domain, sizeof(f->domain), "%s", dom);
-		f->named_by = BY_DNS;
-	} else if ((dom = ep_lookup_near(t->dst))) {
-		/* same /24 as a name the home looked up: an app's own server list */
-		snprintf(f->domain, sizeof(f->domain), "%.100s (nearby)", dom);
-		f->named_by = BY_NEARBY;
-	}
+	f->start = ag_wall_s();
 	/* only judge connections we saw start, once the endpoint table is warm */
-	judge = seen_start && !dom && !is_private(t->dst) && ag_wall_s() - started >= cfg.flow_warmup;
+	judge = f->named_by == BY_NONE && !is_private(t->dst) && ag_wall_s() - started >= cfg.flow_warmup;
 	/* HTTPS: its handshake may name it in a moment */
 	if (judge && sni_active() && t->dport == 443 && (t->proto == IPPROTO_TCP || t->proto == IPPROTO_UDP)) {
 		judge = 0;
@@ -366,19 +348,46 @@ static struct aflow *flow_begin(const struct tuple *t, int seen_start)
 	f->no_dns = judge;
 
 	d = dev_find_ip(t->src, 1);
-	d->last_seen = ag_wall_s();
-	if (seen_start) {
-		d->flows++;
-		flows_total++;
-		if (f->no_dns) {
-			d->flows_no_dns++;
-			flows_no_dns_total++;
-		}
-		emit("new", f, 0, 0);
-		alerts_on_flow(f->client, f->dst, f->domain, proto_name(f->proto), f->dport, f->no_dns);
-		if ((e = early_take(t)))
-			apply_name(f, &e->s);
+	d->flows++;
+	flows_total++;
+	if (f->no_dns) {
+		d->flows_no_dns++;
+		flows_no_dns_total++;
 	}
+	emit("new", f, 0, 0);
+	alerts_on_flow(f->client, f->dst, f->domain, proto_name(f->proto), f->dport, f->no_dns);
+	if ((e = early_take(t)))
+		apply_name(f, &e->s);
+}
+
+/* A flow we first meet (event or dump): set it up and join it with DNS. */
+static struct aflow *flow_begin(const struct tuple *t, int seen_start)
+{
+	struct aflow *f = act_find(t->id, 1);
+	struct device *d;
+	const char *dom;
+
+	if (!f)
+		return NULL;
+	snprintf(f->client, sizeof(f->client), "%s", t->src);
+	snprintf(f->dst, sizeof(f->dst), "%s", t->dst);
+	f->proto = t->proto;
+	f->sport = t->sport;
+	f->dport = t->dport;
+	f->start = 0;
+	dom = ep_lookup(t->dst);
+	if (dom) {
+		snprintf(f->domain, sizeof(f->domain), "%s", dom);
+		f->named_by = BY_DNS;
+	} else if ((dom = ep_lookup_near(t->dst))) {
+		/* same /24 as a name the home looked up: an app's own server list */
+		snprintf(f->domain, sizeof(f->domain), "%.100s (nearby)", dom);
+		f->named_by = BY_NEARBY;
+	}
+	d = dev_find_ip(t->src, 1);
+	d->last_seen = ag_wall_s();
+	if (seen_start)
+		flow_started(f, t);
 	return f;
 }
 
@@ -420,8 +429,13 @@ static int event_cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, vo
 		return NFCT_CB_CONTINUE;
 
 	if (type == NFCT_T_NEW) {
-		if (!act_find(t.id, 0))
+		f = act_find(t.id, 0);
+		if (!f)
 			flow_begin(&t, 1);
+		else if (!f->start)
+			/* the counter refresh met it first (its dump ran before this
+			 * event was read): it did start now, so judge it as new */
+			flow_started(f, &t);
 	} else if (type == NFCT_T_DESTROY) {
 		f = act_find(t.id, 0);
 		if (!f)
