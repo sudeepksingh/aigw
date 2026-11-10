@@ -144,13 +144,15 @@ def main():
              "network", 120)
         say("fetching packages from the host")
         names = sorted(f for f in os.listdir(pkgdir) if f.endswith((".ipk", ".apk")))
+        vm.run("mkdir -p /tmp/p")
         for f in names:
-            must(f"wget -q -O /tmp/{f} http://10.0.2.2:{port}/{f}", f"download {f}", 120)
+            must(f"wget -q -O /tmp/p/{f} http://10.0.2.2:{port}/{f}", f"download {f}", 120)
         apk = names and names[0].endswith(".apk")
         say("installing with dependencies from the OpenWRT feeds: " + " ".join(names))
         # QEMU's user network now and then drops a download: retry
         retry = "(n=0; until {}; do n=$((n+1)); [ $n -ge 3 ] && exit 1; sleep 5; done)"
-        pkgs = " ".join(f"/tmp/{f}" for f in names)
+        # a wildcard, not the names: the serial console cuts long command lines
+        pkgs = "/tmp/p/*.apk" if apk else "/tmp/p/*.ipk"
         luci = "luci-base luci-mod-admin-full luci-theme-bootstrap uhttpd rpcd-mod-luci"
         if apk:
             must(retry.format("apk update"), "apk update", 600)
