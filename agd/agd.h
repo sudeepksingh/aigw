@@ -330,6 +330,22 @@ int baseline_steady(const struct device *d);
 /* the device has a week of history and was never active in this hour of day */
 int baseline_quiet_hour(const struct device *d);
 
+/* dm.c: the data model for USP (TR-369) and TR-069 adapters: ubus object ag.dm */
+void dm_init(void);
+struct ubus_object;
+struct ubus_object *dm_ubus_object(void);
+void dm_on_alert(uint32_t id);
+void dm_on_decision(uint32_t id, const char *state);
+void dm_save(struct blob_buf *b);
+void dm_load(struct blob_attr *tbl);
+
+/* alerts.c / act.c, for dm.c: ids in ascending order; one field as text (-1 when gone) */
+int alerts_ids(uint32_t *out, int max);
+int alerts_field(uint32_t id, const char *f, char *buf, size_t n);
+int act_ids(uint32_t *out, int max);
+int act_field(uint32_t id, const char *f, char *buf, size_t n);
+void act_answered_by(const char *who);
+
 /* burst.c: many never-used names that don't exist, from one device */
 enum { BURST_IGNORE, BURST_NX, BURST_OK };
 void burst_dns(struct device *d, const char *qname, int outcome, int flagged);

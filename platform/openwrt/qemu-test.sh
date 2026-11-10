@@ -89,6 +89,10 @@ mkdir -p "$W/pkgs"
 for f in "$PKGS"/*aigw*[_-]"$V"-r*; do
 	[ -f "$f" ] && cp "$f" "$W/pkgs/"
 done
+# aigw-usp needs the agent it plugs into (its own version); its libraries come from OpenWRT's feed
+for f in "$PKGS"/obuspa[_-]*; do
+	[ -f "$f" ] && cp "$f" "$W/pkgs/"
+done
 ls "$W/pkgs" | grep -q . || die "no packages of version $V in $PKGS (build-sdk.sh with that target)"
 (cd "$W/pkgs" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
 HTTP=$!

@@ -86,6 +86,12 @@ static void usage(void)
 		"  remote add <name> [--conf]  a WireGuard QR code for a phone (--conf: the config as text)\n"
 		"  remote revoke <name>        take a peer's access away\n"
 		"\n"
+		"  dm get <path>...    the data model (TR-181) as USP and TR-069 see it; a path\n"
+		"                      ending in '.' means everything under it (dm get Device.)\n"
+		"  dm set <path> <value>...      change values (all or nothing)\n"
+		"  dm do <command()> [Arg=value]...  run a command, e.g. dm do Device.X_AIGW_.Decision.3.Approve()\n"
+		"  dm schema           every parameter, command and event\n"
+		"\n"
 		"  keys                Wi-Fi keys of individual devices\n"
 		"  key add <name> [zone] [time]  new key and a QR code to scan; the first device to\n"
 		"                                join with it owns it (zone e.g. iot; time: how long it waits)\n"
@@ -858,6 +864,81 @@ static void show_ok(struct ubus_request *req, int type, struct blob_attr *msg)
 		printf("done\n");
 	if (!fnum(msg, "ok"))
 		change_failed = 1;
+}
+
+/* ---------- the data model ---------- */
+
+static void dm_errors(struct blob_attr *errs)
+{
+	struct blob_attr *e;
+	size_t rem;
+
+	if (!errs)
+		return;
+	blobmsg_for_each_attr(e, errs, rem) {
+		fprintf(stderr, "agctl: %s: %s (%s)\n", blobmsg_name(e), fstr(e, "message"), fstr(e, "code"));
+		change_failed = 1;
+	}
+}
+
+static void show_dm_get(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *vals = field(msg, "values"), *e;
+	size_t rem;
+
+	if (json_out)
+		print_json(msg);
+	else if (vals)
+		blobmsg_for_each_attr(e, vals, rem)
+			printf("%s = %s\n", blobmsg_name(e),
+			       blobmsg_type(e) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(e) : "");
+	dm_errors(field(msg, "errors"));
+}
+
+static void show_dm_result(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *out = field(msg, "out"), *e;
+	size_t rem;
+
+	if (json_out) {
+		print_json(msg);
+	} else if (fnum(msg, "ok")) {
+		printf("done\n");
+		if (out)
+			blobmsg_for_each_attr(e, out, rem)
+				printf("  %s = %s\n", blobmsg_name(e),
+				       blobmsg_type(e) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(e) : "");
+	} else if (fstr(msg, "message")[0]) {
+		fprintf(stderr, "agctl: refused: %s (%s)\n", fstr(msg, "message"), fstr(msg, "code"));
+	}
+	if (!fnum(msg, "ok"))
+		change_failed = 1;
+	dm_errors(field(msg, "errors"));
+}
+
+static void show_dm_schema(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *e, *a;
+	size_t rem, r2;
+
+	if (json_out)
+		return print_json(msg);
+	printf("Data model %s\n", fstr(msg, "version"));
+	if (field(msg, "params"))
+		blobmsg_for_each_attr(e, field(msg, "params"), rem)
+			printf("  %-52s %-13s %s%s\n", fstr(e, "path"), fstr(e, "type"),
+			       fnum(e, "writable") ? "writable" : "read-only", fnum(e, "notify") ? ", notify" : "");
+	if (field(msg, "commands"))
+		blobmsg_for_each_attr(e, field(msg, "commands"), rem) {
+			printf("  %-52s command", fstr(e, "path"));
+			if (field(e, "in"))
+				blobmsg_for_each_attr(a, field(e, "in"), r2)
+					printf(" %s", blobmsg_get_string(a));
+			printf("\n");
+		}
+	if (field(msg, "events"))
+		blobmsg_for_each_attr(e, field(msg, "events"), rem)
+			printf("  %-52s event\n", fstr(e, "path"));
 }
 
 static void show_models(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -1740,6 +1821,45 @@ int main(int argc, char **argv)
 			rc = call("ag.fed", "label", args.head, show_ok) || change_failed;
 			blob_buf_free(&args);
 		}
+	} else if (!strcmp(cmd, "dm") && i < argc) {
+		const char *sub = argv[i++];
+		void *t;
+
+		blob_buf_init(&args, 0);
+		if (!strcmp(sub, "get") && i < argc) {
+			t = blobmsg_open_array(&args, "paths");
+			for (; i < argc; i++)
+				blobmsg_add_string(&args, NULL, argv[i]);
+			blobmsg_close_array(&args, t);
+			rc = call("ag.dm", "get", args.head, show_dm_get) || change_failed;
+		} else if (!strcmp(sub, "set") && i + 1 < argc && (argc - i) % 2 == 0) {
+			t = blobmsg_open_table(&args, "params");
+			for (; i + 1 < argc; i += 2)
+				blobmsg_add_string(&args, argv[i], argv[i + 1]);
+			blobmsg_close_table(&args, t);
+			rc = call("ag.dm", "set", args.head, show_dm_result) || change_failed;
+		} else if (!strcmp(sub, "do") && i < argc) {
+			blobmsg_add_string(&args, "command", argv[i++]);
+			t = blobmsg_open_table(&args, "args");
+			for (; i < argc; i++) {
+				char *eq = strchr(argv[i], '=');
+
+				if (!eq) {
+					fprintf(stderr, "agctl: command arguments are Name=value\n");
+					return 1;
+				}
+				*eq = '\0';
+				blobmsg_add_string(&args, argv[i], eq + 1);
+			}
+			blobmsg_close_table(&args, t);
+			rc = call("ag.dm", "operate", args.head, show_dm_result) || change_failed;
+		} else if (!strcmp(sub, "schema") && i == argc) {
+			rc = call("ag.dm", "schema", NULL, show_dm_schema);
+		} else {
+			usage();
+			rc = 1;
+		}
+		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "keys")) {
 		rc = call("ag.wifi", "keys", NULL, show_keys);
 	} else if (!strcmp(cmd, "key") && i + 1 < argc) {

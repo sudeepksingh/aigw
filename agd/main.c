@@ -946,7 +946,7 @@ static void on_ubus_connect(struct ubus_context *ctx)
 	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj) ||
 	    ubus_add_object(ctx, &decision_obj) || ubus_add_object(ctx, &plugin_obj) ||
 	    ubus_add_object(ctx, &wifi_obj) || ubus_add_object(ctx, &model_obj) || ubus_add_object(ctx, &remote_obj) ||
-	    ubus_add_object(ctx, &fed_obj))
+	    ubus_add_object(ctx, &fed_obj) || ubus_add_object(ctx, dm_ubus_object()))
 		AG_ERR("failed to publish ubus objects");
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;
@@ -1001,6 +1001,7 @@ int main(int argc, char **argv)
 	local_addrs_refresh();
 	alerts_init();
 	models_init();
+	dm_init();                      /* before the state: it holds the data model's instance numbers */
 	dev_state_load();
 	act_init();
 	remote_init();                  /* before the flow sensor: tunnel clients are part of the home */

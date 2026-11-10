@@ -1,0 +1,110 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# aigw-usp-run: OB-USP-Agent (obuspa) with AIGW OS's data model plug-in,
+# configured from the 'usp' section of /etc/config/aigw.
+#
+# The agent keeps its own database (controllers' subscriptions, its MTP
+# settings). It is rebuilt from the config when the config changes, so
+# /etc/config/aigw stays the one place to set things.
+#
+#   aigw-usp-run            run in the foreground (procd / systemd)
+#   aigw-usp-run --print    print the agent settings it would use
+set -eu
+
+UCI="uci -q"
+[ -n "${AIGW_UCI_CONFDIR:-}" ] && UCI="uci -q -c $AIGW_UCI_CONFDIR"
+get() { v=$($UCI get "aigw.$1" 2>/dev/null || true); [ -n "$v" ] && echo "$v" || echo "$2"; }
+
+DIR=${AIGW_USP_DIR:-/etc/aigw/usp}
+OBUSPA=${AIGW_OBUSPA:-$(command -v obuspa || echo /usr/sbin/obuspa)}
+PLUGIN=${AIGW_USP_PLUGIN:-}
+for p in "$PLUGIN" /usr/lib/aigw/usp/aigw-usp.so /usr/local/lib/aigw/usp/aigw-usp.so; do
+	[ -n "$p" ] && [ -f "$p" ] && { PLUGIN=$p; break; }
+done
+
+id=$(cat /etc/machine-id 2>/dev/null | cut -c1-12)
+[ -n "$id" ] || id=$(cat /proc/sys/kernel/random/boot_id | tr -d '-' | cut -c1-12)
+AGENT=$(get usp.agent_id "proto::aigw-$id")
+CONTROLLER=$(get usp.controller_id "self::usp-controller")
+BROKER=$(get usp.broker "")
+PORT=$(get usp.port 8883)
+TLS=$(get usp.tls 1)
+USER=$(get usp.username "")
+PASS=$(get usp.password "")
+ATOPIC=$(get usp.agent_topic "/usp/agent/$AGENT")
+CTOPIC=$(get usp.controller_topic "/usp/controller")
+CA=$(get usp.ca_file /etc/ssl/certs/ca-certificates.crt)
+LEVEL=$(get usp.log_level 1)
+
+if [ "$(get mgmt.enabled 0)" != 1 ] && [ "${1:-}" != --print ]; then
+	echo "aigw-usp: management by an ISP is off (uci set aigw.mgmt.enabled=1 to turn it on)"
+	exit 0
+fi
+if [ -z "$BROKER" ]; then
+	echo "aigw-usp: no MQTT broker set (uci set aigw.usp.broker=<host>)" >&2
+	exit 1
+fi
+[ "$TLS" = 1 ] && TRANSPORT=TLS || TRANSPORT=TCP/IP
+
+settings() {
+	q() { printf '%s "%s"\n' "$1" "$(printf '%s' "$2" | sed 's/"/\\"/g')"; }
+	q Device.DeviceInfo.Manufacturer "AIGW OS project"
+	q Device.DeviceInfo.ModelName "AIGW OS"
+	q Device.DeviceInfo.ProductClass "AIGW OS gateway"
+	q Device.MQTT.Client.1.Alias "aigw"
+	echo "Device.MQTT.Client.1.Enable true"
+	q Device.MQTT.Client.1.BrokerAddress "$BROKER"
+	q Device.MQTT.Client.1.BrokerPort "$PORT"
+	q Device.MQTT.Client.1.TransportProtocol "$TRANSPORT"
+	q Device.MQTT.Client.1.ProtocolVersion "5.0"
+	q Device.MQTT.Client.1.Username "$USER"
+	q Device.MQTT.Client.1.Password "$PASS"
+	q Device.MQTT.Client.1.ClientID ""
+	q Device.MQTT.Client.1.KeepAliveTime 60
+	q Device.MQTT.Client.1.ConnectRetryTime 5
+	q Device.MQTT.Client.1.ConnectRetryIntervalMultiplier 2000
+	q Device.MQTT.Client.1.ConnectRetryMaxInterval 600
+	q Device.LocalAgent.MTP.1.Alias "aigw"
+	echo "Device.LocalAgent.MTP.1.Enable true"
+	q Device.LocalAgent.MTP.1.Protocol MQTT
+	q Device.LocalAgent.MTP.1.MQTT.Reference Device.MQTT.Client.1
+	q Device.LocalAgent.MTP.1.MQTT.ResponseTopicConfigured "$ATOPIC"
+	q Device.LocalAgent.Controller.1.Alias "isp"
+	echo "Device.LocalAgent.Controller.1.Enable true"
+	q Device.LocalAgent.Controller.1.EndpointID "$CONTROLLER"
+	# full access in the agent: what a controller may really do is decided by agd (mgmt.*)
+	q Device.LocalAgent.Controller.1.AssignedRole Device.LocalAgent.ControllerTrust.Role.1
+	q Device.LocalAgent.Controller.1.PeriodicNotifInterval 86400
+	q Device.LocalAgent.Controller.1.PeriodicNotifTime "0001-01-01T00:00:00Z"
+	q Device.LocalAgent.Controller.1.USPNotifRetryMinimumWaitInterval 5
+	q Device.LocalAgent.Controller.1.USPNotifRetryIntervalMultiplier 2000
+	q Device.LocalAgent.Controller.1.MTP.1.Alias "isp"
+	echo "Device.LocalAgent.Controller.1.MTP.1.Enable true"
+	q Device.LocalAgent.Controller.1.MTP.1.Protocol MQTT
+	q Device.LocalAgent.Controller.1.MTP.1.MQTT.Reference Device.MQTT.Client.1
+	q Device.LocalAgent.Controller.1.MTP.1.MQTT.Topic "$CTOPIC"
+	q Internal.Reboot.Cause LocalFactoryReset
+}
+
+if [ "${1:-}" = --print ]; then
+	settings | sed 's/\(Password "\).*"/\1***"/'
+	exit 0
+fi
+[ -x "$OBUSPA" ] || { echo "aigw-usp: obuspa not found ($OBUSPA)" >&2; exit 1; }
+[ -n "$PLUGIN" ] || { echo "aigw-usp: aigw-usp.so not found" >&2; exit 1; }
+
+umask 077
+mkdir -p "$DIR"
+settings > "$DIR/settings.new"
+if ! cmp -s "$DIR/settings.new" "$DIR/settings.txt" 2>/dev/null; then
+	mv "$DIR/settings.new" "$DIR/settings.txt"
+	rm -f "$DIR/usp.db"          # new settings: the agent rebuilds its database from them
+else
+	rm -f "$DIR/settings.new"
+fi
+
+set -- -v "$LEVEL" -r "$DIR/settings.txt" -f "$DIR/usp.db" -s "$DIR/cli.sock" -x "$PLUGIN"
+[ "$TLS" = 1 ] && [ -e "$CA" ] && set -- "$@" -t "$CA"
+[ -n "${AIGW_USP_TRACE:-}" ] && set -- "$@" -p
+export USP_BOARD_SERIAL="$id" USP_ENDPOINT_ID="$AGENT"
+exec "$OBUSPA" "$@"

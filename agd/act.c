@@ -208,6 +208,62 @@ static void set_state(struct decision *d, int state)
 	AG_INFO("decision %u %s %s%s%s: %s%s%s", d->id, d->action, d->target, d->scope[0] ? " for " : "",
 		d->scope, state_names[state], d->note[0] ? " -- " : "", d->note);
 	dec_event(d);
+	dm_on_decision(d->id, state_names[state]);
+}
+
+/* who answers the next approve / reject / undo: "you", or a management system (dm.c) */
+static char answerer[48] = "you";
+
+void act_answered_by(const char *who)
+{
+	snprintf(answerer, sizeof(answerer), "%s", who && *who ? who : "you");
+}
+
+/* ---------- for the data model (dm.c) ---------- */
+
+static int cmp_id(const void *a, const void *b)
+{
+	uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
+
+	return x < y ? -1 : x > y;
+}
+
+int act_ids(uint32_t *out, int max)
+{
+	int i, n = 0;
+
+	for (i = 0; i < DEC_MAX && n < max; i++)
+		if (decs[i].used)
+			out[n++] = decs[i].id;
+	qsort(out, (size_t)n, sizeof(*out), cmp_id);
+	return n;
+}
+
+/* one field of a decision, as text; -1 when it is gone */
+int act_field(uint32_t id, const char *f, char *buf, size_t n)
+{
+	const struct decision *d = NULL;
+	int i;
+
+	for (i = 0; id && i < DEC_MAX; i++)
+		if (decs[i].used && decs[i].id == id)
+			d = &decs[i];
+	if (!d)
+		return -1;
+	if (!strcmp(f, "action")) snprintf(buf, n, "%s", d->action);
+	else if (!strcmp(f, "target")) snprintf(buf, n, "%s", d->target);
+	else if (!strcmp(f, "scope")) snprintf(buf, n, "%s", d->scope);
+	else if (!strcmp(f, "state")) snprintf(buf, n, "%s", state_names[d->state]);
+	else if (!strcmp(f, "origin")) snprintf(buf, n, "%s", d->origin);
+	else if (!strcmp(f, "reason")) snprintf(buf, n, "%s", d->reason);
+	else if (!strcmp(f, "note")) snprintf(buf, n, "%s", d->note);
+	else if (!strcmp(f, "device")) snprintf(buf, n, "%s", d->device);
+	else if (!strcmp(f, "alert")) snprintf(buf, n, "%u", d->alert_id);
+	else if (!strcmp(f, "automatic")) snprintf(buf, n, "%d", d->automatic);
+	else if (!strcmp(f, "created")) snprintf(buf, n, "%lld", (long long)d->created);
+	else if (!strcmp(f, "expires")) snprintf(buf, n, "%lld", (long long)(d->state == D_ACTIVE ? d->expires : 0));
+	else return -1;
+	return 0;
 }
 
 /* ---------- actuators ---------- */
@@ -757,7 +813,7 @@ int act_approve(uint32_t id, int ttl, char *err, size_t errlen)
 		return -1;
 	}
 	d->ttl = ttl;
-	snprintf(d->origin + strlen(d->origin), sizeof(d->origin) - strlen(d->origin), ", approved by you");
+	snprintf(d->origin + strlen(d->origin), sizeof(d->origin) - strlen(d->origin), ", approved by %s", answerer);
 	snprintf(d->note, sizeof(d->note), "%s", note);
 	if (apply(d, 0, err, errlen) < 0)
 		return -1;
@@ -773,7 +829,7 @@ int act_reject(uint32_t id, char *err, size_t errlen)
 		snprintf(err, errlen, "decision %u is not waiting for approval", id);
 		return -1;
 	}
-	snprintf(d->note, sizeof(d->note), "rejected by you");
+	snprintf(d->note, sizeof(d->note), "rejected by %s", answerer);
 	set_state(d, D_REJECTED);
 	fed_on_answer(d->alert_id, 0);          /* a false alarm */
 	return 0;
@@ -789,7 +845,7 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 	}
 	d->state = D_REVERTED;          /* first, so rebuilt lists no longer have it */
 	unactuate(d);
-	snprintf(d->note, sizeof(d->note), "undone by you");
+	snprintf(d->note, sizeof(d->note), "undone by %s", answerer);
 	set_state(d, D_REVERTED);
 	if (d->automatic)
 		fed_on_answer(d->alert_id, 0);  /* taken on its own, and you undid it: a false alarm */

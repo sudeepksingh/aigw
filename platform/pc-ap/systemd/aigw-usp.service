@@ -1,0 +1,11 @@
+[Unit]
+Description=AIGW OS management by USP / TR-369 (OB-USP-Agent with the AIGW OS data model)
+Wants=aigw-agd.service
+After=aigw-agd.service network-online.target
+ConditionPathExists=@SBINDIR@/obuspa
+
+[Service]
+# reads /etc/config/aigw (sections mgmt and usp); exits when mgmt.enabled is 0
+ExecStart=@SBINDIR@/aigw-usp-run
+Restart=on-failure
+RestartSec=10

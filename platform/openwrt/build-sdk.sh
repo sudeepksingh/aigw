@@ -55,9 +55,13 @@ if [ ! -d "$SDK_DIR" ]; then
 fi
 
 cd "$SDK_DIR"
-# only the base feed (libubox, ubus, uci, json-c) plus this repository
+# the base feed (libubox, ubus, uci, json-c, openssl, zlib) plus this repository;
+# with USP=1 (default) also the packages feed, for obuspa's libmosquitto and sqlite3
 # 24.10: "src-git base URL"   25.12+: "src-git --root=package base URL"
-grep -E '^src-[a-z-]+ (--[^ ]+ )*base ' feeds.conf.default > feeds.conf || {
+USP=${USP:-1}
+FEEDS="base"
+[ "$USP" = 1 ] && FEEDS="base|packages"
+grep -E "^src-[a-z-]+ (--[^ ]+ )*($FEEDS) " feeds.conf.default > feeds.conf || {
 	cat feeds.conf.default >&2
 	die "no 'base' feed in the SDK's feeds.conf.default"
 }
@@ -65,31 +69,41 @@ echo "src-link aigw $REPO/platform/openwrt" >> feeds.conf
 
 echo "==> feeds"
 LOG="$CACHE/feeds-$VERSION.log"
-# the base feed is pinned to the release, so fetch it once; refresh only aigw after that
-if [ -d feeds/base ]; then UPDATE="aigw"; else UPDATE="-a"; fi
+# the release feeds are pinned, so fetch them once; refresh only aigw after that
+UPDATE="aigw"
+[ "$USP" = 1 ] && [ ! -d feeds/packages ] && UPDATE="packages aigw"
+[ -d feeds/base ] || UPDATE="-a"
 # install the package's library dependencies by name too: "feeds install"
 # doesn't revisit dependencies added to an already-installed package
 # (kernel modules come with the SDK and are not feed packages)
 DEPS=$(sed -n 's/^[[:space:]]*DEPENDS:=//p' "$REPO/platform/openwrt/aigw/Makefile" |
 	tr ' ' '\n' | sed -n 's/^+//p' | grep -v '^kmod-' | tr '\n' ' ')
-if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install $DEPS aigw; } > "$LOG" 2>&1; then
+PKGS="aigw"
+[ "$USP" = 1 ] && PKGS="aigw openssl zlib mosquitto sqlite3 obuspa aigw-usp"
+if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install $DEPS $PKGS; } > "$LOG" 2>&1; then
 	tail -40 "$LOG" >&2
 	die "feeds setup failed (full log: $LOG)"
 fi
 
 echo "==> building"
 make defconfig > /dev/null 2>&1
-# the SDK copies sources once per version: start clean so every change is built
-make package/aigw/clean > /dev/null 2>&1 || true
-if ! make package/aigw/compile -j"$(nproc)" > "$CACHE/build-$VERSION.log" 2>&1; then
-	make package/aigw/compile V=s -j1 2>&1 | tail -60
-	die "build failed (full log: $CACHE/build-$VERSION.log)"
-fi
+BUILD="aigw"
+[ "$USP" = 1 ] && BUILD="aigw obuspa aigw-usp"
+for p in $BUILD; do
+	# the SDK copies sources once per version: start clean so every change is built
+	# (obuspa is pinned: its build is kept)
+	[ "$p" = obuspa ] || make "package/$p/clean" > /dev/null 2>&1 || true
+	echo "    $p"
+	if ! make "package/$p/compile" -j"$(nproc)" > "$CACHE/build-$VERSION-$p.log" 2>&1; then
+		make "package/$p/compile" V=s -j1 2>&1 | tail -60
+		die "$p build failed (full log: $CACHE/build-$VERSION-$p.log)"
+	fi
+done
 
 ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"/\1/p' .config)
 OUT="$REPO/dist/openwrt/$VERSION/$ARCH"
 mkdir -p "$OUT"
 find bin/packages -type f \( -name 'aigw*.ipk' -o -name 'aigw*.apk' -o -name 'luci-app-aigw*.ipk' \
-	-o -name 'luci-app-aigw*.apk' \) -exec cp {} "$OUT/" \;
+	-o -name 'luci-app-aigw*.apk' -o -name 'obuspa*.ipk' -o -name 'obuspa*.apk' \) -exec cp {} "$OUT/" \;
 echo "==> done:"
 ls -l "$OUT"

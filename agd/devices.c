@@ -555,6 +555,7 @@ int dev_state_save(void)
 	act_save(&b);
 	fed_save(&b);
 	burst_save(&b);
+	dm_save(&b);
 
 	json = blobmsg_format_json(b.head, true);
 	snprintf(tmp, sizeof(tmp), "%s.tmp", cfg.state_file);
@@ -649,6 +650,8 @@ int dev_state_load(void)
 			fed_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "home_sites"))
 			burst_load(cur);
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "dm_instances"))
+			dm_load(cur);
 		if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
 			continue;
 		if (!strcmp(blobmsg_name(cur), "devices"))

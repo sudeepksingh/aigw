@@ -156,6 +156,9 @@ void ag_config_load(struct ag_config *c)
 	c->dga_threshold = 0.98;
 	c->dga_min_label = 8;
 	c->burst_enabled = 1;
+	c->mgmt_enabled = 0;
+	c->mgmt_actions = 0;
+	c->mgmt_alert_details = 0;
 	c->burst_window = 600;
 	c->burst_min = 8;
 	c->burst_share = 0.75;
@@ -291,6 +294,15 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "alerts", "dga_min_label");
 		if (v && atoi(v) >= 1)
 			c->dga_min_label = atoi(v);
+		v = opt(ctx, p, "mgmt", "enabled");
+		if (v)
+			c->mgmt_enabled = atoi(v) != 0;
+		v = opt(ctx, p, "mgmt", "actions");
+		if (v)
+			c->mgmt_actions = atoi(v) != 0;
+		v = opt(ctx, p, "mgmt", "alert_details");
+		if (v)
+			c->mgmt_alert_details = atoi(v) != 0;
 		v = opt(ctx, p, "alerts", "burst");
 		if (v)
 			c->burst_enabled = atoi(v) != 0;
@@ -425,6 +437,30 @@ defaults:
 		/* a quieter channel for a day; then back, and judged again */
 		add_policy(c, "wifi_busy", "wifi-busy", "channel", NULL, 86400, 0, AG_MODE_ENFORCE);
 	}
+}
+
+int ag_config_set(const char *section, const char *option, const char *value)
+{
+	const char *confdir = getenv("AIGW_UCI_CONFDIR");
+	struct uci_context *ctx = uci_alloc_context();
+	struct uci_ptr ptr = { 0 };
+	char spec[256];
+	int rc = -1;
+
+	if (!ctx)
+		return -1;
+	if (confdir)
+		uci_set_confdir(ctx, confdir);
+	if (strpbrk(section, ".=") || strpbrk(option, ".=") || strchr(value, '\n'))
+		goto out;
+	snprintf(spec, sizeof(spec), "aigw.%s.%s=%s", section, option, value);
+	if (uci_lookup_ptr(ctx, &ptr, spec, true) != UCI_OK || !ptr.s)
+		goto out;               /* the section must exist */
+	if (uci_set(ctx, &ptr) == UCI_OK && uci_save(ctx, ptr.p) == UCI_OK && uci_commit(ctx, &ptr.p, false) == UCI_OK)
+		rc = 0;
+out:
+	uci_free_context(ctx);
+	return rc;
 }
 
 const char *ag_ubus_path(void)

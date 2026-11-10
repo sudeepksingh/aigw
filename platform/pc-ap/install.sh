@@ -27,8 +27,18 @@ apt-get install -y -qq --no-install-recommends \
 step "Building OpenWRT libraries (libubox, ubus, uci)"
 PREFIX=$PREFIX sh "$REPO/scripts/build-deps.sh"
 
+USP_OPT=""
+if [ "${AIGW_USP:-0}" = 1 ]; then
+	step "Building OB-USP-Agent (management by USP / TR-369)"
+	apt-get install -y -qq --no-install-recommends autoconf automake libtool libssl-dev libsqlite3-dev \
+		zlib1g-dev libmosquitto-dev >/dev/null
+	OBUSPA_SRC=$(sh "$REPO/scripts/build-obuspa.sh" "${OBUSPA_DIR:-/usr/local/src/obuspa}" | tail -1)
+	install -m 0755 "$OBUSPA_SRC/obuspa" "$PREFIX/sbin/obuspa"
+	USP_OPT="-DAIGW_OBUSPA_SRC=$OBUSPA_SRC"
+fi
+
 step "Building AIGW"
-cmake -S "$REPO" -B "$BUILD" -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release >/dev/null
+cmake -S "$REPO" -B "$BUILD" -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release $USP_OPT >/dev/null
 cmake --build "$BUILD" -j "$(nproc)" >/dev/null
 (cd "$BUILD" && ctest --output-on-failure) >/dev/null || die "unit tests failed (run: cd $BUILD && ctest --output-on-failure)"
 cmake --install "$BUILD" >/dev/null
@@ -70,7 +80,7 @@ if [ -d /run/systemd/system ]; then
 	done
 	systemctl daemon-reload
 	# pick up new binaries and permission files if AIGW is already running
-	for s in aigw-ubusd aigw-agd aigw-agdns; do
+	for s in aigw-ubusd aigw-agd aigw-agdns aigw-usp; do
 		systemctl try-restart "$s" 2>/dev/null || true
 	done
 else
