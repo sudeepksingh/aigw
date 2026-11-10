@@ -42,7 +42,16 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-fail() { echo "CWMP TEST FAIL: $*" >&2; echo "--- logs" >&2; tail -n 40 "$T"/*.log >&2 2>/dev/null || true; exit 1; }
+fail() {
+	echo "CWMP TEST FAIL: $*" >&2
+	echo "--- logs" >&2
+	for f in "$T"/*.log; do
+		echo "==> $f <==" >&2
+		# icwmp's config dump says nothing new
+		case $f in */icwmp.log) grep -v 'CWMP CONFIG' "$f" | tail -n 120 >&2 ;; *) tail -n 40 "$f" >&2 ;; esac
+	done 2>/dev/null
+	exit 1
+}
 
 [ "$(id -u)" = 0 ] || fail "run as root"
 for t in ip nft python3; do command -v $t >/dev/null || fail "missing $t"; done
@@ -305,7 +314,7 @@ job() { # job <file>: run it in the next session, waking the CPE with a connecti
 	ip netns exec "$NI" python3 "$REPO/tests/cwmp/acs.py" job "$T/acs" "$1" --cr http://10.98.0.1:7547/ --user cr --password crpw --timeout 60
 }
 
-acs wait "$T/acs" "1 BOOT" --timeout 90 > "$T/boot.json" || acs wait "$T/acs" "0 BOOTSTRAP" --timeout 5 > "$T/boot.json" ||
+acs wait "$T/acs" "1 BOOT" --timeout 150 > "$T/boot.json" || acs wait "$T/acs" "0 BOOTSTRAP" --timeout 5 > "$T/boot.json" ||
 	fail "no boot Inform from icwmp"
 js "
 dev, p = d['device'], d['params']

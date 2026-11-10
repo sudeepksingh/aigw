@@ -40,6 +40,7 @@ if [ ! -x build/icwmpd ]; then
 	# src/CMakeLists.txt has no cmake_minimum_required: without CMP0005 the quotes
 	# of the BBF_VENDOR_PREFIX string are lost
 	cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_DEFAULT_CMP0005=NEW -DBBF_VENDOR_PREFIX=X_AIGW_ \
+		-DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
 		-DCMAKE_C_FLAGS="$NOERR -I/usr/local/include" -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/lib" > build.log 2>&1 &&
 	cmake --build build -j"$(nproc)" >> build.log 2>&1 || { tail -30 build.log >&2; die "build failed ($DIR/build.log)"; }
 fi

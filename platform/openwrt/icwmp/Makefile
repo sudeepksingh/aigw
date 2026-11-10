@@ -38,8 +38,9 @@ define Package/icwmp/description
 endef
 
 # src/CMakeLists.txt has no cmake_minimum_required: without CMP0005 the quotes of
-# the BBF_VENDOR_PREFIX string are lost
-CMAKE_OPTIONS += -DCMAKE_POLICY_DEFAULT_CMP0005=NEW -DBBF_VENDOR_PREFIX=X_AIGW_
+# the BBF_VENDOR_PREFIX string are lost, and CMake 4 (OpenWRT 25.12) refuses it
+# without a policy version
+CMAKE_OPTIONS += -DCMAKE_POLICY_DEFAULT_CMP0005=NEW -DBBF_VENDOR_PREFIX=X_AIGW_ -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 # icwmp builds with -Werror; these warnings depend on the compiler and libc, not on icwmp
 TARGET_CFLAGS += -Wno-error=unused-result -Wno-error=format-truncation -Wno-error=unused-function \
 	-Wno-error=stringop-truncation -Wno-error=format-overflow -Wno-error=deprecated-declarations
