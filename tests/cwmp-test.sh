@@ -46,10 +46,11 @@ fail() {
 	echo "CWMP TEST FAIL: $*" >&2
 	echo "--- logs" >&2
 	for f in "$T"/*.log; do
+		[ -f "$f" ] || continue
 		echo "==> $f <==" >&2
 		# icwmp's config dump says nothing new
 		case $f in */icwmp.log) grep -v 'CWMP CONFIG' "$f" | tail -n 120 >&2 ;; *) tail -n 40 "$f" >&2 ;; esac
-	done 2>/dev/null
+	done
 	exit 1
 }
 

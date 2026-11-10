@@ -19,7 +19,6 @@ PKG_LICENSE_FILES:=LICENSE
 PKG_MAINTAINER:=AIGW contributors
 
 PKG_BUILD_PARALLEL:=1
-CMAKE_SOURCE_SUBDIR:=src
 
 include $(INCLUDE_DIR)/package.mk
 include $(INCLUDE_DIR)/cmake.mk
@@ -37,17 +36,20 @@ define Package/icwmp/description
   AIGW OS through it.
 endef
 
-# src/CMakeLists.txt has no cmake_minimum_required: without CMP0005 the quotes of
-# the BBF_VENDOR_PREFIX string are lost, and CMake 4 (OpenWRT 25.12) refuses it
-# without a policy version
-CMAKE_OPTIONS += -DCMAKE_POLICY_DEFAULT_CMP0005=NEW -DBBF_VENDOR_PREFIX=X_AIGW_ -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+CMAKE_OPTIONS += -DBBF_VENDOR_PREFIX=X_AIGW_
 # icwmp builds with -Werror; these warnings depend on the compiler and libc, not on icwmp
 TARGET_CFLAGS += -Wno-error=unused-result -Wno-error=format-truncation -Wno-error=unused-function \
 	-Wno-error=stringop-truncation -Wno-error=format-overflow -Wno-error=deprecated-declarations
 
+# only the client: its data model plug-in for bbfdm (bbf_plugin) is not needed
+define Build/Compile
+	$(call Build/Compile/Default,icwmpd)
+endef
+
+# icwmp's build copies the binary to the top of its source tree
 define Package/icwmp/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/icwmpd
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/icwmpd $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/icwmpd $(1)/usr/sbin/
 endef
 
 $(eval $(call BuildPackage,icwmp))
