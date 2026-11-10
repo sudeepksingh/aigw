@@ -46,6 +46,14 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.18:** **managed by your ISP over USP (TR-369)**, the protocol operators
+> use for prplOS and RDK-B gateways. The ISP's USP controller talks to the
+> Broadband Forum's own OB-USP-Agent, which serves AIGW OS's data model through
+> a plug-in. The ISP sees devices, alerts and decisions, approves AIGW OS's
+> proposals, and gets alerts as USP events. How much it may do, and see, is the
+> home's choice, and the guardrails always hold. TR-069 will use the same data
+> layer in v0.19.
+>
 > **v0.17:** malware hunting for its control server is caught by **behaviour**,
 > whatever its generated names look like. AIGW remembers every site that works
 > for anyone in the home; a device whose lookups of names nobody here ever used
@@ -410,6 +418,41 @@ threat-intel` takes it back.
 Plug-ins signed with a key the gateway trusts (`python3 -m aigw_cortex
 sign-plugin <folder>`, or usign) get their privileged capabilities without
 `agctl plugin allow`. Changing any file in the folder takes that trust away.
+
+## Managed by your ISP: USP (TR-369)
+
+An ISP can manage AIGW OS with the USP controller it already runs. It goes through
+the Broadband Forum's own agent, OB-USP-Agent, the one prplWare and RDK-B use,
+running unmodified with AIGW OS's data model plug-in, `aigw-usp`. There is one
+data model, in `agd`, and TR-069 will use the same one in v0.19. It includes:
+
+- the standard TR-181 `Device.Hosts.Host` objects, with AIGW OS's own fields
+  (type, zone, rates);
+- `Device.WiFi.SSID`;
+- `Device.X_AIGW_`: alerts and decisions, with commands to approve, reject and
+  undo, `Quarantine()` and `Block()`, and the events `Alert!` and
+  `DecisionChanged!`.
+
+It's off by default:
+
+```sh
+opkg install aigw-usp
+uci set aigw.mgmt.enabled=1; uci set aigw.usp.broker=<the ISP's MQTT broker>; uci commit aigw
+/etc/init.d/aigw-usp start
+```
+
+The home decides how much the ISP may do, and those rules are enforced in
+`agd`, whatever the protocol client asks:
+
+- An ISP may always read, and approve, reject or undo what AIGW OS proposes.
+- `mgmt.actions 1` also lets it quarantine, block, and change the mode.
+- `mgmt.alert_details 1` lets it see which names a device looked up.
+- AIGW OS's guardrails always hold.
+
+`agctl dm get Device.` shows the same data locally. The definition ISPs load
+into their controllers is
+[docs/datamodel/aigw-dm.xml](docs/datamodel/aigw-dm.xml), and how to add to it
+is in [docs/device-management.md](docs/device-management.md).
 
 ## Web interface (LuCI)
 

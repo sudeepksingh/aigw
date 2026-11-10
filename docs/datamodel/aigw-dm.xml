@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AIGW OS data model 1.0. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             spec="urn:aigw-os:aigw-dm-1-0" file="aigw-dm-1-0.xml">
+  <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix.</description>
+  <model name="AIGW-OS:1.0">
+    <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.DeviceInfo." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Manufacturer" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ModelName" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ProductClass" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="SoftwareVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="UpTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="X_AIGW_DataModelVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.Hosts." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="HostNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.WiFi." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="SSIDNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Mode" access="readWrite" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="ActionsAllowed" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="AlertDetails" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="AlertNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DecisionNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <command name="Quarantine()">
+        <input>
+          <parameter name="Host"><syntax><string/></syntax></parameter>
+          <parameter name="Duration"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Decision"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <command name="Block()">
+        <input>
+          <parameter name="Domain"><syntax><string/></syntax></parameter>
+          <parameter name="Duration"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Decision"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <event name="Alert!">
+        <parameter name="Alert"><syntax><string/></syntax></parameter>
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="Severity"><syntax><string/></syntax></parameter>
+        <parameter name="Host"><syntax><string/></syntax></parameter>
+        <parameter name="Subject"><syntax><string/></syntax></parameter>
+        <parameter name="Reason"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="DecisionChanged!">
+        <parameter name="Decision"><syntax><string/></syntax></parameter>
+        <parameter name="Action"><syntax><string/></syntax></parameter>
+        <parameter name="State"><syntax><string/></syntax></parameter>
+        <parameter name="Host"><syntax><string/></syntax></parameter>
+      </event>
+    </object>
+    <object name="Device.Hosts.Host." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.WiFi.SSID." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.Decision." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.Hosts.Host.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="HostNumberOfEntries">
+      <parameter name="PhysAddress" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="IPAddress" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="HostName" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Active" access="readOnly" activeNotify="normal"><syntax><boolean/></syntax></parameter>
+      <parameter name="X_AIGW_Type" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="X_AIGW_Zone" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="X_AIGW_FirstSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="X_AIGW_LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="X_AIGW_RateDown" access="readOnly" activeNotify="canDeny"><syntax><unsignedLong/></syntax></parameter>
+      <parameter name="X_AIGW_RateUp" access="readOnly" activeNotify="canDeny"><syntax><unsignedLong/></syntax></parameter>
+      <parameter name="X_AIGW_BytesDown" access="readOnly" activeNotify="canDeny"><syntax><unsignedLong/></syntax></parameter>
+      <parameter name="X_AIGW_BytesUp" access="readOnly" activeNotify="canDeny"><syntax><unsignedLong/></syntax></parameter>
+      <parameter name="X_AIGW_WiFiBand" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="X_AIGW_WiFiSignal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+    </object>
+    <object name="Device.WiFi.SSID.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="SSIDNumberOfEntries">
+      <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="SSID" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="BSSID" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="X_AIGW_Band" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="X_AIGW_Channel" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="X_AIGW_Width" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="X_AIGW_Stations" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Alert.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="AlertNumberOfEntries">
+      <parameter name="Kind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Severity" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Host" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Subject" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Reason" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Score" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="FirstSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Count" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Decision.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="DecisionNumberOfEntries">
+      <parameter name="Action" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Target" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Host" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="State" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Origin" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Reason" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Note" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Alert" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Automatic" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Created" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Expires" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <command name="Approve()">
+        <output>
+          <parameter name="State"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <command name="Reject()">
+        <output>
+          <parameter name="State"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <command name="Undo()">
+        <output>
+          <parameter name="State"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+    </object>
+  </model>
+</dm:document>

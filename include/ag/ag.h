@@ -20,6 +20,7 @@
 #define AG_EV_DECISION "ag.decision"
 #define AG_EV_PLUGIN "ag.plugin"   /* plug-in lifecycle; plug-ins' own events use their types (iot.*) */
 #define AG_EV_MODEL "ag.model"     /* a model update loaded, refused or rolled back */
+#define AG_EV_DM "ag.dm.event"     /* a data model event (TR-181 path ending in '!'), for USP / TR-069 */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
 enum ag_mode { AG_MODE_OFF, AG_MODE_ADVISE, AG_MODE_ENFORCE };
@@ -109,6 +110,10 @@ struct ag_config {
 	int burst_window;         /* seconds the burst is counted over */
 	int burst_min;            /* at least this many distinct never-used names got NXDOMAIN */
 	double burst_share;       /* ... and they are at least this share of its never-used names then */
+	/* management by an ISP (USP / TR-069) through the data model */
+	int mgmt_enabled;         /* start the protocol clients (their init scripts read this) */
+	int mgmt_actions;         /* may a management system quarantine, block, change the mode */
+	int mgmt_alert_details;   /* may it see alert subjects and reasons (names looked up) */
 	int fastpath_enabled;     /* established connections through the kernel flowtable (aigw-nft) */
 	int meter_enabled;        /* count each device's traffic in the kernel (eBPF on the LAN interfaces) */
 	int fed_enabled;         /* take part in federated learning rounds (names never leave) */
@@ -164,6 +169,8 @@ const char *ag_mode_str(int mode);
 /* Fills defaults, then overrides from UCI. Never fails hard: a missing
  * config file just leaves the defaults. Honors $AIGW_UCI_CONFDIR. */
 void ag_config_load(struct ag_config *c);
+/* writes one option of /etc/config/aigw (section must exist) and commits; 0 or -1 */
+int ag_config_set(const char *section, const char *option, const char *value);
 
 /* ubus socket path: $AIGW_UBUS if set, else NULL (libubus default). */
 const char *ag_ubus_path(void);

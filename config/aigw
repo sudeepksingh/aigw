@@ -98,6 +98,31 @@ config baseline 'baseline'
 	# days of history before "active at an unusual hour" alerts
 	option unusual_min_days '7'
 
+config mgmt 'mgmt'
+	# management by an ISP over USP (TR-369; package aigw-usp) or, later,
+	# TR-069: one data model for both (agctl dm get Device.). Off by default.
+	option enabled '0'
+	# may a management system quarantine, block and change act.mode? It may
+	# always read, and approve, reject or undo what AIGW proposes. AIGW's
+	# guardrails (protect, time limits) hold either way.
+	option actions '0'
+	# may it see alert subjects and reasons (the names devices looked up)?
+	option alert_details '0'
+
+config usp 'usp'
+	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
+	# option broker 'usp.example.net'
+	option port '8883'
+	option tls '1'
+	# option username ''
+	# option password ''
+	# this gateway's USP endpoint ID; default proto::aigw-<machine id>
+	# option agent_id 'proto::aigw-1234'
+	option controller_id 'self::usp-controller'
+	# option agent_topic '/usp/agent/<agent_id>'
+	option controller_topic '/usp/controller'
+	# option ca_file '/etc/ssl/certs/ca-certificates.crt'
+
 config act 'act'
 	# What AIGW may do about what it notices:
 	#   off      alerts only, no actions proposed

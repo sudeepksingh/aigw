@@ -231,6 +231,7 @@ void alerts_raise(const char *kind, const char *severity, const char *ip, const 
 	blobmsg_add_string(&b, "reason", reason);
 	agd_emit(AG_EV_ALERT, &b);
 	blob_buf_free(&b);
+	dm_on_alert(a->id);
 
 	/* a policy may propose (or, in enforce mode, take) an action */
 	act_on_alert(a->id, kind, ip, reason);
@@ -338,6 +339,57 @@ void alerts_on_sni(const char *client, const char *dst, const char *sni, unsigne
 uint64_t alerts_total(void)
 {
 	return raised_total;
+}
+
+/* ---------- for the data model (dm.c) ---------- */
+
+static const struct alert *alert_by_id(uint32_t id)
+{
+	int i;
+
+	for (i = 0; id && i < ALERT_MAX; i++)
+		if (alerts[i].used && alerts[i].id == id)
+			return &alerts[i];
+	return NULL;
+}
+
+static int cmp_u32(const void *a, const void *b)
+{
+	uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
+
+	return x < y ? -1 : x > y;
+}
+
+int alerts_ids(uint32_t *out, int max)
+{
+	int i, n = 0;
+
+	for (i = 0; i < ALERT_MAX && n < max; i++)
+		if (alerts[i].used)
+			out[n++] = alerts[i].id;
+	qsort(out, (size_t)n, sizeof(*out), cmp_u32);
+	return n;
+}
+
+/* one field of an alert, as text; -1 when the alert is gone */
+int alerts_field(uint32_t id, const char *f, char *buf, size_t n)
+{
+	const struct alert *a = alert_by_id(id);
+
+	if (!a)
+		return -1;
+	if (!strcmp(f, "kind")) snprintf(buf, n, "%s", a->kind);
+	else if (!strcmp(f, "severity")) snprintf(buf, n, "%s", a->severity);
+	else if (!strcmp(f, "mac")) snprintf(buf, n, "%s", a->device_mac);
+	else if (!strcmp(f, "ip")) snprintf(buf, n, "%s", a->device_ip);
+	else if (!strcmp(f, "subject")) snprintf(buf, n, "%s", a->subject);
+	else if (!strcmp(f, "reason")) snprintf(buf, n, "%s", a->reason);
+	else if (!strcmp(f, "score")) snprintf(buf, n, "%.4f", a->score);
+	else if (!strcmp(f, "first")) snprintf(buf, n, "%lld", (long long)a->first);
+	else if (!strcmp(f, "last")) snprintf(buf, n, "%lld", (long long)a->last);
+	else if (!strcmp(f, "count")) snprintf(buf, n, "%u", a->count);
+	else return -1;
+	return 0;
 }
 
 static void alert_blob(struct blob_buf *b, const struct alert *a)

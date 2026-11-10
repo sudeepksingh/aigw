@@ -18,12 +18,16 @@ jobs:
           sudo apt-get install -y -qq --no-install-recommends \
             build-essential cmake pkg-config git libjson-c-dev libnetfilter-conntrack-dev \
             dnsutils nftables dnsmasq-base curl python3 mosquitto mosquitto-clients zbar-tools \
-            python3-numpy python3-sklearn python3-cryptography wireguard-tools
+            python3-numpy python3-sklearn python3-cryptography wireguard-tools \
+            autoconf automake libtool libssl-dev libsqlite3-dev zlib1g-dev libmosquitto-dev \
+            protobuf-compiler python3-protobuf python3-paho-mqtt
       - name: OpenWRT libraries
         run: sudo ./scripts/build-deps.sh
+      - name: OB-USP-Agent (USP / TR-369 agent, pinned)
+        run: echo "OBUSPA_SRC=$(scripts/build-obuspa.sh | tail -1)" >> "$GITHUB_ENV"
       - name: Build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAIGW_OBUSPA_SRC="$OBUSPA_SRC"
           cmake --build build -j
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
@@ -35,6 +39,10 @@ jobs:
         run: sudo tests/baseline-test.sh build
       - name: Lookup burst test (generated names that look like words, caught by behaviour)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/burst-test.sh build
+      - name: Data model test (ag.dm, the layer USP and TR-069 share)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/dm-test.sh build
+      - name: USP test (a USP controller over MQTT, OB-USP-Agent, the aigw-usp plug-in)
+        run: sudo AIGW_REQUIRE_USP=1 AIGW_OBUSPA="$OBUSPA_SRC/obuspa" PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/usp-test.sh build
       - name: Act test (decisions, guardrails, nft and DNS actuators)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/act-test.sh build
       - name: Plug-in test (plug-ins, skills, Wi-Fi keys, MQTT and Home Assistant)
@@ -77,7 +85,7 @@ jobs:
           modinfo -F filename mac80211_hwsim
           sudo AIGW_REQUIRE_HWSIM=1 PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH" tests/hwsim-test.sh build
       - name: Shell syntax
-        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh; do sh -n "$f"; done
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh tests/*.sh plugins/examples/*/run.sh usp/aigw-usp-run scripts/build-obuspa.sh scripts/dm-xml; do case "$f" in *dm-xml) python3 -m py_compile "$f" ;; *) sh -n "$f" ;; esac; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.17.0 LANGUAGES C)
+project(aigw VERSION 0.18.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -47,6 +47,13 @@ add_subdirectory(agd)
 add_subdirectory(agdns)
 add_subdirectory(agctl)
 add_subdirectory(plugins)
+
+# USP (TR-369): the plug-in for OB-USP-Agent, built against the obuspa source
+# tree the agent is built from (scripts/build-obuspa.sh fetches the pinned one)
+set(AIGW_OBUSPA_SRC "" CACHE PATH "obuspa source tree: build the aigw-usp plug-in for it")
+if(AIGW_OBUSPA_SRC)
+  add_subdirectory(usp)
+endif()
 
 install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)

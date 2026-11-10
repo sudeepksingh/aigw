@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+"""AIGW OS's data model as a Broadband Forum data model definition (TR-106 XML).
+
+ISPs load this file into their USP controller or ACS to know AIGW OS's
+parameters, commands and events. It is made from the schema agd serves, so it
+can't drift from what the gateway really answers:
+
+    agctl -j dm schema | scripts/dm-xml > docs/datamodel/aigw-dm.xml
+    scripts/dm-xml schema.json > aigw-dm.xml
+"""
+import json
+import sys
+from collections import OrderedDict
+from xml.sax.saxutils import quoteattr
+
+TYPES = {"string": "<string/>", "boolean": "<boolean/>", "unsignedInt": "<unsignedInt/>",
+         "int": "<int/>", "unsignedLong": "<unsignedLong/>", "dateTime": "<dateTime/>",
+         "decimal": "<decimal/>"}
+
+
+def split(path):
+    """Device.Hosts.Host.{i}.HostName -> (Device.Hosts.Host.{i}., HostName)"""
+    head, _, name = path.rstrip(".").rpartition(".")
+    return head + ".", name
+
+
+def main():
+    src = open(sys.argv[1]) if len(sys.argv) > 1 else sys.stdin
+    schema = json.load(src)
+    version = schema.get("version", "1.0")
+    objs = OrderedDict()
+
+    def obj(path):
+        return objs.setdefault(path, {"params": [], "commands": [], "events": []})
+
+    tables = {o["path"] for o in schema.get("objects", [])}
+    for p in schema.get("params", []):
+        o, name = split(p["path"])
+        obj(o)["params"].append((name, p))
+    for c in schema.get("commands", []):
+        o, name = split(c["path"])
+        obj(o)["commands"].append((name, c))
+    for e in schema.get("events", []):
+        o, name = split(e["path"])
+        obj(o)["events"].append((name, e))
+    for t in tables:
+        obj(t)
+    # every parent object exists too
+    for path in list(objs):
+        parts = path.rstrip(".").split(".")
+        for i in range(1, len(parts)):
+            obj(".".join(parts[:i]) + ".")
+
+    out = ['<?xml version="1.0" encoding="UTF-8"?>',
+           '<!-- AIGW OS data model %s. Made by scripts/dm-xml from agd\'s schema; do not edit. -->' % version,
+           '<dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"',
+           '             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
+           '             spec="urn:aigw-os:aigw-dm-%s" file="aigw-dm-%s.xml">' % (version.replace(".", "-"), version.replace(".", "-")),
+           '  <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and'
+           ' decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix.</description>',
+           '  <model name="AIGW-OS:%s">' % version]
+    for path in sorted(objs, key=lambda p: (p.count("."), p)):
+        o = objs[path]
+        multi = path.endswith("{i}.")
+        attrs = 'name=%s access="readOnly"' % quoteattr(path)
+        if multi:
+            parent, name = split(path[:-len("{i}.")])
+            nep = name + "NumberOfEntries"
+            has_count = any(n == nep for n, _ in objs.get(parent, {}).get("params", []))
+            attrs += ' minEntries="0" maxEntries="unbounded"'
+            if has_count:
+                attrs += ' numEntriesParameter="%s"' % nep
+        else:
+            attrs += ' minEntries="1" maxEntries="1"'
+        out.append("    <object %s>" % attrs)
+        for name, p in o["params"]:
+            access = "readWrite" if p.get("writable") else "readOnly"
+            notify = ' activeNotify="normal"' if p.get("notify") else ' activeNotify="canDeny"'
+            out.append('      <parameter name=%s access="%s"%s><syntax>%s</syntax></parameter>' %
+                       (quoteattr(name), access, notify, TYPES.get(p.get("type"), "<string/>")))
+        for name, c in o["commands"]:
+            out.append("      <command name=%s>" % quoteattr(name))
+            if c.get("in"):
+                out.append("        <input>")
+                out += ['          <parameter name=%s><syntax><string/></syntax></parameter>' % quoteattr(a) for a in c["in"]]
+                out.append("        </input>")
+            if c.get("out"):
+                out.append("        <output>")
+                out += ['          <parameter name=%s><syntax><string/></syntax></parameter>' % quoteattr(a) for a in c["out"]]
+                out.append("        </output>")
+            out.append("      </command>")
+        for name, e in o["events"]:
+            out.append("      <event name=%s>" % quoteattr(name))
+            out += ['        <parameter name=%s><syntax><string/></syntax></parameter>' % quoteattr(a) for a in e.get("args", [])]
+            out.append("      </event>")
+        out.append("    </object>")
+    out += ["  </model>", "</dm:document>"]
+    print("\n".join(out))
+
+
+if __name__ == "__main__":
+    main()
