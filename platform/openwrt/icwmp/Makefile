@@ -37,7 +37,9 @@ define Package/icwmp/description
   AIGW OS through it.
 endef
 
-# (BBF_VENDOR_PREFIX is left empty: it only names vendor firmware file types, which AIGW doesn't use)
+# src/CMakeLists.txt has no cmake_minimum_required: without CMP0005 the quotes of
+# the BBF_VENDOR_PREFIX string are lost
+CMAKE_OPTIONS += -DCMAKE_POLICY_DEFAULT_CMP0005=NEW -DBBF_VENDOR_PREFIX=X_AIGW_
 # icwmp builds with -Werror; these warnings depend on the compiler and libc, not on icwmp
 TARGET_CFLAGS += -Wno-error=unused-result -Wno-error=format-truncation -Wno-error=unused-function \
 	-Wno-error=stringop-truncation -Wno-error=format-overflow -Wno-error=deprecated-declarations
