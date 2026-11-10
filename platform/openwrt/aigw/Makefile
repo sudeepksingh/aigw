@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.18.0
+PKG_VERSION:=0.19.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -97,6 +97,23 @@ define Package/aigw-remote/description
   for the UDP port (51820) the first time.
 endef
 
+define Package/aigw-cwmp
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=AIGW OS management by TR-069 / CWMP (data model for icwmp)
+  DEPENDS:=+aigw +icwmp +libubox +libubus +libuci
+endef
+
+define Package/aigw-cwmp/description
+  Lets an ISP's ACS manage AIGW OS over TR-069: devices, alerts, decisions
+  (approve, reject, undo), quarantine and block, the same data model USP
+  controllers get. aigw-cwmp-dm serves it to the unmodified icwmp client.
+  Off until you turn it on: uci set aigw.mgmt.enabled=1; uci set
+  aigw.cwmp.url=<ACS URL>; uci commit aigw; /etc/init.d/aigw-cwmp start.
+  What an ACS may do is set by aigw.mgmt.actions and aigw.mgmt.alert_details;
+  AIGW OS's guardrails always apply.
+endef
+
 define Package/luci-app-aigw
   SECTION:=luci
   CATEGORY:=LuCI
@@ -120,7 +137,7 @@ CMAKE_OPTIONS += -DAIGW_TESTS=OFF
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) $(AIGW_SRC)/CMakeLists.txt $(AIGW_SRC)/include $(AIGW_SRC)/core \
-		$(AIGW_SRC)/agd $(AIGW_SRC)/agdns $(AIGW_SRC)/agctl $(AIGW_SRC)/plugins \
+		$(AIGW_SRC)/agd $(AIGW_SRC)/agdns $(AIGW_SRC)/agctl $(AIGW_SRC)/plugins $(AIGW_SRC)/cwmp \
 		$(AIGW_SRC)/scripts $(AIGW_SRC)/tests $(AIGW_SRC)/models $(AIGW_SRC)/LICENSE \
 		$(PKG_BUILD_DIR)/
 endef
@@ -180,6 +197,26 @@ agctl remote off >/dev/null 2>&1 || /usr/sbin/aigw-remote down agwg >/dev/null 2
 exit 0
 endef
 
+define Package/aigw-cwmp/install
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/init.d
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-cwmp-dm $(1)/usr/sbin/
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-cwmp-run $(1)/usr/sbin/
+	$(INSTALL_BIN) ./files/aigw-cwmp.init $(1)/etc/init.d/aigw-cwmp
+endef
+
+define Package/aigw-cwmp/prerm
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+/etc/init.d/aigw-cwmp stop 2>/dev/null
+/etc/init.d/aigw-cwmp disable 2>/dev/null
+if uci -q get firewall.aigw_cwmp >/dev/null; then
+	uci -q delete firewall.aigw_cwmp
+	uci commit firewall
+	fw4 reload 2>/dev/null
+fi
+exit 0
+endef
+
 LUCI_SRC:=$(AIGW_SRC)/platform/openwrt/luci-app-aigw
 
 define Package/luci-app-aigw/install
@@ -216,4 +253,5 @@ $(eval $(call BuildPackage,aigw))
 $(eval $(call BuildPackage,aigw-mqtt))
 $(eval $(call BuildPackage,aigw-bridge))
 $(eval $(call BuildPackage,aigw-remote))
+$(eval $(call BuildPackage,aigw-cwmp))
 $(eval $(call BuildPackage,luci-app-aigw))

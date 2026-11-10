@@ -130,7 +130,7 @@ cat > "$T/leases" <<EOF
 1999999999 02:00:00:00:97:03 10.96.0.3 tv *
 EOF
 export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_NFT_FILE="$T/aigw.nft"
-export AIGW_USP_DIR="$T/usp" AIGW_OBUSPA="$OBUSPA" AIGW_USP_PLUGIN="$BIN/usp/aigw-usp.so"
+export AIGW_USP_DIR="$T/usp" AIGW_OBUSPA="$OBUSPA" AIGW_USP_PLUGIN="$BIN/usp/aigw-usp.so" AIGW_AGCTL="$BIN/agctl/agctl"
 export USP_PB_DIR="$T/pb" USP_PORT=18831 USP_AGENT_ID=proto::aigw-test USP_AGENT_TOPIC=/usp/agent/test
 
 # daemons are started with ip netns exec directly (not through gw), so $! is the daemon itself
@@ -155,7 +155,11 @@ done
 want=$("$BIN/agd/agd" -v | cut -d' ' -f2)
 got=$(js "print(d.get('Device.DeviceInfo.SoftwareVersion', ''))" < "$T/ver.json")
 [ "$got" = "$want" ] || fail "SoftwareVersion: '$got', expected $want"
-echo "   AIGW OS $got"
+# the identity TR-069 reports too: agd's
+serial=$(agctl dm get Device.DeviceInfo.SerialNumber | sed -n 's/^[^=]* = //p')
+uspc get Device.DeviceInfo.SerialNumber | js "sys.exit(0 if d.get('Device.DeviceInfo.SerialNumber') == '$serial' and '$serial' else 1)" ||
+	fail "SerialNumber over USP should be agd's ($serial)"
+echo "   AIGW OS $got, serial $serial"
 
 uspc get "Device.Hosts.Host.*.HostName" "Device.Hosts.Host.*.PhysAddress" > "$T/hosts.json"
 LAPTOP=$(js "print([k[:-len('.PhysAddress')] for k, v in d.items() if v == '02:00:00:00:97:02'][0])" < "$T/hosts.json") ||

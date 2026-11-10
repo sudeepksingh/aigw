@@ -1,16 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.0. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.1. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-0" file="aigw-dm-1-0.xml">
+             spec="urn:aigw-os:aigw-dm-1-1" file="aigw-dm-1-1.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix.</description>
-  <model name="AIGW-OS:1.0">
+  <model name="AIGW-OS:1.1">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DeviceInfo." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Manufacturer" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="ModelName" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="ProductClass" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ManufacturerOUI" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="SerialNumber" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="SoftwareVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="UpTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="X_AIGW_DataModelVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>

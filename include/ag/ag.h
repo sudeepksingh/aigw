@@ -114,7 +114,9 @@ struct ag_config {
 	int mgmt_enabled;         /* start the protocol clients (their init scripts read this) */
 	int mgmt_actions;         /* may a management system quarantine, block, change the mode */
 	int mgmt_alert_details;   /* may it see alert subjects and reasons (names looked up) */
-	int fastpath_enabled;     /* established connections through the kernel flowtable (aigw-nft) */
+	char mgmt_serial[64];     /* DeviceInfo.SerialNumber; empty: from the machine id or the LAN MAC */
+	char mgmt_oui[8];         /* DeviceInfo.ManufacturerOUI; empty: the LAN MAC's */
+	int fastpath_enabled;    /* established connections through the kernel flowtable (aigw-nft) */
 	int meter_enabled;        /* count each device's traffic in the kernel (eBPF on the LAN interfaces) */
 	int fed_enabled;         /* take part in federated learning rounds (names never leave) */
 	double fed_noise;         /* at least this noise multiplier on what leaves, whatever cortex asks */

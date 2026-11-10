@@ -6,27 +6,28 @@ client only translates.
 
 ```
   USP controller (ISP)                     ACS (ISP, TR-069)
-        │ MQTT 5 (TLS)                          │ SOAP over HTTPS          (v0.19)
+        │ MQTT 5 (TLS)                          │ SOAP over HTTP(S)
 ┌───────▼───────────────────┐       ┌───────────▼──────────────┐
 │ aigw-usp                  │       │ aigw-cwmp                │
-│ OB-USP-Agent, unmodified, │       │ CWMP client + glue       │
-│ + aigw-usp.so plug-in     │       │                          │
+│ OB-USP-Agent, unmodified, │       │ icwmp, unmodified,       │
+│ + aigw-usp.so plug-in     │       │ + aigw-cwmp-dm (ubus     │
+│                           │       │   bbfdm, bbf.config)     │
 └───────┬───────────────────┘       └───────────┬──────────────┘
         └──────────── ubus: ag.dm ──────────────┘
                    ┌───────▼────────┐
                    │ agd: dm.c      │  schema, instance numbers, write rules,
-                   │ (data layer)   │  error codes, events
+                   │ (data layer)   │  error codes, events, identity
                    └───────┬────────┘
                    devices · alerts · decisions (act_request + guardrails) · Wi-Fi
 ```
 
-Status: the data layer and USP are in v0.18. TR-069 comes in v0.19 on the same
-layer; choosing its client (icwmp or easycwmp, or a small one of ours) starts with
-a trial.
+Status: the data layer and USP came in v0.18, TR-069 in v0.19. Both run at the
+same time if an ISP wants: they see the same devices with the same instance
+numbers, and the same rules apply.
 
 ## Turning it on
 
-On OpenWRT:
+On OpenWRT, USP:
 
 ```sh
 opkg install aigw-usp            # pulls obuspa, libmosquitto-ssl, libsqlite3
@@ -38,9 +39,23 @@ uci commit aigw
 /etc/init.d/aigw-usp start
 ```
 
-On a PC (PC as AP): `sudo AIGW_USP=1 platform/pc-ap/install.sh` builds the
-pinned OB-USP-Agent and the plug-in; then set the same options in
-`/etc/config/aigw` and run `sudo systemctl enable --now aigw-usp`.
+TR-069:
+
+```sh
+opkg install aigw-cwmp           # pulls icwmp, libcurl, mxml (on 25.12: mxml's apk from AIGW's release)
+uci set aigw.mgmt.enabled=1
+uci set aigw.cwmp.url=https://acs.example.net:7547/
+uci set aigw.cwmp.cr_username=cr; uci set aigw.cwmp.cr_password='<secret>'   # connection requests
+uci commit aigw
+/etc/init.d/aigw-cwmp enable
+/etc/init.d/aigw-cwmp start      # also allows TCP 7547 from the WAN zone, for connection requests
+```
+
+On a PC (PC as AP): `sudo AIGW_USP=1 AIGW_CWMP=1 platform/pc-ap/install.sh` builds
+the pinned clients (either or both) and AIGW's adapters; then set the same
+options in `/etc/config/aigw` and run `sudo systemctl enable --now aigw-usp`
+or `aigw-cwmp`. For TR-069 on a PC, also set `aigw.cwmp.wan_device` to the
+interface towards the ACS: there is no netifd to ask.
 
 `aigw-usp-run --print` shows the agent settings it makes from the config. The
 agent's own database (`/etc/aigw/usp/usp.db`: controllers' subscriptions) is
@@ -57,6 +72,18 @@ place to set things.
 | `usp.agent_id` | `proto::aigw-<machine id>` | this gateway's endpoint ID |
 | `usp.controller_id`, `usp.controller_topic` | `self::usp-controller`, `/usp/controller` | the controller |
 | `usp.agent_topic` | `/usp/agent/<agent_id>` | where the agent listens |
+| `mgmt.serial`, `mgmt.oui` | machine id or LAN MAC, LAN MAC's OUI | `DeviceInfo.SerialNumber` and `ManufacturerOUI`, for both protocols |
+| `cwmp.url`, `cwmp.username`, `cwmp.password`, `cwmp.ca_file` | — | the ACS and its login |
+| `cwmp.periodic_enable`, `cwmp.periodic_interval` | `1`, `86400` | periodic Informs |
+| `cwmp.port`, `cwmp.cr_username`, `cwmp.cr_password` | `7547` | connection requests from the ACS |
+| `cwmp.wan`, `cwmp.wan_device` | `wan`, — | the WAN interface; on a PC its device too |
+| `cwmp.provisioning_code`, `cwmp.notify_interval`, `cwmp.log_level` | —, `5`, `INFO` | |
+
+`aigw-cwmp-run --print` shows what it gives icwmp. icwmp keeps its own config
+(`/etc/config/cwmp`); the options above are written into it at every start.
+When the ACS changes `Device.ManagementServer.URL`, `Username`, `Password`,
+`PeriodicInformEnable`, `PeriodicInformInterval`, the connection request
+login or `DeviceInfo.ProvisioningCode`, the change is saved in both places.
 
 ## What a management system may do
 
@@ -68,9 +95,10 @@ Whatever protocol it uses, and decided in `agd`, not in the protocol client:
 - **Never** beyond AIGW's guardrails: no protected device (`act.protect`), no device outside the LAN, a time limit on every action. These are the same checks as for `agctl`.
 
 OB-USP-Agent itself gives the controller full access (its role `Full Access`), so
-that the one place these rules live is the data layer.
+that the one place these rules live is the data layer. The same holds for icwmp:
+aigw-cwmp-dm asks with origin `acs`, and agd decides.
 
-## The data model (version 1.0)
+## The data model (version 1.1)
 
 The full definition, as ISPs load it into their controllers, is
 [`datamodel/aigw-dm.xml`](datamodel/aigw-dm.xml). It is made from what `agd`
@@ -79,7 +107,7 @@ the two differ.
 
 | Path | Contents | Writable |
 |---|---|---|
-| `Device.DeviceInfo.` | `Manufacturer`, `ModelName`, `ProductClass`, `SoftwareVersion`, `UpTime`, `X_AIGW_DataModelVersion` | no |
+| `Device.DeviceInfo.` | `Manufacturer`, `ModelName`, `ProductClass`, `ManufacturerOUI`, `SerialNumber`, `SoftwareVersion`, `UpTime`, `X_AIGW_DataModelVersion` | no |
 | `Device.Hosts.Host.{i}.` | `PhysAddress`, `IPAddress`, `HostName`, `Active`; `X_AIGW_` type, zone, first and last seen, rates and bytes up and down, Wi-Fi band and signal | no |
 | `Device.WiFi.SSID.{i}.` | `Name` (interface), `SSID`, `BSSID`; `X_AIGW_` band, channel, width, stations | no |
 | `Device.X_AIGW_.` | `Mode` (off / advise / enforce), `ActionsAllowed`, `AlertDetails` | `Mode` |
@@ -103,14 +131,15 @@ Instance numbers:
 | `schema` | every parameter (path, type, writable, notify), object table, command (inputs, outputs) and event (arguments) |
 | `instances {path}` | the object instances under a path, e.g. `Device.Hosts.Host.3.` |
 | `get {paths, origin}` | values; a path ending in `.` means everything under it; unknown paths and gone instances come back under `errors` |
-| `set {params, origin}` | all or nothing: every value is checked before any is applied |
+| `set {params, origin, check}` | all or nothing: every value is checked before any is applied; with `check` only checked |
 | `operate {command, args, origin}` | runs a command; `out` holds its outputs |
 | event `ag.dm.event {event, args}` | e.g. `Device.X_AIGW_.Alert!` |
 
-`origin` is `local` unless an adapter says otherwise (`usp`, later `acs`). The
+`origin` is `local` unless an adapter says otherwise (`usp`, `acs`). The
 error codes are protocol-neutral (`not_found`, `read_only`, `invalid_value`,
 `refused`, `invalid_arguments`, `internal`); each adapter maps them to its own.
-For USP these are 7026 / 7016, 7013, 7012, 7006 / 7022, 7004 and 7003.
+For USP these are 7026 / 7016, 7013, 7012, 7006 / 7022, 7004 and 7003; for
+TR-069 9005, 9008, 9007, 9001, 9003 and 9002.
 
 ## The USP adapter: `aigw-usp`
 
@@ -121,9 +150,61 @@ For USP these are 7026 / 7016, 7013, 7012, 7006 / 7022, 7004 and 7003.
   - The agent's own `DeviceInfo` parameters keep their values; `SoftwareVersion` comes from `agd`.
 - **Value-change subscriptions** are handled by the agent: it polls the values it watches.
 
+## The TR-069 adapter: `aigw-cwmp`
+
+- **icwmp** is iopsys's TR-069 client (BSD-3-Clause), the one in iopsys's
+  firmware. It is maintained and uses only standard OpenWRT libraries. It's
+  pinned to a commit and unmodified (`scripts/build-icwmp.sh`,
+  `platform/openwrt/icwmp`).
+  - It reaches its data model only through the ubus object `bbfdm` (`get`,
+    `schema`, `set`, `add`, `del`, `operate`). After a SetParameterValues it
+    commits or reverts through `bbf.config`.
+  - Normally bbfdmd serves both. Here `aigw-cwmp-dm` serves them in front of
+    `ag.dm`.
+  - easycwmp was the other candidate. It is GPLv2, has not been updated since
+    2019, and its data model is shell scripts.
+- **`aigw-cwmp-dm`** translates. TR-069 has things USP doesn't, and those live
+  here, not in agd:
+  - **Paths and values** are agd's. `GetParameterNames` lists objects and
+    instances from `ag.dm schema` and `instances`.
+  - **A SetParameterValues is all or nothing.** Each value is checked when
+    icwmp sets it (`ag.dm set` with `check`). All of them are applied in one
+    `ag.dm set` when icwmp commits, and dropped when it reverts.
+  - **`Device.ManagementServer.`** comes from icwmp's own config: `URL`,
+    `Username`, `Password`, `PeriodicInformEnable`, `PeriodicInformInterval`,
+    `ParameterKey`, `ConnectionRequestURL`, `ConnectionRequestUsername`,
+    `ConnectionRequestPassword`. Also `Device.RootDataModelVersion` and
+    `DeviceInfo.ProvisioningCode`. Passwords read as empty.
+  - **Commands, `Device.X_AIGW_.Request.`:** CWMP has no commands. So set
+    `Command` to a command's name (`Quarantine`, `Block`) or its path
+    (`Device.X_AIGW_.Decision.3.Approve()`), together with its inputs (`Host`,
+    `Domain`, `Duration`), in one SetParameterValues.
+    - It runs when icwmp commits.
+    - `Status` (`Done`, `Refused`, `Error`) and `Message` tell the result, and
+      the outputs (`Decision`, `State`) are read in the same session.
+    - Inputs are used once.
+  - **Events, `Device.X_AIGW_.LastEvent.`:** `Name`, `Time`, `Count` and the
+    event's arguments.
+    - `Count` has active notification from the start, so every agd event (an
+      alert, a decision that changed) reaches the ACS as `4 VALUE CHANGE`
+      within `cwmp.notify_interval` seconds.
+    - Alerts stay in `Device.X_AIGW_.Alert.` too, if two come between polls.
+  - **On a PC** it also answers `network.interface.<wan> status`, which icwmp
+    asks for its WAN device.
+
+| CWMP | What happens |
+|---|---|
+| GetParameterValues | `ag.dm get`, plus the adapter's own parameters |
+| GetParameterNames | the schema, with instances; `NextLevel` honoured |
+| SetParameterValues | checked per value, applied in one set at commit; faults per parameter |
+| AddObject, DeleteObject | refused (9005): AIGW's tables are not made by an ACS |
+| Inform | DeviceId (`Manufacturer`, `ManufacturerOUI`, `ProductClass`, `SerialNumber`) and the forced parameters, all from agd or the adapter |
+
 ## Adding to the data model
 
-Everything lives in `agd/dm.c`, and neither adapter changes.
+Everything lives in `agd/dm.c`, and neither adapter changes. A new command
+shows up in TR-069 as a value of `Request.Command`, its inputs and outputs as
+`Request.` parameters; a new event's arguments as `LastEvent.` parameters.
 
 **A parameter:** one line in `params[]` and a getter:
 
@@ -183,10 +264,28 @@ Rules for adding:
   - it is refused quarantine and mode changes with `mgmt.actions 0`;
   - after a restart with `mgmt.actions 1`, it blocks a domain and sets the mode (which is saved), but it is refused a protected device;
   - instance numbers stay the same.
+- **`tests/cwmp-test.sh`** does the same for TR-069, in network namespaces.
+  - **Part 1** asks `aigw-cwmp-dm` the way icwmp asks it (ubus `bbfdm`):
+    - values and types, the identity, and `ConnectionRequestURL`;
+    - names with `NextLevel`, and instances;
+    - faults 9001 / 9005 / 9007 / 9008;
+    - a write applied only at commit and dropped at revert;
+    - `LastEvent.` without the name;
+    - a refused quarantine, and an approved decision that really lands in nft and is then undone.
+  - **Part 2** runs icwmp against an ACS (`tests/cwmp/acs.py`, SOAP over HTTP):
+    - the boot Inform's DeviceId and parameters;
+    - connection requests;
+    - GetParameterValues and GetParameterNames;
+    - a SetParameterValues fault 9001 per parameter;
+    - a refused command;
+    - an alert as `4 VALUE CHANGE`;
+    - an approved quarantine;
+    - a new `ParameterKey` and Inform interval, saved in `/etc/config/aigw`.
+  - icwmp's own paths are private to the test (overlays in a mount namespace).
 
 ## Not done yet
 
-- **TR-069 (v0.19):** a trial of the CWMP clients, then the adapter, tested against an ACS.
-- **Writable Wi-Fi settings**, firmware upgrade over USP, and the WebSocket transport.
+- **Writable Wi-Fi settings**, firmware upgrade (USP and TR-069 Download), and the WebSocket transport.
+- **TR-069 over HTTPS with client certificates** is icwmp's (`cwmp.ca_file`; client certificates not yet in `/etc/config/aigw`), and is not tested here.
 - **The vendor prefix** `X_AIGW_` is provisional. TR-106 expects `X_<OUI>_` or `X_<domain>_`, so the final prefix has to be chosen before ISPs depend on it. `Device.DeviceInfo.ManufacturerOUI` is OB-USP-Agent's placeholder until then.
-- **The OpenWRT QEMU test** installs the packages but doesn't yet run the USP test there.
+- **The OpenWRT QEMU test** installs the packages but doesn't yet run the USP or TR-069 tests there.

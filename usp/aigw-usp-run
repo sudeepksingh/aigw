@@ -106,5 +106,9 @@ fi
 set -- -v "$LEVEL" -r "$DIR/settings.txt" -f "$DIR/usp.db" -s "$DIR/cli.sock" -x "$PLUGIN"
 [ "$TLS" = 1 ] && [ -e "$CA" ] && set -- "$@" -t "$CA"
 [ -n "${AIGW_USP_TRACE:-}" ] && set -- "$@" -p
-export USP_BOARD_SERIAL="$id" USP_ENDPOINT_ID="$AGENT"
+# the same identity TR-069 reports: from the data model in agd
+dmval() { ${AIGW_AGCTL:-agctl} dm get "$1" 2>/dev/null | sed -n 's/^[^=]* = //p'; }
+SERIAL=$(dmval Device.DeviceInfo.SerialNumber); OUI=$(dmval Device.DeviceInfo.ManufacturerOUI)
+export USP_BOARD_SERIAL="${SERIAL:-$id}" USP_ENDPOINT_ID="$AGENT"
+[ -n "$OUI" ] && export USP_BOARD_OUI="$OUI"
 exec "$OBUSPA" "$@"
