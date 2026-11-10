@@ -303,6 +303,8 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "mgmt", "alert_details");
 		if (v)
 			c->mgmt_alert_details = atoi(v) != 0;
+		copy(c->mgmt_serial, sizeof(c->mgmt_serial), opt(ctx, p, "mgmt", "serial"));
+		copy(c->mgmt_oui, sizeof(c->mgmt_oui), opt(ctx, p, "mgmt", "oui"));
 		v = opt(ctx, p, "alerts", "burst");
 		if (v)
 			c->burst_enabled = atoi(v) != 0;

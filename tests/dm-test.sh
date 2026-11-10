@@ -121,6 +121,9 @@ js "sys.exit(0 if not d['ok'] and d['errors']['${PHONE}HostName']['code'] == 're
 agctl dm get Device.X_AIGW_.Mode | grep -q '= advise' || fail "a refused set must change nothing"
 call set '{"params":{"Device.X_AIGW_.Mode":"sometimes"}}' | js "sys.exit(0 if d['errors']['Device.X_AIGW_.Mode']['code'] == 'invalid_value' else 1)" ||
 	fail "invalid value"
+# "check": would it be taken? (TR-069 sets one value at a time and commits later)
+call set '{"params":{"Device.X_AIGW_.Mode":"enforce"},"check":true}' | js "sys.exit(0 if d['ok'] else 1)" || fail "set check"
+agctl dm get Device.X_AIGW_.Mode | grep -q '= advise' || fail "a set with check must change nothing"
 
 echo "== who asks: alert details and actions"
 "$UBUS" -s "$AIGW_UBUS" listen ag.dm.event > "$T/events.log" 2>&1 & L=$!; PIDS="$PIDS $L"

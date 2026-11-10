@@ -36,6 +36,13 @@ if [ "${AIGW_USP:-0}" = 1 ]; then
 	install -m 0755 "$OBUSPA_SRC/obuspa" "$PREFIX/sbin/obuspa"
 	USP_OPT="-DAIGW_OBUSPA_SRC=$OBUSPA_SRC"
 fi
+if [ "${AIGW_CWMP:-0}" = 1 ]; then
+	step "Building icwmp (management by TR-069)"
+	apt-get install -y -qq --no-install-recommends libcurl4-openssl-dev libmxml-dev uuid-dev libssl-dev \
+		zlib1g-dev >/dev/null
+	ICWMPD=$(sh "$REPO/scripts/build-icwmp.sh" "${ICWMP_DIR:-/usr/local/src/icwmp}" | tail -1)
+	install -m 0755 "$ICWMPD" "$PREFIX/sbin/icwmpd"
+fi
 
 step "Building AIGW"
 cmake -S "$REPO" -B "$BUILD" -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release $USP_OPT >/dev/null
@@ -80,7 +87,7 @@ if [ -d /run/systemd/system ]; then
 	done
 	systemctl daemon-reload
 	# pick up new binaries and permission files if AIGW is already running
-	for s in aigw-ubusd aigw-agd aigw-agdns aigw-usp; do
+	for s in aigw-ubusd aigw-agd aigw-agdns aigw-usp aigw-cwmp; do
 		systemctl try-restart "$s" 2>/dev/null || true
 	done
 else

@@ -56,7 +56,8 @@ fi
 
 cd "$SDK_DIR"
 # the base feed (libubox, ubus, uci, json-c, openssl, zlib) plus this repository;
-# with USP=1 (default) also the packages feed, for obuspa's libmosquitto and sqlite3
+# with USP=1 (default: management by an ISP, USP and TR-069) also the packages
+# feed, for obuspa's libmosquitto and sqlite3 and icwmp's libcurl and libmxml
 # 24.10: "src-git base URL"   25.12+: "src-git --root=package base URL"
 USP=${USP:-1}
 FEEDS="base"
@@ -79,7 +80,7 @@ UPDATE="aigw"
 DEPS=$(sed -n 's/^[[:space:]]*DEPENDS:=//p' "$REPO/platform/openwrt/aigw/Makefile" |
 	tr ' ' '\n' | sed -n 's/^+//p' | grep -v '^kmod-' | tr '\n' ' ')
 PKGS="aigw"
-[ "$USP" = 1 ] && PKGS="aigw openssl zlib mosquitto sqlite3 obuspa aigw-usp"
+[ "$USP" = 1 ] && PKGS="aigw openssl zlib mosquitto sqlite3 obuspa aigw-usp curl mxml util-linux icwmp"
 if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install $DEPS $PKGS; } > "$LOG" 2>&1; then
 	tail -40 "$LOG" >&2
 	die "feeds setup failed (full log: $LOG)"
@@ -88,11 +89,11 @@ fi
 echo "==> building"
 make defconfig > /dev/null 2>&1
 BUILD="aigw"
-[ "$USP" = 1 ] && BUILD="aigw obuspa aigw-usp"
+[ "$USP" = 1 ] && BUILD="icwmp aigw obuspa aigw-usp"
 for p in $BUILD; do
 	# the SDK copies sources once per version: start clean so every change is built
-	# (obuspa is pinned: its build is kept)
-	[ "$p" = obuspa ] || make "package/$p/clean" > /dev/null 2>&1 || true
+	# (obuspa and icwmp are pinned: their builds are kept)
+	case $p in obuspa|icwmp) ;; *) make "package/$p/clean" > /dev/null 2>&1 || true ;; esac
 	echo "    $p"
 	if ! make "package/$p/compile" -j"$(nproc)" > "$CACHE/build-$VERSION-$p.log" 2>&1; then
 		make "package/$p/compile" V=s -j1 2>&1 | tail -60
@@ -104,6 +105,7 @@ ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"/\1/p' .config)
 OUT="$REPO/dist/openwrt/$VERSION/$ARCH"
 mkdir -p "$OUT"
 find bin/packages -type f \( -name 'aigw*.ipk' -o -name 'aigw*.apk' -o -name 'luci-app-aigw*.ipk' \
-	-o -name 'luci-app-aigw*.apk' -o -name 'obuspa*.ipk' -o -name 'obuspa*.apk' \) -exec cp {} "$OUT/" \;
+	-o -name 'luci-app-aigw*.apk' -o -name 'obuspa*.ipk' -o -name 'obuspa*.apk' \
+	-o -name 'icwmp*.ipk' -o -name 'icwmp*.apk' \) -exec cp {} "$OUT/" \;
 echo "==> done:"
 ls -l "$OUT"

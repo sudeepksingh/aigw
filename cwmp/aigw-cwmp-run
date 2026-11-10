@@ -1,0 +1,104 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# aigw-cwmp-run: the TR-069 client, icwmp (unmodified), with AIGW OS's data
+# model daemon (aigw-cwmp-dm), configured from the 'cwmp' section of
+# /etc/config/aigw.
+#
+# icwmp reads its own config, /etc/config/cwmp: the options AIGW manages are
+# written into it at every start, the rest (the ParameterKey an ACS set, its
+# notification settings) is icwmp's. When an ACS changes its own settings
+# (Device.ManagementServer.*), aigw-cwmp-dm saves them in both places.
+#
+#   aigw-cwmp-run            run in the foreground (procd / systemd)
+#   aigw-cwmp-run --print    print the icwmp settings it would use
+set -eu
+
+UCI="uci -q"
+[ -n "${AIGW_UCI_CONFDIR:-}" ] && UCI="uci -q -c $AIGW_UCI_CONFDIR"
+CUCI="uci -q"
+[ -n "${AIGW_CWMP_CONFDIR:-}" ] && CUCI="uci -q -c $AIGW_CWMP_CONFDIR"
+CONFDIR=${AIGW_CWMP_CONFDIR:-/etc/config}
+get() { v=$($UCI get "aigw.$1" 2>/dev/null || true); [ -n "$v" ] && echo "$v" || echo "$2"; }
+
+DIR=${AIGW_CWMP_DIR:-/var/run/aigw-cwmp}
+ICWMPD=${AIGW_ICWMPD:-$(command -v icwmpd || echo /usr/sbin/icwmpd)}
+DMD=${AIGW_CWMP_DM:-$(command -v aigw-cwmp-dm || echo /usr/sbin/aigw-cwmp-dm)}
+
+URL=$(get cwmp.url "")
+LEVEL=$(get cwmp.log_level INFO)
+
+if [ "$(get mgmt.enabled 0)" != 1 ] && [ "${1:-}" != --print ]; then
+	echo "aigw-cwmp: management by an ISP is off (uci set aigw.mgmt.enabled=1 to turn it on)"
+	exit 0
+fi
+if [ -z "$URL" ]; then
+	echo "aigw-cwmp: no ACS set (uci set aigw.cwmp.url=https://acs.example.net:7547/)" >&2
+	exit 1
+fi
+
+# name option value: what icwmp gets
+settings() {
+	echo "acs url $URL"
+	echo "acs userid $(get cwmp.username "")"
+	echo "acs passwd $(get cwmp.password "")"
+	echo "acs periodic_inform_enable $(get cwmp.periodic_enable 1)"
+	echo "acs periodic_inform_interval $(get cwmp.periodic_interval 86400)"
+	echo "acs ssl_capath $(get cwmp.ca_file /etc/ssl/certs/ca-certificates.crt)"
+	echo "acs insecure_enable $(get cwmp.insecure 0)"
+	echo "acs dhcp_discovery 0"
+	echo "cpe enable 1"
+	echo "cpe default_wan_interface $(get cwmp.wan wan)"
+	echo "cpe port $(get cwmp.port 7547)"
+	echo "cpe userid $(get cwmp.cr_username "")"
+	echo "cpe passwd $(get cwmp.cr_password "")"
+	echo "cpe provisioning_code $(get cwmp.provisioning_code "")"
+	echo "cpe instance_mode InstanceNumber"
+	echo "cpe log_to_console 1"
+	echo "cpe log_to_file 0"
+	echo "cpe log_severity $LEVEL"
+	echo "cpe periodic_notify_enable 1"
+	echo "cpe periodic_notify_interval $(get cwmp.notify_interval 5)"
+	echo "cpe custom_notify_json $DIR/notify.json"
+	echo "lwn enable 0"
+}
+
+if [ "${1:-}" = --print ]; then
+	settings | sed -E 's/^(acs passwd|cpe passwd) .+/\1 ***/'
+	exit 0
+fi
+[ -x "$ICWMPD" ] || { echo "aigw-cwmp: icwmpd not found ($ICWMPD)" >&2; exit 1; }
+[ -x "$DMD" ] || { echo "aigw-cwmp: aigw-cwmp-dm not found ($DMD)" >&2; exit 1; }
+
+umask 077
+mkdir -p "$DIR" "$CONFDIR"
+[ -f "$CONFDIR/cwmp" ] || : > "$CONFDIR/cwmp"
+for s in acs cpe lwn; do
+	$CUCI get "cwmp.$s" >/dev/null 2>&1 || $CUCI set "cwmp.$s=$s"
+done
+settings | while read -r sec opt val; do
+	$CUCI set "cwmp.$sec.$opt=$val"
+done
+$CUCI commit cwmp
+
+# agd's events reach the ACS as an active notification on LastEvent.Count
+cat > "$DIR/notify.json" <<EOF
+{ "custom_notification": [ { "parameter": "Device.X_AIGW_.LastEvent.Count", "notify_type": "2" } ] }
+EOF
+
+DMPID=
+cleanup() { [ -n "$DMPID" ] && kill "$DMPID" 2>/dev/null; [ -n "${CWPID:-}" ] && kill "$CWPID" 2>/dev/null; true; }
+trap cleanup EXIT INT TERM
+
+"$DMD" & DMPID=$!
+# icwmp waits for the bbfdm object, but give the data model a moment first
+i=0
+while [ $i -lt 50 ] && ! ubus ${AIGW_UBUS:+-s "$AIGW_UBUS"} list bbfdm >/dev/null 2>&1; do
+	kill -0 "$DMPID" 2>/dev/null || { echo "aigw-cwmp: aigw-cwmp-dm stopped" >&2; exit 1; }
+	i=$((i + 1)); sleep 0.2
+done
+
+# "1 BOOT" once per boot: the marker lives in /var/run
+set --
+[ -e "$DIR/booted" ] || { set -- -b; : > "$DIR/booted"; }
+"$ICWMPD" "$@" & CWPID=$!
+wait "$CWPID" || true

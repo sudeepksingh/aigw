@@ -99,8 +99,9 @@ config baseline 'baseline'
 	option unusual_min_days '7'
 
 config mgmt 'mgmt'
-	# management by an ISP over USP (TR-369; package aigw-usp) or, later,
-	# TR-069: one data model for both (agctl dm get Device.). Off by default.
+	# management by an ISP over USP (TR-369; package aigw-usp) or TR-069
+	# (package aigw-cwmp): one data model for both (agctl dm get Device.).
+	# Off by default.
 	option enabled '0'
 	# may a management system quarantine, block and change act.mode? It may
 	# always read, and approve, reject or undo what AIGW proposes. AIGW's
@@ -108,6 +109,10 @@ config mgmt 'mgmt'
 	option actions '0'
 	# may it see alert subjects and reasons (the names devices looked up)?
 	option alert_details '0'
+	# this gateway's identity for both protocols (DeviceInfo.SerialNumber,
+	# ManufacturerOUI); default: from the machine id, else the LAN MAC
+	# option serial ''
+	# option oui ''
 
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
@@ -121,6 +126,26 @@ config usp 'usp'
 	option controller_id 'self::usp-controller'
 	# option agent_topic '/usp/agent/<agent_id>'
 	option controller_topic '/usp/controller'
+	# option ca_file '/etc/ssl/certs/ca-certificates.crt'
+
+config cwmp 'cwmp'
+	# the ISP's ACS (aigw-cwmp: icwmp with AIGW's data model). An ACS may change
+	# url, username, password and the periodic inform settings itself
+	# (Device.ManagementServer.*): they are saved here.
+	# option url 'https://acs.example.net:7547/'
+	# option username ''
+	# option password ''
+	option periodic_enable '1'
+	option periodic_interval '86400'
+	# connection requests from the ACS: port and credentials
+	option port '7547'
+	# option cr_username ''
+	# option cr_password ''
+	# option provisioning_code ''
+	# the WAN interface (netifd name) the ACS is reached through; on a PC,
+	# also its device (there is no netifd)
+	option wan 'wan'
+	# option wan_device 'eth0'
 	# option ca_file '/etc/ssl/certs/ca-certificates.crt'
 
 config act 'act'

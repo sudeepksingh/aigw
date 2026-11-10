@@ -38,7 +38,7 @@
 
 #include "agd.h"
 
-#define DM_VERSION "1.0"
+#define DM_VERSION "1.1"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -242,6 +242,71 @@ GET(g_model) { (void)c; snprintf(buf, n, "AIGW OS on %s", cfg.host); return 0; }
 GET(g_product) { (void)c; snprintf(buf, n, "AIGW OS gateway"); return 0; }
 GET(g_swver) { (void)c; snprintf(buf, n, "%s", AG_VERSION); return 0; }
 GET(g_dmver) { (void)c; snprintf(buf, n, "%s", DM_VERSION); return 0; }
+
+/* the first LAN interface's MAC, as 12 upper-case hex digits ("" when none) */
+static void lan_mac(char *out, size_t n)
+{
+	char ifc[64] = "", path[128], mac[32] = "";
+	FILE *f;
+	size_t i, j = 0;
+
+	sscanf(cfg.lan_ifaces, "%63s", ifc);
+	out[0] = '\0';
+	if (!ifc[0])
+		return;
+	snprintf(path, sizeof(path), "/sys/class/net/%s/address", ifc);
+	if (!(f = fopen(path, "r")))
+		return;
+	if (!fgets(mac, sizeof(mac), f))
+		mac[0] = '\0';
+	fclose(f);
+	for (i = 0; mac[i] && j + 1 < n; i++)
+		if (isxdigit((unsigned char)mac[i]))
+			out[j++] = (char)toupper((unsigned char)mac[i]);
+	out[j] = '\0';
+	if (j != 12 || !strcmp(out, "000000000000"))
+		out[0] = '\0';
+}
+
+/* identity for USP and TR-069 alike: set, else the machine id, else the LAN MAC */
+GET(g_serial)
+{
+	char id[40] = "";
+	FILE *f;
+
+	(void)c;
+	if (cfg.mgmt_serial[0]) {
+		snprintf(buf, n, "%s", cfg.mgmt_serial);
+		return 0;
+	}
+	if ((f = fopen("/etc/machine-id", "r"))) {
+		if (!fgets(id, sizeof(id), f))
+			id[0] = '\0';
+		fclose(f);
+		id[strcspn(id, "\r\n")] = '\0';
+	}
+	if (strlen(id) >= 12) {
+		snprintf(buf, n, "%.12s", id);
+		return 0;
+	}
+	lan_mac(id, sizeof(id));
+	snprintf(buf, n, "%s", id[0] ? id : "AIGW0000000000");
+	return 0;
+}
+
+GET(g_oui)
+{
+	char mac[16];
+
+	(void)c;
+	if (cfg.mgmt_oui[0]) {
+		snprintf(buf, n, "%s", cfg.mgmt_oui);
+		return 0;
+	}
+	lan_mac(mac, sizeof(mac));
+	snprintf(buf, n, "%.6s", mac[0] ? mac : "000000");
+	return 0;
+}
 GET(g_uptime)
 {
 	double up = 0;
@@ -459,6 +524,8 @@ static const struct dm_param {
 	{ "Device.DeviceInfo.Manufacturer", T_STR, 0, TB_NONE, g_manufacturer, NULL },
 	{ "Device.DeviceInfo.ModelName", T_STR, 0, TB_NONE, g_model, NULL },
 	{ "Device.DeviceInfo.ProductClass", T_STR, 0, TB_NONE, g_product, NULL },
+	{ "Device.DeviceInfo.ManufacturerOUI", T_STR, 0, TB_NONE, g_oui, NULL },
+	{ "Device.DeviceInfo.SerialNumber", T_STR, 0, TB_NONE, g_serial, NULL },
 	{ "Device.DeviceInfo.SoftwareVersion", T_STR, 0, TB_NONE, g_swver, NULL },
 	{ "Device.DeviceInfo.UpTime", T_UINT, 0, TB_NONE, g_uptime, NULL },
 	{ "Device.DeviceInfo.X_AIGW_DataModelVersion", T_STR, 0, TB_NONE, g_dmver, NULL },
@@ -818,7 +885,7 @@ static int m_schema(struct ubus_context *ctx, struct ubus_object *obj, struct ub
 	return ubus_send_reply(ctx, req, b.head);
 }
 
-enum { P_PATH, P_PATHS, P_PARAMS, P_COMMAND, P_ARGS, P_ORIGIN, __P_MAX };
+enum { P_PATH, P_PATHS, P_PARAMS, P_COMMAND, P_ARGS, P_ORIGIN, P_CHECK, __P_MAX };
 static const struct blobmsg_policy p_policy[__P_MAX] = {
 	[P_PATH] = { "path", BLOBMSG_TYPE_STRING },
 	[P_PATHS] = { "paths", BLOBMSG_TYPE_ARRAY },
@@ -826,6 +893,7 @@ static const struct blobmsg_policy p_policy[__P_MAX] = {
 	[P_COMMAND] = { "command", BLOBMSG_TYPE_STRING },
 	[P_ARGS] = { "args", BLOBMSG_TYPE_TABLE },
 	[P_ORIGIN] = { "origin", BLOBMSG_TYPE_STRING },
+	[P_CHECK] = { "check", BLOBMSG_TYPE_BOOL },
 };
 
 static int m_instances(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
@@ -961,16 +1029,18 @@ static int m_set(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_
 	struct blob_attr *tb[__P_MAX], *cur;
 	size_t rem;
 	void *t;
-	int pass, bad = 0;
+	int pass, passes, bad = 0;
 
 	blobmsg_parse(p_policy, __P_MAX, tb, blob_data(msg), blob_len(msg));
 	if (!tb[P_PARAMS])
 		return UBUS_STATUS_INVALID_ARGUMENT;
 	set_origin(tb[P_ORIGIN]);
+	/* "check": only say whether the values would be taken (TR-069 sets one value at a time, then commits) */
+	passes = tb[P_CHECK] && blobmsg_get_bool(tb[P_CHECK]) ? 1 : 2;
 	blob_buf_init(&b, 0);
 	t = blobmsg_open_table(&b, "errors");
 	/* pass 0 checks every value, pass 1 applies them: all or nothing */
-	for (pass = 0; pass < 2 && !bad; pass++)
+	for (pass = 0; pass < passes && !bad; pass++)
 		blobmsg_for_each_attr(cur, tb[P_PARAMS], rem) {
 			const char *q = blobmsg_name(cur);
 			const char *v = blobmsg_type(cur) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(cur) : NULL;

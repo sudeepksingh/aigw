@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.18.0 LANGUAGES C)
+project(aigw VERSION 0.19.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -54,6 +54,9 @@ set(AIGW_OBUSPA_SRC "" CACHE PATH "obuspa source tree: build the aigw-usp plug-i
 if(AIGW_OBUSPA_SRC)
   add_subdirectory(usp)
 endif()
+
+# TR-069: the data model daemon for icwmp (needs nothing from icwmp to build)
+add_subdirectory(cwmp)
 
 install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)

@@ -813,7 +813,7 @@ Limits: a generator that makes fewer than 8 attempts in 10 minutes (slow, or mos
 
 | Piece | As built |
 |-------|----------|
-| Data layer (`agd/dm.c`, ubus `ag.dm`) | A table of TR-181 paths (at most one `{i}` each), with type, flags (writable, notify), table and getter / setter; commands with inputs, outputs and a handler; events with arguments. Calls: `schema`, `instances`, `get` (a path ending in `.` is the whole subtree; unknown paths and gone instances under `errors`), `set` (every value checked, then all applied, or none), `operate`; event `ag.dm.event`. Protocol-neutral error codes. 54 parameters, 5 commands, 2 events in version 1.0. |
+| Data layer (`agd/dm.c`, ubus `ag.dm`) | A table of TR-181 paths (at most one `{i}` each), with type, flags (writable, notify), table and getter / setter; commands with inputs, outputs and a handler; events with arguments. Calls: `schema`, `instances`, `get` (a path ending in `.` is the whole subtree; unknown paths and gone instances under `errors`), `set` (every value checked, then all applied, or none), `operate`; event `ag.dm.event`. Protocol-neutral error codes. 54 parameters, 5 commands, 2 events in version 1.0 (56 parameters in 1.1, v0.19). |
 | Instance numbers | Devices from their MAC, access points from their interface, saved with the state (`dm_instances`) and never reused; alerts and decisions use their ids. The same `Device.Hosts.Host.3` for every protocol and after a restart. |
 | Who may do what | `origin` `local` (agctl) or the adapter's (`usp`). A management system may read, and approve / reject / undo decisions; quarantine, block and `Mode` need `mgmt.actions 1`; alert subjects and reasons and blocked domains need `mgmt.alert_details 1`. Actions go through `act_request` / `act_approve` / `act_reject` / `act_revert`, so every guardrail holds; decisions record who (`approved by usp`). `Mode` is saved in `/etc/config/aigw` (`ag_config_set`). |
 | USP adapter (`usp/aigw_usp.c`, package `aigw-usp`) | A plug-in for an unmodified OB-USP-Agent v11.0.7 (`obuspa -x aigw-usp.so`; BSD-3-Clause, the Broadband Forum's reference agent, used by prplWare and RDK-B). At start it reads `ag.dm schema` and registers every path in one group of vendor hooks: get / set / refresh-instances (5 s) / operate become `ag.dm` calls on the agent's thread; its own thread follows `ag.dm.event` and signals USP events. The agent's DeviceInfo stays its own, with `SoftwareVersion` from agd. `aigw-usp-run` writes the agent's settings (MQTT 5 client, controller, topics, TLS) from the `usp` section and rebuilds its database when they change. |
@@ -822,7 +822,42 @@ Limits: a generator that makes fewer than 8 attempts in 10 minutes (slow, or mos
 
 Verified by `tests/dm-test.sh` (the layer alone: schema and XML, subtrees, errors, all-or-nothing set, read-only and invalid values, what a management system may see and do, the `Alert!` event without the name, instance numbers kept and never reused) and `tests/usp-test.sh` (a USP controller in Python over MQTT 5 with the Broadband Forum's message definitions, OB-USP-Agent and the plug-in, in network namespaces): it reads the software version and the devices and lists the commands and events; an alert reaches it as `Device.X_AIGW_.Alert!` without the name; it approves the quarantine AIGW proposed (the laptop's MAC lands in the nft set) and undoes it; with `mgmt.actions 0` quarantine and mode changes are refused (USP 7022, 7006); after an agd restart with `mgmt.actions 1` and alert details on, it sees the name, blocks a domain, sets enforce mode (saved), is refused a protected TV, and the devices keep their numbers.
 
-Not done yet: TR-069 (v0.19, on the same layer: a trial of icwmp and easycwmp, then the adapter, tested against an ACS); writable Wi-Fi settings, firmware upgrade and WebSocket transport over USP; the final vendor prefix (`X_AIGW_` is provisional: TR-106 wants an OUI or a domain); the USP test inside OpenWRT in QEMU.
+Not done yet: writable Wi-Fi settings, firmware upgrade and WebSocket transport over USP; the final vendor prefix (`X_AIGW_` is provisional: TR-106 wants an OUI or a domain); the USP test inside OpenWRT in QEMU.
+
+**As built in v0.19: managed over TR-069 too, on the same data layer.** Trial result:
+
+- **icwmp** (iopsys; BSD-3-Clause; maintained; standard OpenWRT libraries only) gets its whole data model through one ubus object.
+- **easycwmp** is GPLv2, unchanged since 2019, and its data model is shell scripts.
+
+So icwmp runs unmodified, and a small AIGW daemon answers it.
+
+| Piece | As built |
+|-------|----------|
+| Data model daemon (`cwmp/aigw_cwmp.c`, `aigw-cwmp-dm`) | Publishes the ubus objects icwmp asks: `bbfdm` (`get`, `schema`, `set`, `add`, `del`, `operate`) and `bbf.config` (`commit`, `revert`). Normally bbfdmd serves these. Paths, values and types come from `ag.dm` with origin `acs`. GetParameterNames is built from the schema and `instances`, with `NextLevel` and USP-style templates (icwmp asks for those too). A SetParameterValues is checked value by value (`ag.dm set` with `check`, new) and applied in one `ag.dm set` at commit, or dropped at revert. CWMP fault codes are 9001 / 9003 / 9005 / 9007 / 9008. |
+| What only TR-069 has | Kept in the daemon, not in agd. `Device.ManagementServer.*`: values in icwmp's `/etc/config/cwmp`; changes by the ACS also saved in `/etc/config/aigw` and followed by an icwmp reload. Also `RootDataModelVersion` and `ProvisioningCode`. `Device.X_AIGW_.Request.`: `Command` (a command's name or path), its inputs, `Status`, `Message` and its outputs, made from the schema's commands; it runs at commit. `Device.X_AIGW_.LastEvent.`: `Name`, `Time`, `Count` and the events' arguments; `Count` has active notification from the start, so alerts reach the ACS as `4 VALUE CHANGE`. On a PC it also answers `network.interface.<wan> status`. |
+| Identity | `DeviceInfo.SerialNumber` and `ManufacturerOUI` are now in agd (data model 1.1): `mgmt.serial` / `mgmt.oui`, else the machine id and the LAN MAC. icwmp's DeviceId and the USP agent (`USP_BOARD_SERIAL`, `USP_BOARD_OUI`) both use them. |
+| Packages | `icwmp`: the client only, pinned commit, unmodified; `scripts/build-icwmp.sh` for a PC. `aigw-cwmp`: the daemon, `aigw-cwmp-run` (writes the AIGW-managed options into icwmp's config; `1 BOOT` once per boot), and a procd service. The service starts only with `mgmt.enabled 1` and an ACS URL, and allows the connection request port from the WAN zone. On a PC: `AIGW_CWMP=1 install.sh`, systemd `aigw-cwmp`. |
+
+Verified by `tests/cwmp-test.sh`, in network namespaces with an ACS on the WAN side.
+- **Part 1** asks the daemon the way icwmp asks it:
+  - values and types, the identity, and the `ConnectionRequestURL`;
+  - names with `NextLevel`, instances and templates;
+  - faults 9001 / 9005 / 9007 / 9008;
+  - a write applied at commit and dropped at revert, saved in both configs;
+  - `LastEvent.` without the name;
+  - a quarantine refused with `mgmt.actions 0`;
+  - an approved decision that lands in nft and is undone, recorded as "by acs".
+- **Part 2** runs icwmp against a Python ACS (`tests/cwmp/acs.py`, SOAP over HTTP, connection requests with digest auth):
+  - the boot Inform's DeviceId and parameters come from agd;
+  - GetParameterValues and GetParameterNames work;
+  - a SetParameterValues on `Mode` fails with 9003 and 9001 for the parameter;
+  - a refused command shows in `Request.Status`;
+  - `ParameterKey` and the Inform interval change, the interval saved;
+  - a new alert comes as `4 VALUE CHANGE`;
+  - the ACS approves the proposed quarantine, and it lands in nft.
+- icwmp's fixed paths are private to the test (overlays in a mount namespace).
+
+Not done yet: TR-069 Download (firmware) and other RPCs beyond the data model; client certificates in `/etc/config/aigw`; the TR-069 test inside OpenWRT in QEMU.
 
 ---
 

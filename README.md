@@ -46,13 +46,19 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.19:** **managed over TR-069 too**, the protocol most ISPs' ACSs still
+> speak. iopsys's icwmp client runs unmodified, and a small AIGW daemon serves it
+> the same data model USP controllers get. An ACS sees the same devices, approves
+> decisions, quarantines or blocks (as `SetParameterValues`, since CWMP has no
+> commands), and gets alerts as active notifications. One data layer serves both
+> protocols, so the home's rules apply alike, and both can run side by side.
+>
 > **v0.18:** **managed by your ISP over USP (TR-369)**, the protocol operators
 > use for prplOS and RDK-B gateways. The ISP's USP controller talks to the
 > Broadband Forum's own OB-USP-Agent, which serves AIGW OS's data model through
 > a plug-in. The ISP sees devices, alerts and decisions, approves AIGW OS's
 > proposals, and gets alerts as USP events. How much it may do, and see, is the
-> home's choice, and the guardrails always hold. TR-069 will use the same data
-> layer in v0.19.
+> home's choice, and the guardrails always hold.
 >
 > **v0.17:** malware hunting for its control server is caught by **behaviour**,
 > whatever its generated names look like. AIGW remembers every site that works
@@ -419,12 +425,16 @@ Plug-ins signed with a key the gateway trusts (`python3 -m aigw_cortex
 sign-plugin <folder>`, or usign) get their privileged capabilities without
 `agctl plugin allow`. Changing any file in the folder takes that trust away.
 
-## Managed by your ISP: USP (TR-369)
+## Managed by your ISP: USP (TR-369) and TR-069
 
-An ISP can manage AIGW OS with the USP controller it already runs. It goes through
-the Broadband Forum's own agent, OB-USP-Agent, the one prplWare and RDK-B use,
-running unmodified with AIGW OS's data model plug-in, `aigw-usp`. There is one
-data model, in `agd`, and TR-069 will use the same one in v0.19. It includes:
+An ISP can manage AIGW OS with the system it already runs:
+- **A USP controller** goes through the Broadband Forum's own agent,
+  OB-USP-Agent, the one prplWare and RDK-B use. It runs unmodified with AIGW
+  OS's data model plug-in, `aigw-usp`.
+- **A TR-069 ACS** goes through iopsys's icwmp client. It also runs unmodified,
+  with AIGW OS's data model daemon, `aigw-cwmp`.
+
+There is one data model, in `agd`, for both. It includes:
 
 - the standard TR-181 `Device.Hosts.Host` objects, with AIGW OS's own fields
   (type, zone, rates);
@@ -433,12 +443,21 @@ data model, in `agd`, and TR-069 will use the same one in v0.19. It includes:
   undo, `Quarantine()` and `Block()`, and the events `Alert!` and
   `DecisionChanged!`.
 
+Over TR-069, which has no commands or events, AIGW OS adds two things:
+- `Device.X_AIGW_.Request.` takes a command and its inputs in one
+  SetParameterValues, and reports the result.
+- `Device.X_AIGW_.LastEvent.` turns alerts into active notifications.
+
 It's off by default:
 
 ```sh
-opkg install aigw-usp
+opkg install aigw-usp            # USP
 uci set aigw.mgmt.enabled=1; uci set aigw.usp.broker=<the ISP's MQTT broker>; uci commit aigw
 /etc/init.d/aigw-usp start
+
+opkg install aigw-cwmp           # TR-069
+uci set aigw.mgmt.enabled=1; uci set aigw.cwmp.url=<the ISP's ACS>; uci commit aigw
+/etc/init.d/aigw-cwmp start
 ```
 
 The home decides how much the ISP may do, and those rules are enforced in
