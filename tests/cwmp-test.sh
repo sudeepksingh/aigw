@@ -192,6 +192,14 @@ bb get '{"path":"Device.DeviceInfo.UpTime"}' | js "sys.exit(0 if d['results'][0]
 [ -z "$(val Device.ManagementServer.Password)" ] || fail "passwords must read as empty"
 "$UBUS" -s "$AIGW_UBUS" call network.interface.wan status | js "sys.exit(0 if d['l3_device'] == 'wan0' else 1)" ||
 	fail "network.interface.wan (no netifd on a PC)"
+# every parameter icwmp puts in each Inform must answer: one fault there makes
+# icwmp fail the rest of that Inform
+for p in Device.RootDataModelVersion Device.DeviceInfo.HardwareVersion Device.DeviceInfo.SoftwareVersion \
+	Device.DeviceInfo.ProvisioningCode Device.ManagementServer.ParameterKey \
+	Device.ManagementServer.ConnectionRequestURL Device.ManagementServer.AliasBasedAddressing \
+	Device.DeviceInfo.Manufacturer Device.DeviceInfo.SerialNumber Device.DeviceInfo.ProductClass Device.DeviceInfo.ManufacturerOUI; do
+	val "$p" | grep -q '^FAULT' && fail "$p, which icwmp's Inform needs, is missing"
+done
 bb get '{"path":"Device.Nope.Nothing"}' | js "sys.exit(0 if d['results'][0]['fault'] == 9005 else 1)" || fail "unknown path: 9005"
 bb get '{"path":"Device."}' | js "
 p = {r['path'] for r in d['results']}

@@ -327,7 +327,7 @@ static int resolve_cmd(const char *v, char *path, size_t n)
 
 /* ---------- this adapter's own parameters ---------- */
 
-enum { K_UCI, K_FIXED, K_CRURL, K_PKEY, K_REQ_CMD, K_REQ_IN, K_REQ_OUT, K_REQ_STATUS, K_REQ_MSG,
+enum { K_UCI, K_FIXED, K_CRURL, K_PKEY, K_HWVER, K_REQ_CMD, K_REQ_IN, K_REQ_OUT, K_REQ_STATUS, K_REQ_MSG,
        K_EV_NAME, K_EV_TIME, K_EV_COUNT, K_EV_ARG };
 enum { V_STR, V_BOOL, V_UINT, V_URL };
 
@@ -407,6 +407,9 @@ static void lp_init(void)
 
 	nlp = 0;
 	lp_fixed("Device.RootDataModelVersion", "string", "2.18");
+	/* every parameter icwmp puts in each Inform must exist: one that fails makes
+	   it fail the ones after it in the same Inform */
+	lp_add("Device.DeviceInfo.HardwareVersion", "string", 0, K_HWVER);
 	lp_uci("Device.DeviceInfo.ProvisioningCode", "string", 1, "cpe", "provisioning_code", "provisioning_code", "", V_STR, 0);
 	lp_uci("Device.ManagementServer.URL", "string", 1, "acs", "url", "url", "", V_URL, 0);
 	lp_uci("Device.ManagementServer.Username", "string", 1, "acs", "userid", "username", "", V_STR, 0);
@@ -518,6 +521,21 @@ static void lp_value(const struct lparam *p, char *buf, size_t n)
 	case K_PKEY:
 		uci_get_opt(cwmp_confdir, "cwmp", "cpe", "ParameterKey", buf, n);
 		return;
+	case K_HWVER: {
+		/* the board: OpenWRT's model name, else the PC's */
+		static const char *const src[] = { "/tmp/sysinfo/model", "/sys/class/dmi/id/product_name", NULL };
+		FILE *f;
+		int i;
+
+		for (i = 0; src[i] && !buf[0]; i++)
+			if ((f = fopen(src[i], "r"))) {
+				if (!fgets(buf, (int)n, f))
+					buf[0] = '\0';
+				fclose(f);
+				buf[strcspn(buf, "\r\n")] = '\0';
+			}
+		return;
+	}
 	case K_CRURL:
 		wan_device(dev, sizeof(dev));
 		if (ipv4_of(dev, ip, sizeof(ip), NULL) < 0)

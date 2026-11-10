@@ -41,9 +41,12 @@ CMAKE_OPTIONS += -DBBF_VENDOR_PREFIX=X_AIGW_
 TARGET_CFLAGS += -Wno-error=unused-result -Wno-error=format-truncation -Wno-error=unused-function \
 	-Wno-error=stringop-truncation -Wno-error=format-overflow -Wno-error=deprecated-declarations
 
-# only the client: its data model plug-in for bbfdm (bbf_plugin) is not needed
-define Build/Compile
-	$(call Build/Compile/Default,icwmpd)
+# only the client: its data model plug-in for bbfdm (bbf_plugin, which needs
+# libbbfdm-api) is not needed. The top-level CMakeLists.txt is kept for its
+# cmake_minimum_required (CMake 4 in OpenWRT 25.12 insists on it).
+define Build/Prepare
+	$(call Build/Prepare/Default)
+	$(SED) '/add_subdirectory(bbf_plugin)/d' $(PKG_BUILD_DIR)/CMakeLists.txt
 endef
 
 # icwmp's build copies the binary to the top of its source tree
