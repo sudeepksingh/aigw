@@ -57,7 +57,8 @@ fi
 cd "$SDK_DIR"
 # the base feed (libubox, ubus, uci, json-c, openssl, zlib) plus this repository;
 # with USP=1 (default: management by an ISP, USP and TR-069) also the packages
-# feed, for obuspa's libmosquitto and sqlite3 and icwmp's libcurl and libmxml
+# feed, for obuspa's libmosquitto and sqlite3 and icwmp's libcurl and mxml
+# (25.12 dropped mxml: AIGW's feed has a copy, platform/openwrt/mxml)
 # 24.10: "src-git base URL"   25.12+: "src-git --root=package base URL"
 USP=${USP:-1}
 FEEDS="base"
@@ -106,6 +107,6 @@ OUT="$REPO/dist/openwrt/$VERSION/$ARCH"
 mkdir -p "$OUT"
 find bin/packages -type f \( -name 'aigw*.ipk' -o -name 'aigw*.apk' -o -name 'luci-app-aigw*.ipk' \
 	-o -name 'luci-app-aigw*.apk' -o -name 'obuspa*.ipk' -o -name 'obuspa*.apk' \
-	-o -name 'icwmp*.ipk' -o -name 'icwmp*.apk' \) -exec cp {} "$OUT/" \;
+	-o -name 'icwmp*.ipk' -o -name 'icwmp*.apk' -o -name 'mxml*.apk' \) -exec cp {} "$OUT/" \;
 echo "==> done:"
 ls -l "$OUT"

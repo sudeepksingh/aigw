@@ -29,7 +29,7 @@ define Package/icwmp
   CATEGORY:=Network
   TITLE:=icwmp: iopsys's TR-069 (CWMP) client
   URL:=https://dev.iopsys.eu/bbf/icwmp
-  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libjson-c +libcurl +libmxml +libuuid +libopenssl +zlib
+  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libjson-c +libcurl +mxml +libuuid +libopenssl +zlib
 endef
 
 define Package/icwmp/description
@@ -37,7 +37,7 @@ define Package/icwmp/description
   AIGW OS through it.
 endef
 
-CMAKE_OPTIONS += -DBBF_VENDOR_PREFIX=X_AIGW_
+# (BBF_VENDOR_PREFIX is left empty: it only names vendor firmware file types, which AIGW doesn't use)
 # icwmp builds with -Werror; these warnings depend on the compiler and libc, not on icwmp
 TARGET_CFLAGS += -Wno-error=unused-result -Wno-error=format-truncation -Wno-error=unused-function \
 	-Wno-error=stringop-truncation -Wno-error=format-overflow -Wno-error=deprecated-declarations

@@ -42,7 +42,7 @@ uci commit aigw
 TR-069:
 
 ```sh
-opkg install aigw-cwmp           # pulls icwmp, libcurl, libmxml
+opkg install aigw-cwmp           # pulls icwmp, libcurl, mxml (on 25.12: mxml's apk from AIGW's release)
 uci set aigw.mgmt.enabled=1
 uci set aigw.cwmp.url=https://acs.example.net:7547/
 uci set aigw.cwmp.cr_username=cr; uci set aigw.cwmp.cr_password='<secret>'   # connection requests

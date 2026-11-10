@@ -37,7 +37,8 @@ if [ "$(git rev-parse HEAD)" != "$COMMIT" ]; then
 	rm -rf build
 fi
 if [ ! -x build/icwmpd ]; then
-	cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DBBF_VENDOR_PREFIX=X_AIGW_ \
+	# BBF_VENDOR_PREFIX stays empty: it only names vendor firmware file types
+	cmake -S src -B build -DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_C_FLAGS="$NOERR -I/usr/local/include" -DCMAKE_EXE_LINKER_FLAGS="-L/usr/local/lib" > build.log 2>&1 &&
 	cmake --build build -j"$(nproc)" >> build.log 2>&1 || { tail -30 build.log >&2; die "build failed ($DIR/build.log)"; }
 fi
