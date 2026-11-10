@@ -376,7 +376,8 @@ DEC2=$(python3 - "$T/r2.json" "$PHONE" <<'EOF'
 import json, sys
 v = json.load(open(sys.argv[1]))["results"][0]["values"]
 assert v["Device.X_AIGW_.LastEvent.Subject"] == "", "the name must not reach the ACS"
-d = [k[:-len(".State")] for k, x in v.items() if k.endswith(".State") and x == "proposed" and v[k[:-len("State")] + "Host"] == sys.argv[2]]
+d = [k[:-len(".State")] for k, x in v.items() if k.startswith("Device.X_AIGW_.Decision.") and k.endswith(".State")
+     and x == "proposed" and v[k[:-len("State")] + "Host"] == sys.argv[2]]
 print(d[-1])
 EOF
 ) || fail "second job: $(cat "$T/r2.json")"
