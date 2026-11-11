@@ -17,6 +17,8 @@ jobs:
       - name: Packages
         timeout-minutes: 20
         run: |
+          # GitHub's runners use Azure's Ubuntu mirror; when it can't be resolved, Ubuntu's own
+          getent hosts azure.archive.ubuntu.com >/dev/null || sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
             build-essential cmake pkg-config git libjson-c-dev libnetfilter-conntrack-dev \
@@ -116,6 +118,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Packages
         run: |
+          # GitHub's runners use Azure's Ubuntu mirror; when it can't be resolved, Ubuntu's own
+          getent hosts azure.archive.ubuntu.com >/dev/null || sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential curl rsync unzip file gawk \
             python3 python3-setuptools zstd libncurses-dev
@@ -148,6 +152,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Packages
         run: |
+          # GitHub's runners use Azure's Ubuntu mirror; when it can't be resolved, Ubuntu's own
+          getent hosts azure.archive.ubuntu.com >/dev/null || sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 qemu-system-mips qemu-system-arm \
             curl python3
