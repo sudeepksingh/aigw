@@ -18,6 +18,8 @@
 #   - the boot Inform: DeviceId and parameters from agd
 #   - connection requests; GetParameterValues / Names; SetParameterValues
 #     with faults; commands; an alert as an active notification (4 VALUE CHANGE)
+# All of it under an ISP's own vendor prefix (mgmt.vendor_prefix X_EXAMPLE-COM_),
+# so nothing in the TR-069 path may assume X_AIGW_.
 # Needs root, ip, nft, python3; for part 2 also unshare and overlayfs (icwmp's
 # paths, /etc/config/cwmp, /etc/icwmpd, are private to the test).
 #
@@ -121,6 +123,8 @@ config mgmt 'mgmt'
 	option actions '$1'
 	option alert_details '0'
 	option serial 'AIGWTEST0001'
+	# an ISP's own vendor prefix: every name below is under it
+	option vendor_prefix 'X_EXAMPLE-COM_'
 
 config cwmp 'cwmp'
 	option url 'http://10.98.0.2:7557/'
@@ -203,7 +207,7 @@ done
 bb get '{"path":"Device.Nope.Nothing"}' | js "sys.exit(0 if d['results'][0]['fault'] == 9005 else 1)" || fail "unknown path: 9005"
 bb get '{"path":"Device."}' | js "
 p = {r['path'] for r in d['results']}
-need = {'Device.DeviceInfo.SoftwareVersion', 'Device.ManagementServer.URL', 'Device.X_AIGW_.Mode', 'Device.X_AIGW_.Request.Status'}
+need = {'Device.DeviceInfo.SoftwareVersion', 'Device.ManagementServer.URL', 'Device.X_EXAMPLE-COM_.Mode', 'Device.X_EXAMPLE-COM_.Request.Status'}
 sys.exit(0 if need <= p and len(p) > 40 else 'missing: %s' % (need - p))" || fail "get Device."
 echo "   AIGW OS $want, serial AIGWTEST0001, CR URL http://10.98.0.1:7547/"
 
@@ -212,7 +216,7 @@ bb schema '{"path":"","first_level":true}' | js "sys.exit(0 if [r['path'] for r 
 bb schema '{"path":"Device.","first_level":true}' > "$T/top.json"
 js "
 p = {r['path']: r for r in d['results']}
-need = {'Device.DeviceInfo.', 'Device.Hosts.', 'Device.ManagementServer.', 'Device.X_AIGW_.', 'Device.RootDataModelVersion'}
+need = {'Device.DeviceInfo.', 'Device.Hosts.', 'Device.ManagementServer.', 'Device.X_EXAMPLE-COM_.', 'Device.RootDataModelVersion'}
 deeper = [x for x in p if x.count('.') > 2 or (x.count('.') == 2 and not x.endswith('.'))]
 sys.exit(0 if need <= set(p) and not deeper and p['Device.Hosts.']['type'] == 'xsd:object' else 'got %s' % sorted(p))" < "$T/top.json" ||
 	fail "names: Device. next level"
@@ -224,10 +228,10 @@ host_of() { js "print([r['path'][:-len('.PhysAddress')] for r in d['results'] if
 LAPTOP=$(host_of 02:00:00:00:96:02) || fail "the laptop is not in Device.Hosts.: $(cat "$T/hosts.json")"
 TV=$(host_of 02:00:00:00:96:03)
 PHONE=$(host_of 02:00:00:00:96:04)
-bb schema '{"path":"Device.X_AIGW_.Request.","first_level":true}' > "$T/req.json"
+bb schema '{"path":"Device.X_EXAMPLE-COM_.Request.","first_level":true}' > "$T/req.json"
 js "
 p = {r['path']: r['data'] for r in d['results']}
-r = 'Device.X_AIGW_.Request.'
+r = 'Device.X_EXAMPLE-COM_.Request.'
 sys.exit(0 if p.get(r + 'Command') == '1' and p.get(r + 'Host') == '1' and p.get(r + 'Domain') == '1' and p.get(r + 'Status') == '0' and p.get(r + 'Decision') == '0' else 'got %s' % p)" < "$T/req.json" ||
 	fail "Request. names"
 bb schema '{"path":"Device.Hosts.Host.{i}.","first_level":false,"optional":{"proto":"usp"}}' |
@@ -238,10 +242,10 @@ echo "   devices: laptop $LAPTOP, tv $TV, phone $PHONE"
 echo "== part 1: writes, with CWMP faults"
 [ "$(setv Device.DeviceInfo.SoftwareVersion 9)" = 9008 ] || fail "a read-only parameter: 9008"
 [ "$(setv Device.Nope.Thing 1)" = 9005 ] || fail "an unknown parameter: 9005"
-[ "$(setv Device.X_AIGW_.Mode enforce)" = 9001 ] || fail "Mode with mgmt.actions 0: 9001"
-[ "$(setv Device.X_AIGW_.Mode sometimes)" = 9007 ] || fail "an invalid Mode: 9007"
+[ "$(setv Device.X_EXAMPLE-COM_.Mode enforce)" = 9001 ] || fail "Mode with mgmt.actions 0: 9001"
+[ "$(setv Device.X_EXAMPLE-COM_.Mode sometimes)" = 9007 ] || fail "an invalid Mode: 9007"
 [ "$(setv Device.ManagementServer.PeriodicInformInterval soon)" = 9007 ] || fail "an invalid interval: 9007"
-[ "$(setv Device.X_AIGW_.Request.Command Bogus)" = 9007 ] || fail "an unknown command: 9007"
+[ "$(setv Device.X_EXAMPLE-COM_.Request.Command Bogus)" = 9007 ] || fail "an unknown command: 9007"
 [ "$(setv Device.ManagementServer.PeriodicInformInterval 300)" = ok ] || fail "interval 300"
 revert
 [ "$(val Device.ManagementServer.PeriodicInformInterval)" = 86400 ] || fail "a reverted write must change nothing"
@@ -255,34 +259,34 @@ echo "   faults 9001 9005 9007 9008; PeriodicInformInterval 300 after commit, sa
 echo "== part 1: an alert becomes LastEvent., without the name"
 "$UBUS" -s "$AIGW_UBUS" send ag.dns '{"client":"10.97.0.2","qname":"xkqjzvbwptmr.com","rcode":3}'
 sleep 0.7
-bb get '{"path":"Device.X_AIGW_.LastEvent."}' > "$T/ev.json"
+bb get '{"path":"Device.X_EXAMPLE-COM_.LastEvent."}' > "$T/ev.json"
 # the alert, then (the dga policy) a proposed quarantine: the last event is either
 js "
 v = {r['path'].split('.')[-1]: r['data'] for r in d['results']}
-alert = v['Name'] == 'Device.X_AIGW_.Alert!' and v['Kind'] == 'dga'
-proposal = v['Name'] == 'Device.X_AIGW_.DecisionChanged!' and v['State'] == 'proposed'
+alert = v['Name'] == 'Device.X_EXAMPLE-COM_.Alert!' and v['Kind'] == 'dga'
+proposal = v['Name'] == 'Device.X_EXAMPLE-COM_.DecisionChanged!' and v['State'] == 'proposed'
 sys.exit(0 if int(v['Count']) >= 1 and (alert or proposal) and v['Host'] == '$LAPTOP' and v['Subject'] == '' else 'got %s' % v)" < "$T/ev.json" ||
 	fail "LastEvent."
 echo "   LastEvent: $(js "print(', '.join(r['path'].split('.')[-1] + '=' + r['data'] for r in d['results'] if r['data']))" < "$T/ev.json")"
 
 echo "== part 1: commands as Request."
-[ "$(setv Device.X_AIGW_.Request.Command Quarantine)" = ok ] || fail "Request.Command"
-[ "$(setv Device.X_AIGW_.Request.Host "$LAPTOP")" = ok ] || fail "Request.Host"
+[ "$(setv Device.X_EXAMPLE-COM_.Request.Command Quarantine)" = ok ] || fail "Request.Command"
+[ "$(setv Device.X_EXAMPLE-COM_.Request.Host "$LAPTOP")" = ok ] || fail "Request.Host"
 commit
-[ "$(val Device.X_AIGW_.Request.Status)" = Refused ] || fail "quarantine with mgmt.actions 0: $(val Device.X_AIGW_.Request.Status)"
-val Device.X_AIGW_.Request.Message | grep -q mgmt.actions || fail "the refusal should say why"
-[ -z "$(val Device.X_AIGW_.Request.Host)" ] || fail "inputs are used once"
-bb get '{"path":"Device.X_AIGW_.Decision."}' > "$T/dec.json"
+[ "$(val Device.X_EXAMPLE-COM_.Request.Status)" = Refused ] || fail "quarantine with mgmt.actions 0: $(val Device.X_EXAMPLE-COM_.Request.Status)"
+val Device.X_EXAMPLE-COM_.Request.Message | grep -q mgmt.actions || fail "the refusal should say why"
+[ -z "$(val Device.X_EXAMPLE-COM_.Request.Host)" ] || fail "inputs are used once"
+bb get '{"path":"Device.X_EXAMPLE-COM_.Decision."}' > "$T/dec.json"
 DEC=$(js "print([r['path'][:-len('.State')] for r in d['results'] if r['path'].endswith('.State') and r['data'] == 'proposed'][0])" < "$T/dec.json") ||
 	fail "no proposed decision: $(cat "$T/dec.json")"
-[ "$(setv Device.X_AIGW_.Request.Command "$DEC.Approve()")" = ok ] || fail "Request.Command = $DEC.Approve()"
+[ "$(setv Device.X_EXAMPLE-COM_.Request.Command "$DEC.Approve()")" = ok ] || fail "Request.Command = $DEC.Approve()"
 commit
-[ "$(val Device.X_AIGW_.Request.Status)" = Done ] || fail "approve: $(val Device.X_AIGW_.Request.Status) $(val Device.X_AIGW_.Request.Message)"
-[ "$(val Device.X_AIGW_.Request.State)" = active ] || fail "approve: State $(val Device.X_AIGW_.Request.State)"
+[ "$(val Device.X_EXAMPLE-COM_.Request.Status)" = Done ] || fail "approve: $(val Device.X_EXAMPLE-COM_.Request.Status) $(val Device.X_EXAMPLE-COM_.Request.Message)"
+[ "$(val Device.X_EXAMPLE-COM_.Request.State)" = active ] || fail "approve: State $(val Device.X_EXAMPLE-COM_.Request.State)"
 gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:02' || fail "the laptop should be quarantined in nft"
 agctl -j decisions | js "sys.exit(0 if any('approved by acs' in x['origin'] for x in d['decisions']) else 1)" ||
 	fail "the decision should say the ACS approved it"
-[ "$(setv Device.X_AIGW_.Request.Command "$DEC.Undo")" = ok ] || fail "Request.Command = $DEC.Undo"
+[ "$(setv Device.X_EXAMPLE-COM_.Request.Command "$DEC.Undo")" = ok ] || fail "Request.Command = $DEC.Undo"
 commit
 [ "$(val "$DEC.State")" = reverted ] || fail "undo: $(val "$DEC.State")"
 gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:02' && fail "undo should lift the quarantine"
@@ -335,11 +339,11 @@ echo "   Inform: $(js "print(d['events'], d['device'])" < "$T/boot.json")"
 cat > "$T/j1.json" <<EOF
 {"rpcs": [
  {"method": "GetParameterValues", "names": ["Device.DeviceInfo.SoftwareVersion", "Device.Hosts."]},
- {"method": "GetParameterNames", "path": "Device.X_AIGW_.", "next": true},
- {"method": "SetParameterValues", "params": [["Device.X_AIGW_.Mode", "enforce", "xsd:string"]], "key": "k1"},
- {"method": "SetParameterValues", "params": [["Device.X_AIGW_.Request.Command", "Quarantine", "xsd:string"],
-                                            ["Device.X_AIGW_.Request.Host", "$LAPTOP", "xsd:string"]], "key": "k2"},
- {"method": "GetParameterValues", "names": ["Device.X_AIGW_.Request.Status", "Device.X_AIGW_.Mode"]},
+ {"method": "GetParameterNames", "path": "Device.X_EXAMPLE-COM_.", "next": true},
+ {"method": "SetParameterValues", "params": [["Device.X_EXAMPLE-COM_.Mode", "enforce", "xsd:string"]], "key": "k1"},
+ {"method": "SetParameterValues", "params": [["Device.X_EXAMPLE-COM_.Request.Command", "Quarantine", "xsd:string"],
+                                            ["Device.X_EXAMPLE-COM_.Request.Host", "$LAPTOP", "xsd:string"]], "key": "k2"},
+ {"method": "GetParameterValues", "names": ["Device.X_EXAMPLE-COM_.Request.Status", "Device.X_EXAMPLE-COM_.Mode"]},
  {"method": "SetParameterValues", "params": [["Device.ManagementServer.PeriodicInformInterval", "600", "xsd:unsignedInt"]], "key": "k3"},
  {"method": "GetParameterValues", "names": ["Device.ManagementServer.ParameterKey", "Device.ManagementServer.PeriodicInformInterval"]}
 ]}
@@ -352,10 +356,10 @@ want, laptop = sys.argv[2], sys.argv[3]
 assert r[0]["values"]["Device.DeviceInfo.SoftwareVersion"] == want, r[0]
 assert r[0]["values"].get(laptop + ".PhysAddress") == "02:00:00:00:96:02", "hosts"
 n = r[1]["names"]
-assert n.get("Device.X_AIGW_.Mode") is True and "Device.X_AIGW_.Decision." in n and "Device.X_AIGW_.Request." in n, n
+assert n.get("Device.X_EXAMPLE-COM_.Mode") is True and "Device.X_EXAMPLE-COM_.Decision." in n and "Device.X_EXAMPLE-COM_.Request." in n, n
 assert r[2].get("fault") == 9003 and r[2]["params"][0]["fault"] == 9001, r[2]          # mgmt.actions 0
 assert r[3].get("status") is not None, r[3]
-assert r[4]["values"]["Device.X_AIGW_.Request.Status"] == "Refused" and r[4]["values"]["Device.X_AIGW_.Mode"] == "advise", r[4]
+assert r[4]["values"]["Device.X_EXAMPLE-COM_.Request.Status"] == "Refused" and r[4]["values"]["Device.X_EXAMPLE-COM_.Mode"] == "advise", r[4]
 assert r[6]["values"]["Device.ManagementServer.ParameterKey"] == "k3", r[6]
 assert r[6]["values"]["Device.ManagementServer.PeriodicInformInterval"] == "600", r[6]
 print("   GPV, GPN, SPV fault 9001 on Mode, refused Quarantine, ParameterKey k3, interval 600")
@@ -366,17 +370,17 @@ echo "== part 2: an alert reaches the ACS as an active notification"
 n=$(wc -l < "$T/acs/informs.jsonl")
 "$UBUS" -s "$AIGW_UBUS" send ag.dns '{"client":"10.97.0.4","qname":"qpwmzkrtvbxnly.com","rcode":3}'
 acs wait "$T/acs" "4 VALUE CHANGE" --after "$n" --timeout 60 > "$T/vc.json" || fail "no 4 VALUE CHANGE Inform"
-js "sys.exit(0 if 'Device.X_AIGW_.LastEvent.Count' in d['params'] else 'got %s' % d['params'])" < "$T/vc.json" ||
+js "sys.exit(0 if 'Device.X_EXAMPLE-COM_.LastEvent.Count' in d['params'] else 'got %s' % d['params'])" < "$T/vc.json" ||
 	fail "the value change should carry LastEvent.Count"
 cat > "$T/j2.json" <<EOF
-{"rpcs": [{"method": "GetParameterValues", "names": ["Device.X_AIGW_.LastEvent.", "Device.X_AIGW_.Decision."]}]}
+{"rpcs": [{"method": "GetParameterValues", "names": ["Device.X_EXAMPLE-COM_.LastEvent.", "Device.X_EXAMPLE-COM_.Decision."]}]}
 EOF
 job "$T/j2.json" > "$T/r2.json" || fail "the ACS's second job did not run"
 DEC2=$(python3 - "$T/r2.json" "$PHONE" <<'EOF'
 import json, sys
 v = json.load(open(sys.argv[1]))["results"][0]["values"]
-assert v["Device.X_AIGW_.LastEvent.Subject"] == "", "the name must not reach the ACS"
-d = [k[:-len(".State")] for k, x in v.items() if k.startswith("Device.X_AIGW_.Decision.") and k.endswith(".State")
+assert v["Device.X_EXAMPLE-COM_.LastEvent.Subject"] == "", "the name must not reach the ACS"
+d = [k[:-len(".State")] for k, x in v.items() if k.startswith("Device.X_EXAMPLE-COM_.Decision.") and k.endswith(".State")
      and x == "proposed" and v[k[:-len("State")] + "Host"] == sys.argv[2]]
 print(d[-1])
 EOF
@@ -386,12 +390,12 @@ echo "   4 VALUE CHANGE; proposed $DEC2"
 echo "== part 2: the ACS approves the decision"
 cat > "$T/j3.json" <<EOF
 {"rpcs": [
- {"method": "SetParameterValues", "params": [["Device.X_AIGW_.Request.Command", "$DEC2.Approve()", "xsd:string"]], "key": "k4"},
- {"method": "GetParameterValues", "names": ["Device.X_AIGW_.Request.Status", "$DEC2.State"]}
+ {"method": "SetParameterValues", "params": [["Device.X_EXAMPLE-COM_.Request.Command", "$DEC2.Approve()", "xsd:string"]], "key": "k4"},
+ {"method": "GetParameterValues", "names": ["Device.X_EXAMPLE-COM_.Request.Status", "$DEC2.State"]}
 ]}
 EOF
 job "$T/j3.json" > "$T/r3.json" || fail "the ACS's third job did not run"
-js "v = d['results'][1]['values']; sys.exit(0 if v['Device.X_AIGW_.Request.Status'] == 'Done' and v['$DEC2.State'] == 'active' else 'got %s' % v)" < "$T/r3.json" ||
+js "v = d['results'][1]['values']; sys.exit(0 if v['Device.X_EXAMPLE-COM_.Request.Status'] == 'Done' and v['$DEC2.State'] == 'active' else 'got %s' % v)" < "$T/r3.json" ||
 	fail "approve: $(cat "$T/r3.json")"
 gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:04' || fail "the phone should be quarantined in nft"
 echo "   $DEC2 active, approved by acs"

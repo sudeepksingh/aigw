@@ -100,6 +100,45 @@ static const char *imap_key(const struct imap *m, uint32_t num)
 	return NULL;
 }
 
+/* ---------- the vendor prefix ---------- */
+
+/*
+ * AIGW's own names (TR-106 vendor extensions) are written with X_AIGW_ below.
+ * An ISP or OEM puts its own there with mgmt.vendor_prefix: X_<OUI>_ or
+ * X_<domain, upper case, '.' as '-'>_, e.g. X_00D09E_ or X_EXAMPLE-COM_.
+ * dm_init rewrites every path once; nothing else in agd knows the prefix.
+ */
+#define DM_VX "X_AIGW_"
+static char vx[32] = DM_VX;
+
+static int prefix_ok(const char *p)
+{
+	size_t i, l = strlen(p);
+
+	if (l < 4 || l >= sizeof(vx) || strncmp(p, "X_", 2) || p[l - 1] != '_' || p[2] == '_')
+		return 0;
+	for (i = 2; i < l; i++)
+		if (!isupper((unsigned char)p[i]) && !isdigit((unsigned char)p[i]) && p[i] != '-' && p[i] != '_')
+			return 0;
+	return 1;
+}
+
+/* s with X_AIGW_ as the configured prefix (s itself when it is X_AIGW_); made once, at start */
+static const char *vx_path(const char *s)
+{
+	const char *at = strstr(s, DM_VX);
+	char *out;
+	size_t pre;
+
+	if (!at || !strcmp(vx, DM_VX))
+		return s;
+	pre = (size_t)(at - s);
+	if (!(out = malloc(strlen(s) + strlen(vx) + 1)))
+		return s;
+	snprintf(out, strlen(s) + strlen(vx) + 1, "%.*s%s%s", (int)pre, s, vx, at + strlen(DM_VX));
+	return out;
+}
+
 /* ---------- tables ---------- */
 
 enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_N };
@@ -137,7 +176,7 @@ static int list_ssids(uint32_t *out, int max)
 	return n;
 }
 
-static const struct {
+static struct {
 	const char *path;               /* the object, "{i}" for the instance */
 	int (*list)(uint32_t *out, int max);
 } tables[TB_N] = {
@@ -237,9 +276,18 @@ static int count(int table)
 typedef int (*getter_t)(const struct ictx *c, char *buf, size_t n);
 typedef int (*setter_t)(const struct ictx *c, const char *v, int apply, char *err, size_t en);
 
-GET(g_manufacturer) { (void)c; snprintf(buf, n, "AIGW OS project"); return 0; }
-GET(g_model) { (void)c; snprintf(buf, n, "AIGW OS on %s", cfg.host); return 0; }
-GET(g_product) { (void)c; snprintf(buf, n, "AIGW OS gateway"); return 0; }
+/* an OEM's or ISP's names when set (mgmt.manufacturer, model_name, product_class) */
+GET(g_manufacturer) { (void)c; snprintf(buf, n, "%s", cfg.mgmt_manufacturer[0] ? cfg.mgmt_manufacturer : "AIGW OS project"); return 0; }
+GET(g_model)
+{
+	(void)c;
+	if (cfg.mgmt_model[0])
+		snprintf(buf, n, "%s", cfg.mgmt_model);
+	else
+		snprintf(buf, n, "AIGW OS on %s", cfg.host);
+	return 0;
+}
+GET(g_product) { (void)c; snprintf(buf, n, "%s", cfg.mgmt_product[0] ? cfg.mgmt_product : "AIGW OS gateway"); return 0; }
 GET(g_swver) { (void)c; snprintf(buf, n, "%s", AG_VERSION); return 0; }
 GET(g_dmver) { (void)c; snprintf(buf, n, "%s", DM_VERSION); return 0; }
 
@@ -461,7 +509,7 @@ GET(g_d_alert)
 	if (act_field(c->inst, "alert", id, sizeof(id)) < 0)
 		return -1;
 	if (strtoul(id, NULL, 10) && alerts_field((uint32_t)strtoul(id, NULL, 10), "kind", kind, sizeof(kind)) == 0)
-		snprintf(buf, n, "Device.X_AIGW_.Alert.%s", id);
+		snprintf(buf, n, "Device.%s.Alert.%s", vx, id);
 	else
 		snprintf(buf, n, "%s", "");
 	return 0;
@@ -515,7 +563,7 @@ static int s_mode(const struct ictx *c, const char *v, int apply, char *err, siz
 #define W 1                             /* writable */
 #define N 2                             /* changes worth notifying (USP value change, CWMP active notification) */
 
-static const struct dm_param {
+static struct dm_param {
 	const char *path;
 	int type, flags, table;
 	getter_t get;
@@ -659,7 +707,7 @@ static int r_undo(const struct ictx *c, struct blob_attr *a, struct blob_buf *o,
 static int request(const char *action, const char *what, int ttl, struct blob_buf *out, char *err, size_t en)
 {
 	struct act_opts o = { 0 };
-	char reason[160], who[64], ref[48];
+	char reason[160], who[64], ref[96];
 	uint32_t id = 0;
 
 	if (req_remote && !cfg.mgmt_actions) {
@@ -671,7 +719,7 @@ static int request(const char *action, const char *what, int ttl, struct blob_bu
 	snprintf(reason, sizeof(reason), "Asked by %s through the data model.", who);
 	if (act_request(action, what, ttl, &o, reason, &id, err, en) < 0)
 		return E_REFUSED;
-	snprintf(ref, sizeof(ref), "Device.X_AIGW_.Decision.%u", id);
+	snprintf(ref, sizeof(ref), "Device.%s.Decision.%u", vx, id);
 	blobmsg_add_string(out, "Decision", ref);
 	return E_OK;
 }
@@ -727,7 +775,7 @@ static int r_block(const struct ictx *c, struct blob_attr *a, struct blob_buf *o
 	return request("block", dom, ttl, o, e, n);
 }
 
-static const struct dm_cmd {
+static struct dm_cmd {
 	const char *path;
 	int table;
 	const char *in, *out;           /* argument names, comma-separated */
@@ -742,7 +790,7 @@ static const struct dm_cmd {
 };
 #define N_CMDS ((int)(sizeof(cmds) / sizeof(cmds[0])))
 
-static const struct {
+static struct {
 	const char *path;
 	const char *args;
 } events[] = {
@@ -835,6 +883,7 @@ static int m_schema(struct ubus_context *ctx, struct ubus_object *obj, struct ub
 
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "version", DM_VERSION);
+	blobmsg_add_string(&b, "vendor_prefix", vx);
 	a = blobmsg_open_array(&b, "params");
 	for (i = 0; i < N_PARAMS; i++) {
 		t = blobmsg_open_table(&b, NULL);
@@ -1141,10 +1190,10 @@ static void emit(const char *event, const char *const *kv)
 
 void dm_on_alert(uint32_t id)
 {
-	char ref[48], kind[16], sev[8], mac[24], host[48], subj[NAME_LEN], reason[VAL_MAX];
+	char ref[96], kind[16], sev[8], mac[24], host[48], subj[NAME_LEN], reason[VAL_MAX];
 	int details = cfg.mgmt_alert_details;
 
-	snprintf(ref, sizeof(ref), "Device.X_AIGW_.Alert.%u", id);
+	snprintf(ref, sizeof(ref), "Device.%s.Alert.%u", vx, id);
 	if (alerts_field(id, "kind", kind, sizeof(kind)) < 0)
 		return;
 	alerts_field(id, "severity", sev, sizeof(sev));
@@ -1158,17 +1207,17 @@ void dm_on_alert(uint32_t id)
 		const char *kv[] = { "Alert", ref, "Kind", kind, "Severity", sev, "Host", host,
 				     "Subject", subj, "Reason", reason, NULL };
 
-		emit("Device.X_AIGW_.Alert!", kv);
+		emit(events[0].path, kv);   /* Alert! */
 	}
 }
 
 void dm_on_decision(uint32_t id, const char *state)
 {
 	struct ictx c = { .table = TB_DECISION, .inst = id };
-	char ref[48], action[48] = "", host[48] = "";
+	char ref[96], action[48] = "", host[48] = "";
 	int saved = req_remote;
 
-	snprintf(ref, sizeof(ref), "Device.X_AIGW_.Decision.%u", id);
+	snprintf(ref, sizeof(ref), "Device.%s.Decision.%u", vx, id);
 	act_field(id, "action", action, sizeof(action));
 	req_remote = 1;
 	g_d_host(&c, host, sizeof(host));
@@ -1176,7 +1225,7 @@ void dm_on_decision(uint32_t id, const char *state)
 	{
 		const char *kv[] = { "Decision", ref, "Action", action, "State", state, "Host", host, NULL };
 
-		emit("Device.X_AIGW_.DecisionChanged!", kv);
+		emit(events[1].path, kv);   /* DecisionChanged! */
 	}
 }
 
@@ -1254,9 +1303,28 @@ void dm_load(struct blob_attr *tbl)
 
 void dm_init(void)
 {
+	static int done;
+	int i;
+
 	memset(&hosts_map, 0, sizeof(hosts_map));
 	memset(&ssid_map, 0, sizeof(ssid_map));
-	AG_INFO("dm: data model %s, %d parameters, %d commands, %d events (management: %s, actions %s, alert details %s)",
-		DM_VERSION, N_PARAMS, N_CMDS, N_EVENTS, cfg.mgmt_enabled ? "on" : "off",
+	if (cfg.mgmt_prefix[0] && !prefix_ok(cfg.mgmt_prefix))
+		AG_WARN("dm: mgmt.vendor_prefix '%s' is not X_<OUI or DOMAIN-NAME>_ (upper case): using %s",
+			cfg.mgmt_prefix, DM_VX);
+	else if (cfg.mgmt_prefix[0] && !done)
+		snprintf(vx, sizeof(vx), "%s", cfg.mgmt_prefix);
+	if (!done) {
+		for (i = 0; i < N_PARAMS; i++)
+			params[i].path = vx_path(params[i].path);
+		for (i = 0; i < TB_N; i++)
+			tables[i].path = vx_path(tables[i].path);
+		for (i = 0; i < N_CMDS; i++)
+			cmds[i].path = vx_path(cmds[i].path);
+		for (i = 0; i < N_EVENTS; i++)
+			events[i].path = vx_path(events[i].path);
+		done = 1;
+	}
+	AG_INFO("dm: data model %s, vendor prefix %s, %d parameters, %d commands, %d events (management: %s, actions %s, alert details %s)",
+		DM_VERSION, vx, N_PARAMS, N_CMDS, N_EVENTS, cfg.mgmt_enabled ? "on" : "off",
 		cfg.mgmt_actions ? "allowed" : "not allowed", cfg.mgmt_alert_details ? "shared" : "kept home");
 }

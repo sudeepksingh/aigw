@@ -3,7 +3,7 @@
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
              spec="urn:aigw-os:aigw-dm-1-1" file="aigw-dm-1-1.xml">
-  <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix.</description>
+  <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
   <model name="AIGW-OS:1.1">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>

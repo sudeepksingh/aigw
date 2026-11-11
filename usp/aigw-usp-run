@@ -46,11 +46,16 @@ if [ -z "$BROKER" ]; then
 fi
 [ "$TLS" = 1 ] && TRANSPORT=TLS || TRANSPORT=TCP/IP
 
+# the identity TR-069 reports too: from the data model in agd (an OEM's names, if set)
+dmval() { ${AIGW_AGCTL:-agctl} dm get "$1" 2>/dev/null | sed -n 's/^[^=]* = //p'; }
+MANUF=$(dmval Device.DeviceInfo.Manufacturer); MODEL=$(dmval Device.DeviceInfo.ModelName)
+PCLASS=$(dmval Device.DeviceInfo.ProductClass)
+
 settings() {
 	q() { printf '%s "%s"\n' "$1" "$(printf '%s' "$2" | sed 's/"/\\"/g')"; }
-	q Device.DeviceInfo.Manufacturer "AIGW OS project"
-	q Device.DeviceInfo.ModelName "AIGW OS"
-	q Device.DeviceInfo.ProductClass "AIGW OS gateway"
+	q Device.DeviceInfo.Manufacturer "${MANUF:-AIGW OS project}"
+	q Device.DeviceInfo.ModelName "${MODEL:-AIGW OS}"
+	q Device.DeviceInfo.ProductClass "${PCLASS:-AIGW OS gateway}"
 	q Device.MQTT.Client.1.Alias "aigw"
 	echo "Device.MQTT.Client.1.Enable true"
 	q Device.MQTT.Client.1.BrokerAddress "$BROKER"
@@ -106,8 +111,6 @@ fi
 set -- -v "$LEVEL" -r "$DIR/settings.txt" -f "$DIR/usp.db" -s "$DIR/cli.sock" -x "$PLUGIN"
 [ "$TLS" = 1 ] && [ -e "$CA" ] && set -- "$@" -t "$CA"
 [ -n "${AIGW_USP_TRACE:-}" ] && set -- "$@" -p
-# the same identity TR-069 reports: from the data model in agd
-dmval() { ${AIGW_AGCTL:-agctl} dm get "$1" 2>/dev/null | sed -n 's/^[^=]* = //p'; }
 SERIAL=$(dmval Device.DeviceInfo.SerialNumber); OUI=$(dmval Device.DeviceInfo.ManufacturerOUI)
 export USP_BOARD_SERIAL="${SERIAL:-$id}" USP_ENDPOINT_ID="$AGENT"
 [ -n "$OUI" ] && export USP_BOARD_OUI="$OUI"

@@ -27,7 +27,11 @@
  * On a PC (no netifd) it also answers network.interface.<wan> status, which
  * icwmp asks for its WAN device, when aigw.cwmp.wan_device is set.
  *
- *   aigw-cwmp-dm [-s ubus socket]     (AIGW_UBUS, AIGW_UCI_CONFDIR; AIGW_CWMP_CONFDIR for cwmp's)
+ * "X_AIGW_" above is agd's vendor prefix: whatever mgmt.vendor_prefix says.
+ *
+ *   aigw-cwmp-dm [-s ubus socket] [-n notify.json]
+ *       (AIGW_UBUS, AIGW_UCI_CONFDIR; AIGW_CWMP_CONFDIR for cwmp's)
+ *       -n: write icwmp's custom notifications (active on LastEvent.Count)
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -396,14 +400,25 @@ static struct lparam *lp_find(const char *path)
 	return NULL;
 }
 
-#define REQ "Device.X_AIGW_.Request."
-#define EV  "Device.X_AIGW_.LastEvent."
+/* under the vendor prefix agd uses (mgmt.vendor_prefix), set from its schema */
+static char req_base[64] = "Device.X_AIGW_.Request.", ev_base[64] = "Device.X_AIGW_.LastEvent.";
+
+static const char *under(const char *base, const char *name)
+{
+	static char buf[4][PATH_MAX_];
+	static int k;
+
+	k = (k + 1) % 4;
+	snprintf(buf[k], sizeof(buf[k]), "%s%s", base, name);
+	return buf[k];
+}
+#define REQ(name) under(req_base, name)
+#define EV(name)  under(ev_base, name)
 
 static void lp_init(void)
 {
 	struct blob_attr *cur, *n;
 	size_t rem, r2;
-	char path[PATH_MAX_];
 
 	nlp = 0;
 	lp_fixed("Device.RootDataModelVersion", "string", "2.18");
@@ -426,40 +441,49 @@ static void lp_init(void)
 	lp_fixed("Device.ManagementServer.AliasBasedAddressing", "boolean", "false");
 
 	/* commands -> Request.: Command, every input (writable), Status, Message, every output */
-	lp_add(REQ "Command", "string", 1, K_REQ_CMD);
+	lp_add(REQ("Command"), "string", 1, K_REQ_CMD);
 	if (top(schema, "commands"))
 		blobmsg_for_each_attr(cur, top(schema, "commands"), rem) {
 			if ((n = field(cur, "in")))
-				blobmsg_for_each_attr(n, field(cur, "in"), r2) {
-					snprintf(path, sizeof(path), REQ "%s", str(n));
-					lp_add(path, "string", 1, K_REQ_IN);
-				}
+				blobmsg_for_each_attr(n, field(cur, "in"), r2)
+					lp_add(REQ(str(n)), "string", 1, K_REQ_IN);
 		}
-	lp_add(REQ "Status", "string", 0, K_REQ_STATUS);
-	snprintf(lp_find(REQ "Status")->val, VAL_MAX, "None");
-	lp_add(REQ "Message", "string", 0, K_REQ_MSG);
+	lp_add(REQ("Status"), "string", 0, K_REQ_STATUS);
+	snprintf(lp_find(REQ("Status"))->val, VAL_MAX, "None");
+	lp_add(REQ("Message"), "string", 0, K_REQ_MSG);
 	if (top(schema, "commands"))
 		blobmsg_for_each_attr(cur, top(schema, "commands"), rem) {
 			if ((n = field(cur, "out")))
-				blobmsg_for_each_attr(n, field(cur, "out"), r2) {
-					snprintf(path, sizeof(path), REQ "%s", str(n));
-					lp_add(path, "string", 0, K_REQ_OUT);
-				}
+				blobmsg_for_each_attr(n, field(cur, "out"), r2)
+					lp_add(REQ(str(n)), "string", 0, K_REQ_OUT);
 		}
 
 	/* events -> LastEvent.: Name, Time, Count and every argument */
-	lp_add(EV "Name", "string", 0, K_EV_NAME);
-	lp_add(EV "Time", "dateTime", 0, K_EV_TIME);
-	snprintf(lp_find(EV "Time")->val, VAL_MAX, "0001-01-01T00:00:00Z");
-	lp_add(EV "Count", "unsignedInt", 0, K_EV_COUNT);
+	lp_add(EV("Name"), "string", 0, K_EV_NAME);
+	lp_add(EV("Time"), "dateTime", 0, K_EV_TIME);
+	snprintf(lp_find(EV("Time"))->val, VAL_MAX, "0001-01-01T00:00:00Z");
+	lp_add(EV("Count"), "unsignedInt", 0, K_EV_COUNT);
 	if (top(schema, "events"))
 		blobmsg_for_each_attr(cur, top(schema, "events"), rem) {
 			if ((n = field(cur, "args")))
-				blobmsg_for_each_attr(n, field(cur, "args"), r2) {
-					snprintf(path, sizeof(path), EV "%s", str(n));
-					lp_add(path, "string", 0, K_EV_ARG);
-				}
+				blobmsg_for_each_attr(n, field(cur, "args"), r2)
+					lp_add(EV(str(n)), "string", 0, K_EV_ARG);
 		}
+}
+
+/* icwmp's custom notifications: active notification on LastEvent.Count */
+static int write_notify(const char *file)
+{
+	char tmp[PATH_MAX_ + 8];
+	FILE *f;
+
+	snprintf(tmp, sizeof(tmp), "%s.tmp", file);
+	if (!(f = fopen(tmp, "w")))
+		return -1;
+	fprintf(f, "{ \"custom_notification\": [ { \"parameter\": \"%s\", \"notify_type\": \"2\" } ] }\n", EV("Count"));
+	if (fclose(f) || rename(tmp, file))
+		return -1;
+	return 0;
 }
 
 /* the WAN device: configured, or netifd's l3_device for the WAN interface */
@@ -665,8 +689,8 @@ static void run_request(const char *cmdval)
 {
 	struct blob_buf b = { 0 };
 	struct blob_attr *r, *c, *cur, *o;
-	char cmd[PATH_MAX_], path[PATH_MAX_];
-	struct lparam *st = lp_find(REQ "Status"), *msg = lp_find(REQ "Message");
+	char cmd[PATH_MAX_];
+	struct lparam *st = lp_find(REQ("Status")), *msg = lp_find(REQ("Message"));
 	size_t rem;
 	void *t;
 	int i, ok;
@@ -687,8 +711,7 @@ static void run_request(const char *cmdval)
 		blobmsg_for_each_attr(cur, field(c, "in"), rem) {
 			struct lparam *in;
 
-			snprintf(path, sizeof(path), REQ "%s", str(cur));
-			if ((in = lp_find(path)) && in->val[0])
+			if ((in = lp_find(REQ(str(cur)))) && in->val[0])
 				blobmsg_add_string(&b, str(cur), in->val);
 		}
 	blobmsg_close_table(&b, t);
@@ -701,8 +724,7 @@ static void run_request(const char *cmdval)
 		blobmsg_for_each_attr(cur, o, rem) {
 			struct lparam *op;
 
-			snprintf(path, sizeof(path), REQ "%s", blobmsg_name(cur));
-			if ((op = lp_find(path)))
+			if ((op = lp_find(REQ(blobmsg_name(cur)))))
 				snprintf(op->val, VAL_MAX, "%s", str(cur));
 		}
 	/* inputs are used once */
@@ -1140,7 +1162,10 @@ static int m_operate(struct ubus_context *c, struct ubus_object *obj, struct ubu
 
 	blobmsg_parse(a_policy, __A_MAX, tb, blob_data(msg), blob_len(msg));
 	blob_buf_init(&rb, 0);
-	result_fault(req_path(tb), F_ARGS, "not supported: use Device.X_AIGW_.Request.");
+	char m[96];
+
+	snprintf(m, sizeof(m), "not supported: use %s", req_base);
+	result_fault(req_path(tb), F_ARGS, m);
 	return ubus_send_reply(c, req, rb.head);
 }
 
@@ -1216,7 +1241,6 @@ static struct ubus_object if_obj = {
 static void on_event(struct ubus_context *c, struct ubus_event_handler *ev, const char *type, struct blob_attr *msg)
 {
 	struct blob_attr *name = top(msg, "event"), *args = top(msg, "args"), *cur;
-	char path[PATH_MAX_];
 	size_t rem;
 	int i;
 
@@ -1228,14 +1252,13 @@ static void on_event(struct ubus_context *c, struct ubus_event_handler *ev, cons
 	for (i = 0; i < nlp; i++)
 		if (lp[i].kind == K_EV_ARG)
 			lp[i].val[0] = '\0';
-	snprintf(lp_find(EV "Name")->val, VAL_MAX, "%s", str(name));
-	fmt_now(lp_find(EV "Time")->val, VAL_MAX);
+	snprintf(lp_find(EV("Name"))->val, VAL_MAX, "%s", str(name));
+	fmt_now(lp_find(EV("Time"))->val, VAL_MAX);
 	if (args)
 		blobmsg_for_each_attr(cur, args, rem) {
 			struct lparam *p;
 
-			snprintf(path, sizeof(path), EV "%s", blobmsg_name(cur));
-			if ((p = lp_find(path)) && p->kind == K_EV_ARG)
+			if ((p = lp_find(EV(blobmsg_name(cur)))) && p->kind == K_EV_ARG)
 				snprintf(p->val, VAL_MAX, "%s", str(cur));
 		}
 	ev_count++;                     /* last: an ACS watching Count reads a complete event */
@@ -1260,14 +1283,17 @@ static void read_config(void)
 
 int main(int argc, char **argv)
 {
+	const char *notify = NULL, *vx;
 	uint32_t id;
 	int opt, i;
 
 	ag_log_init("aigw-cwmp", AG_LOG_INFO);
 	ubus_path = getenv("AIGW_UBUS");
-	while ((opt = getopt(argc, argv, "s:")) != -1)
+	while ((opt = getopt(argc, argv, "s:n:")) != -1)
 		if (opt == 's')
 			ubus_path = optarg;
+		else if (opt == 'n')
+			notify = optarg;
 	if (ubus_path && !*ubus_path)
 		ubus_path = NULL;
 	cwmp_confdir = getenv("AIGW_CWMP_CONFDIR");
@@ -1282,7 +1308,14 @@ int main(int argc, char **argv)
 		AG_ERR("no AIGW OS data model on ubus (is agd running?)");
 		return 1;
 	}
+	vx = str(top(schema, "vendor_prefix"));
+	if (*vx) {
+		snprintf(req_base, sizeof(req_base), "Device.%.40s.Request.", vx);
+		snprintf(ev_base, sizeof(ev_base), "Device.%.40s.LastEvent.", vx);
+	}
 	lp_init();
+	if (notify && write_notify(notify) < 0)
+		AG_WARN("cannot write %s", notify);
 
 	uloop_init();
 	if (!(ctx = ubus_connect(ubus_path))) {

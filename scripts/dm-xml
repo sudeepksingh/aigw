@@ -29,6 +29,7 @@ def main():
     src = open(sys.argv[1]) if len(sys.argv) > 1 else sys.stdin
     schema = json.load(src)
     version = schema.get("version", "1.0")
+    vx = schema.get("vendor_prefix", "X_AIGW_")
     objs = OrderedDict()
 
     def obj(path):
@@ -58,7 +59,8 @@ def main():
            '             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"',
            '             spec="urn:aigw-os:aigw-dm-%s" file="aigw-dm-%s.xml">' % (version.replace(".", "-"), version.replace(".", "-")),
            '  <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and'
-           ' decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix.</description>',
+           ' decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the %s prefix;'
+           ' an ISP or OEM sets its own with mgmt.vendor_prefix.</description>' % vx,
            '  <model name="AIGW-OS:%s">' % version]
     for path in sorted(objs, key=lambda p: (p.count("."), p)):
         o = objs[path]

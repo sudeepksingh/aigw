@@ -113,6 +113,16 @@ config mgmt 'mgmt'
 	# ManufacturerOUI); default: from the machine id, else the LAN MAC
 	# option serial ''
 	# option oui ''
+	# an OEM's or ISP's names (DeviceInfo.Manufacturer, ModelName,
+	# ProductClass); default: AIGW OS
+	# option manufacturer ''
+	# option model_name ''
+	# option product_class ''
+	# the vendor prefix of AIGW's own parameters (TR-106): X_<your OUI>_ or
+	# X_<your domain, upper case, '.' as '-'>_, e.g. X_00D09E_ or
+	# X_EXAMPLE-COM_. Default X_AIGW_. Set it before an ACS or controller
+	# starts using the names: they change with it.
+	# option vendor_prefix ''
 
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default

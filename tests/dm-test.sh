@@ -168,4 +168,44 @@ LAPTOP=$(js "print([k[:-len('HostName')] for k, x in d['values'].items() if x ==
 [ "$LAPTOP" != "$PRINTER" ] && [ "$LAPTOP" != "$PHONE" ] || fail "a number was reused: laptop $LAPTOP, printer was $PRINTER"
 echo "   phone $PHONE kept; printer's $PRINTER not reused (laptop $LAPTOP)"
 
+echo "== an OEM's names and vendor prefix (mgmt.vendor_prefix)"
+restart_agd() {
+	kill "$AGD"; wait "$AGD" 2>/dev/null || true
+	sleep 0.5
+	"$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
+	sleep 1.5
+}
+sed -i "/^config mgmt 'mgmt'/a\\
+	option vendor_prefix 'X_EXAMPLE-COM_'\\
+	option manufacturer 'Example Networks'\\
+	option model_name 'EX-1000'\\
+	option product_class 'EX Gateway'" "$T/config/aigw"
+restart_agd
+agctl -j dm schema > "$T/schema2.json"
+js "
+ps = [p['path'] for p in d['params']] + [c['path'] for c in d['commands']] + [e['path'] for e in d['events']] + [o['path'] for o in d['objects']]
+bad = [p for p in ps if 'X_AIGW' in p]
+ok = d['vendor_prefix'] == 'X_EXAMPLE-COM_' and not bad and 'Device.X_EXAMPLE-COM_.Mode' in ps and \
+     'Device.Hosts.Host.{i}.X_EXAMPLE-COM_Type' in ps and 'Device.X_EXAMPLE-COM_.Decision.{i}.Approve()' in ps and \
+     'Device.X_EXAMPLE-COM_.Alert!' in ps and len(d['params']) == $(js "print(len(d['params']))" < "$T/schema.json")
+sys.exit(0 if ok else 'bad: %s' % bad[:3])" < "$T/schema2.json" || fail "schema with a vendor prefix: $(head -c 400 "$T/schema2.json")"
+call get '{"paths":["Device.X_EXAMPLE-COM_.Mode","Device.X_AIGW_.Mode","Device.DeviceInfo."]}' > "$T/vx.json"
+js "v = d['values']; e = d.get('errors', {})
+sys.exit(0 if v['Device.X_EXAMPLE-COM_.Mode'] == 'advise' and set(e) == {'Device.X_AIGW_.Mode'} and
+         v['Device.DeviceInfo.Manufacturer'] == 'Example Networks' and v['Device.DeviceInfo.ModelName'] == 'EX-1000' and
+         v['Device.DeviceInfo.ProductClass'] == 'EX Gateway' and 'Device.DeviceInfo.X_EXAMPLE-COM_DataModelVersion' in v else 1)" < "$T/vx.json" ||
+	fail "get with a vendor prefix: $(cat "$T/vx.json")"
+: > "$T/events.log"
+call operate '{"command":"Device.X_EXAMPLE-COM_.Block()","args":{"Domain":"bad-tracker.com"}}' > "$T/q.json"
+js "sys.exit(0 if d['ok'] and d['out']['Decision'].startswith('Device.X_EXAMPLE-COM_.Decision.') else 1)" < "$T/q.json" ||
+	fail "a command under the vendor prefix: $(cat "$T/q.json")"
+sleep 0.5
+grep -q 'Device.X_EXAMPLE-COM_.DecisionChanged!' "$T/events.log" || fail "events under the vendor prefix: $(cat "$T/events.log")"
+echo "   $(js "print(d['vendor_prefix'])" < "$T/schema2.json"): $(js "print(d['values']['Device.DeviceInfo.Manufacturer'], d['values']['Device.DeviceInfo.ModelName'])" < "$T/vx.json")"
+# a prefix that isn't one: the default, and a warning
+sed -i "s/option vendor_prefix 'X_EXAMPLE-COM_'/option vendor_prefix 'acme'/" "$T/config/aigw"
+restart_agd
+agctl -j dm schema | js "sys.exit(0 if d['vendor_prefix'] == 'X_AIGW_' else 1)" || fail "an invalid prefix must fall back to X_AIGW_"
+grep -q "vendor_prefix 'acme' is not" "$T/agd.log" || fail "no warning for an invalid prefix"
+
 echo "DM TEST OK"

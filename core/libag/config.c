@@ -305,6 +305,10 @@ void ag_config_load(struct ag_config *c)
 			c->mgmt_alert_details = atoi(v) != 0;
 		copy(c->mgmt_serial, sizeof(c->mgmt_serial), opt(ctx, p, "mgmt", "serial"));
 		copy(c->mgmt_oui, sizeof(c->mgmt_oui), opt(ctx, p, "mgmt", "oui"));
+		copy(c->mgmt_prefix, sizeof(c->mgmt_prefix), opt(ctx, p, "mgmt", "vendor_prefix"));
+		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
+		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
+		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));
 		v = opt(ctx, p, "alerts", "burst");
 		if (v)
 			c->burst_enabled = atoi(v) != 0;
