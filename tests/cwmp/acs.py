@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """A small TR-069 ACS (CWMP over HTTP) for tests/cwmp-test.sh.
 
-    acs.py serve DIR [--port 7557]        the ACS: every Inform is appended to
+    acs.py serve DIR [--port 7557] [--tls-cert C --tls-key K --tls-ca CA]
+                                          (HTTPS, CPE client certificates required)
+                                          the ACS: every Inform is appended to
                                           DIR/informs.jsonl, every TransferComplete
                                           to DIR/transfers.jsonl; queued jobs run
                                           in the next session; GET serves DIR/files
@@ -23,6 +25,7 @@ import argparse
 import http.server
 import json
 import os
+import ssl
 import sys
 import time
 import urllib.request
@@ -78,6 +81,8 @@ def rpc_body(r):
     if m == "GetParameterNames":
         return (f'<cwmp:GetParameterNames><ParameterPath>{escape(r["path"])}</ParameterPath>'
                 f'<NextLevel>{"true" if r.get("next") else "false"}</NextLevel></cwmp:GetParameterNames>')
+    if m == "FactoryReset":
+        return "<cwmp:FactoryReset/>"
     if m == "Download":
         return (f'<cwmp:Download><CommandKey>{escape(r.get("key", ""))}</CommandKey>'
                 f'<FileType>{escape(r.get("file_type", "1 Firmware Upgrade Image"))}</FileType>'
@@ -198,6 +203,9 @@ def make_handler(d):
                 params = {text(p, "Name"): text(p, "Value") for p in kids(el, "ParameterList")}
                 rec = {"time": time.time(), "events": events, "params": params,
                        "device": {local(c.tag): c.text or "" for c in dev} if dev is not None else {}}
+                peer = self.connection.getpeercert() if hasattr(self.connection, "getpeercert") else None
+                if peer:   # the CPE's TLS client certificate
+                    rec["client_cn"] = dict(x[0] for x in peer.get("subject", ())).get("commonName", "")
                 with open(os.path.join(d, "informs.jsonl"), "a") as f:
                     f.write(json.dumps(rec) + "\n")
                 self.reply(envelope(s.cwmp_ns, cwmp_id, "<cwmp:InformResponse><MaxEnvelopes>1</MaxEnvelopes>"
@@ -237,6 +245,13 @@ def make_handler(d):
 
 def serve(a):
     srv = http.server.HTTPServer(("0.0.0.0", a.port), make_handler(a.dir))
+    if a.tls_cert:
+        # HTTPS, and only a CPE with a certificate from our CA gets in
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(a.tls_cert, a.tls_key)
+        ctx.verify_mode = ssl.CERT_REQUIRED
+        ctx.load_verify_locations(a.tls_ca)
+        srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     srv.serve_forever()
 
 
@@ -302,6 +317,9 @@ def main():
     s = sp.add_parser("serve")
     s.add_argument("dir")
     s.add_argument("--port", type=int, default=7557)
+    s.add_argument("--tls-cert")
+    s.add_argument("--tls-key")
+    s.add_argument("--tls-ca", help="with --tls-cert: CPEs must present a certificate from this CA")
     j = sp.add_parser("job")
     j.add_argument("dir")
     j.add_argument("job")

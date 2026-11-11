@@ -161,6 +161,7 @@ void ag_config_load(struct ag_config *c)
 	c->mgmt_alert_details = 0;
 	c->mgmt_wifi = 1;
 	c->mgmt_firmware = 1;
+	c->mgmt_reset = 1;
 	c->burst_window = 600;
 	c->burst_min = 8;
 	c->burst_share = 0.75;
@@ -314,6 +315,9 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "mgmt", "firmware");
 		if (v)
 			c->mgmt_firmware = atoi(v) != 0;
+		v = opt(ctx, p, "mgmt", "reset");
+		if (v)
+			c->mgmt_reset = atoi(v) != 0;
 		copy(c->wifi_handler, sizeof(c->wifi_handler), opt(ctx, p, "wifi", "handler"));
 		copy(c->fw_handler, sizeof(c->fw_handler), opt(ctx, p, "mgmt", "firmware_handler"));
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));

@@ -115,11 +115,13 @@ config mgmt 'mgmt'
 
 config usp 'usp'
 	option broker '127.0.0.1'
-	option port '18831'
-	option tls '0'
+	option port '18832'
+	option tls '1'
+	option ca_file '$T/tls/ca.crt'
+	option client_cert '$T/tls/client.pem'
 	option agent_id 'proto::aigw-test'
 	option agent_topic '/usp/agent/test'
-	option log_level '2'
+	option log_level '3'
 
 config lan 'lan'
 	list iface '$BR'
@@ -134,9 +136,34 @@ export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_NFT_FILE="$T/a
 export AIGW_USP_DIR="$T/usp" AIGW_OBUSPA="$OBUSPA" AIGW_USP_PLUGIN="$BIN/usp/aigw-usp.so" AIGW_AGCTL="$BIN/agctl/agctl"
 export USP_PB_DIR="$T/pb" USP_PORT=18831 USP_AGENT_ID=proto::aigw-test USP_AGENT_TOPIC=/usp/agent/test
 
+# the agent reaches the broker over TLS with a client certificate (a carrier's
+# usual way to know its gateways); the test controller uses a plain listener
+mkdir -p "$T/tls"
+(
+	cd "$T/tls"
+	openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=AIGW test CA" -keyout ca.key -out ca.crt
+	openssl req -newkey rsa:2048 -nodes -subj "/CN=127.0.0.1" -keyout server.key -out server.csr
+	printf 'subjectAltName=IP:127.0.0.1\n' > server.ext
+	openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 2 -extfile server.ext -out server.crt
+	openssl req -newkey rsa:2048 -nodes -subj "/CN=proto::aigw-test" -keyout client.key -out client.csr
+	openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 2 -out client.crt
+	cat client.crt client.key > client.pem
+) > "$T/openssl.log" 2>&1 || fail "test certificates: $(tail -n 5 "$T/openssl.log")"
+cat > "$T/mosquitto.conf" <<EOF
+# the certificates are in the test's private directory
+user root
+allow_anonymous true
+listener 18831 127.0.0.1
+listener 18832 127.0.0.1
+cafile $T/tls/ca.crt
+certfile $T/tls/server.crt
+keyfile $T/tls/server.key
+require_certificate true
+EOF
+
 # daemons are started with ip netns exec directly (not through gw), so $! is the daemon itself
 ip netns exec "$NG" "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
-ip netns exec "$NG" mosquitto -p 18831 > "$T/mosquitto.log" 2>&1 & PIDS="$PIDS $!"
+ip netns exec "$NG" mosquitto -c "$T/mosquitto.conf" > "$T/mosquitto.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.5
 gw "$REPO/scripts/aigw-nft" apply 2> "$T/nft.log" || fail "aigw-nft apply"
 ip netns exec "$NG" "$BIN/agd/agd" > "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
@@ -258,5 +285,18 @@ done
 uspc get "$FW.2.Version" "$FW.2.Status" | js "sys.exit(0 if d['$FW.2.Version'] == '3.1' and d['$FW.2.Status'] == 'Active' else 1)" ||
 	fail "the new image over USP"
 echo "   a wrong checksum refused; downloaded over HTTP, checked, activated, rebooted into 3.1"
+
+echo "== TLS with a client certificate; Device.Reboot() reboots (through agd and the handler)"
+grep -Eq "New client connected .* on port 18832" "$T/mosquitto.log" ||
+	grep -Eq "18832" "$T/mosquitto.log" || fail "the agent should be on the TLS listener: $(tail -n 5 "$T/mosquitto.log")"
+n=$(grep -c rebooted "$T/fw/reboots")
+uspc operate "Device.Reboot()" > "$T/reboot.json"
+js "sys.exit(0 if d['ok'] else 1)" < "$T/reboot.json" || fail "Device.Reboot(): $(cat "$T/reboot.json")"
+i=0
+until [ "$(grep -c rebooted "$T/fw/reboots")" -gt "$n" ]; do
+	i=$((i + 1)); [ $i -le 40 ] || fail "Device.Reboot() did not reboot: $(tail -n 5 "$T/agd.log")"; sleep 0.25
+done
+grep -q "system: reboot asked by usp" "$T/agd.log" || fail "agd should log who asked for the reboot"
+echo "   the agent on the TLS listener with its client certificate; Reboot() reached the handler"
 
 echo "USP TEST OK"

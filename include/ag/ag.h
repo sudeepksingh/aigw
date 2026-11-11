@@ -118,6 +118,7 @@ struct ag_config {
 	char mgmt_oui[8];         /* DeviceInfo.ManufacturerOUI; empty: the LAN MAC's */
 	int mgmt_wifi;            /* may a management system change Wi-Fi settings (name, key, channel) */
 	int mgmt_firmware;        /* may it download and activate firmware */
+	int mgmt_reset;           /* may it reboot the gateway or reset it to factory settings */
 	char wifi_handler[128];   /* program that saves and applies Wi-Fi settings; empty: the platform's */
 	char fw_handler[128];     /* program that downloads, checks and activates firmware; empty: the platform's */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */

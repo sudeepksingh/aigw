@@ -14,6 +14,7 @@
 #   firmware activate <id>        write it to flash and boot it (sysupgrade,
 #                                 keeping the configuration; does not return)
 #   firmware reboot
+#   firmware factory-reset        back to the image's own settings, and reboot
 #
 # An OEM with dual-bank flash or signed images points mgmt.firmware_handler at
 # its own program with the same interface.
@@ -91,6 +92,9 @@ activate)
 	exec sysupgrade "$DIR/image" ;;
 reboot)
 	exec reboot ;;
+factory-reset)
+	# OpenWRT's own: wipe the overlay (settings, installed packages), reboot
+	firstboot -y && exec reboot ;;
 *)
-	echo "usage: firmware version|list|download <id> <url>|activate <id>|reboot" >&2; exit 2 ;;
+	echo "usage: firmware version|list|download <id> <url>|activate <id>|reboot|factory-reset" >&2; exit 2 ;;
 esac

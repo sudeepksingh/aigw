@@ -431,6 +431,8 @@ int fw_ids(uint32_t *out, int max);
 void fw_version(char *buf, size_t n);
 int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_done_t done, void *ctx, char *err, size_t en);
 int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *ctx, char *err, size_t en);
+/* "reboot" or "factory_reset", through the firmware handler, 2 s from now */
+int fw_system(const char *action, const char *who, char *err, size_t en);
 
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
 typedef void (*handler_done_t)(void *ctx, int code, const char *msg);

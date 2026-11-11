@@ -68,6 +68,7 @@ config mgmt 'mgmt'
 	option actions '0'
 	option alert_details '0'
 	option firmware '0'
+	option reset '0'
 	option firmware_handler '$REPO/tests/fw/firmware'
 
 config lan 'lan'
@@ -156,6 +157,19 @@ until agctl dm get Device.DeviceInfo.SoftwareVersion | grep -q '= 2.0'; do
 done
 agctl dm get Device.DeviceInfo.ActiveFirmwareImage | grep -q "= $FW.2" || fail "the active image after the reboot"
 echo "   bank 2 downloaded, checked (a bad image refused), activated, rebooted into: version 2.0"
+
+echo "== reboot and factory reset (what Device.Reboot() / FactoryReset() and icwmp's defaultreset ask for)"
+"$UBUS" -s "$AIGW_UBUS" call ag.dm system '{"action":"reboot","origin":"usp"}' |
+	js "sys.exit(0 if not d['ok'] and 'mgmt.reset' in d['message'] else 1)" || fail "a reboot by a management system with mgmt.reset 0"
+"$UBUS" -s "$AIGW_UBUS" call ag.dm system '{"action":"explode"}' | js "sys.exit(0 if not d['ok'] else 1)" || fail "an unknown action"
+before=$(grep -c . "$T/fw/reboots")
+"$UBUS" -s "$AIGW_UBUS" call ag.dm system '{"action":"factory_reset"}' | js "sys.exit(0 if d['ok'] else 1)" || fail "factory reset"
+i=0
+until grep -q factory-reset "$T/fw/reboots"; do
+	i=$((i + 1)); [ $i -le 30 ] || fail "the handler was not asked to reset"; sleep 0.2
+done
+[ "$(grep -c . "$T/fw/reboots")" = $((before + 1)) ] || fail "one reset, nothing else: $(cat "$T/fw/reboots")"
+echo "   a management system refused with mgmt.reset 0; a factory reset through the handler"
 
 echo "== who asks: alert details and actions"
 "$UBUS" -s "$AIGW_UBUS" listen ag.dm.event > "$T/events.log" 2>&1 & L=$!; PIDS="$PIDS $L"

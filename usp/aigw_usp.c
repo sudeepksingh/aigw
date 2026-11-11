@@ -391,6 +391,39 @@ static int sw_version_cb(char *buf, int len)
 	return dm_value("Device.DeviceInfo.SoftwareVersion", buf, len);
 }
 
+/*
+ * Device.Reboot() and Device.FactoryReset() are the agent's own; without these
+ * hooks it would only exit. agd decides (mgmt.reset) and does it, with the
+ * firmware handler, a moment later; the agent exits meanwhile.
+ */
+static int system_action(const char *action)
+{
+	struct blob_buf b = { 0 };
+	struct blob_attr *reply;
+	int ok;
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "action", action);
+	blobmsg_add_string(&b, "origin", ORIGIN);
+	reply = dm_call("system", b.head);           /* reconnects: the agent has stopped the plug-in */
+	blob_buf_free(&b);
+	ok = reply && top(reply, "ok") && blobmsg_get_u8(top(reply, "ok"));
+	if (!ok)
+		USP_LOG_Error("aigw-usp: %s: %s", action, reply ? str(top(reply, "message")) : "AIGW OS (agd) is not answering");
+	free(reply);
+	return ok ? USP_ERR_OK : USP_ERR_INTERNAL_ERROR;
+}
+
+static int reboot_cb(void)
+{
+	return system_action("reboot");
+}
+
+static int factory_reset_cb(void)
+{
+	return system_action("factory_reset");
+}
+
 /* ---------- registration ---------- */
 
 /* obuspa implements these itself (values from its database, set by the init script) */
@@ -496,6 +529,8 @@ static int register_schema(struct blob_attr *schema)
 
 		memset(&hooks, 0, sizeof(hooks));
 		hooks.get_active_software_version_cb = sw_version_cb;
+		hooks.reboot_cb = reboot_cb;
+		hooks.factory_reset_cb = factory_reset_cb;
 		err |= USP_REGISTER_CoreVendorHooks(&hooks);
 	}
 	USP_LOG_Info("aigw-usp: AIGW OS data model %s: %d objects, %d parameters, %d commands, %d events",
@@ -582,9 +617,12 @@ int VENDOR_Start(void)
 
 int VENDOR_Stop(void)
 {
+	/* the event thread sleeps in its loop until ubus traffic: joining it could
+	   wait forever, and the agent stops just before a Reboot() or
+	   FactoryReset(), which still need agd. It ends with the process. */
 	if (ev_running) {
 		uloop_end();
-		pthread_join(ev_thread, NULL);
+		pthread_detach(ev_thread);
 		ev_running = 0;
 	}
 	if (dm_ctx) {

@@ -46,6 +46,14 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.22:** **ready for a carrier network.** A real firmware upgrade from an ACS
+> is now tested on OpenWRT itself (in QEMU): icwmp downloads the image, AIGW checks
+> it, `sysupgrade` writes it, and after the reboot the ACS gets its
+> TransferComplete. Gateways can present TLS client certificates to the USP
+> broker and the ACS. `Reboot` and `FactoryReset` now really reboot and reset
+> (USP, and TR-069 on OpenWRT), and the home decides whether an ISP may
+> (`mgmt.reset`).
+>
 > **v0.21:** **what an ISP does first: firmware upgrades and Wi-Fi settings.**
 > Over USP or TR-069, an ISP can now change the Wi-Fi name, passphrase,
 > security mode (WPA2/WPA3), channel and width, and upgrade the firmware

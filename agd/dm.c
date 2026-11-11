@@ -1399,7 +1399,48 @@ static int m_operate(struct ubus_context *ctx, struct ubus_object *obj, struct u
 	return ubus_send_reply(ctx, req, b.head);
 }
 
+/*
+ * system {action: reboot | factory_reset, origin}: what Device.Reboot() and
+ * Device.FactoryReset() do. The protocol clients own those commands (OB-USP-
+ * Agent, icwmp); they come here so that who may, and what it means on this
+ * device (the firmware handler), is decided in one place.
+ */
+enum { S_ACTION, S_ORIGIN, __S_MAX };
+static const struct blobmsg_policy s_policy[__S_MAX] = {
+	[S_ACTION] = { "action", BLOBMSG_TYPE_STRING },
+	[S_ORIGIN] = { "origin", BLOBMSG_TYPE_STRING },
+};
+
+static int m_system(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		    const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__S_MAX];
+	const char *action;
+	char err[200] = "";
+	int rc = E_OK;
+
+	blobmsg_parse(s_policy, __S_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!tb[S_ACTION])
+		return UBUS_STATUS_INVALID_ARGUMENT;
+	action = blobmsg_get_string(tb[S_ACTION]);
+	set_origin(tb[S_ORIGIN]);
+	if (req_remote && !cfg.mgmt_reset) {
+		snprintf(err, sizeof(err), "%s is not allowed for management systems (mgmt.reset 0)", action);
+		rc = E_REFUSED;
+	} else if (fw_system(action, req_origin, err, sizeof(err)) < 0)
+		rc = E_REFUSED;
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "ok", rc == E_OK);
+	if (rc != E_OK) {
+		blobmsg_add_string(&b, "code", err_names[rc]);
+		blobmsg_add_string(&b, "message", err);
+		AG_INFO("dm: %s by %s: %s", action, req_origin, err);
+	}
+	return ubus_send_reply(ctx, req, b.head);
+}
+
 static const struct ubus_method dm_methods[] = {
+	UBUS_METHOD("system", m_system, s_policy),
 	UBUS_METHOD_NOARG("schema", m_schema),
 	UBUS_METHOD("instances", m_instances, p_policy),
 	UBUS_METHOD("get", m_get, p_policy),

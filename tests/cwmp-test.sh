@@ -129,7 +129,11 @@ config mgmt 'mgmt'
 	option firmware_handler '$REPO/tests/fw/firmware'
 
 config cwmp 'cwmp'
-	option url 'http://10.98.0.2:7557/'
+	# the ACS over HTTPS, and it wants this gateway's client certificate
+	option url 'https://10.98.0.2:7557/'
+	option ca_file '$T/tls/ca.crt'
+	option client_cert '$T/tls/client.crt'
+	option client_key '$T/tls/client.key'
 	option periodic_interval '86400'
 	option cr_username 'cr'
 	option cr_password 'crpw'
@@ -328,8 +332,21 @@ command -v unshare >/dev/null || fail "missing unshare"
 echo "== part 2: icwmp and an ACS"
 kill "$DM"; wait "$DM" 2>/dev/null || true
 sleep 0.5
-mkdir -p "$T/acs"
-ip netns exec "$NI" python3 "$REPO/tests/cwmp/acs.py" serve "$T/acs" --port 7557 > "$T/acs.log" 2>&1 & PIDS="$PIDS $!"
+mkdir -p "$T/acs/files" "$T/tls"
+# the ACS speaks HTTPS and lets in only a CPE with a certificate from its CA
+(
+	cd "$T/tls"
+	openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj "/CN=AIGW test ISP CA" -keyout ca.key -out ca.crt
+	openssl req -newkey rsa:2048 -nodes -subj "/CN=acs.test" -keyout acs.key -out acs.csr
+	printf 'subjectAltName=IP:10.98.0.2\n' > acs.ext
+	openssl x509 -req -in acs.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 2 -extfile acs.ext -out acs.crt
+	openssl req -newkey rsa:2048 -nodes -subj "/CN=AIGWTEST0001" -keyout client.key -out client.csr
+	openssl x509 -req -in client.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 2 -out client.crt
+) > "$T/openssl.log" 2>&1 || fail "test certificates: $(tail -n 5 "$T/openssl.log")"
+ip netns exec "$NI" python3 "$REPO/tests/cwmp/acs.py" serve "$T/acs" --port 7557 \
+	--tls-cert "$T/tls/acs.crt" --tls-key "$T/tls/acs.key" --tls-ca "$T/tls/ca.crt" > "$T/acs.log" 2>&1 & PIDS="$PIDS $!"
+# firmware images from a plain file server, as ISPs often have
+ip netns exec "$NI" python3 -m http.server 7558 --bind 10.98.0.2 --directory "$T/acs/files" > "$T/files.log" 2>&1 & PIDS="$PIDS $!"
 # icwmp reboots after a firmware download (ubus system, rpc-sys, then the
 # "reboot" command): in its namespace "reboot" is this script, which switches
 # the test's firmware banks and stops icwmp, as a reboot would. It is first in
@@ -374,6 +391,8 @@ ln -s "$AIGW_UBUS" /run/ubus.sock
 : > "$T/ov/started"
 export PATH="$T/shim:\$PATH"
 export AIGW_ICWMPD="$ICWMPD" AIGW_CWMP_DM="$BIN/cwmp/aigw-cwmp-dm" AIGW_CWMP_DIR=/var/run/aigw-cwmp
+# AIGW's defaultreset (icwmp's FactoryReset), as installed in libexec
+export AIGW_LIBEXEC="$REPO/cwmp"
 exec sh "$REPO/cwmp/aigw-cwmp-run"
 EOF
 ip netns exec "$NG" unshare -m --propagation private sh "$T/cwmp-ns.sh" > "$T/icwmp.log" 2>&1 & CWMP=$!; PIDS="$PIDS $CWMP"
@@ -388,8 +407,9 @@ js "
 dev, p = d['device'], d['params']
 ok = dev['SerialNumber'] == 'AIGWTEST0001' and dev['ProductClass'] == 'AIGW OS gateway' and len(dev['OUI']) == 6
 ok = ok and p.get('Device.DeviceInfo.SoftwareVersion') == '$want' and p.get('Device.ManagementServer.ConnectionRequestURL') == 'http://10.98.0.1:7547/'
+ok = ok and d.get('client_cn') == 'AIGWTEST0001'      # over HTTPS, with its client certificate
 sys.exit(0 if ok else 'got %s' % d)" < "$T/boot.json" || fail "the boot Inform"
-echo "   Inform: $(js "print(d['events'], d['device'])" < "$T/boot.json")"
+echo "   Inform over HTTPS, client certificate $(js "print(d['client_cn'])" < "$T/boot.json"): $(js "print(d['events'], d['device'])" < "$T/boot.json")"
 
 cat > "$T/j1.json" <<EOF
 {"rpcs": [
@@ -456,11 +476,10 @@ gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:04' ||
 echo "   $DEC2 active, approved by acs"
 
 echo "== part 2: a firmware upgrade from the ACS (Download, reboot, TransferComplete)"
-mkdir -p "$T/acs/files"
 printf 'AIGW-TEST-FIRMWARE 2.5\n' > "$T/acs/files/fw.img"
 size=$(wc -c < "$T/acs/files/fw.img")
 cat > "$T/j4.json" <<EOF
-{"rpcs": [{"method": "Download", "url": "http://10.98.0.2:7557/fw.img", "key": "dl1", "size": $size}]}
+{"rpcs": [{"method": "Download", "url": "http://10.98.0.2:7558/fw.img", "key": "dl1", "size": $size}]}
 EOF
 n=$(wc -l < "$T/acs/informs.jsonl")
 job "$T/j4.json" > "$T/r4.json" || fail "the ACS's Download did not run"
@@ -485,5 +504,17 @@ head -n 1 "$T/acs/transfers.jsonl" | js "sys.exit(0 if d['key'] == 'dl1' and d['
 	fail "TransferComplete: $(cat "$T/acs/transfers.jsonl")"
 rm -f /tmp/firmware.bin /tmp/icwmp_download
 echo "   $(js "print(d['events'])" < "$T/tc.json"), SoftwareVersion 2.5, TransferComplete dl1 without a fault"
+
+echo "== part 2: FactoryReset from the ACS (icwmp's defaultreset, through agd)"
+cat > "$T/j5.json" <<EOF
+{"rpcs": [{"method": "FactoryReset"}]}
+EOF
+job "$T/j5.json" > "$T/r5.json" || fail "the ACS's FactoryReset did not run"
+i=0
+until grep -q factory-reset "$T/fw/reboots" 2>/dev/null; do
+	i=$((i + 1)); [ $i -le 60 ] || fail "FactoryReset did not reach the firmware handler: $(grep -i 'system\|reset' "$T/agd.log" | tail -n 5)"; sleep 0.5
+done
+grep -q "system: factory-reset asked by acs" "$T/agd.log" || fail "agd should log who asked for the reset"
+echo "   FactoryReset -> defaultreset -> agd (mgmt.reset) -> the firmware handler"
 
 echo "CWMP TEST OK"

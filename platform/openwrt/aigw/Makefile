@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.21.0
+PKG_VERSION:=0.22.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -205,6 +205,9 @@ define Package/aigw-cwmp/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-cwmp-dm $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-cwmp-run $(1)/usr/sbin/
 	$(INSTALL_BIN) ./files/aigw-cwmp.init $(1)/etc/init.d/aigw-cwmp
+	# icwmp's FactoryReset RPC runs "defaultreset" (iopsys has one; OpenWRT doesn't)
+	$(INSTALL_DIR) $(1)/usr/libexec/aigw
+	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/aigw/defaultreset $(1)/usr/libexec/aigw/
 endef
 
 define Package/aigw-cwmp/prerm

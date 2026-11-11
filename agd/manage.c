@@ -504,6 +504,40 @@ int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_don
 	return 0;
 }
 
+/* ---------- reboot, factory reset ---------- */
+
+static char sys_action[24];
+static struct uloop_timeout sys_timer;
+
+static void do_system(struct uloop_timeout *t)
+{
+	const char *prog = fw_handler();
+	char *argv[] = { (char *)prog, sys_action, NULL };
+
+	(void)t;
+	AG_INFO("system: %s now", sys_action);
+	if (!prog || handler_start(prog, argv, NULL, rebooted, NULL) < 0)
+		AG_WARN("system: cannot run %s %s", prog ? prog : "(no handler)", sys_action);
+}
+
+int fw_system(const char *action, const char *who, char *err, size_t en)
+{
+	if (strcmp(action, "reboot") && strcmp(action, "factory_reset")) {
+		snprintf(err, en, "action is reboot or factory_reset");
+		return -1;
+	}
+	if (!fw_handler()) {
+		snprintf(err, en, "no firmware handler on this gateway (mgmt.firmware_handler)");
+		return -1;
+	}
+	snprintf(sys_action, sizeof(sys_action), "%s", !strcmp(action, "reboot") ? "reboot" : "factory-reset");
+	AG_INFO("system: %s asked by %s, in 2 s", sys_action, who);
+	/* a moment for the answer to reach whoever asked */
+	sys_timer.cb = do_system;
+	uloop_timeout_set(&sys_timer, 2000);
+	return 0;
+}
+
 int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *ctx, char *err, size_t en)
 {
 	struct fw_image f;

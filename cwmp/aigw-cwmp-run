@@ -52,6 +52,9 @@ settings() {
 	echo "cpe userid $(get cwmp.cr_username "")"
 	echo "cpe passwd $(get cwmp.cr_password "")"
 	echo "cpe provisioning_code $(get cwmp.provisioning_code "")"
+	# TLS client certificate to the ACS (PEM files), if the ISP issues one
+	echo "cpe client_cert_path $(get cwmp.client_cert "")"
+	echo "cpe client_key_path $(get cwmp.client_key "")"
 	echo "cpe instance_mode InstanceNumber"
 	echo "cpe log_to_console 1"
 	echo "cpe log_to_file 0"
@@ -87,6 +90,14 @@ if [ -f "$KEEP/icwmpd_backup_session.xml" ] && [ ! -f "$IRUN/icwmpd_backup_sessi
 	mkdir -p "$IRUN"
 	for f in icwmpd_backup_session.xml dm_enabled_notify icwmpd_notify_import_marker; do
 		[ -f "$KEEP/$f" ] && mv "$KEEP/$f" "$IRUN/$f"
+	done
+fi
+
+# an ACS's FactoryReset: icwmp runs "defaultreset" (iopsys has one): AIGW's
+# asks agd, unless the platform has its own
+if ! command -v defaultreset >/dev/null 2>&1; then
+	for d in ${AIGW_LIBEXEC:-} /usr/libexec/aigw /usr/local/libexec/aigw; do
+		if [ -x "$d/defaultreset" ]; then PATH="$d:$PATH"; export PATH; break; fi
 	done
 fi
 

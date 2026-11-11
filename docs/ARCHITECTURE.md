@@ -878,6 +878,16 @@ Verified by:
 
 Not done yet: turning an access point off, guest networks, `RegulatoryDomain`; firmware time windows and scheduled downloads; a firmware handler for a PC.
 
+**As built in v0.22: ready for a carrier network.**
+
+| Piece | As built |
+|-------|----------|
+| Reboot, factory reset | `ubus ag.dm system {action, origin}`: agd checks `mgmt.reset`, logs who asked, and runs the firmware handler's `reboot` / `factory-reset` 2 s later (OpenWRT: `firstboot -y`, reboot). USP: the plug-in registers OB-USP-Agent's `reboot_cb` / `factory_reset_cb` hooks; without them `Device.Reboot()` only restarted the agent. Its stop no longer joins the event thread, which could wait forever. TR-069: `defaultreset` (icwmp's FactoryReset; iopsys has one, OpenWRT doesn't) in `/usr/libexec/aigw`, put on icwmp's PATH by `aigw-cwmp-run`. |
+| Client certificates | `usp.client_cert` (PEM, certificate and key) to obuspa's `-a`; `cwmp.client_cert` / `client_key` into icwmp's `cpe.client_cert_path` / `client_key_path`. |
+| On OpenWRT itself | `qemu-test.sh` (MGMT=1) runs tests/cwmp/acs.py on the host. In the VM: obuspa's CLI reads AIGW's data model through the plug-in, and icwmp informs the ACS and answers a job, on all three architectures. On x86-64, the ACS's Download carries the same release image through icwmp, `sysupgrade -T`, agd's OpenWRT firmware handler (RAM slot, `fwtool` version) and `sysupgrade` keeping the configuration. QEMU runs on through the reboot. The packages are reinstalled, and the ACS must get `1 BOOT` + `7 TRANSFER COMPLETE` and a `TransferComplete` without a fault: icwmp's session was kept by aigw-cwmp-dm and icwmp's `keep.d`, and put back by aigw-cwmp-run. |
+
+Verified also by usp-test (the agent on a mosquitto TLS listener requiring a client certificate; `Device.Reboot()` through to the handler), cwmp-test (an HTTPS ACS requiring the CPE's certificate; `FactoryReset` through `defaultreset`) and dm-test (`mgmt.reset`).
+
 ---
 
 ## 17. Status and risks

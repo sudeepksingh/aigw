@@ -127,6 +127,8 @@ config mgmt 'mgmt'
 	# mode, channel and width? upgrade the firmware?
 	option wifi '1'
 	option firmware '1'
+	# may it reboot the gateway, or reset it to factory settings?
+	option reset '1'
 	# the program that downloads, checks and activates firmware; default: the
 	# platform's (OpenWRT: sysupgrade). An OEM with A/B flash or signed images
 	# names its own (docs/device-management.md, "The firmware handler")
@@ -145,6 +147,9 @@ config usp 'usp'
 	# option agent_topic '/usp/agent/<agent_id>'
 	option controller_topic '/usp/controller'
 	# option ca_file '/etc/ssl/certs/ca-certificates.crt'
+	# this gateway's TLS client certificate, if the ISP issues them: one PEM
+	# file with the certificate and its key
+	# option client_cert '/etc/aigw/usp/client.pem'
 
 config cwmp 'cwmp'
 	# the ISP's ACS (aigw-cwmp: icwmp with AIGW's data model). An ACS may change
@@ -165,6 +170,9 @@ config cwmp 'cwmp'
 	option wan 'wan'
 	# option wan_device 'eth0'
 	# option ca_file '/etc/ssl/certs/ca-certificates.crt'
+	# this gateway's TLS client certificate and key (PEM), if the ACS asks for one
+	# option client_cert '/etc/aigw/cwmp/client.crt'
+	# option client_key '/etc/aigw/cwmp/client.key'
 
 config act 'act'
 	# What AIGW may do about what it notices:
