@@ -252,7 +252,16 @@ done
 hostapd_cli -p "$T/run/hostapd" -i "$AP24" status | grep -q '^channel=11' || fail "the new channel: $(hostapd_cli -p "$T/run/hostapd" -i "$AP24" status | grep channel)"
 grep -q "^SSID='AIGW-NEW'" "$T/pc-ap.conf" && grep -q "^PASSPHRASE='new-pass-1234'" "$T/pc-ap.conf" && grep -q "^CHANNEL='11'" "$T/pc-ap.conf" ||
 	fail "the settings should be saved in pc-ap.conf: $(grep -vi pass "$T/pc-ap.conf")"
-grep -q "wifi: $AP24 settings applied (asked by usp)" "$T/agd.log" || fail "agd should log who changed it"
+# the handler is done once it has restarted the other band too (a new name is on both)
+i=0
+until grep -q "wifi: $AP24 settings applied (asked by usp)" "$T/agd.log"; do
+	i=$((i + 1))
+	if [ $i -gt 60 ]; then
+		echo "--- agd"; grep -i wifi "$T/agd.log" | tail -n 10
+		fail "agd should log who changed it, once the handler is done"
+	fi
+	sleep 1
+done
 # the client joins again with the new passphrase
 ip netns exec "$NC" wpa_cli -p "$T/wpas" -i "$STA" set_network 0 ssid '"AIGW-NEW"' > /dev/null
 ip netns exec "$NC" wpa_cli -p "$T/wpas" -i "$STA" set_network 0 psk '"new-pass-1234"' > /dev/null
