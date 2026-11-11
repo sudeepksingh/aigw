@@ -324,9 +324,18 @@ stop_aps() {
 	return 0
 }
 
+# stop the process in pidfile $1 and wait until it is gone: a hostapd still
+# letting go of its interface makes the next one on it fail
 kill_pidfile() {
 	if [ -f "$1" ]; then
-		kill "$(cat "$1")" 2>/dev/null || true
+		pid=$(cat "$1")
+		kill "$pid" 2>/dev/null || true
+		i=0
+		while kill -0 "$pid" 2>/dev/null && [ $i -lt 50 ]; do
+			sleep 0.1
+			i=$((i + 1))
+		done
+		kill -9 "$pid" 2>/dev/null || true
 		rm -f "$1"
 	fi
 }
