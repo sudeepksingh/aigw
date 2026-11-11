@@ -1,0 +1,69 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# wifi-config: AIGW OS's Wi-Fi handler for OpenWRT. agd calls it after
+# checking the values; it saves them in /etc/config/wireless and reloads
+# that radio.
+#
+#   wifi-config set <iface>      the new values in the environment:
+#     AIGW_WIFI_SSID, AIGW_WIFI_KEY, AIGW_WIFI_MODE (TR-181 names: None,
+#     WPA2-Personal, WPA3-Personal, WPA2-WPA3-Personal), AIGW_WIFI_CHANNEL,
+#     AIGW_WIFI_WIDTH (20MHz, 40MHz, 80MHz, Auto)
+#
+# An OEM with its own Wi-Fi stack points wifi.handler at its own program with
+# the same interface.
+set -eu
+
+die() { echo "wifi-config: $*" >&2; exit 1; }
+
+[ "${1:-}" = set ] && [ -n "${2:-}" ] || { echo "usage: wifi-config set <iface> (values in AIGW_WIFI_*)" >&2; exit 2; }
+IF=$2
+
+. /usr/share/libubox/jshn.sh
+
+# the wifi-iface section and the radio of interface $IF (netifd knows)
+RADIO= SEC=
+json_load "$(ubus call network.wireless status)" || die "netifd does not answer (network.wireless)"
+json_get_keys radios
+for r in $radios; do
+	json_select "$r"
+	if json_is_a interfaces array; then
+		json_select interfaces
+		json_get_keys ifs
+		for i in $ifs; do
+			json_select "$i"
+			json_get_var ifname ifname
+			json_get_var section section
+			if [ "${ifname:-}" = "$IF" ]; then RADIO=$r; SEC=$section; fi
+			json_select ..
+		done
+		json_select ..
+	fi
+	json_select ..
+done
+[ -n "$RADIO" ] && [ -n "$SEC" ] || die "no wireless section for $IF"
+
+if [ -n "${AIGW_WIFI_SSID+x}" ]; then uci set "wireless.$SEC.ssid=$AIGW_WIFI_SSID"; fi
+if [ -n "${AIGW_WIFI_KEY+x}" ]; then uci set "wireless.$SEC.key=$AIGW_WIFI_KEY"; fi
+if [ -n "${AIGW_WIFI_MODE+x}" ]; then
+	case $AIGW_WIFI_MODE in
+	None) e=none ;;
+	WPA2-Personal) e=psk2+ccmp ;;
+	WPA3-Personal) e=sae ;;
+	WPA2-WPA3-Personal) e=sae-mixed ;;
+	*) die "unknown security mode $AIGW_WIFI_MODE" ;;
+	esac
+	uci set "wireless.$SEC.encryption=$e"
+fi
+if [ -n "${AIGW_WIFI_CHANNEL+x}" ]; then uci set "wireless.$RADIO.channel=$AIGW_WIFI_CHANNEL"; fi
+if [ -n "${AIGW_WIFI_WIDTH+x}" ] && [ "$AIGW_WIFI_WIDTH" != Auto ]; then
+	# keep the radio's standard (HT, VHT, HE, EHT), change the width
+	ht=$(uci -q get "wireless.$RADIO.htmode" || true)
+	std=${ht%%[0-9]*}
+	if [ -z "$std" ]; then
+		case $(uci -q get "wireless.$RADIO.band" || true) in 5g) std=VHT ;; *) std=HT ;; esac
+	fi
+	uci set "wireless.$RADIO.htmode=$std${AIGW_WIFI_WIDTH%MHz}"
+fi
+uci commit wireless
+wifi reload "$RADIO"
+echo "saved in /etc/config/wireless ($SEC on $RADIO), $RADIO reloaded"

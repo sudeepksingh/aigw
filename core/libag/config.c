@@ -159,6 +159,8 @@ void ag_config_load(struct ag_config *c)
 	c->mgmt_enabled = 0;
 	c->mgmt_actions = 0;
 	c->mgmt_alert_details = 0;
+	c->mgmt_wifi = 1;
+	c->mgmt_firmware = 1;
 	c->burst_window = 600;
 	c->burst_min = 8;
 	c->burst_share = 0.75;
@@ -306,6 +308,14 @@ void ag_config_load(struct ag_config *c)
 		copy(c->mgmt_serial, sizeof(c->mgmt_serial), opt(ctx, p, "mgmt", "serial"));
 		copy(c->mgmt_oui, sizeof(c->mgmt_oui), opt(ctx, p, "mgmt", "oui"));
 		copy(c->mgmt_prefix, sizeof(c->mgmt_prefix), opt(ctx, p, "mgmt", "vendor_prefix"));
+		v = opt(ctx, p, "mgmt", "wifi");
+		if (v)
+			c->mgmt_wifi = atoi(v) != 0;
+		v = opt(ctx, p, "mgmt", "firmware");
+		if (v)
+			c->mgmt_firmware = atoi(v) != 0;
+		copy(c->wifi_handler, sizeof(c->wifi_handler), opt(ctx, p, "wifi", "handler"));
+		copy(c->fw_handler, sizeof(c->fw_handler), opt(ctx, p, "mgmt", "firmware_handler"));
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

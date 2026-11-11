@@ -82,7 +82,7 @@ def main():
             out.append('      <parameter name=%s access="%s"%s><syntax>%s</syntax></parameter>' %
                        (quoteattr(name), access, notify, TYPES.get(p.get("type"), "<string/>")))
         for name, c in o["commands"]:
-            out.append("      <command name=%s>" % quoteattr(name))
+            out.append("      <command name=%s%s>" % (quoteattr(name), ' async="true"' if c.get("async") else ""))
             if c.get("in"):
                 out.append("        <input>")
                 out += ['          <parameter name=%s><syntax><string/></syntax></parameter>' % quoteattr(a) for a in c["in"]]

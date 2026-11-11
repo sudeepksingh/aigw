@@ -399,4 +399,45 @@ int wifi_ban(const char *mac, int on, char *err, size_t errlen);
 int wifi_all(const char *cmd, char *reply, size_t n);
 int wifi_kick(const char *mac);
 
+/* manage.c: Wi-Fi settings and firmware, as a management system changes them */
+enum { WS_SSID, WS_KEY, WS_MODE, WS_CHANNEL, WS_WIDTH, WS_N };
+extern const char *const wifi_modes[];
+void wifi_mode(const char *iface, char *buf, size_t n);
+const char *wifi_handler(void);
+int wifiset_check(const char *iface, int what, const char *v, char *err, size_t en);
+void wifiset_stage(const char *iface, int what, const char *v);
+void wifiset_flush(const char *who);      /* give what was staged to the handler */
+void wifiset_drop(void);                  /* forget what was staged */
+const char *wifiset_pending(const char *iface, int what);
+void wifiset_seen(const char *iface, int what, const char *v);
+
+#define FW_MAX 4
+struct fw_image {
+	uint32_t id;
+	char status[24];                /* TR-181: NoImage, Active, Downloading, Available, ... */
+	int active, boot;
+	char version[64];
+	char name[64];
+};
+struct fw_request {
+	const char *url, *user, *password, *size, *alg, *sum;
+	int activate, reboot;
+};
+typedef void (*fw_done_t)(void *ctx, int ok, const char *msg);
+const char *fw_handler(void);
+int fw_list(struct fw_image *out, int max);
+int fw_find(uint32_t id, struct fw_image *f);
+int fw_ids(uint32_t *out, int max);
+void fw_version(char *buf, size_t n);
+int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_done_t done, void *ctx, char *err, size_t en);
+int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *ctx, char *err, size_t en);
+
+/* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
+typedef void (*handler_done_t)(void *ctx, int code, const char *msg);
+const char *handler_path(const char *configured, const char *name);
+/* in the background: done(ctx, exit code, its last line) on the loop; 0 when started */
+int handler_start(const char *prog, char *const argv[], char *const env[], handler_done_t done, void *ctx);
+/* and wait (for quick questions): exit code, output in out, -1 on timeout */
+int handler_run(const char *prog, char *const argv[], char *out, size_t n, int timeout_ms);
+
 #endif

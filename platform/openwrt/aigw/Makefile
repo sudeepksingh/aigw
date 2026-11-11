@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.20.0
+PKG_VERSION:=0.21.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -153,8 +153,11 @@ endef
 define Package/aigw/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults \
 		$(1)/etc/hotplug.d/dhcp $(1)/usr/share/aigw/models $(1)/usr/share/aigw/plugins/iot-guard \
-		$(1)/lib/upgrade/keep.d $(1)/usr/lib/aigw/backends
+		$(1)/lib/upgrade/keep.d $(1)/usr/lib/aigw/backends $(1)/usr/libexec/aigw
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/models/domain-risk.agm $(1)/usr/share/aigw/models/
+	# platform handlers: Wi-Fi settings and firmware, as a management system changes them
+	$(INSTALL_BIN) ./files/wifi-config $(1)/usr/libexec/aigw/wifi-config
+	$(INSTALL_BIN) ./files/firmware $(1)/usr/libexec/aigw/firmware
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
 		$(1)/usr/share/aigw/plugins/iot-guard/
 	# per-device Wi-Fi keys, your plug-ins, trusted keys, model updates and

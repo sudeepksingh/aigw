@@ -116,6 +116,10 @@ struct ag_config {
 	int mgmt_alert_details;   /* may it see alert subjects and reasons (names looked up) */
 	char mgmt_serial[64];     /* DeviceInfo.SerialNumber; empty: from the machine id or the LAN MAC */
 	char mgmt_oui[8];         /* DeviceInfo.ManufacturerOUI; empty: the LAN MAC's */
+	int mgmt_wifi;            /* may a management system change Wi-Fi settings (name, key, channel) */
+	int mgmt_firmware;        /* may it download and activate firmware */
+	char wifi_handler[128];   /* program that saves and applies Wi-Fi settings; empty: the platform's */
+	char fw_handler[128];     /* program that downloads, checks and activates firmware; empty: the platform's */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

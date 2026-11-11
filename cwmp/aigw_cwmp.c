@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -236,7 +237,14 @@ static void reply_cb(struct ubus_request *req, int type, struct blob_attr *msg)
 		memcpy(r->msg, msg, blob_pad_len(msg));
 }
 
+static struct blob_attr *call_t(const char *obj, const char *method, struct blob_attr *args, int timeout);
+
 static struct blob_attr *call(const char *obj, const char *method, struct blob_attr *args)
+{
+	return call_t(obj, method, args, TIMEOUT);
+}
+
+static struct blob_attr *call_t(const char *obj, const char *method, struct blob_attr *args, int timeout)
 {
 	struct reply r = { NULL };
 	uint32_t id;
@@ -248,7 +256,7 @@ static struct blob_attr *call(const char *obj, const char *method, struct blob_a
 		if (ubus_reconnect(out, ubus_path) || ubus_lookup_id(out, obj, &id))
 			return NULL;
 	}
-	rc = ubus_invoke(out, id, method, args, reply_cb, &r, TIMEOUT);
+	rc = ubus_invoke(out, id, method, args, reply_cb, &r, timeout);
 	if (rc) {
 		AG_WARN("%s %s: %s", obj, method, ubus_strerror(rc));
 		free(r.msg);
@@ -1155,19 +1163,218 @@ static int m_addel(struct ubus_context *c, struct ubus_object *obj, struct ubus_
 	return ubus_send_reply(c, req, rb.head);
 }
 
+/* ---------- firmware: what icwmp asks for a Download (file type 1) ---------- */
+
+/*
+ * icwmp downloads the image itself, checks it with "sysupgrade -T", then:
+ *   fwbank dump                      picks an image that isn't running
+ *   bbfdm operate FirmwareImage.N.Download() {URL: file://...}
+ *   fwbank set_bootbank {bank: N}    makes it boot next
+ *   system reboot, and after the boot a TransferComplete
+ * Download() and Activate() are agd's (its firmware handler); the bank calls
+ * are answered from Device.DeviceInfo.FirmwareImage.
+ */
+#define FW_TIMEOUT (10 * 60 * 1000)
+#define FW_PREFIX  "Device.DeviceInfo.FirmwareImage."
+
+enum { O_PATH, O_INPUT, __O_MAX };
+static const struct blobmsg_policy o_policy[__O_MAX] = {
+	[O_PATH] = { "path", BLOBMSG_TYPE_STRING },
+	[O_INPUT] = { "input", BLOBMSG_TYPE_TABLE },
+};
+
+/* icwmp looks for a fault inside each result's output */
+static void op_result(const char *path, int fault, const char *msg)
+{
+	void *a = blobmsg_open_array(&rb, "results"), *t = blobmsg_open_table(&rb, NULL), *o, *f;
+
+	blobmsg_add_string(&rb, "path", path);
+	o = blobmsg_open_array(&rb, "output");
+	if (fault) {
+		f = blobmsg_open_table(&rb, NULL);
+		blobmsg_add_u32(&rb, "fault", (uint32_t)fault);
+		blobmsg_add_string(&rb, "fault_msg", msg ? msg : "");
+		blobmsg_close_table(&rb, f);
+	}
+	blobmsg_close_array(&rb, o);
+	blobmsg_close_table(&rb, t);
+	blobmsg_close_array(&rb, a);
+}
+
+/* FirmwareImage.N.Download() / Activate(): agd's answer, or a fault message */
+static int fw_operate(const char *path, struct blob_attr *input, char *err, size_t en)
+{
+	struct blob_buf b = { 0 };
+	struct blob_attr *r, *cur;
+	size_t rem;
+	void *t;
+	int ok;
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "origin", ORIGIN);
+	blobmsg_add_string(&b, "command", path);
+	t = blobmsg_open_table(&b, "args");
+	if (input)
+		blobmsg_for_each_attr(cur, input, rem) {
+			char v[32];
+
+			if (blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
+				blobmsg_add_string(&b, blobmsg_name(cur), blobmsg_get_string(cur));
+			else if (blobmsg_type(cur) == BLOBMSG_TYPE_BOOL) {
+				blobmsg_add_string(&b, blobmsg_name(cur), blobmsg_get_bool(cur) ? "true" : "false");
+			} else if (blobmsg_type(cur) == BLOBMSG_TYPE_INT32) {
+				snprintf(v, sizeof(v), "%u", blobmsg_get_u32(cur));
+				blobmsg_add_string(&b, blobmsg_name(cur), v);
+			}
+		}
+	blobmsg_close_table(&b, t);
+	r = call_t("ag.dm", "operate", b.head, FW_TIMEOUT);
+	blob_buf_free(&b);
+	ok = r && top(r, "ok") && blobmsg_get_u8(top(r, "ok"));
+	snprintf(err, en, "%s", !r ? "AIGW OS (agd) is not answering" : str(top(r, "message")));
+	free(r);
+	return ok ? 0 : -1;
+}
+
 static int m_operate(struct ubus_context *c, struct ubus_object *obj, struct ubus_request_data *req,
 		     const char *method, struct blob_attr *msg)
 {
-	struct blob_attr *tb[__A_MAX];
+	struct blob_attr *tb[__O_MAX];
+	const char *p;
+	char err[256];
+	size_t l;
 
-	blobmsg_parse(a_policy, __A_MAX, tb, blob_data(msg), blob_len(msg));
+	blobmsg_parse(o_policy, __O_MAX, tb, blob_data(msg), blob_len(msg));
+	p = tb[O_PATH] ? blobmsg_get_string(tb[O_PATH]) : "";
+	l = strlen(p);
 	blob_buf_init(&rb, 0);
-	char m[96];
-
-	snprintf(m, sizeof(m), "not supported: use %s", req_base);
-	result_fault(req_path(tb), F_ARGS, m);
+	if (!strncmp(p, FW_PREFIX, strlen(FW_PREFIX)) &&
+	    ((l > 11 && !strcmp(p + l - 11, ".Download()")) || (l > 11 && !strcmp(p + l - 11, ".Activate()")))) {
+		AG_INFO("%s asked by the ACS", p);
+		if (fw_operate(p, tb[O_INPUT], err, sizeof(err)) == 0)
+			op_result(p, 0, NULL);
+		else {
+			AG_WARN("%s: %s", p, err);
+			op_result(p, 9010, err);        /* download failure */
+		}
+		return ubus_send_reply(c, req, rb.head);
+	}
+	snprintf(err, sizeof(err), "not supported: use %s", req_base);
+	op_result(p, F_ARGS, err);
 	return ubus_send_reply(c, req, rb.head);
 }
+
+/* icwmp's session: kept in flash before an image is activated, so the
+   TransferComplete survives the reboot (aigw-cwmp-run puts it back) */
+static void keep_session(void)
+{
+	static const char *const files[] = { "icwmpd_backup_session.xml", "dm_enabled_notify",
+					     "icwmpd_notify_import_marker", NULL };
+	const char *run = getenv("AIGW_ICWMP_RUN"), *keep = getenv("AIGW_ICWMP_KEEP");
+	char src[256], dst[256], buf[4096];
+	int i;
+
+	run = run && *run ? run : "/var/run/icwmpd";
+	keep = keep && *keep ? keep : "/etc/icwmpd";
+	mkdir(keep, 0700);
+	for (i = 0; files[i]; i++) {
+		FILE *in, *o;
+		size_t n;
+
+		snprintf(src, sizeof(src), "%s/%s", run, files[i]);
+		snprintf(dst, sizeof(dst), "%s/%s", keep, files[i]);
+		if (!(in = fopen(src, "rb")))
+			continue;
+		if ((o = fopen(dst, "wb"))) {
+			while ((n = fread(buf, 1, sizeof(buf), in)) > 0)
+				if (fwrite(buf, 1, n, o) != n)
+					break;
+			fclose(o);
+		}
+		fclose(in);
+	}
+}
+
+static int m_fw_dump(struct ubus_context *c, struct ubus_object *obj, struct ubus_request_data *req,
+		     const char *method, struct blob_attr *msg)
+{
+	struct blob_buf b = { 0 };
+	struct blob_attr *inst, *vals = NULL, *r = NULL, *cur;
+	char active[96] = "", boot[96] = "";
+	size_t rem;
+	void *a, *t;
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "path", FW_PREFIX);
+	inst = call("ag.dm", "instances", b.head);
+	blob_buf_free(&b);
+	if ((r = dm_get("Device.DeviceInfo.")))
+		vals = top(r, "values");
+	snprintf(active, sizeof(active), "%s.", str(field(vals, "Device.DeviceInfo.ActiveFirmwareImage")));
+	snprintf(boot, sizeof(boot), "%s.", str(field(vals, "Device.DeviceInfo.BootFirmwareImage")));
+	blob_buf_init(&rb, 0);
+	a = blobmsg_open_array(&rb, "bank");
+	if (inst && top(inst, "instances"))
+		blobmsg_for_each_attr(cur, top(inst, "instances"), rem) {
+			const char *p = str(cur);       /* Device.DeviceInfo.FirmwareImage.N. */
+			char k[160];
+			const char *ver;
+
+			t = blobmsg_open_table(&rb, NULL);
+			snprintf(k, sizeof(k), "%sName", p);
+			blobmsg_add_string(&rb, "name", str(field(vals, k)));
+			blobmsg_add_u32(&rb, "id", (uint32_t)strtoul(p + strlen(FW_PREFIX), NULL, 10));
+			blobmsg_add_u8(&rb, "active", !strcmp(p, active));
+			blobmsg_add_u8(&rb, "boot", !strcmp(p, boot));
+			blobmsg_add_u8(&rb, "upgrade", 0);
+			snprintf(k, sizeof(k), "%sVersion", p);
+			ver = str(field(vals, k));
+			blobmsg_add_string(&rb, "fwver", ver);
+			blobmsg_add_string(&rb, "swver", ver);
+			snprintf(k, sizeof(k), "%sStatus", p);
+			blobmsg_add_string(&rb, "status", str(field(vals, k)));
+			blobmsg_close_table(&rb, t);
+		}
+	blobmsg_close_array(&rb, a);
+	free(inst);
+	free(r);
+	return ubus_send_reply(c, req, rb.head);
+}
+
+enum { B_BANK, __B_MAX };
+static const struct blobmsg_policy b_policy[__B_MAX] = {
+	[B_BANK] = { "bank", BLOBMSG_TYPE_INT32 },
+};
+
+static int m_fw_bootbank(struct ubus_context *c, struct ubus_object *obj, struct ubus_request_data *req,
+			 const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__B_MAX];
+	char path[96], err[256];
+	int ok = 0;
+
+	blobmsg_parse(b_policy, __B_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&rb, 0);
+	if (tb[B_BANK]) {
+		snprintf(path, sizeof(path), FW_PREFIX "%u.Activate()", blobmsg_get_u32(tb[B_BANK]));
+		keep_session();
+		AG_INFO("%s asked by the ACS", path);
+		ok = fw_operate(path, NULL, err, sizeof(err)) == 0;
+		if (!ok)
+			AG_WARN("%s: %s", path, err);
+	}
+	blobmsg_add_u8(&rb, "success", ok);
+	return ubus_send_reply(c, req, rb.head);
+}
+
+static const struct ubus_method fw_methods[] = {
+	UBUS_METHOD_NOARG("dump", m_fw_dump),
+	UBUS_METHOD("set_bootbank", m_fw_bootbank, b_policy),
+};
+static struct ubus_object_type fw_type = UBUS_OBJECT_TYPE("fwbank", fw_methods);
+static struct ubus_object fw_obj = {
+	.name = "fwbank", .type = &fw_type, .methods = fw_methods, .n_methods = ARRAY_SIZE(fw_methods),
+};
 
 static const struct ubus_method bbfdm_methods[] = {
 	UBUS_METHOD("get", m_get, a_policy),
@@ -1175,7 +1382,7 @@ static const struct ubus_method bbfdm_methods[] = {
 	UBUS_METHOD("set", m_set, a_policy),
 	UBUS_METHOD("add", m_addel, a_policy),
 	UBUS_METHOD("del", m_addel, a_policy),
-	UBUS_METHOD("operate", m_operate, a_policy),
+	UBUS_METHOD("operate", m_operate, o_policy),
 };
 static struct ubus_object_type bbfdm_type = UBUS_OBJECT_TYPE("bbfdm", bbfdm_methods);
 static struct ubus_object bbfdm_obj = {
@@ -1327,6 +1534,9 @@ int main(int argc, char **argv)
 		AG_ERR("cannot publish bbfdm / bbf.config (is another data model daemon, bbfdmd, running?)");
 		return 1;
 	}
+	/* firmware banks, unless the platform has its own (iopsys fwbank) */
+	if (ubus_lookup_id(ctx, "fwbank", &id) && ubus_add_object(ctx, &fw_obj))
+		AG_WARN("cannot publish fwbank: firmware downloads from the ACS won't work");
 	snprintf(if_name, sizeof(if_name), "network.interface.%s", wan);
 	if (wan_dev[0] && ubus_lookup_id(ctx, if_name, &id)) {
 		if_obj.name = if_name;

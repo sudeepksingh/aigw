@@ -91,8 +91,13 @@ regdump() {
 	echo "--- regulatory"; iw reg get 2>&1 | head -30
 	echo "--- $AP5 channel 36"; iw phy "$(basename "$(readlink -f /sys/class/net/$AP5/phy80211)")" info 2>&1 | grep -E "5180|5200" | head -4
 }
-$AP conf "$AP24" 2.4 6 20 "$BR" > "$T/h24.conf"
-start_hapd "$T/h24.conf" "$T/hostapd24.log" "$T/h24.pid" || fail "2.4 GHz hostapd did not start"
+# configs and pidfiles where aigw-ap keeps them: the Wi-Fi handler restarts
+# an access point through it (aigw-ap reconf)
+mkdir -p "$T/run"
+H24="$T/run/hostapd-$AP24"
+H5="$T/run/hostapd-$AP5"
+$AP conf "$AP24" 2.4 6 20 "$BR" > "$H24.conf"
+start_hapd "$H24.conf" "$T/hostapd24.log" "$H24.pid" || fail "2.4 GHz hostapd did not start"
 
 echo "== the client joins (only 2.4 GHz is up yet)"
 ip netns add "$NC"
@@ -115,9 +120,9 @@ echo "   joined: $(ip netns exec "$NC" iw dev "$STA" link | grep -E 'freq|signal
 echo "== the 5 GHz access point comes up"
 w5=""
 for w in 80 40 20; do
-	$AP conf "$AP5" 5 36 $w "$BR" > "$T/h5.conf"
-	if start_hapd "$T/h5.conf" "$T/hostapd5-$w.log" "$T/h5.pid"; then w5=$w; break; fi
-	kill "$(cat "$T/h5.pid")" 2>/dev/null || true
+	$AP conf "$AP5" 5 36 $w "$BR" > "$H5.conf"
+	if start_hapd "$H5.conf" "$T/hostapd5-$w.log" "$H5.pid"; then w5=$w; break; fi
+	kill "$(cat "$H5.pid")" 2>/dev/null || true
 	echo "   5 GHz at $w MHz did not come up: $(grep -iE 'fail|not allowed|could not|error|DFS|NO-IR|disabled' "$T/hostapd5-$w.log" | head -3 | tr '\n' ' ')"
 done
 if [ -z "$w5" ]; then
@@ -145,6 +150,10 @@ config wifi 'wifi'
 	option ctrl_dir '$T/run/hostapd'
 	option keys '$T/wifi-keys'
 	option steer_hold '3'
+	option handler '$REPO/platform/pc-ap/wifi-config'
+
+config mgmt 'mgmt'
+	option enabled '1'
 
 config act 'act'
 	option dns_policy '$T/dns-policy'
@@ -161,7 +170,7 @@ config lan 'lan'
 	list iface '$BR'
 EOF
 : > "$T/leases"
-export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock"
+export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_AP="$REPO/platform/pc-ap/aigw-ap"
 UBUSD=$(command -v ubusd || echo /usr/local/sbin/ubusd)
 "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.5
@@ -213,4 +222,53 @@ if [ "$(grep -c "CTRL-EVENT-CONNECTED" "$T/wpas.log" || true)" != "$assoc_before
 fi
 sleep 6
 "$BIN/agctl/agctl" wifi
+
+echo "== Wi-Fi settings from a management system (TR-181, through the PC's Wi-Fi handler)"
+dm() { "${UBUS:-$(command -v ubus || echo /usr/local/bin/ubus)}" -s "$AIGW_UBUS" call ag.dm "$@"; }
+js() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
+dm get '{"paths":["Device.WiFi."]}' > "$T/wifi.json"
+N=$(js "print([k.split('.')[3] for k, v in d['values'].items() if k.startswith('Device.WiFi.SSID.') and k.endswith('.Name') and v == '$AP24'][0])" < "$T/wifi.json") ||
+	fail "no SSID instance for $AP24: $(cat "$T/wifi.json")"
+js "v = d['values']; sys.exit(0 if v['Device.WiFi.SSID.$N.SSID'] == 'AIGW-HWSIM' and v['Device.WiFi.Radio.$N.Channel'] == '6' and
+   v['Device.WiFi.Radio.$N.OperatingFrequencyBand'] == '2.4GHz' and v['Device.WiFi.AccessPoint.$N.Security.ModeEnabled'] == 'WPA2-Personal' and
+   v['Device.WiFi.AccessPoint.$N.Security.KeyPassphrase'] == '' else 1)" < "$T/wifi.json" || fail "Wi-Fi as read: $(cat "$T/wifi.json")"
+SSIDP=Device.WiFi.SSID.$N.SSID KEYP=Device.WiFi.AccessPoint.$N.Security.KeyPassphrase
+dm set "{\"params\":{\"$KEYP\":\"short\"},\"origin\":\"usp\"}" | js "sys.exit(0 if d['errors']['$KEYP']['code'] == 'invalid_value' else 1)" ||
+	fail "a too short passphrase"
+dm set "{\"params\":{\"Device.WiFi.Radio.$N.Channel\":\"14\"},\"origin\":\"usp\"}" | js "sys.exit(0 if not d['ok'] else 1)" ||
+	fail "channel 14"
+dm set "{\"params\":{\"$SSIDP\":\"AIGW-NEW\",\"$KEYP\":\"new-pass-1234\",\"Device.WiFi.Radio.$N.Channel\":\"11\"},\"origin\":\"usp\"}" |
+	js "sys.exit(0 if d['ok'] else 1)" || fail "the new settings"
+dm get "{\"paths\":[\"$SSIDP\"]}" | js "sys.exit(0 if d['values']['$SSIDP'] == 'AIGW-NEW' else 1)" || fail "the new name, as read at once"
+i=0
+until hostapd_cli -p "$T/run/hostapd" -i "$AP24" get_config 2>/dev/null | grep -q '^ssid=AIGW-NEW'; do
+	i=$((i + 1))
+	if [ $i -gt 40 ]; then
+		echo "--- agd"; grep -i wifi "$T/agd.log" | tail -n 10
+		fail "the 2.4 GHz access point did not come back with the new name"
+	fi
+	sleep 0.5
+done
+hostapd_cli -p "$T/run/hostapd" -i "$AP24" status | grep -q '^channel=11' || fail "the new channel: $(hostapd_cli -p "$T/run/hostapd" -i "$AP24" status | grep channel)"
+grep -q "^SSID='AIGW-NEW'" "$T/pc-ap.conf" && grep -q "^PASSPHRASE='new-pass-1234'" "$T/pc-ap.conf" && grep -q "^CHANNEL='11'" "$T/pc-ap.conf" ||
+	fail "the settings should be saved in pc-ap.conf: $(grep -vi pass "$T/pc-ap.conf")"
+# the handler is done once it has restarted the other band too (a new name is on both)
+i=0
+until grep -q "wifi: $AP24 settings applied (asked by usp)" "$T/agd.log"; do
+	i=$((i + 1))
+	if [ $i -gt 60 ]; then
+		echo "--- agd"; grep -i wifi "$T/agd.log" | tail -n 10
+		fail "agd should log who changed it, once the handler is done"
+	fi
+	sleep 1
+done
+# the client joins again with the new passphrase
+ip netns exec "$NC" wpa_cli -p "$T/wpas" -i "$STA" set_network 0 ssid '"AIGW-NEW"' > /dev/null
+ip netns exec "$NC" wpa_cli -p "$T/wpas" -i "$STA" set_network 0 psk '"new-pass-1234"' > /dev/null
+ip netns exec "$NC" wpa_cli -p "$T/wpas" -i "$STA" reassociate > /dev/null
+i=0
+until ip netns exec "$NC" iw dev "$STA" link | grep -q 'SSID: AIGW-NEW'; do
+	i=$((i + 1)); [ $i -gt 30 ] && fail "the client did not join AIGW-NEW with the new passphrase"; sleep 1
+done
+echo "   name, passphrase and channel 11 set over the data model, saved, applied; the client joined again"
 echo "HWSIM TEST OK"

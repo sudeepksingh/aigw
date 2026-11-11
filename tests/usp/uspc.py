@@ -5,6 +5,9 @@
     uspc.py get <path>...                     values, as JSON {path: value}
     uspc.py set <path>=<value>...             {"ok": bool, "err_code", "err_msg"}
     uspc.py operate <command()> [Arg=value]...  {"ok", "out" | "err_code", "err_msg"}
+    uspc.py operate-async <command()> <seconds> [Arg=value]...
+                                              an asynchronous command: waits for its
+                                              OperationComplete, {"ok", "out" | "err_code", "err_msg"}
     uspc.py supported <object path>           commands and events the agent lists under it
     uspc.py watch <event> <seconds> -- <shell command>
                                               subscribe to the event, run the command, print
@@ -167,6 +170,41 @@ def cmd_operate(c, command, args):
     return {"ok": False, "err_msg": "no result"}
 
 
+def subscribe(c, notif_type, ref):
+    sub_id = "aigw-test-" + uuid.uuid4().hex[:6]
+
+    def fill(req):
+        req.add.allow_partial = False
+        o = req.add.create_objs.add()
+        o.obj_path = "Device.LocalAgent.Subscription."
+        for p, v in (("Enable", "true"), ("ID", sub_id), ("NotifType", notif_type),
+                     ("ReferenceList", ref), ("NotifRetry", "false")):
+            s = o.param_settings.add()
+            s.param, s.value, s.required = p, v, True
+    r = c.request(M.Header.ADD, fill)
+    return sub_id, (r if isinstance(r, dict) else None)
+
+
+def cmd_operate_async(c, command, seconds, args):
+    """An asynchronous command: subscribe to its OperationComplete, run it, wait."""
+    sub_id, err = subscribe(c, "OperationComplete", command)
+    if err:
+        return {"ok": False, "subscribe": err}
+    r = cmd_operate(c, command, args)
+    if not r.get("ok"):
+        return r
+    n = c.wait(lambda m: m.header.msg_type == M.Header.NOTIFY and
+               m.body.request.notify.subscription_id == sub_id and
+               m.body.request.notify.HasField("oper_complete"), float(seconds))
+    if n is None:
+        return {"ok": False, "err_msg": "no OperationComplete"}
+    oc = n.body.request.notify.oper_complete
+    if oc.HasField("cmd_failure"):
+        return {"ok": False, "err_code": oc.cmd_failure.err_code, "err_msg": oc.cmd_failure.err_msg,
+                "command": oc.obj_path + oc.command_name}
+    return {"ok": True, "out": dict(oc.req_output_args.output_args), "command": oc.obj_path + oc.command_name}
+
+
 def cmd_supported(c, obj):
     def fill(req):
         g = req.get_supported_dm
@@ -223,6 +261,8 @@ def main():
             out = cmd_set(c, rest)
         elif cmd == "operate":
             out = cmd_operate(c, rest[0], rest[1:])
+        elif cmd == "operate-async":
+            out = cmd_operate_async(c, rest[0], rest[1], rest[2:])
         elif cmd == "supported":
             out = cmd_supported(c, rest[0])
         elif cmd == "watch":

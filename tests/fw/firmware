@@ -1,0 +1,82 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# A firmware handler with two banks, for the tests, and an example for an
+# OEM whose flash has two (A/B): download into the bank that isn't running,
+# activate = boot from it next, reboot = switch. Here the banks are files in
+# $AIGW_TEST_FW_DIR, and an image is a text file whose first line is
+# "AIGW-TEST-FIRMWARE <version>".
+#
+#   firmware version | list | download <id> <url> | activate <id> | reboot
+#
+# The interface agd expects (mgmt.firmware_handler):
+#   version   the running firmware's version, one line
+#   list      one line per image: <id> <status> <active 0|1> <boot 0|1> <version|-> <name>
+#             (status as TR-181: NoImage, Active, Available, DownloadFailed,
+#             ValidationFailed, ...)
+#   download  exit 0 when the image is in the bank and checked; 2: not
+#             downloaded; 3: failed its checks. AIGW_FW_USER, AIGW_FW_PASSWORD,
+#             AIGW_FW_SIZE, AIGW_FW_CHECKSUM_ALGORITHM, AIGW_FW_CHECKSUM
+#   activate  exit 0 when the image boots next
+#   reboot    reboot (here: pretend to)
+set -u
+D=${AIGW_TEST_FW_DIR:?AIGW_TEST_FW_DIR}
+mkdir -p "$D"
+if [ ! -f "$D/active" ]; then
+	echo 1 > "$D/active"; echo 1 > "$D/boot"
+	echo "${AIGW_TEST_FW_VERSION:-1.0}" > "$D/bank1.version"
+	echo NoImage > "$D/bank2.status"
+fi
+active=$(cat "$D/active")
+
+case "${1:-}" in
+version)
+	cat "$D/bank$active.version" ;;
+list)
+	for n in 1 2; do
+		if [ "$n" = "$active" ]; then st=Active; else st=$(cat "$D/bank$n.status" 2>/dev/null || echo NoImage); fi
+		v=$(cat "$D/bank$n.version" 2>/dev/null || echo -)
+		b=0; [ "$(cat "$D/boot")" = "$n" ] && b=1
+		a=0; [ "$n" = "$active" ] && a=1
+		echo "$n $st $a $b $v bank$n"
+	done ;;
+download)
+	n=${2:-}; url=${3:-}
+	case $n in 1|2) ;; *) echo "no bank $n" >&2; exit 2 ;; esac
+	[ "$n" != "$active" ] || { echo "bank $n is running" >&2; exit 2; }
+	rm -f "$D/bank$n.version" "$D/bank$n.img"
+	echo Downloading > "$D/bank$n.status"
+	case $url in
+	file://*) cp "${url#file://}" "$D/bank$n.img" 2>/dev/null ;;
+	http://*|https://*)
+		set -- -fsS -o "$D/bank$n.img"
+		[ -n "${AIGW_FW_USER:-}" ] && set -- "$@" -u "$AIGW_FW_USER:${AIGW_FW_PASSWORD:-}"
+		curl "$@" "$url" ;;
+	*) false ;;
+	esac || { echo DownloadFailed > "$D/bank$n.status"; echo "cannot download $url" >&2; exit 2; }
+	if [ -n "${AIGW_FW_CHECKSUM:-}" ]; then
+		got=$(sha256sum "$D/bank$n.img" | cut -d' ' -f1)
+		[ "$got" = "$AIGW_FW_CHECKSUM" ] || { echo ValidationFailed > "$D/bank$n.status"; echo "checksum mismatch" >&2; exit 3; }
+	fi
+	set -- $(head -n 1 "$D/bank$n.img")
+	if [ "${1:-}" != AIGW-TEST-FIRMWARE ] || [ -z "${2:-}" ]; then
+		echo ValidationFailed > "$D/bank$n.status"; echo "not a firmware image" >&2; exit 3
+	fi
+	echo "$2" > "$D/bank$n.version"
+	echo Available > "$D/bank$n.status"
+	echo "bank $n: version $2" ;;
+activate)
+	n=${2:-}
+	[ "$n" = "$active" ] || [ "$(cat "$D/bank$n.status" 2>/dev/null)" = Available ] || { echo "bank $n has no image" >&2; exit 1; }
+	echo "$n" > "$D/boot"
+	echo "bank $n boots next" ;;
+reboot)
+	b=$(cat "$D/boot")
+	if [ "$b" != "$active" ]; then
+		echo Available > "$D/bank$active.status"
+		echo "$b" > "$D/active"
+	fi
+	echo rebooted >> "$D/reboots"
+	echo "rebooted into bank $b" ;;
+*)
+	echo "usage: firmware version|list|download <id> <url>|activate <id>|reboot" >&2; exit 2 ;;
+esac

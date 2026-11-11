@@ -1,0 +1,96 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# firmware: AIGW OS's firmware handler for OpenWRT (one flash image, upgraded
+# with sysupgrade). Image 1 is the one running; image 2 is a slot in RAM for
+# the next one, downloaded and checked before anything is written to flash.
+#
+#   firmware version              the running firmware's version
+#   firmware list                 <id> <status> <active> <boot> <version> <name>
+#   firmware download <id> <url>  fetch into slot <id> and check it; in the
+#                                 environment: AIGW_FW_USER, AIGW_FW_PASSWORD,
+#                                 AIGW_FW_SIZE, AIGW_FW_CHECKSUM_ALGORITHM
+#                                 (SHA-1, SHA-256, SHA-512), AIGW_FW_CHECKSUM.
+#                                 Exit 2: not downloaded; 3: failed its checks
+#   firmware activate <id>        write it to flash and boot it (sysupgrade,
+#                                 keeping the configuration; does not return)
+#   firmware reboot
+#
+# An OEM with dual-bank flash or signed images points mgmt.firmware_handler at
+# its own program with the same interface.
+set -u
+
+DIR=${AIGW_FW_DIR:-/tmp/aigw-firmware}
+
+running() {
+	. /etc/openwrt_release 2>/dev/null || true
+	printf '%s\n' "${DISTRIB_RELEASE:-unknown}-${DISTRIB_REVISION:-unknown}" | tr ' ' '_'
+}
+
+case "${1:-}" in
+version)
+	running ;;
+list)
+	st=NoImage ver=-
+	[ -f "$DIR/status" ] && st=$(cat "$DIR/status")
+	[ -f "$DIR/version" ] && ver=$(cat "$DIR/version")
+	printf '1 Active 1 1 %s running\n' "$(running)"
+	printf '2 %s 0 0 %s next\n' "$st" "$ver" ;;
+download)
+	[ "${2:-}" = 2 ] || { echo "download into image 2 (image 1 is running)" >&2; exit 2; }
+	url=${3:-}
+	mkdir -p "$DIR"
+	rm -f "$DIR/image" "$DIR/version"
+	echo Downloading > "$DIR/status"
+	case $url in
+	file://*)
+		src=${url#file://}
+		[ -f "$src" ] || { echo DownloadFailed > "$DIR/status"; echo "no file $src" >&2; exit 2; }
+		# a file already in RAM is moved, not copied (RAM is what a router lacks)
+		case $src in /tmp/*) mv "$src" "$DIR/image" ;; *) cp "$src" "$DIR/image" ;; esac ;;
+	http://*|https://*)
+		set -- -q -O "$DIR/image"
+		[ -n "${AIGW_FW_USER:-}" ] && set -- "$@" --user="$AIGW_FW_USER" --password="${AIGW_FW_PASSWORD:-}"
+		if ! uclient-fetch "$@" "$url"; then
+			rm -f "$DIR/image"; echo DownloadFailed > "$DIR/status"
+			echo "download from $url failed" >&2; exit 2
+		fi ;;
+	*) echo DownloadFailed > "$DIR/status"; echo "URL is http://, https:// or file://" >&2; exit 2 ;;
+	esac
+	if [ -n "${AIGW_FW_SIZE:-}" ] && [ "${AIGW_FW_SIZE}" != 0 ] && [ "$(wc -c < "$DIR/image")" != "$AIGW_FW_SIZE" ]; then
+		rm -f "$DIR/image"; echo ValidationFailed > "$DIR/status"; echo "the file is not $AIGW_FW_SIZE bytes" >&2; exit 3
+	fi
+	if [ -n "${AIGW_FW_CHECKSUM:-}" ]; then
+		case ${AIGW_FW_CHECKSUM_ALGORITHM:-SHA-256} in
+		SHA-1) sum=sha1sum ;; SHA-256) sum=sha256sum ;; SHA-512) sum=sha512sum ;;
+		*) echo ValidationFailed > "$DIR/status"; echo "unsupported checksum algorithm" >&2; exit 3 ;;
+		esac
+		got=$($sum "$DIR/image" | cut -d' ' -f1)
+		want=$(printf '%s' "$AIGW_FW_CHECKSUM" | tr 'A-F' 'a-f')
+		[ "$got" = "$want" ] || { rm -f "$DIR/image"; echo ValidationFailed > "$DIR/status"; echo "checksum mismatch" >&2; exit 3; }
+	fi
+	if ! sysupgrade -T "$DIR/image" >/dev/null 2>&1; then
+		rm -f "$DIR/image"; echo ValidationFailed > "$DIR/status"
+		echo "not an image this device can run (sysupgrade -T)" >&2; exit 3
+	fi
+	ver=unknown
+	if fwtool -q -i "$DIR/meta.json" "$DIR/image" 2>/dev/null; then
+		v=$(jsonfilter -i "$DIR/meta.json" -e '@.version.version' 2>/dev/null || true)
+		r=$(jsonfilter -i "$DIR/meta.json" -e '@.version.revision' 2>/dev/null || true)
+		[ -n "$v" ] && ver="$v-${r:-unknown}"
+	fi
+	printf '%s\n' "$ver" | tr ' ' '_' > "$DIR/version"
+	echo Available > "$DIR/status"
+	echo "image 2: $ver" ;;
+activate)
+	case "${2:-}" in
+	1) exit 0 ;;                         # it runs already
+	2) ;;
+	*) echo "no image ${2:-}" >&2; exit 1 ;;
+	esac
+	[ "$(cat "$DIR/status" 2>/dev/null)" = Available ] && [ -f "$DIR/image" ] || { echo "image 2 is not available" >&2; exit 1; }
+	exec sysupgrade "$DIR/image" ;;
+reboot)
+	exec reboot ;;
+*)
+	echo "usage: firmware version|list|download <id> <url>|activate <id>|reboot" >&2; exit 2 ;;
+esac

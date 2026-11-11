@@ -67,6 +67,8 @@ config mgmt 'mgmt'
 	option enabled '1'
 	option actions '0'
 	option alert_details '0'
+	option firmware '0'
+	option firmware_handler '$REPO/tests/fw/firmware'
 
 config lan 'lan'
 	list iface 'lo'
@@ -75,7 +77,7 @@ cat > "$T/leases" <<EOF
 1999999999 02:00:00:00:98:01 10.96.0.11 printer *
 1999999999 02:00:00:00:98:02 10.96.0.12 phone *
 EOF
-export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock"
+export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_TEST_FW_DIR="$T/fw"
 
 "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.3
@@ -88,7 +90,8 @@ js() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 
 echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
-js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 5 and len(d['events']) == 2 else 1)" < "$T/schema.json" ||
+js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 7 and len(d['events']) == 2 and
+         [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()'] else 1)" < "$T/schema.json" ||
 	fail "schema: $(head -c 300 "$T/schema.json")"
 python3 "$REPO/scripts/dm-xml" "$T/schema.json" > "$T/dm.xml"
 python3 - "$T/dm.xml" "$T/schema.json" <<'EOF' || fail "dm-xml output"
@@ -99,6 +102,7 @@ names = {o.get("name") + p.get("name") for o in root.iter("object") for p in o.f
 missing = [p["path"] for p in s["params"] if p["path"] not in names]
 sys.exit("missing in XML: %s" % missing[:5] if missing else 0)
 EOF
+[ "${AIGW_UPDATE_DM_XML:-0}" = 1 ] && cp "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml"   # after changing the data model
 cmp -s "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml" ||
 	fail "docs/datamodel/aigw-dm.xml is out of date: agctl -j dm schema | scripts/dm-xml > docs/datamodel/aigw-dm.xml"
 echo "   $(js "print(len(d['params']), 'parameters,', len(d['commands']), 'commands,', len(d['events']), 'events')" < "$T/schema.json")"
@@ -124,6 +128,34 @@ call set '{"params":{"Device.X_AIGW_.Mode":"sometimes"}}' | js "sys.exit(0 if d[
 # "check": would it be taken? (TR-069 sets one value at a time and commits later)
 call set '{"params":{"Device.X_AIGW_.Mode":"enforce"},"check":true}' | js "sys.exit(0 if d['ok'] else 1)" || fail "set check"
 agctl dm get Device.X_AIGW_.Mode | grep -q '= advise' || fail "a set with check must change nothing"
+
+echo "== firmware: two banks (tests/fw/firmware, the handler an OEM replaces)"
+FW=Device.DeviceInfo.FirmwareImage
+call get '{"paths":["Device.DeviceInfo."]}' > "$T/fw0.json"
+js "v = d['values']
+sys.exit(0 if v['Device.DeviceInfo.FirmwareImageNumberOfEntries'] == '2' and v['Device.DeviceInfo.ActiveFirmwareImage'] == '$FW.1' and
+         v['$FW.1.Status'] == 'Active' and v['$FW.2.Status'] == 'NoImage' and v['Device.DeviceInfo.SoftwareVersion'] == '1.0' and
+         v['Device.DeviceInfo.AdditionalSoftwareVersion'].startswith('AIGW OS ') else 1)" < "$T/fw0.json" ||
+	fail "firmware images: $(cat "$T/fw0.json")"
+printf 'AIGW-TEST-FIRMWARE 2.0\n' > "$T/good.img"
+printf 'not firmware\n' > "$T/bad.img"
+fwdo() { call operate "{\"command\":\"$FW.$1\",\"args\":{\"URL\":\"file://$2\"}${3:+,\"origin\":\"$3\"}}"; }
+fwdo 1.Download\(\) "$T/good.img" | js "sys.exit(0 if not d['ok'] and 'running' in d['message'] else 1)" || fail "a download into the running image"
+fwdo 2.Download\(\) "$T/good.img" usp | js "sys.exit(0 if not d['ok'] and 'mgmt.firmware' in d['message'] else 1)" ||
+	fail "a download by a management system with mgmt.firmware 0"
+fwdo 2.Download\(\) "$T/bad.img" | js "sys.exit(0 if not d['ok'] and 'not a firmware image' in d['message'] else 1)" || fail "a bad image"
+agctl dm get "$FW.2.Status" | grep -q '= ValidationFailed' || fail "a bad image: $(agctl dm get "$FW.2.")"
+fwdo 2.Download\(\) "$T/good.img" | js "sys.exit(0 if d['ok'] else 1)" || fail "a download"
+agctl dm get "$FW.2." > "$T/fw2.txt"
+grep -q 'Status = Available' "$T/fw2.txt" && grep -q 'Version = 2.0' "$T/fw2.txt" || fail "the downloaded image: $(cat "$T/fw2.txt")"
+call operate "{\"command\":\"$FW.2.Activate()\"}" | js "sys.exit(0 if d['ok'] else 1)" || fail "activate"
+agctl dm get Device.DeviceInfo.BootFirmwareImage | grep -q "= $FW.2" || fail "the image to boot"
+i=0
+until agctl dm get Device.DeviceInfo.SoftwareVersion | grep -q '= 2.0'; do
+	i=$((i + 1)); [ $i -le 30 ] || fail "no reboot into the new image: $(cat "$T/fw/reboots" 2>/dev/null)"; sleep 0.3
+done
+agctl dm get Device.DeviceInfo.ActiveFirmwareImage | grep -q "= $FW.2" || fail "the active image after the reboot"
+echo "   bank 2 downloaded, checked (a bad image refused), activated, rebooted into: version 2.0"
 
 echo "== who asks: alert details and actions"
 "$UBUS" -s "$AIGW_UBUS" listen ag.dm.event > "$T/events.log" 2>&1 & L=$!; PIDS="$PIDS $L"
