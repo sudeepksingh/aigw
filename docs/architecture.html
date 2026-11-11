@@ -278,7 +278,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand"><img src="brand/logo-mark.svg" alt="">AIGW <span>OS</span></div>
-  <div class="ver">architecture v0.3 · code v0.19 · 2026-11-10</div>
+  <div class="ver">architecture v0.3 · code v0.20 · 2026-11-11</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1313,7 +1313,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>USP</td><td>The Broadband Forum's own agent, OB-USP-Agent (as in prplWare and RDK-B), unmodified, with AIGW OS's plug-in <code>aigw-usp</code>. Over MQTT 5 with TLS.</td></tr>
       <tr><td>The home decides</td><td>Off by default. An ISP may read, and approve, reject or undo AIGW's proposals; quarantine, block and the mode only with <code>mgmt.actions 1</code>; the names devices looked up only with <code>mgmt.alert_details 1</code>. Guardrails always hold.</td></tr>
       <tr><td>Proof</td><td>A real USP controller over MQTT: reads devices, receives an alert as a USP event, approves a quarantine that lands in the firewall and undoes it, is refused what the settings forbid and a protected device. The published data model file is checked against what the gateway serves.</td></tr>
-      <tr><td>Limits</td><td>The vendor prefix <code>X_AIGW_</code> is provisional.</td></tr>
+      <tr><td>Limits</td><td>Wi-Fi settings are read-only; no firmware upgrade or WebSocket transport yet.</td></tr>
     </tbody>
   </table></div>
   <h3 style="margin-top:18px">As built in v0.19: managed over TR-069 too</h3>
@@ -1325,6 +1325,15 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>What CWMP lacks</td><td>Commands become <code>Device.X_AIGW_.Request.</code> (a command and its inputs in one SetParameterValues, the result read back). Events become <code>Device.X_AIGW_.LastEvent.</code>, sent as an active notification. The ACS's own settings (<code>ManagementServer</code>) are saved in <code>/etc/config/aigw</code>.</td></tr>
       <tr><td>Proof</td><td>icwmp against a Python ACS: the boot Inform, connection requests, reads, faults, an alert as <code>4 VALUE CHANGE</code>, and an ACS-approved quarantine that lands in the firewall.</td></tr>
       <tr><td>Limits</td><td>Firmware download over TR-069 is not handled yet; TLS client certificates are not configurable from <code>/etc/config/aigw</code> yet.</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:18px">As built in v0.20: your names, not ours</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Vendor prefix</td><td>AIGW's own names are TR-106 vendor extensions. The ISP or OEM that ships the gateway sets its prefix, <code>X_&lt;OUI&gt;_</code> or <code>X_&lt;DOMAIN&gt;_</code> (<code>mgmt.vendor_prefix</code>); <code>X_AIGW_</code> is only the default. agd applies it to every path, command and event; USP, TR-069 and the published data model file follow.</td></tr>
+      <tr><td>Identity</td><td>Manufacturer, model, product class, OUI and serial number are settings too, so the gateway reports itself as the OEM's product.</td></tr>
+      <tr><td>Proof</td><td>The data model test checks a prefix and names in every path, command and event, and a bad prefix refused; the whole TR-069 test, with icwmp and the ACS, runs under <code>X_EXAMPLE-COM_</code>.</td></tr>
     </tbody>
   </table></div>
 </section>
@@ -1367,7 +1376,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.19 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-10</footer>
+<footer>AIGW architecture v0.3 · implementation v0.20 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-11</footer>
 </main>
 </div>
 

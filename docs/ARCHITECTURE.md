@@ -822,7 +822,7 @@ Limits: a generator that makes fewer than 8 attempts in 10 minutes (slow, or mos
 
 Verified by `tests/dm-test.sh` (the layer alone: schema and XML, subtrees, errors, all-or-nothing set, read-only and invalid values, what a management system may see and do, the `Alert!` event without the name, instance numbers kept and never reused) and `tests/usp-test.sh` (a USP controller in Python over MQTT 5 with the Broadband Forum's message definitions, OB-USP-Agent and the plug-in, in network namespaces): it reads the software version and the devices and lists the commands and events; an alert reaches it as `Device.X_AIGW_.Alert!` without the name; it approves the quarantine AIGW proposed (the laptop's MAC lands in the nft set) and undoes it; with `mgmt.actions 0` quarantine and mode changes are refused (USP 7022, 7006); after an agd restart with `mgmt.actions 1` and alert details on, it sees the name, blocks a domain, sets enforce mode (saved), is refused a protected TV, and the devices keep their numbers.
 
-Not done yet: writable Wi-Fi settings, firmware upgrade and WebSocket transport over USP; the final vendor prefix (`X_AIGW_` is provisional: TR-106 wants an OUI or a domain); the USP test inside OpenWRT in QEMU.
+Not done yet: writable Wi-Fi settings, firmware upgrade and WebSocket transport over USP; the USP test inside OpenWRT in QEMU.
 
 **As built in v0.19: managed over TR-069 too, on the same data layer.** Trial result:
 
@@ -858,6 +858,8 @@ Verified by `tests/cwmp-test.sh`, in network namespaces with an ACS on the WAN s
 - icwmp's fixed paths are private to the test (overlays in a mount namespace).
 
 Not done yet: TR-069 Download (firmware) and other RPCs beyond the data model; client certificates in `/etc/config/aigw`; the TR-069 test inside OpenWRT in QEMU.
+
+**As built in v0.20: the vendor prefix and identity are the ISP's or OEM's.** AIGW OS doesn't claim a TR-106 prefix for itself. `mgmt.vendor_prefix` (checked: `X_`, upper case, digits, `-`, `_`; else `X_AIGW_` and a warning) is applied once in `dm_init` to every parameter, object, command and event path, and to the references agd hands out (`Decision`, `Alert`). `ag.dm schema` reports it as `vendor_prefix`; the USP plug-in registers whatever paths the schema lists, `aigw-cwmp-dm` builds `Request.` and `LastEvent.` under it and writes icwmp's notification file itself (`-n`), and `scripts/dm-xml` names it in the published file. `mgmt.manufacturer`, `model_name` and `product_class` set `DeviceInfo.` (and so the TR-069 DeviceId and the USP agent's settings). `tests/dm-test.sh` checks a prefix and names end to end in agd, and `tests/cwmp-test.sh` runs entirely under `X_EXAMPLE-COM_`.
 
 ---
 

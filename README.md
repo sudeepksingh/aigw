@@ -46,6 +46,11 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.20:** **your names, not ours.** An ISP or OEM ships AIGW OS under its own
+> TR-106 vendor prefix (`X_<OUI>_` or `X_<DOMAIN>_` in place of `X_AIGW_`) and its
+> own manufacturer, model and product class: one setting each, followed by USP,
+> TR-069 and the published data model file alike.
+>
 > **v0.19:** **managed over TR-069 too**, the protocol most ISPs' ACSs still
 > speak. iopsys's icwmp client runs unmodified, and a small AIGW daemon serves it
 > the same data model USP controllers get. An ACS sees the same devices, approves
@@ -447,6 +452,12 @@ Over TR-069, which has no commands or events, AIGW OS adds two things:
 - `Device.X_AIGW_.Request.` takes a command and its inputs in one
   SetParameterValues, and reports the result.
 - `Device.X_AIGW_.LastEvent.` turns alerts into active notifications.
+
+It carries your names, not ours: an ISP or OEM sets its own vendor prefix
+(`mgmt.vendor_prefix`, e.g. `X_EXAMPLE-COM_` in place of `X_AIGW_`) and its own
+manufacturer, model, product class, OUI and serial number. Both protocols and
+the published data model file follow
+([device-management.md](docs/device-management.md#your-own-names-vendor-prefix-and-identity)).
 
 It's off by default:
 

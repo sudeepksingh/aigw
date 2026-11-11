@@ -116,6 +116,10 @@ struct ag_config {
 	int mgmt_alert_details;   /* may it see alert subjects and reasons (names looked up) */
 	char mgmt_serial[64];     /* DeviceInfo.SerialNumber; empty: from the machine id or the LAN MAC */
 	char mgmt_oui[8];         /* DeviceInfo.ManufacturerOUI; empty: the LAN MAC's */
+	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
+	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
+	char mgmt_model[64];
+	char mgmt_product[64];
 	int fastpath_enabled;    /* established connections through the kernel flowtable (aigw-nft) */
 	int meter_enabled;        /* count each device's traffic in the kernel (eBPF on the LAN interfaces) */
 	int fed_enabled;         /* take part in federated learning rounds (names never leave) */

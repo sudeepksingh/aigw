@@ -73,6 +73,8 @@ place to set things.
 | `usp.controller_id`, `usp.controller_topic` | `self::usp-controller`, `/usp/controller` | the controller |
 | `usp.agent_topic` | `/usp/agent/<agent_id>` | where the agent listens |
 | `mgmt.serial`, `mgmt.oui` | machine id or LAN MAC, LAN MAC's OUI | `DeviceInfo.SerialNumber` and `ManufacturerOUI`, for both protocols |
+| `mgmt.manufacturer`, `mgmt.model_name`, `mgmt.product_class` | `AIGW OS project`, `AIGW OS on <host>`, `AIGW OS gateway` | an OEM's or ISP's own names in `DeviceInfo.` and the Inform's DeviceId |
+| `mgmt.vendor_prefix` | `X_AIGW_` | the prefix of AIGW's own names (see below) |
 | `cwmp.url`, `cwmp.username`, `cwmp.password`, `cwmp.ca_file` | — | the ACS and its login |
 | `cwmp.periodic_enable`, `cwmp.periodic_interval` | `1`, `86400` | periodic Informs |
 | `cwmp.port`, `cwmp.cr_username`, `cwmp.cr_password` | `7547` | connection requests from the ACS |
@@ -97,6 +99,36 @@ Whatever protocol it uses, and decided in `agd`, not in the protocol client:
 OB-USP-Agent itself gives the controller full access (its role `Full Access`), so
 that the one place these rules live is the data layer. The same holds for icwmp:
 aigw-cwmp-dm asks with origin `acs`, and agd decides.
+
+## Your own names: vendor prefix and identity
+
+Everything AIGW adds to TR-181 is a vendor extension, and TR-106 wants those
+under the prefix of whoever ships the device: `X_<OUI>_` or
+`X_<domain name, upper case, '.' as '-'>_`. AIGW OS doesn't pick one for you.
+It writes `X_AIGW_` by default, and an ISP or OEM sets its own:
+
+```sh
+uci set aigw.mgmt.vendor_prefix='X_EXAMPLE-COM_'     # or X_00D09E_
+uci set aigw.mgmt.manufacturer='Example Networks'
+uci set aigw.mgmt.model_name='EX-1000'
+uci set aigw.mgmt.product_class='EX Gateway'
+uci set aigw.mgmt.oui='00D09E'
+uci commit aigw && /etc/init.d/aigw restart     # then aigw-usp / aigw-cwmp
+```
+
+Then `Device.X_AIGW_.Mode` is `Device.X_EXAMPLE-COM_.Mode`,
+`Device.Hosts.Host.1.X_AIGW_Zone` is `...X_EXAMPLE-COM_Zone`, the events are
+`Device.X_EXAMPLE-COM_.Alert!`, and so on, over USP and TR-069 alike. Only `agd`
+knows the prefix (`agctl -j dm schema` reports it as `vendor_prefix`); both
+adapters take every name from it. The data model file for your controller or
+ACS is made the same way:
+`agctl -j dm schema | scripts/dm-xml > my-dm.xml`.
+
+- Choose the prefix before a controller or ACS starts using the names: they
+  change with it.
+- A prefix that isn't `X_`, upper-case letters, digits, `-` or `_`, and `_` is
+  refused (agd says so in its log) and `X_AIGW_` is used.
+- In this document, read `X_AIGW_` as your prefix.
 
 ## The data model (version 1.1)
 
@@ -256,7 +288,8 @@ Rules for adding:
   - all-or-nothing writes;
   - what a management system sees and may do;
   - the `Alert!` event without the name;
-  - instance numbers kept over a restart and never reused.
+  - instance numbers kept over a restart and never reused;
+  - an OEM's names and vendor prefix in every path, command and event; a bad prefix refused.
 - **`tests/usp-test.sh`** runs a real USP controller (`tests/usp/uspc.py`, MQTT 5, the Broadband Forum's message definitions) against OB-USP-Agent with the plug-in, in network namespaces:
   - it reads the version, the devices, and the supported commands and events;
   - it gets the `Alert!` event, without the name;
@@ -264,7 +297,7 @@ Rules for adding:
   - it is refused quarantine and mode changes with `mgmt.actions 0`;
   - after a restart with `mgmt.actions 1`, it blocks a domain and sets the mode (which is saved), but it is refused a protected device;
   - instance numbers stay the same.
-- **`tests/cwmp-test.sh`** does the same for TR-069, in network namespaces.
+- **`tests/cwmp-test.sh`** does the same for TR-069, in network namespaces, under an ISP's own prefix (`X_EXAMPLE-COM_`).
   - **Part 1** asks `aigw-cwmp-dm` the way icwmp asks it (ubus `bbfdm`):
     - values and types, the identity, and `ConnectionRequestURL`;
     - names with `NextLevel`, and instances;
@@ -287,5 +320,4 @@ Rules for adding:
 
 - **Writable Wi-Fi settings**, firmware upgrade (USP and TR-069 Download), and the WebSocket transport.
 - **TR-069 over HTTPS with client certificates** is icwmp's (`cwmp.ca_file`; client certificates not yet in `/etc/config/aigw`), and is not tested here.
-- **The vendor prefix** `X_AIGW_` is provisional. TR-106 expects `X_<OUI>_` or `X_<domain>_`, so the final prefix has to be chosen before ISPs depend on it. `Device.DeviceInfo.ManufacturerOUI` is OB-USP-Agent's placeholder until then.
 - **The OpenWRT QEMU test** installs the packages but doesn't yet run the USP or TR-069 tests there.
