@@ -100,7 +100,8 @@ wsl_attach() {
 			;;
 		*)
 			say "attaching USB adapter $bus to WSL"
-			"$u" attach --wsl --busid "$bus" >/dev/null 2>&1 || { say "usbipd could not attach $bus"; continue; }
+			# </dev/null: a Windows program reads stdin, and would eat the rest of this list
+			"$u" attach --wsl --busid "$bus" </dev/null >/dev/null 2>&1 || { say "usbipd could not attach $bus"; continue; }
 			;;
 		esac
 		WSL_ADAPTERS=$((WSL_ADAPTERS + 1))
