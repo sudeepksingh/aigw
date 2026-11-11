@@ -12,6 +12,10 @@
 # Checks: aigw-selftest --full inside OpenWRT, then LuCI from the host as the
 # AIGW pages use it (rpcd ACL, pages, menu, remote-access QR code). On MIPS
 # and ARM the CPU-level checks (signatures, model scores) run on that CPU.
+# Then management by an ISP (MGMT=0 skips): OB-USP-Agent with the plug-in
+# answers on the device, icwmp informs an ACS on the host and answers it; on
+# x86-64 the ACS upgrades the firmware for real (sysupgrade, reboot, the
+# configuration kept, TransferComplete).
 # x86-64 uses KVM when /dev/kvm is usable; the others are emulated (slower).
 # Needs qemu-system-x86_64 / -mipsel / -aarch64, python3, curl, gzip.
 set -eu
@@ -97,14 +101,35 @@ ls "$W/pkgs" | grep -q . || die "no packages of version $V in $PKGS (build-sdk.s
 (cd "$W/pkgs" && exec python3 -m http.server "$PORT" --bind 127.0.0.1 >/dev/null 2>&1) &
 HTTP=$!
 
+# managed by an ISP (MGMT=0 skips): an ACS on the host (tests/cwmp/acs.py), the
+# USP agent asked on the device; on x86-64 a real firmware upgrade from the ACS
+# (this same image, through icwmp, agd's firmware handler and sysupgrade)
+MGMT=${MGMT:-1}
+ISP=""
+NOREBOOT="-no-reboot"
+ACS=""
+if [ "$MGMT" = 1 ]; then
+	ACS_PORT=$((PORT + 1))
+	mkdir -p "$W/acs/files"
+	python3 "$REPO/tests/cwmp/acs.py" serve "$W/acs" --port "$ACS_PORT" > "$W/acs.log" 2>&1 &
+	ACS=$!
+	ISP="--acs=$W/acs:$ACS_PORT"
+	if [ "$ARCH" = x86_64 ]; then
+		cp "$CACHE/$FILE" "$W/acs/files/$FILE"
+		ISP="$ISP --upgrade=$FILE"
+		NOREBOOT=""     # the upgrade reboots: QEMU goes on
+	fi
+fi
+trap 'kill $HTTP ${ACS:-} 2>/dev/null; rm -rf "$W"' EXIT INT TERM
+
 echo "==> OpenWRT $VERSION $TGT in QEMU ($QEMU), packages: $(ls "$W/pkgs" | tr '\n' ' ')"
 LOG="$REPO/dist/openwrt/qemu-$VERSION-$ARCH.log"
 : > "$LOG"
 set +e
 # shellcheck disable=SC2086
 python3 "$REPO/platform/openwrt/qemu_console.py" "$LOG" "$W/pkgs" "$PORT" "$LUCI_PORT" ${KEEP:+--keep} \
-	${ADD_ARCH:+--add-arch=$ADD_ARCH} -- \
-	$QEMU $(echo "$BOOT" | sed "s|@IMG@|$W/boot.img|") -display none -serial stdio -monitor none -no-reboot
+	${ADD_ARCH:+--add-arch=$ADD_ARCH} $ISP -- \
+	$QEMU $(echo "$BOOT" | sed "s|@IMG@|$W/boot.img|") -display none -serial stdio -monitor none $NOREBOOT
 rc=$?
 set -e
 echo "==> console log: $LOG"

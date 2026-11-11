@@ -6,7 +6,7 @@
 # $AIGW_TEST_FW_DIR, and an image is a text file whose first line is
 # "AIGW-TEST-FIRMWARE <version>".
 #
-#   firmware version | list | download <id> <url> | activate <id> | reboot
+#   firmware version | list | download <id> <url> | activate <id> | reboot | factory-reset
 #
 # The interface agd expects (mgmt.firmware_handler):
 #   version   the running firmware's version, one line
@@ -18,6 +18,7 @@
 #             AIGW_FW_SIZE, AIGW_FW_CHECKSUM_ALGORITHM, AIGW_FW_CHECKSUM
 #   activate  exit 0 when the image boots next
 #   reboot    reboot (here: pretend to)
+#   factory-reset   back to factory settings, and reboot (here: pretend to)
 set -u
 D=${AIGW_TEST_FW_DIR:?AIGW_TEST_FW_DIR}
 mkdir -p "$D"
@@ -77,6 +78,9 @@ reboot)
 	fi
 	echo rebooted >> "$D/reboots"
 	echo "rebooted into bank $b" ;;
+factory-reset)
+	echo factory-reset >> "$D/reboots"
+	echo "reset to factory settings" ;;
 *)
-	echo "usage: firmware version|list|download <id> <url>|activate <id>|reboot" >&2; exit 2 ;;
+	echo "usage: firmware version|list|download <id> <url>|activate <id>|reboot|factory-reset" >&2; exit 2 ;;
 esac

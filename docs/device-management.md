@@ -75,7 +75,9 @@ place to set things.
 | `mgmt.serial`, `mgmt.oui` | machine id or LAN MAC, LAN MAC's OUI | `DeviceInfo.SerialNumber` and `ManufacturerOUI`, for both protocols |
 | `mgmt.manufacturer`, `mgmt.model_name`, `mgmt.product_class` | `AIGW OS project`, `AIGW OS on <host>`, `AIGW OS gateway` | an OEM's or ISP's own names in `DeviceInfo.` and the Inform's DeviceId |
 | `mgmt.vendor_prefix` | `X_AIGW_` | the prefix of AIGW's own names (see below) |
-| `mgmt.wifi`, `mgmt.firmware` | `1`, `1` | may a management system change Wi-Fi settings, upgrade the firmware |
+| `mgmt.wifi`, `mgmt.firmware`, `mgmt.reset` | `1`, `1`, `1` | may a management system change Wi-Fi settings, upgrade the firmware, reboot or factory-reset the gateway |
+| `usp.client_cert` | — | this gateway's TLS client certificate to the broker: one PEM file, certificate and key |
+| `cwmp.client_cert`, `cwmp.client_key` | — | its TLS client certificate and key (PEM) to the ACS |
 | `mgmt.firmware_handler`, `wifi.handler` | the platform's | the programs that carry those out (see below) |
 | `cwmp.url`, `cwmp.username`, `cwmp.password`, `cwmp.ca_file` | — | the ACS and its login |
 | `cwmp.periodic_enable`, `cwmp.periodic_interval` | `1`, `86400` | periodic Informs |
@@ -207,6 +209,32 @@ next, so agd leaves it to a small program, `mgmt.firmware_handler`
   `tests/fw/firmware` is a two-bank example.
 - **A PC** has no firmware image. Without a handler, the firmware objects are
   empty and `Download()` is refused.
+
+## Reboot and factory reset
+
+`Device.Reboot()` and `Device.FactoryReset()` over USP, and the TR-069
+`Reboot` and `FactoryReset` RPCs:
+
+- **USP:** OB-USP-Agent owns these commands. Without a plug-in hook it would
+  only restart itself. AIGW's plug-in hands them to agd (`ubus ag.dm system`).
+- **TR-069:** icwmp's `FactoryReset` runs `defaultreset`, a command iopsys's
+  firmware has and OpenWRT doesn't. AIGW ships one (`/usr/libexec/aigw/defaultreset`)
+  that asks agd too. icwmp's `Reboot` uses the system's own reboot.
+- **agd** decides whether a management system may (`mgmt.reset`, default 1),
+  logs who asked, and two seconds later runs the firmware handler's `reboot` or
+  `factory-reset`. On OpenWRT that is `firstboot -y` and a reboot.
+
+## Client certificates
+
+Carrier networks often know their gateways by a TLS client certificate:
+
+- **USP:** `usp.client_cert` is one PEM file with the certificate and its key.
+  OB-USP-Agent presents it to the MQTT broker (`-a`).
+- **TR-069:** `cwmp.client_cert` and `cwmp.client_key` are given to icwmp
+  (`cpe.client_cert_path`, `client_key_path`), which presents them to the ACS.
+  `cwmp.ca_file` may be a file or a directory.
+
+Keep the key readable by root only (`chmod 600`).
 
 The Wi-Fi handler (`wifi.handler`) is replaceable the same way:
 `wifi-config set <iface>`, with the new values in `AIGW_WIFI_SSID`,
@@ -407,10 +435,21 @@ Rules for adding:
   - a download into the running bank is refused;
   - `mgmt.firmware 0` holds;
   - over USP, `Download(AutoActivate)` ends with OperationComplete and a reboot into the new version.
+- **Reboot and factory reset:**
+  - dm-test: `mgmt.reset 0` refuses a management system; a factory reset reaches the handler;
+  - usp-test: `Device.Reboot()` reaches the handler through the plug-in's hook;
+  - cwmp-test: an ACS's `FactoryReset` reaches it through `defaultreset`.
+- **Client certificates:**
+  - usp-test: the agent reaches mosquitto on a TLS listener that requires a client certificate;
+  - cwmp-test part 2: the ACS speaks HTTPS and lets in only icwmp with its certificate (the test checks which certificate the Inform came with).
+- **On OpenWRT itself** (`platform/openwrt/qemu-test.sh`, CI, OpenWRT 24.10 in QEMU, after the self-test):
+  - OB-USP-Agent with the plug-in answers on the device on all three architectures;
+  - icwmp sends its boot Inform to an ACS on the host and answers it;
+  - on x86-64, the ACS upgrades the firmware for real: icwmp downloads the image, `sysupgrade -T` and agd's OpenWRT handler check it, `sysupgrade` writes it, and the VM reboots. The configuration is kept, the packages are reinstalled (an image with AIGW built in has them), and the ACS gets `1 BOOT`, `7 TRANSFER COMPLETE` and a `TransferComplete` without a fault.
 - **`tests/hwsim-test.sh`** (simulated radios, CI) sets a new name, passphrase and channel through the data model. It checks that hostapd comes back with them, that they are saved in `pc-ap.conf`, and that the client joins again with the new passphrase.
 
 ## Not done yet
 
 - **More Wi-Fi settings** (turning an access point off, guest networks, `RegulatoryDomain`), firmware `TimeWindow`s and scheduled downloads, and the WebSocket transport.
-- **TR-069 over HTTPS with client certificates** is icwmp's (`cwmp.ca_file`; client certificates not yet in `/etc/config/aigw`), and is not tested here.
-- **The OpenWRT QEMU test** installs the packages but doesn't yet run the USP or TR-069 tests there.
+- **USP to a real broker in QEMU:** the agent is asked through its CLI there, not by a controller over MQTT; the firmware upgrade on OpenWRT is tested over TR-069.
+- **Firmware upgrades on MIPS and ARM in QEMU:** those images boot from an initramfs, so there is nothing to `sysupgrade`.

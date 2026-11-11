@@ -34,6 +34,8 @@ PASS=$(get usp.password "")
 ATOPIC=$(get usp.agent_topic "/usp/agent/$AGENT")
 CTOPIC=$(get usp.controller_topic "/usp/controller")
 CA=$(get usp.ca_file /etc/ssl/certs/ca-certificates.crt)
+# a TLS client certificate to the broker: one PEM file, certificate and key
+CERT=$(get usp.client_cert "")
 LEVEL=$(get usp.log_level 1)
 
 if [ "$(get mgmt.enabled 0)" != 1 ] && [ "${1:-}" != --print ]; then
@@ -110,6 +112,10 @@ fi
 
 set -- -v "$LEVEL" -r "$DIR/settings.txt" -f "$DIR/usp.db" -s "$DIR/cli.sock" -x "$PLUGIN"
 [ "$TLS" = 1 ] && [ -e "$CA" ] && set -- "$@" -t "$CA"
+if [ -n "$CERT" ]; then
+	[ -r "$CERT" ] || { echo "aigw-usp: usp.client_cert $CERT is not readable" >&2; exit 1; }
+	set -- "$@" -a "$CERT"
+fi
 [ -n "${AIGW_USP_TRACE:-}" ] && set -- "$@" -p
 SERIAL=$(dmval Device.DeviceInfo.SerialNumber); OUI=$(dmval Device.DeviceInfo.ManufacturerOUI)
 export USP_BOARD_SERIAL="${SERIAL:-$id}" USP_ENDPOINT_ID="$AGENT"

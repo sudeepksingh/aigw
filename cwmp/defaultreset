@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# defaultreset: what icwmp runs for an ACS's FactoryReset RPC (the command
+# iopsys's firmware has; OpenWRT doesn't). AIGW OS asks agd, which decides
+# (mgmt.reset) and resets the gateway with its firmware handler (OpenWRT:
+# firstboot -y, then reboot).
+set -eu
+UBUS=${AIGW_UBUS_BIN:-ubus}
+r=$($UBUS ${AIGW_UBUS:+-s "$AIGW_UBUS"} call ag.dm system '{"action":"factory_reset","origin":"acs"}') || {
+	echo "defaultreset: AIGW OS (agd) does not answer" >&2; exit 1; }
+case $r in
+*'"ok": true'*) exit 0 ;;
+*) echo "defaultreset: refused: $r" >&2; exit 1 ;;
+esac

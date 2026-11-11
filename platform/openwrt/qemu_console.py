@@ -108,12 +108,62 @@ def luci_check(base):
     return out
 
 
+class ACS:
+    """The host side of tests/cwmp/acs.py (serving in DIR): queue jobs, read what the CPE sent."""
+
+    def __init__(self, d, vm):
+        self.d, self.vm = d, vm
+        for sub in ("jobs", "done"):
+            os.makedirs(os.path.join(d, sub), exist_ok=True)
+
+    def _lines(self, name):
+        try:
+            with open(os.path.join(self.d, name)) as f:
+                return [json.loads(x) for x in f.read().splitlines() if x.strip()]
+        except FileNotFoundError:
+            return []
+
+    def informs(self):
+        return self._lines("informs.jsonl")
+
+    def transfers(self):
+        return self._lines("transfers.jsonl")
+
+    def wait(self, pred, timeout):
+        """Wait for pred() to be true, reading the console meanwhile (a full pipe would stop QEMU)."""
+        end = time.time() + timeout
+        while time.time() < end:
+            r = pred()
+            if r:
+                return r
+            self.vm.read(1.0)
+            self.vm.buf = self.vm.buf[-65536:]
+        return None
+
+    def job(self, rpcs, timeout):
+        """Queue a job for the next session (the CPE's periodic Inform); its results, or None."""
+        name = "%d.json" % int(time.time() * 1000)
+        tmp = os.path.join(self.d, "jobs", name + ".tmp")
+        with open(tmp, "w") as f:
+            json.dump({"rpcs": rpcs}, f)
+        os.rename(tmp, os.path.join(self.d, "jobs", name))
+        done = os.path.join(self.d, "done", name)
+        if not self.wait(lambda: os.path.exists(done), timeout):
+            return None
+        with open(done) as f:
+            return json.load(f)["results"]
+
+
 def main():
     args = sys.argv[1:]
     sep = args.index("--")
     log, pkgdir, port, luci_port = args[0], args[1], args[2], args[3]
     keep = "--keep" in args[4:sep]
     add_arch = next((a.split("=", 1)[1] for a in args[4:sep] if a.startswith("--add-arch=")), "")
+    # --acs=DIR:PORT: tests/cwmp/acs.py serves DIR on the host's PORT (10.0.2.2 inside)
+    acs_arg = next((a.split("=", 1)[1] for a in args[4:sep] if a.startswith("--acs=")), "")
+    # --upgrade=FILE: a sysupgrade image the ACS serves (DIR/files/FILE) for a real firmware upgrade
+    upgrade = next((a.split("=", 1)[1] for a in args[4:sep] if a.startswith("--upgrade=")), "")
     # --add-arch replaces opkg's list: repeat the device's own architectures, then add ours
     opkg_arch = (" $(opkg print-architecture | awk '{print \"--add-arch \" $2 \":\" $3}')"
                  f" --add-arch {add_arch}:200") if add_arch else ""
@@ -128,8 +178,8 @@ def main():
             vm.p.kill()
             sys.exit(101)
 
-    try:
-        say("booting OpenWRT")
+    def bring_up(luci_too):
+        """Boot to a shell, the network, AIGW's packages (and LuCI), agd answering."""
         vm.expect(r"Please press Enter to activate this console", 600)
         time.sleep(2)
         vm.send("\n")
@@ -157,19 +207,84 @@ def main():
         if apk:
             must(retry.format("apk update"), "apk update", 600)
             must(retry.format(f"apk add --allow-untrusted {pkgs}"), "apk add", 900)
-            must(retry.format(f"apk add {luci}"), "LuCI", 900)
+            if luci_too:
+                must(retry.format(f"apk add {luci}"), "LuCI", 900)
         else:
             must(retry.format("opkg update"), "opkg update", 600)
             must(retry.format(f"opkg install{opkg_arch} {pkgs}"), "opkg install", 1200)
-            must(retry.format(f"opkg install{opkg_arch} {luci}"), "LuCI", 1200)
-        # LuCI reachable from the host (QEMU forwards a port to the wan side): open it in this test VM only
-        must("uci set firewall.aigwtest=rule; uci set firewall.aigwtest.src=wan; uci set firewall.aigwtest.proto=tcp;"
-             " uci set firewall.aigwtest.dest_port=80; uci set firewall.aigwtest.target=ACCEPT;"
-             " uci commit firewall; fw4 reload; /etc/init.d/rpcd restart; /etc/init.d/uhttpd restart", "LuCI port", 120)
+            if luci_too:
+                must(retry.format(f"opkg install{opkg_arch} {luci}"), "LuCI", 1200)
+        if luci_too:
+            # LuCI reachable from the host (QEMU forwards a port to the wan side): open it in this test VM only
+            must("uci set firewall.aigwtest=rule; uci set firewall.aigwtest.src=wan; uci set firewall.aigwtest.proto=tcp;"
+                 " uci set firewall.aigwtest.dest_port=80; uci set firewall.aigwtest.target=ACCEPT;"
+                 " uci commit firewall; fw4 reload; /etc/init.d/rpcd restart; /etc/init.d/uhttpd restart", "LuCI port", 120)
         say("starting AIGW")
         vm.run("/etc/init.d/aigw enable; /etc/init.d/aigw restart")
         must("(i=0; until agctl status >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 200 ] && exit 1; sleep 1; done)",
              "agd answering", 240)
+
+    def check(good, name, msg):
+        print(f"    {'PASS' if good else 'FAIL'} {name}: {msg}", flush=True)
+        return 0 if good else 1
+
+    def isp_checks(acs_dir, acs_port):
+        """USP and TR-069 on this OpenWRT, and with --upgrade a real firmware upgrade from the ACS."""
+        bad = 0
+        acs = ACS(acs_dir, vm)
+        say("USP: OB-USP-Agent with AIGW's plug-in, asked on the device (its CLI)")
+        vm.run("uci set aigw.mgmt.enabled=1; uci set aigw.usp.broker=10.0.2.2; uci set aigw.usp.tls=0;"
+               f" uci set aigw.cwmp.url=http://10.0.2.2:{acs_port}/; uci set aigw.cwmp.periodic_interval=30;"
+               " uci commit aigw; /etc/init.d/aigw-usp enable; /etc/init.d/aigw-usp restart;"
+               " /etc/init.d/aigw-cwmp enable; /etc/init.d/aigw-cwmp restart", 120)
+        cli = "obuspa -s /etc/aigw/usp/cli.sock -c"
+        rc, out = vm.run(f"(i=0; until {cli} get Device.DeviceInfo.SoftwareVersion 2>/dev/null | grep -q '=>'; do"
+                         " i=$((i+1)); [ $i -gt 60 ] && exit 1; sleep 2; done);"
+                         f" {cli} get Device.DeviceInfo.SoftwareVersion; {cli} get 'Device.DeviceInfo.FirmwareImage.*.Status';"
+                         f" {cli} get Device.X_AIGW_.Mode", 240)
+        bad += check(rc == 0 and "FirmwareImage.1.Status => Active" in out and "Device.X_AIGW_.Mode =>" in out,
+                     "usp-get", "the agent answers from AIGW's data model: " +
+                     " ".join(ln.strip() for ln in out.splitlines() if "=>" in ln)[:200])
+        say("TR-069: icwmp with AIGW's data model, an ACS on the host")
+        boot = acs.wait(lambda: next((i for i in acs.informs() if {"0 BOOTSTRAP", "1 BOOT"} & set(i["events"])), None), 300)
+        dev = boot["device"] if boot else {}
+        bad += check(bool(boot) and dev.get("ProductClass") == "AIGW OS gateway" and dev.get("SerialNumber"),
+                     "cwmp-inform", f"boot Inform {boot['events'] if boot else 'missing'} {dev}")
+        res = acs.job([{"method": "GetParameterValues",
+                        "names": ["Device.DeviceInfo.SoftwareVersion", "Device.DeviceInfo.FirmwareImage."]}], 180)
+        vals = res[0].get("values", {}) if res else {}
+        before = vals.get("Device.DeviceInfo.SoftwareVersion", "")
+        bad += check(vals.get("Device.DeviceInfo.FirmwareImage.1.Status") == "Active" and before,
+                     "cwmp-gpv", f"SoftwareVersion {before}, image 1 {vals.get('Device.DeviceInfo.FirmwareImage.1.Status')}")
+        if not upgrade:
+            return bad
+        say(f"TR-069: a real firmware upgrade from the ACS ({upgrade}): sysupgrade, reboot, TransferComplete")
+        size = os.path.getsize(os.path.join(acs_dir, "files", upgrade))
+        n = len(acs.informs())
+        res = acs.job([{"method": "Download", "url": f"http://10.0.2.2:{acs_port}/{upgrade}", "key": "qemu-up",
+                        "size": size}], 180)
+        bad += check(bool(res) and res[0].get("status") in (0, 1), "cwmp-download", f"DownloadResponse {res}")
+        # icwmp fetches it, sysupgrade -T, agd's handler puts it in image 2, icwmp has it activated: sysupgrade
+        try:
+            vm.expect(r"Please press Enter to activate this console", 900)
+        except TimeoutError:
+            return bad + check(False, "cwmp-upgrade", "the VM did not reboot into the new image")
+        say("rebooted into the new image; AIGW again (an image with AIGW built in has it already)")
+        vm.buf = b"Please press Enter to activate this console"
+        bring_up(False)
+        rc, out = vm.run("uci -q get aigw.cwmp.url; ls /etc/icwmpd/", 30)
+        bad += check(f"10.0.2.2:{acs_port}" in out, "upgrade-kept-config", "the configuration survived the upgrade")
+        vm.run("/etc/init.d/aigw-cwmp restart", 60)
+        tc = acs.wait(lambda: next((i for i in acs.informs()[n:] if "7 TRANSFER COMPLETE" in i["events"]), None), 300)
+        bad += check(bool(tc) and "1 BOOT" in tc["events"], "upgrade-inform",
+                     f"after the upgrade: {tc['events'] if tc else 'no TRANSFER COMPLETE Inform'}")
+        t = acs.wait(lambda: next((x for x in acs.transfers() if x["key"] == "qemu-up"), None), 120)
+        bad += check(bool(t) and t["fault"] == 0, "upgrade-transfer-complete", f"TransferComplete {t}")
+        return bad
+
+    try:
+        say("booting OpenWRT")
+        bring_up(True)
         say("aigw-selftest --full")
         vm.buf = b""
         vm.n += 1
@@ -193,6 +308,9 @@ def main():
         except Exception as e:  # noqa: BLE001 - any failure here is a failed check
             print(f"    FAIL luci: {e}", flush=True)
             failed += 1
+        if acs_arg:
+            acs_dir, acs_port = acs_arg.rsplit(":", 1)
+            failed += isp_checks(acs_dir, acs_port)
         if keep:
             # something to look at, including a hostile host name the pages must show as text
             vm.run("t=$(( $(date +%s) + 86400 )); printf '%s\\n' "
