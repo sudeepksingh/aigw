@@ -888,6 +888,15 @@ Not done yet: turning an access point off, guest networks, `RegulatoryDomain`; f
 
 Verified also by usp-test (the agent on a mosquitto TLS listener requiring a client certificate; `Device.Reboot()` through to the handler), cwmp-test (an HTTPS ACS requiring the CPE's certificate; `FactoryReset` through `defaultreset`) and dm-test (`mgmt.reset`).
 
+**As built in v0.23: a native prplOS component.** prplOS assembles TR-181 from Ambiorix components (ODL + C, run by `amxrt`, published through `amxb_ubus`). Its USP agent and TR-069 client read the bus.
+
+| Piece | As built |
+|-------|----------|
+| `amx/aigw_amx.c` (`aigw-amx.so`) | An amxrt plug-in (entry point `aigw.aigw_main`; the ODL defines nothing). At start it reads `ag.dm schema` and builds `X_<prefix>_` with libamxd. Objects; `{i}` tables are read-only templates; parameters carry `param_read` (an `ag.dm get`, converted to the parameter's type), and writable ones `param_validate` (`set` with `check`) and `param_write` (`set`). Commands are functions (instance-only for `Decision.{i}`); their outputs go to `ret` and the out arguments. Events are `amxd_object_add_event` declarations. Instances: `ag.dm instances` per table, applied in one amxd transaction (`change_ro`), on every `ag.dm.event` and every 5 s. Events: a second ubus connection on amxrt's loop (`amxo_connection_add`) → `amxd_object_emit_signal`. agd status → amxd status (refused → permission denied, invalid_value → invalid value). |
+| `scripts/build-ambiorix.sh` | libamxc, -j, -p, -d, -b, -s, -o, libamxrt, amxrt and amxb_ubus at pinned tags into one root; CMake builds `amx/` when it finds `amxd/amxd_dm.h`. |
+
+Verified by `tests/amx-test.sh` (CI, real Ambiorix): ubusd, agd, `amxrt -B mod-amxb-ubus.so … aigw-amx-build.odl`; checked over ubus as prplOS's agents reach components (`_get`, `_set`, methods, `ubus subscribe` for signals). Not done yet: a prplOS feed package, mounting under prplOS's `Device.`, a real prplOS image.
+
 ---
 
 ## 17. Status and risks

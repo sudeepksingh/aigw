@@ -46,6 +46,12 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.23:** **a native prplOS component.** `aigw-amx` publishes AIGW OS's data
+> model (alerts, decisions, mode, commands, events) on prplOS's bus as an
+> Ambiorix component. prplOS's own USP agent, TR-069 client, CLI and web UI see
+> it like any other part of the device, and the home's rules still apply. It is
+> tested in CI with Ambiorix itself.
+>
 > **v0.22:** **ready for a carrier network.** A real firmware upgrade from an ACS
 > is now tested on OpenWRT itself (in QEMU): icwmp downloads the image, AIGW checks
 > it, `sysupgrade` writes it, and after the reboot the ACS gets its

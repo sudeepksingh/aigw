@@ -278,7 +278,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand"><img src="brand/logo-mark.svg" alt="">AIGW <span>OS</span></div>
-  <div class="ver">architecture v0.3 · code v0.22 · 2026-11-11</div>
+  <div class="ver">architecture v0.3 · code v0.23 · 2026-11-11</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1355,6 +1355,15 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Reboot, factory reset</td><td>They now really reboot and reset (USP, and TR-069 on OpenWRT), through agd: the home decides whether an ISP may (<code>mgmt.reset</code>), and agd logs who asked.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.23: a native prplOS component</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>aigw-amx</td><td>An Ambiorix plug-in for <code>amxrt</code>, prplOS's component runtime. It publishes AIGW's alerts, decisions, mode, commands and events on prplOS's bus, built from agd's schema at start. prplOS's own USP agent, TR-069 client, CLI and web UI see AIGW like any other part of the device.</td></tr>
+      <tr><td>The home decides</td><td>prplOS's agents ask as <code>prplos</code>: the same rules as any management system, with amxd's own error codes (permission denied, invalid value).</td></tr>
+      <tr><td>Proof</td><td>In CI with Ambiorix itself (pinned, built from source): reads, instances that follow agd, the <code>Alert!</code> signal, refused and allowed writes, a block and its undo.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1395,7 +1404,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.22 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-11</footer>
+<footer>AIGW architecture v0.3 · implementation v0.23 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-11</footer>
 </main>
 </div>
 

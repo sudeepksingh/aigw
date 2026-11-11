@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.22.0 LANGUAGES C)
+project(aigw VERSION 0.23.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -57,6 +57,15 @@ endif()
 
 # TR-069: the data model daemon for icwmp (needs nothing from icwmp to build)
 add_subdirectory(cwmp)
+
+# prplOS: an Ambiorix component (amxrt plug-in) publishing AIGW's subtree on
+# prplOS's bus. Built when Ambiorix is found: on prplOS / an SDK with it, or
+# AIGW_AMX_ROOT from scripts/build-ambiorix.sh
+set(AIGW_AMX_ROOT "" CACHE PATH "Ambiorix install root (scripts/build-ambiorix.sh)")
+find_path(AMXD_INCLUDE amxd/amxd_dm.h HINTS ${AIGW_AMX_ROOT}/include)
+if(AMXD_INCLUDE)
+  add_subdirectory(amx)
+endif()
 
 install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)
