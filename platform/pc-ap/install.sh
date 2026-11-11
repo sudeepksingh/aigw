@@ -50,6 +50,10 @@ cmake --build "$BUILD" -j "$(nproc)" >/dev/null
 (cd "$BUILD" && ctest --output-on-failure) >/dev/null || die "unit tests failed (run: cd $BUILD && ctest --output-on-failure)"
 cmake --install "$BUILD" >/dev/null
 install -m 0755 "$REPO/platform/pc-ap/aigw-ap" "$PREFIX/sbin/aigw-ap"
+# the Wi-Fi handler: Wi-Fi settings a management system changes (a PC has no
+# firmware image to upgrade; mgmt.firmware_handler can name one)
+install -d "$PREFIX/libexec/aigw"
+install -m 0755 "$REPO/platform/pc-ap/wifi-config" "$PREFIX/libexec/aigw/wifi-config"
 ldconfig
 
 step "Configuring"

@@ -264,6 +264,109 @@ static int oper_cb(dm_req_t *req, char *command_key, kv_vector_t *input_args, kv
 	return rc;
 }
 
+/*
+ * Asynchronous commands (firmware Download(), Activate()): agd answers when it
+ * is done, which may take minutes. Each runs on a thread of its own, with its
+ * own ubus connection, and ends with USP_SIGNAL_OperationComplete.
+ */
+#define AOP_TIMEOUT (60 * 60 * 1000)
+#define AOP_ARGS    16
+
+struct aop {
+	int instance;
+	char path[MAX_DM_PATH];
+	int n;
+	char *key[AOP_ARGS], *val[AOP_ARGS];
+};
+
+static void aop_free(struct aop *o)
+{
+	int i;
+
+	for (i = 0; i < o->n; i++) {
+		free(o->key[i]);
+		free(o->val[i]);
+	}
+	free(o);
+}
+
+static void *aop_main(void *arg)
+{
+	struct aop *o = arg;
+	struct ubus_context *c = ubus_connect(ubus_path);
+	struct blob_buf b = { 0 };
+	struct reply r = { NULL };
+	struct blob_attr *ok, *out, *cur;
+	kv_vector_t *outv = USP_ARG_Create();
+	char msg[256] = "AIGW OS (agd) is not answering";
+	uint32_t id;
+	size_t rem;
+	void *t;
+	int i, err = USP_ERR_COMMAND_FAILURE;
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "origin", ORIGIN);
+	blobmsg_add_string(&b, "command", o->path);
+	t = blobmsg_open_table(&b, "args");
+	for (i = 0; i < o->n; i++)
+		blobmsg_add_string(&b, o->key[i], o->val[i]);
+	blobmsg_close_table(&b, t);
+	if (c && !ubus_lookup_id(c, "ag.dm", &id) &&
+	    !ubus_invoke(c, id, "operate", b.head, reply_cb, &r, AOP_TIMEOUT) && r.msg) {
+		ok = top(r.msg, "ok");
+		if (ok && blobmsg_get_u8(ok)) {
+			err = USP_ERR_OK;
+			msg[0] = '\0';
+			if ((out = top(r.msg, "out")))
+				blobmsg_for_each_attr(cur, out, rem)
+					USP_ARG_Add(outv, (char *)blobmsg_name(cur), (char *)str(cur));
+		} else {
+			snprintf(msg, sizeof(msg), "%s", str(top(r.msg, "message")));
+			err = usp_err(str(top(r.msg, "code")), 1);
+		}
+	}
+	free(r.msg);
+	blob_buf_free(&b);
+	if (c)
+		ubus_free(c);
+	USP_LOG_Info("aigw-usp: %s: %s%s%s", o->path, err == USP_ERR_OK ? "done" : "failed",
+		     msg[0] ? " -- " : "", msg);
+	USP_SIGNAL_OperationComplete(o->instance, err, err == USP_ERR_OK ? NULL : msg, outv);   /* outv is the agent's now */
+	aop_free(o);
+	return NULL;
+}
+
+static int aop_start(dm_req_t *req, kv_vector_t *input_args, int instance)
+{
+	struct aop *o = calloc(1, sizeof(*o));
+	pthread_attr_t at;
+	pthread_t th;
+	int i;
+
+	if (!o)
+		return USP_ERR_RESOURCES_EXCEEDED;
+	o->instance = instance;
+	snprintf(o->path, sizeof(o->path), "%s", req->path);
+	/* the agent keeps its input arguments: copy what agd needs */
+	for (i = 0; input_args && i < input_args->num_entries && o->n < AOP_ARGS; i++) {
+		if (!strncmp(input_args->vector[i].key, "Internal_", 9))
+			continue;       /* the agent's own (its time reference) */
+		o->key[o->n] = strdup(input_args->vector[i].key);
+		o->val[o->n] = strdup(input_args->vector[i].value ? input_args->vector[i].value : "");
+		o->n++;
+	}
+	pthread_attr_init(&at);
+	pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+	if (pthread_create(&th, &at, aop_main, o)) {
+		pthread_attr_destroy(&at);
+		aop_free(o);
+		USP_ERR_SetMessage("cannot start the operation");
+		return USP_ERR_INTERNAL_ERROR;
+	}
+	pthread_attr_destroy(&at);
+	return USP_ERR_OK;
+}
+
 /* one value from agd, for the agent's own parameters (DeviceInfo.SoftwareVersion) */
 static int dm_value(const char *path, char *buf, int len)
 {
@@ -369,7 +472,12 @@ static int register_schema(struct blob_attr *schema)
 			char *p = (char *)str(field(cur, "path")), *in[16], *out[16];
 			int ni = names(field(cur, "in"), in, 16), nout = names(field(cur, "out"), out, 16);
 
-			err |= USP_REGISTER_SyncOperation(p, oper_cb);
+			struct blob_attr *as = field(cur, "async");
+
+			if (as && blobmsg_get_u8(as))
+				err |= USP_REGISTER_AsyncOperation(p, aop_start, NULL);
+			else
+				err |= USP_REGISTER_SyncOperation(p, oper_cb);
 			err |= USP_REGISTER_OperationArguments(p, in, ni, out, nout);
 			nc++;
 		}

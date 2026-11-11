@@ -75,6 +75,8 @@ place to set things.
 | `mgmt.serial`, `mgmt.oui` | machine id or LAN MAC, LAN MAC's OUI | `DeviceInfo.SerialNumber` and `ManufacturerOUI`, for both protocols |
 | `mgmt.manufacturer`, `mgmt.model_name`, `mgmt.product_class` | `AIGW OS project`, `AIGW OS on <host>`, `AIGW OS gateway` | an OEM's or ISP's own names in `DeviceInfo.` and the Inform's DeviceId |
 | `mgmt.vendor_prefix` | `X_AIGW_` | the prefix of AIGW's own names (see below) |
+| `mgmt.wifi`, `mgmt.firmware` | `1`, `1` | may a management system change Wi-Fi settings, upgrade the firmware |
+| `mgmt.firmware_handler`, `wifi.handler` | the platform's | the programs that carry those out (see below) |
 | `cwmp.url`, `cwmp.username`, `cwmp.password`, `cwmp.ca_file` | — | the ACS and its login |
 | `cwmp.periodic_enable`, `cwmp.periodic_interval` | `1`, `86400` | periodic Informs |
 | `cwmp.port`, `cwmp.cr_username`, `cwmp.cr_password` | `7547` | connection requests from the ACS |
@@ -130,7 +132,87 @@ ACS is made the same way:
   refused (agd says so in its log) and `X_AIGW_` is used.
 - In this document, read `X_AIGW_` as your prefix.
 
-## The data model (version 1.1)
+## Wi-Fi settings
+
+An ISP's help desk changes the Wi-Fi name and passphrase, the security mode,
+the channel and the width through the standard TR-181 parameters, over USP or
+TR-069 alike:
+
+| Parameter | Values |
+|---|---|
+| `Device.WiFi.SSID.{i}.SSID` | 1 to 32 characters |
+| `Device.WiFi.AccessPoint.{i}.Security.KeyPassphrase` | 8 to 63 printable characters, or 64 hex digits; always reads empty |
+| `Device.WiFi.AccessPoint.{i}.Security.ModeEnabled` | `None`, `WPA2-Personal`, `WPA3-Personal`, `WPA2-WPA3-Personal` |
+| `Device.WiFi.Radio.{i}.Channel` | a channel AIGW uses on that band |
+| `Device.WiFi.Radio.{i}.OperatingChannelBandwidth` | `20MHz`, `40MHz`, `80MHz` (5 GHz), `Auto` |
+
+- agd checks every value, and `mgmt.wifi 0` stops a management system from
+  changing any of them (the default is `1`: managing Wi-Fi is what an ISP is
+  for).
+- A request is still all or nothing. Everything it changes on one access point
+  goes to the **Wi-Fi handler** in one call:
+  - On OpenWRT, `/usr/libexec/aigw/wifi-config` writes `/etc/config/wireless`
+    and reloads that radio.
+  - On a PC, it writes `/etc/aigw/pc-ap.conf` and restarts that access point
+    (`aigw-ap reconf`). There, the name, passphrase and mode are the same on
+    both bands.
+- Until the access point comes back with the new values, reads show them.
+- agd logs who asked (`wifi: wlan0 settings applied (asked by usp)`).
+
+One access point is one radio, one SSID and one AccessPoint, with the same
+instance number in all three.
+
+## Firmware upgrades
+
+The standard TR-181 firmware objects:
+
+- `Device.DeviceInfo.FirmwareImage.{i}.` (`Name`, `Version`, `Status`,
+  `Available`).
+- `ActiveFirmwareImage` and `BootFirmwareImage`.
+- `Download(URL, AutoActivate, Username, Password, FileSize, CheckSumAlgorithm,
+  CheckSum)` and `Activate()`. Both are asynchronous: over USP they end with
+  OperationComplete.
+
+`SoftwareVersion` is the running firmware's version, and
+`AdditionalSoftwareVersion` is AIGW OS's own.
+
+| Over | What happens |
+|---|---|
+| USP | `Download()` fetches and checks the image into a free slot. With `AutoActivate` (or a later `Activate()`) it is written or set to boot, and agd reboots into it. |
+| TR-069 | icwmp's own `Download` RPC (file type `1 Firmware Upgrade Image`): icwmp fetches the file and checks it with `sysupgrade -T`. It then calls `FirmwareImage.N.Download()` and the `fwbank` bank calls, which aigw-cwmp-dm answers from agd, and reboots. After the boot it sends `TransferComplete`. Before the image is activated, aigw-cwmp-dm saves icwmp's session in `/etc/icwmpd`, which is kept over the upgrade. |
+
+Nothing is written to flash before the image has passed its checks. A
+management system may do this only with `mgmt.firmware 1` (the default).
+
+### The firmware handler: your flash, your rules
+
+What "an image", "check" and "activate" mean differs from one device to the
+next, so agd leaves it to a small program, `mgmt.firmware_handler`
+(default `/usr/libexec/aigw/firmware`):
+
+| Call | Does |
+|---|---|
+| `firmware version` | the running firmware's version, one line |
+| `firmware list` | one line per image: `<id> <status> <active 0/1> <boot 0/1> <version or -> <name>`; status as TR-181 (`NoImage`, `Active`, `Available`, `DownloadFailed`, `ValidationFailed`, ...) |
+| `firmware download <id> <url>` | fetch and check; exit 0 when it is in slot `<id>`, 2 when it could not be fetched, 3 when it failed its checks. Credentials and checksum come in the environment (`AIGW_FW_USER`, `AIGW_FW_PASSWORD`, `AIGW_FW_SIZE`, `AIGW_FW_CHECKSUM_ALGORITHM`, `AIGW_FW_CHECKSUM`) |
+| `firmware activate <id>` | exit 0 when that image boots next (it may also write it and reboot itself) |
+| `firmware reboot` | reboot |
+
+- **OpenWRT** (the default handler): image 1 is the running one, and image 2 is
+  a slot in RAM. A download is checked with `sysupgrade -T`, and its version
+  is read from the image's metadata. Activating it runs `sysupgrade`, keeping
+  the configuration.
+- **A/B flash, signed images, an OEM's own update agent:** point
+  `mgmt.firmware_handler` at a program with the interface above.
+  `tests/fw/firmware` is a two-bank example.
+- **A PC** has no firmware image. Without a handler, the firmware objects are
+  empty and `Download()` is refused.
+
+The Wi-Fi handler (`wifi.handler`) is replaceable the same way:
+`wifi-config set <iface>`, with the new values in `AIGW_WIFI_SSID`,
+`AIGW_WIFI_KEY`, `AIGW_WIFI_MODE`, `AIGW_WIFI_CHANNEL` and `AIGW_WIFI_WIDTH`.
+
+## The data model (version 1.2)
 
 The full definition, as ISPs load it into their controllers, is
 [`datamodel/aigw-dm.xml`](datamodel/aigw-dm.xml). It is made from what `agd`
@@ -139,9 +221,12 @@ the two differ.
 
 | Path | Contents | Writable |
 |---|---|---|
-| `Device.DeviceInfo.` | `Manufacturer`, `ModelName`, `ProductClass`, `ManufacturerOUI`, `SerialNumber`, `SoftwareVersion`, `UpTime`, `X_AIGW_DataModelVersion` | no |
+| `Device.DeviceInfo.` | `Manufacturer`, `ModelName`, `ProductClass`, `ManufacturerOUI`, `SerialNumber`, `SoftwareVersion`, `AdditionalSoftwareVersion`, `UpTime`, `X_AIGW_DataModelVersion`, `ActiveFirmwareImage`, `BootFirmwareImage` | no |
+| `Device.DeviceInfo.FirmwareImage.{i}.` | `Name`, `Version`, `Available`, `Status`; `Download()`, `Activate()` | through commands |
 | `Device.Hosts.Host.{i}.` | `PhysAddress`, `IPAddress`, `HostName`, `Active`; `X_AIGW_` type, zone, first and last seen, rates and bytes up and down, Wi-Fi band and signal | no |
-| `Device.WiFi.SSID.{i}.` | `Name` (interface), `SSID`, `BSSID`; `X_AIGW_` band, channel, width, stations | no |
+| `Device.WiFi.Radio.{i}.` | `Enable`, `Status`, `Name`, `SupportedFrequencyBands`, `OperatingFrequencyBand`, `Channel`, `SupportedOperatingChannelBandwidths`, `OperatingChannelBandwidth` | `Channel`, `OperatingChannelBandwidth` |
+| `Device.WiFi.SSID.{i}.` | `Name` (interface), `LowerLayers`, `SSID`, `BSSID`; `X_AIGW_` band, channel, width, stations | `SSID` |
+| `Device.WiFi.AccessPoint.{i}.` | `SSIDReference`, `AssociatedDeviceNumberOfEntries`, `Security.ModesSupported`, `Security.ModeEnabled`, `Security.KeyPassphrase` | `ModeEnabled`, `KeyPassphrase` |
 | `Device.X_AIGW_.` | `Mode` (off / advise / enforce), `ActionsAllowed`, `AlertDetails` | `Mode` |
 | `Device.X_AIGW_.Alert.{i}.` | `Kind`, `Severity`, `Host` (a reference), `Subject`, `Reason`, `Score`, `FirstSeen`, `LastSeen`, `Count` | no |
 | `Device.X_AIGW_.Decision.{i}.` | `Action`, `Target`, `Host`, `State`, `Origin`, `Reason`, `Note`, `Alert` (a reference), `Automatic`, `Created`, `Expires` | through commands |
@@ -304,7 +389,8 @@ Rules for adding:
     - faults 9001 / 9005 / 9007 / 9008;
     - a write applied only at commit and dropped at revert;
     - `LastEvent.` without the name;
-    - a refused quarantine, and an approved decision that really lands in nft and is then undone.
+    - a refused quarantine, and an approved decision that really lands in nft and is then undone;
+    - `fwbank dump` and `set_bootbank`, a bad image as fault 9010, and no reboot by agd for the ACS.
   - **Part 2** runs icwmp against an ACS (`tests/cwmp/acs.py`, SOAP over HTTP):
     - the boot Inform's DeviceId and parameters;
     - connection requests;
@@ -313,11 +399,18 @@ Rules for adding:
     - a refused command;
     - an alert as `4 VALUE CHANGE`;
     - an approved quarantine;
-    - a new `ParameterKey` and Inform interval, saved in `/etc/config/aigw`.
-  - icwmp's own paths are private to the test (overlays in a mount namespace).
+    - a new `ParameterKey` and Inform interval, saved in `/etc/config/aigw`;
+    - a firmware `Download`: icwmp fetches it, agd puts it in bank 2, icwmp reboots, and after the boot comes `1 BOOT`, `7 TRANSFER COMPLETE`, the new `SoftwareVersion` and a `TransferComplete` without a fault.
+  - icwmp's own paths are private to the test (overlays in a mount namespace). There, `reboot` is a script that switches the test's banks and stops icwmp, so the test can never reboot the machine.
+- **Firmware in dm-test and usp-test** uses `tests/fw/firmware`, a two-bank handler:
+  - a bad image and a wrong checksum are refused;
+  - a download into the running bank is refused;
+  - `mgmt.firmware 0` holds;
+  - over USP, `Download(AutoActivate)` ends with OperationComplete and a reboot into the new version.
+- **`tests/hwsim-test.sh`** (simulated radios, CI) sets a new name, passphrase and channel through the data model. It checks that hostapd comes back with them, that they are saved in `pc-ap.conf`, and that the client joins again with the new passphrase.
 
 ## Not done yet
 
-- **Writable Wi-Fi settings**, firmware upgrade (USP and TR-069 Download), and the WebSocket transport.
+- **More Wi-Fi settings** (turning an access point off, guest networks, `RegulatoryDomain`), firmware `TimeWindow`s and scheduled downloads, and the WebSocket transport.
 - **TR-069 over HTTPS with client certificates** is icwmp's (`cwmp.ca_file`; client certificates not yet in `/etc/config/aigw`), and is not tested here.
 - **The OpenWRT QEMU test** installs the packages but doesn't yet run the USP or TR-069 tests there.

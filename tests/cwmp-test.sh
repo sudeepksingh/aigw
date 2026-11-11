@@ -125,6 +125,8 @@ config mgmt 'mgmt'
 	option serial 'AIGWTEST0001'
 	# an ISP's own vendor prefix: every name below is under it
 	option vendor_prefix 'X_EXAMPLE-COM_'
+	# firmware: two banks (the test handler, an OEM's A/B flash in miniature)
+	option firmware_handler '$REPO/tests/fw/firmware'
 
 config cwmp 'cwmp'
 	option url 'http://10.98.0.2:7557/'
@@ -158,7 +160,7 @@ config cpe 'cpe'
 	option userid 'cr'
 	option passwd 'crpw'
 EOF
-export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_NFT_FILE="$T/aigw.nft"
+export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_NFT_FILE="$T/aigw.nft" AIGW_TEST_FW_DIR="$T/fw"
 
 ip netns exec "$NG" "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.5
@@ -183,7 +185,7 @@ until "$UBUS" -s "$AIGW_UBUS" list bbfdm >/dev/null 2>&1; do
 	i=$((i + 1)); [ $i -ge 30 ] && fail "aigw-cwmp-dm did not publish bbfdm"
 	sleep 0.3
 done
-want=$("$BIN/agd/agd" -v | cut -d' ' -f2)
+want=1.0        # the firmware's version: the test handler's first bank
 bb get '{"path":"Device.DeviceInfo.SoftwareVersion"}' > "$T/ver.json"
 js "r = d['results'][0]; sys.exit(0 if r['data'] == '$want' and r['type'] == 'xsd:string' else 1)" < "$T/ver.json" ||
 	fail "SoftwareVersion: $(cat "$T/ver.json")"
@@ -292,6 +294,28 @@ commit
 gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:02' && fail "undo should lift the quarantine"
 echo "   $DEC: proposed -> active -> reverted, by acs; quarantine refused with mgmt.actions 0"
 
+echo "== part 1: firmware, as icwmp asks for it (fwbank, bbfdm operate)"
+FW=Device.DeviceInfo.FirmwareImage
+fwb() { "$UBUS" -s "$AIGW_UBUS" call fwbank "$@"; }
+fwb dump > "$T/banks.json"
+js "b = {x['id']: x for x in d['bank']}
+sys.exit(0 if b[1]['active'] and b[1]['fwver'] == '1.0' and not b[2]['active'] and b[2]['status'] == 'NoImage' else 'got %s' % d)" < "$T/banks.json" ||
+	fail "fwbank dump: $(cat "$T/banks.json")"
+printf 'AIGW-TEST-FIRMWARE 2.0\n' > "$T/good.img"
+printf 'not firmware\n' > "$T/bad.img"
+op() { bb operate "{\"path\":\"$FW.$1\",\"input\":{\"URL\":\"file://$2\",\"X_EXAMPLE-COM_KeepConfig\":true}}"; }
+# icwmp counts a fault inside a result's output as a failed upgrade (9010)
+op 2.Download\(\) "$T/bad.img" | js "o = d['results'][0]['output']; sys.exit(0 if o and o[0]['fault'] == 9010 else 1)" ||
+	fail "a bad image should fail with 9010"
+op 2.Download\(\) "$T/good.img" | js "sys.exit(0 if d['results'][0]['output'] == [] else 1)" || fail "Download()"
+fwb set_bootbank '{"bank":2}' | js "sys.exit(0 if d['success'] else 1)" || fail "set_bootbank"
+[ "$(val Device.DeviceInfo.BootFirmwareImage)" = "$FW.2" ] || fail "BootFirmwareImage: $(val Device.DeviceInfo.BootFirmwareImage)"
+sleep 4
+# icwmp reboots by itself: agd must not (origin acs)
+[ ! -f "$T/fw/reboots" ] && [ "$(val Device.DeviceInfo.SoftwareVersion)" = 1.0 ] || fail "agd rebooted for the ACS"
+rm -rf "$T/fw"          # part 2 starts from bank 1 again
+echo "   banks listed; a bad image fault 9010; downloaded, set to boot next; no reboot by agd"
+
 ICWMPD=${AIGW_ICWMPD:-$(command -v icwmpd || true)}
 if [ -z "$ICWMPD" ] || [ ! -x "$ICWMPD" ]; then
 	[ "${AIGW_REQUIRE_CWMP:-0}" = 1 ] && fail "no icwmpd (set AIGW_ICWMPD)"
@@ -306,22 +330,53 @@ kill "$DM"; wait "$DM" 2>/dev/null || true
 sleep 0.5
 mkdir -p "$T/acs"
 ip netns exec "$NI" python3 "$REPO/tests/cwmp/acs.py" serve "$T/acs" --port 7557 > "$T/acs.log" 2>&1 & PIDS="$PIDS $!"
+# icwmp reboots after a firmware download (ubus system, rpc-sys, then the
+# "reboot" command): in its namespace "reboot" is this script, which switches
+# the test's firmware banks and stops icwmp, as a reboot would. It is first in
+# PATH and mounted over the real one, so the test can never reboot the machine.
+mkdir -p "$T/shim"
+cat > "$T/shim/reboot" <<EOF
+#!/bin/sh
+echo "reboot \$*" >> "$T/reboots.log"
+"$REPO/tests/fw/firmware" reboot >> "$T/reboots.log" 2>&1
+p=\$\$
+while [ "\$p" -gt 1 ]; do
+	p=\$(ps -o ppid= -p "\$p" | tr -d ' ')
+	[ -n "\$p" ] || break
+	if [ "\$(ps -o comm= -p "\$p")" = icwmpd ]; then kill -9 "\$p"; break; fi
+done
+exit 0
+EOF
+# icwmp checks an image with "sysupgrade -T" (OpenWRT's): the test images pass
+cat > "$T/shim/sysupgrade" <<'EOF'
+#!/bin/sh
+[ "$1" = -T ] && head -n 1 "$2" | grep -q '^AIGW-TEST-FIRMWARE ' && exit 0
+exit 1
+EOF
+chmod 755 "$T/shim/reboot" "$T/shim/sysupgrade"
+
 # icwmp's own paths (/etc/config/cwmp, /etc/icwmpd, /var/run, /var/state) are
-# private to this test: overlays in a mount namespace of their own
+# private to this test: overlays in a mount namespace of their own. /run is
+# fresh each time (a reboot clears it); /etc and /var keep what was written.
 cat > "$T/cwmp-ns.sh" <<EOF
 set -e
 mkdir -p "$T/ov/etc" "$T/ov/etcw" "$T/ov/var" "$T/ov/varw"
 mount -t overlay overlay -o lowerdir=/etc,upperdir=$T/ov/etc,workdir=$T/ov/etcw /etc
 mount -t overlay overlay -o lowerdir=/var,upperdir=$T/ov/var,workdir=$T/ov/varw /var
 mount -t tmpfs tmpfs /run
+for r in /sbin/reboot /usr/sbin/reboot /bin/reboot; do
+	[ -e "\$r" ] && mount --bind "$T/shim/reboot" "\$r" || true
+done
 mkdir -p /run/ubus /var/state /etc/config /etc/icwmpd
 ln -s "$AIGW_UBUS" /run/ubus/ubus.sock
 ln -s "$AIGW_UBUS" /run/ubus.sock
-rm -f /etc/config/cwmp
+[ -f "$T/ov/started" ] || rm -f /etc/config/cwmp
+: > "$T/ov/started"
+export PATH="$T/shim:\$PATH"
 export AIGW_ICWMPD="$ICWMPD" AIGW_CWMP_DM="$BIN/cwmp/aigw-cwmp-dm" AIGW_CWMP_DIR=/var/run/aigw-cwmp
 exec sh "$REPO/cwmp/aigw-cwmp-run"
 EOF
-ip netns exec "$NG" unshare -m --propagation private sh "$T/cwmp-ns.sh" > "$T/icwmp.log" 2>&1 & PIDS="$PIDS $!"
+ip netns exec "$NG" unshare -m --propagation private sh "$T/cwmp-ns.sh" > "$T/icwmp.log" 2>&1 & CWMP=$!; PIDS="$PIDS $CWMP"
 acs() { python3 "$REPO/tests/cwmp/acs.py" "$@"; }
 job() { # job <file>: run it in the next session, waking the CPE with a connection request
 	ip netns exec "$NI" python3 "$REPO/tests/cwmp/acs.py" job "$T/acs" "$1" --cr http://10.98.0.1:7547/ --user cr --password crpw --timeout 60
@@ -399,5 +454,36 @@ js "v = d['results'][1]['values']; sys.exit(0 if v['Device.X_EXAMPLE-COM_.Reques
 	fail "approve: $(cat "$T/r3.json")"
 gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:04' || fail "the phone should be quarantined in nft"
 echo "   $DEC2 active, approved by acs"
+
+echo "== part 2: a firmware upgrade from the ACS (Download, reboot, TransferComplete)"
+mkdir -p "$T/acs/files"
+printf 'AIGW-TEST-FIRMWARE 2.5\n' > "$T/acs/files/fw.img"
+size=$(wc -c < "$T/acs/files/fw.img")
+cat > "$T/j4.json" <<EOF
+{"rpcs": [{"method": "Download", "url": "http://10.98.0.2:7557/fw.img", "key": "dl1", "size": $size}]}
+EOF
+n=$(wc -l < "$T/acs/informs.jsonl")
+job "$T/j4.json" > "$T/r4.json" || fail "the ACS's Download did not run"
+js "sys.exit(0 if d['results'][0].get('status') in (0, 1) else 1)" < "$T/r4.json" || fail "Download: $(cat "$T/r4.json")"
+# icwmp downloads, checks, has agd put the image in bank 2 and boot it next, reboots
+i=0
+while kill -0 "$CWMP" 2>/dev/null; do
+	i=$((i + 1)); [ $i -le 120 ] || fail "icwmp did not reboot after the download: $(cat "$T/reboots.log" 2>/dev/null)"; sleep 0.5
+done
+grep -q 'rebooted into bank 2' "$T/reboots.log" || fail "the reboot: $(cat "$T/reboots.log" 2>/dev/null)"
+[ -f "$T/ov/etc/icwmpd/icwmpd_backup_session.xml" ] || fail "icwmp's session should have been kept in /etc/icwmpd"
+# the boot: /run is fresh, aigw-cwmp-run puts icwmp's session back
+ip netns exec "$NG" unshare -m --propagation private sh "$T/cwmp-ns.sh" >> "$T/icwmp.log" 2>&1 & CWMP=$!; PIDS="$PIDS $CWMP"
+acs wait "$T/acs" "7 TRANSFER COMPLETE" --after "$n" --timeout 150 > "$T/tc.json" || fail "no TRANSFER COMPLETE Inform after the reboot"
+js "sys.exit(0 if '1 BOOT' in d['events'] and d['params'].get('Device.DeviceInfo.SoftwareVersion') == '2.5' else 'got %s' % d)" < "$T/tc.json" ||
+	fail "the Inform after the upgrade: $(cat "$T/tc.json")"
+i=0
+until [ -s "$T/acs/transfers.jsonl" ]; do
+	i=$((i + 1)); [ $i -le 60 ] || fail "no TransferComplete"; sleep 0.5
+done
+head -n 1 "$T/acs/transfers.jsonl" | js "sys.exit(0 if d['key'] == 'dl1' and d['fault'] == 0 else 'got %s' % d)" ||
+	fail "TransferComplete: $(cat "$T/acs/transfers.jsonl")"
+rm -f /tmp/firmware.bin /tmp/icwmp_download
+echo "   $(js "print(d['events'])" < "$T/tc.json"), SoftwareVersion 2.5, TransferComplete dl1 without a fault"
 
 echo "CWMP TEST OK"

@@ -278,7 +278,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand"><img src="brand/logo-mark.svg" alt="">AIGW <span>OS</span></div>
-  <div class="ver">architecture v0.3 · code v0.20 · 2026-11-11</div>
+  <div class="ver">architecture v0.3 · code v0.21 · 2026-11-11</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1336,6 +1336,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Proof</td><td>The data model test checks a prefix and names in every path, command and event, and a bad prefix refused; the whole TR-069 test, with icwmp and the ACS, runs under <code>X_EXAMPLE-COM_</code>.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.21: firmware upgrades and Wi-Fi settings, by the ISP</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Wi-Fi</td><td>The standard TR-181 radios, SSIDs and access points. An ISP sets the name, passphrase, security mode (WPA2/WPA3), channel and width, over USP or TR-069. agd checks the values and who asks (<code>mgmt.wifi</code>); a handler saves and applies them.</td></tr>
+      <tr><td>Firmware</td><td><code>FirmwareImage</code> with <code>Download()</code> and <code>Activate()</code>: fetched, checked (size, checksum, <code>sysupgrade -T</code>) before anything is written, then activated and rebooted into. Over TR-069 icwmp's own Download RPC works unchanged, with a <code>TransferComplete</code> after the boot.</td></tr>
+      <tr><td>Handlers</td><td>What differs per device is a small replaceable program: OpenWRT's <code>uci</code>/<code>wifi</code> and <code>sysupgrade</code> by default, the PC's <code>aigw-ap</code>, or an OEM's own for A/B flash, signed images or its own Wi-Fi stack.</td></tr>
+      <tr><td>Proof</td><td>Firmware over USP (OperationComplete, reboot into the new version) and over TR-069 with real icwmp (reboot, <code>TransferComplete</code>); Wi-Fi changes on simulated radios, with the client joining again on the new passphrase.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1376,7 +1386,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.20 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-11</footer>
+<footer>AIGW architecture v0.3 · implementation v0.21 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-11</footer>
 </main>
 </div>
 

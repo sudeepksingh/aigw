@@ -19,6 +19,7 @@ rm -f "$PREFIX/sbin/agd" "$PREFIX/sbin/agdns" "$PREFIX/sbin/aigw-nft" "$PREFIX/s
 rm -f "$PREFIX/sbin/aigw-usp-run" "$PREFIX/sbin/obuspa" "$PREFIX/sbin/aigw-cwmp-run" "$PREFIX/sbin/aigw-cwmp-dm" "$PREFIX/sbin/icwmpd"
 rm -rf "$PREFIX/lib/aigw/usp"
 rm -f /usr/share/acl.d/aigw-*.json
+rm -rf "$PREFIX/libexec/aigw"
 if [ "${1:-}" = --purge ]; then
 	rm -rf /etc/aigw /etc/config/aigw /var/lib/aigw
 fi

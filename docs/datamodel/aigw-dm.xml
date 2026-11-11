@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.1. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.2. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-1" file="aigw-dm-1-1.xml">
+             spec="urn:aigw-os:aigw-dm-1-2" file="aigw-dm-1-2.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.1">
+  <model name="AIGW-OS:1.2">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DeviceInfo." access="readOnly" minEntries="1" maxEntries="1">
@@ -13,15 +13,21 @@
       <parameter name="ProductClass" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="ManufacturerOUI" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="SerialNumber" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="SoftwareVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="SoftwareVersion" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="AdditionalSoftwareVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="UpTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="X_AIGW_DataModelVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="FirmwareImageNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ActiveFirmwareImage" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="BootFirmwareImage" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.Hosts." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="HostNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.WiFi." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="RadioNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="SSIDNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="AccessPointNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Mode" access="readWrite" activeNotify="normal"><syntax><string/></syntax></parameter>
@@ -62,13 +68,38 @@
         <parameter name="Host"><syntax><string/></syntax></parameter>
       </event>
     </object>
+    <object name="Device.DeviceInfo.FirmwareImage." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
     <object name="Device.Hosts.Host." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.WiFi.AccessPoint." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.WiFi.Radio." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.WiFi.SSID." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Decision." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.DeviceInfo.FirmwareImage.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="FirmwareImageNumberOfEntries">
+      <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Version" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Available" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <command name="Download()" async="true">
+        <input>
+          <parameter name="URL"><syntax><string/></syntax></parameter>
+          <parameter name="AutoActivate"><syntax><string/></syntax></parameter>
+          <parameter name="Username"><syntax><string/></syntax></parameter>
+          <parameter name="Password"><syntax><string/></syntax></parameter>
+          <parameter name="FileSize"><syntax><string/></syntax></parameter>
+          <parameter name="CheckSumAlgorithm"><syntax><string/></syntax></parameter>
+          <parameter name="CheckSum"><syntax><string/></syntax></parameter>
+        </input>
+      </command>
+      <command name="Activate()" async="true">
+      </command>
     </object>
     <object name="Device.Hosts.Host.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="HostNumberOfEntries">
       <parameter name="PhysAddress" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -86,9 +117,24 @@
       <parameter name="X_AIGW_WiFiBand" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="X_AIGW_WiFiSignal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
     </object>
+    <object name="Device.WiFi.AccessPoint.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="AccessPointNumberOfEntries">
+      <parameter name="SSIDReference" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="AssociatedDeviceNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.WiFi.Radio.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="RadioNumberOfEntries">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="SupportedFrequencyBands" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="OperatingFrequencyBand" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Channel" access="readWrite" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SupportedOperatingChannelBandwidths" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="OperatingChannelBandwidth" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
     <object name="Device.WiFi.SSID.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="SSIDNumberOfEntries">
       <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="SSID" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="LowerLayers" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="SSID" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="BSSID" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="X_AIGW_Band" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="X_AIGW_Channel" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
@@ -133,6 +179,11 @@
           <parameter name="State"><syntax><string/></syntax></parameter>
         </output>
       </command>
+    </object>
+    <object name="Device.WiFi.AccessPoint.{i}.Security." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="ModesSupported" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ModeEnabled" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="KeyPassphrase" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
   </model>
 </dm:document>

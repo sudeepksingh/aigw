@@ -111,6 +111,7 @@ config mgmt 'mgmt'
 	option enabled '1'
 	option actions '$1'
 	option alert_details '$2'
+	option firmware_handler '$REPO/tests/fw/firmware'
 
 config usp 'usp'
 	option broker '127.0.0.1'
@@ -129,7 +130,7 @@ cat > "$T/leases" <<EOF
 1999999999 02:00:00:00:97:02 10.96.0.2 laptop *
 1999999999 02:00:00:00:97:03 10.96.0.3 tv *
 EOF
-export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_NFT_FILE="$T/aigw.nft"
+export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_NFT_FILE="$T/aigw.nft" AIGW_TEST_FW_DIR="$T/fw"
 export AIGW_USP_DIR="$T/usp" AIGW_OBUSPA="$OBUSPA" AIGW_USP_PLUGIN="$BIN/usp/aigw-usp.so" AIGW_AGCTL="$BIN/agctl/agctl"
 export USP_PB_DIR="$T/pb" USP_PORT=18831 USP_AGENT_ID=proto::aigw-test USP_AGENT_TOPIC=/usp/agent/test
 
@@ -152,9 +153,12 @@ until uspc get Device.DeviceInfo.SoftwareVersion > "$T/ver.json" 2>/dev/null; do
 	i=$((i + 1)); [ $i -ge 15 ] && fail "the USP agent does not answer"
 	sleep 1
 done
-want=$("$BIN/agd/agd" -v | cut -d' ' -f2)
+# the firmware's version (its handler's; the test handler starts at 1.0), AIGW's next to it
 got=$(js "print(d.get('Device.DeviceInfo.SoftwareVersion', ''))" < "$T/ver.json")
-[ "$got" = "$want" ] || fail "SoftwareVersion: '$got', expected $want"
+[ "$got" = 1.0 ] || fail "SoftwareVersion: '$got', expected the firmware's, 1.0"
+want="AIGW OS $("$BIN/agd/agd" -v | cut -d' ' -f2)"
+uspc get Device.DeviceInfo.AdditionalSoftwareVersion | js "sys.exit(0 if d['Device.DeviceInfo.AdditionalSoftwareVersion'] == '$want' else 1)" ||
+	fail "AdditionalSoftwareVersion should be $want"
 # the identity TR-069 reports too: agd's
 serial=$(agctl dm get Device.DeviceInfo.SerialNumber | sed -n 's/^[^=]* = //p')
 uspc get Device.DeviceInfo.SerialNumber | js "sys.exit(0 if d.get('Device.DeviceInfo.SerialNumber') == '$serial' and '$serial' else 1)" ||
@@ -231,5 +235,28 @@ echo "   blocked bad-tracker.com ($B), mode enforce, saved"
 
 echo "== the same data model, locally"
 agctl dm get Device.X_AIGW_.Mode | grep -q '= enforce' || fail "agctl dm get"
+
+echo "== firmware over USP: Download() with AutoActivate, an asynchronous command"
+FW=Device.DeviceInfo.FirmwareImage
+mkdir -p "$T/www"
+printf 'AIGW-TEST-FIRMWARE 3.1\n' > "$T/www/fw.img"
+SUM=$(sha256sum "$T/www/fw.img" | cut -d' ' -f1)
+ip netns exec "$NG" python3 -m http.server 18089 --bind 127.0.0.1 --directory "$T/www" > "$T/http.log" 2>&1 & PIDS="$PIDS $!"
+sleep 0.5
+uspc supported "$FW." | js "sys.exit(0 if '$FW.{i}.Download()' in d['commands'] else 1)" || fail "Download() not listed"
+uspc operate-async "$FW.2.Download()" 30 "URL=http://127.0.0.1:18089/fw.img" "CheckSumAlgorithm=SHA-256" "CheckSum=0000" > "$T/fwbad.json"
+js "sys.exit(0 if not d['ok'] and 'checksum' in d.get('err_msg', '') else 1)" < "$T/fwbad.json" ||
+	fail "a wrong checksum: $(cat "$T/fwbad.json")"
+uspc operate-async "$FW.2.Download()" 30 "URL=http://127.0.0.1:18089/fw.img" "AutoActivate=true" \
+	"CheckSumAlgorithm=SHA-256" "CheckSum=$SUM" > "$T/fw.json"
+js "sys.exit(0 if d['ok'] else 1)" < "$T/fw.json" || fail "Download(): $(cat "$T/fw.json")"
+# agd reboots into it (the test handler pretends to)
+i=0
+until agctl dm get Device.DeviceInfo.ActiveFirmwareImage | grep -q "= $FW.2"; do
+	i=$((i + 1)); [ $i -le 30 ] || fail "no reboot into the new image: $(agctl dm get Device.DeviceInfo.)"; sleep 0.3
+done
+uspc get "$FW.2.Version" "$FW.2.Status" | js "sys.exit(0 if d['$FW.2.Version'] == '3.1' and d['$FW.2.Status'] == 'Active' else 1)" ||
+	fail "the new image over USP"
+echo "   a wrong checksum refused; downloaded over HTTP, checked, activated, rebooted into 3.1"
 
 echo "USP TEST OK"

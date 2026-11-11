@@ -123,6 +123,14 @@ config mgmt 'mgmt'
 	# X_EXAMPLE-COM_. Default X_AIGW_. Set it before an ACS or controller
 	# starts using the names: they change with it.
 	# option vendor_prefix ''
+	# may a management system change the Wi-Fi name, passphrase, security
+	# mode, channel and width? upgrade the firmware?
+	option wifi '1'
+	option firmware '1'
+	# the program that downloads, checks and activates firmware; default: the
+	# platform's (OpenWRT: sysupgrade). An OEM with A/B flash or signed images
+	# names its own (docs/device-management.md, "The firmware handler")
+	# option firmware_handler ''
 
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
@@ -223,6 +231,10 @@ config policy 'wifi_busy'
 config wifi 'wifi'
 	# hostapd control sockets; leave unset for the platform default
 	# option ctrl_dir '/var/run/hostapd'
+	# the program that saves and applies Wi-Fi settings a management system
+	# changes; default: the platform's (OpenWRT: /etc/config/wireless; a PC:
+	# /etc/aigw/pc-ap.conf). An OEM with its own Wi-Fi stack names its own
+	# option handler ''
 	# per-device Wi-Fi keys (agctl key add <name>): agd keeps them in this
 	# hostapd wpa_psk_file. PC as AP sets it up; on OpenWRT add to the Wi-Fi
 	# interface: uci set wireless.default_radio0.wpa_psk_file='/etc/aigw/wifi-keys'

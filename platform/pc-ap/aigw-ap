@@ -25,6 +25,7 @@ die() { printf 'aigw-ap: %s\n' "$*" >&2; exit 1; }
 AP_IFACE=${AP_IFACE:-auto}
 SSID=${SSID:-AIGW}
 PASSPHRASE=${PASSPHRASE:-}
+SECURITY=${SECURITY:-wpa2}
 COUNTRY=${COUNTRY:-}
 BAND=${BAND:-2.4}
 CHANNEL=${CHANNEL:-6}
@@ -255,11 +256,22 @@ write_hostapd() {
 		echo "bss_transition=1"
 		echo "wmm_enabled=1"
 		echo "auth_algs=1"
-		echo "wpa=2"
-		echo "wpa_key_mgmt=WPA-PSK"
-		echo "rsn_pairwise=CCMP"
-		echo "wpa_passphrase=$PASSPHRASE"
-		echo "wpa_psk_file=$keys"
+		# SECURITY: wpa2 (default), wpa3, wpa2-wpa3 or none
+		case $SECURITY in
+		none) ;;
+		*)
+			echo "wpa=2"
+			case $SECURITY in
+			wpa3) echo "wpa_key_mgmt=SAE"; echo "ieee80211w=2" ;;
+			wpa2-wpa3) echo "wpa_key_mgmt=WPA-PSK SAE"; echo "ieee80211w=1" ;;
+			*) echo "wpa_key_mgmt=WPA-PSK" ;;
+			esac
+			echo "rsn_pairwise=CCMP"
+			echo "wpa_passphrase=$PASSPHRASE"
+			# per-device keys are WPA2 (PSK) keys
+			[ "$SECURITY" = wpa3 ] || echo "wpa_psk_file=$keys"
+			;;
+		esac
 	} > "$out"
 	umask 022
 }
@@ -351,7 +363,7 @@ up() {
 	[ $# -ge 1 ] || die "no Wi-Fi adapter with AP mode found.$(is_wsl && echo " On WSL: is the USB adapter plugged in and shared? (usbipd list; platform/pc-ap/wsl/aigw-wsl.cmd shares it once)")"
 	[ -e "/sys/class/net/$1" ] || die "interface $1 not found"
 	[ "$1" != "$up_if" ] || die "$1 is your internet connection; set AP_IFACE to another adapter in $CONF"
-	[ ${#PASSPHRASE} -ge 8 ] || die "PASSPHRASE must be 8-63 characters ($CONF)"
+	[ "$SECURITY" = none ] || [ ${#PASSPHRASE} -ge 8 ] || die "PASSPHRASE must be 8-63 characters ($CONF)"
 	for t in hostapd dnsmasq nft iw; do command -v $t >/dev/null || die "$t not installed"; done
 
 	# what runs where: one band on the first adapter, or both bands on two
@@ -492,20 +504,29 @@ up) up ;;
 down) down ;;
 restart) down; up ;;
 status) status ;;
-channel)   # one access point to another channel, until the next `up` (agd's channel action
-	   # uses this where the radio can't announce a switch): channel <iface> <channel>
-	[ $# -ge 3 ] || die "usage: aigw-ap channel <iface> <channel>"
+channel|reconf)
+	# channel <iface> <channel>: one access point to another channel, until the
+	#   next `up` (agd's channel action, where the radio can't announce a switch)
+	# reconf <iface> [channel] [width]: restart one access point with the name,
+	#   passphrase and security in $CONF now (the Wi-Fi handler, after a change);
+	#   channel and width stay as they run unless given
+	[ $# -ge 2 ] || die "usage: aigw-ap channel <iface> <channel> | reconf <iface> [channel] [width]"
+	[ "$1" = reconf ] || [ $# -ge 3 ] || die "usage: aigw-ap channel <iface> <channel>"
+	[ "$SECURITY" = none ] || [ ${#PASSPHRASE} -ge 8 ] || die "PASSPHRASE must be 8-63 characters ($CONF)"
 	c="$RUN/hostapd-$2.conf"
 	[ -f "$c" ] || die "no access point on $2"
 	band=5
 	if grep -q '^hw_mode=g' "$c"; then band=2.4; fi
 	w=20
 	if grep -q '^vht_oper_chwidth=1' "$c"; then w=80; elif grep -q '^ht_capab=\[HT40' "$c"; then w=40; fi
+	ch=$(sed -n 's/^channel=//p' "$c")
+	[ -n "${3:-}" ] && ch=$3
+	[ -n "${4:-}" ] && w=$4
 	br=$(sed -n 's/^bridge=//p' "$c")
 	kill_pidfile "$RUN/hostapd-$2.pid"
-	got=$(start_ap "$2" "$band" "$3" "$w" "$br")
-	[ -n "$got" ] || die "hostapd could not start $2 on channel $3"
-	say "$2 now on channel $3 ($got MHz)" ;;
+	got=$(start_ap "$2" "$band" "$ch" "$w" "$br")
+	[ -n "$got" ] || die "hostapd could not start $2 on channel $ch"
+	say "$2 now on channel $ch ($got MHz)" ;;
 conf)   # the hostapd config `up` writes: conf <iface> <band> <channel> <width> [bridge]
 	[ $# -ge 5 ] || die "usage: aigw-ap conf <iface> <2.4|5> <channel> <20|40|80> [bridge]"
 	mkdir -p "$RUN"

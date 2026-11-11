@@ -38,7 +38,7 @@
 
 #include "agd.h"
 
-#define DM_VERSION "1.1"
+#define DM_VERSION "1.2"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -48,9 +48,9 @@ static const char *const type_names[] = {
 	"string", "boolean", "unsignedInt", "int", "unsignedLong", "dateTime", "decimal",
 };
 
-enum { E_OK, E_NOT_FOUND, E_READ_ONLY, E_INVALID_VALUE, E_REFUSED, E_INTERNAL, E_INVALID_ARGS };
+enum { E_OK, E_NOT_FOUND, E_READ_ONLY, E_INVALID_VALUE, E_REFUSED, E_INTERNAL, E_INVALID_ARGS, E_PENDING };
 static const char *const err_names[] = {
-	"ok", "not_found", "read_only", "invalid_value", "refused", "internal", "invalid_arguments",
+	"ok", "not_found", "read_only", "invalid_value", "refused", "internal", "invalid_arguments", "pending",
 };
 
 /* ---------- instance numbers ---------- */
@@ -141,7 +141,7 @@ static const char *vx_path(const char *s)
 
 /* ---------- tables ---------- */
 
-enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_N };
+enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_N };
 
 static int host_listed(const struct device *d)
 {
@@ -176,6 +176,18 @@ static int list_ssids(uint32_t *out, int max)
 	return n;
 }
 
+static int list_fw(uint32_t *out, int max)
+{
+	int n = fw_ids(out, max);
+
+	qsort(out, (size_t)n, sizeof(*out), cmp_u32);
+	return n;
+}
+
+/*
+ * One access point = one radio, one SSID, one AccessPoint, with one instance
+ * number (AIGW runs one access point per radio).
+ */
 static struct {
 	const char *path;               /* the object, "{i}" for the instance */
 	int (*list)(uint32_t *out, int max);
@@ -184,6 +196,9 @@ static struct {
 	[TB_ALERT]    = { "Device.X_AIGW_.Alert.{i}.", alerts_ids },
 	[TB_DECISION] = { "Device.X_AIGW_.Decision.{i}.", act_ids },
 	[TB_SSID]     = { "Device.WiFi.SSID.{i}.", list_ssids },
+	[TB_RADIO]    = { "Device.WiFi.Radio.{i}.", list_ssids },
+	[TB_AP]       = { "Device.WiFi.AccessPoint.{i}.", list_ssids },
+	[TB_FW]       = { "Device.DeviceInfo.FirmwareImage.{i}.", list_fw },
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -192,6 +207,7 @@ struct ictx {
 	uint32_t inst;
 	struct device *dev;
 	const struct wifi_ap *ap;
+	struct fw_image fw;
 };
 
 static int resolve(int table, uint32_t inst, struct ictx *c)
@@ -210,7 +226,11 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 		k = imap_key(&hosts_map, inst);
 		c->dev = k ? dev_find_mac(k, 0) : NULL;
 		return c->dev && host_listed(c->dev) ? 0 : -1;
+	case TB_FW:
+		return fw_find(inst, &c->fw);
 	case TB_SSID:
+	case TB_RADIO:
+	case TB_AP:
 		k = imap_key(&ssid_map, inst);
 		for (i = 0; k && i < wifi_n_aps; i++)
 			if (!strcmp(wifi_aps[i].iface, k))
@@ -288,7 +308,16 @@ GET(g_model)
 	return 0;
 }
 GET(g_product) { (void)c; snprintf(buf, n, "%s", cfg.mgmt_product[0] ? cfg.mgmt_product : "AIGW OS gateway"); return 0; }
-GET(g_swver) { (void)c; snprintf(buf, n, "%s", AG_VERSION); return 0; }
+/* the firmware's version (its handler says), else AIGW OS's own */
+GET(g_swver)
+{
+	(void)c;
+	fw_version(buf, n);
+	if (!buf[0])
+		snprintf(buf, n, "%s", AG_VERSION);
+	return 0;
+}
+GET(g_addsw) { (void)c; snprintf(buf, n, "AIGW OS %s", AG_VERSION); return 0; }
 GET(g_dmver) { (void)c; snprintf(buf, n, "%s", DM_VERSION); return 0; }
 
 /* the first LAN interface's MAC, as 12 upper-case hex digits ("" when none) */
@@ -529,7 +558,71 @@ GET(g_d_host)
 
 GET(g_ssid_n) { (void)c; snprintf(buf, n, "%d", count(TB_SSID)); return 0; }
 GET(g_s_name) { snprintf(buf, n, "%s", c->ap->iface); return 0; }
-GET(g_s_ssid) { snprintf(buf, n, "%s", c->ap->ssid); return 0; }
+
+/* what runs, or a value just given to the Wi-Fi handler until the access point has it */
+static void wifi_val(const struct ictx *c, int what, const char *live, char *buf, size_t n)
+{
+	const char *p;
+
+	wifiset_seen(c->ap->iface, what, live);
+	p = wifiset_pending(c->ap->iface, what);
+	snprintf(buf, n, "%s", p ? p : live);
+}
+GET(g_s_ssid) { wifi_val(c, WS_SSID, c->ap->ssid, buf, n); return 0; }
+GET(g_s_lower) { snprintf(buf, n, "Device.WiFi.Radio.%u", c->inst); return 0; }
+GET(g_radio_n) { (void)c; snprintf(buf, n, "%d", count(TB_RADIO)); return 0; }
+GET(g_r_enable) { (void)c; snprintf(buf, n, "true"); return 0; }
+GET(g_r_status) { (void)c; snprintf(buf, n, "Up"); return 0; }
+GET(g_r_band) { snprintf(buf, n, "%s", c->ap->band == 5 ? "5GHz" : "2.4GHz"); return 0; }
+GET(g_r_bands) { snprintf(buf, n, "%s", c->ap->band == 5 ? "5GHz" : "2.4GHz"); return 0; }
+GET(g_r_chan)
+{
+	char live[16];
+
+	snprintf(live, sizeof(live), "%d", c->ap->channel);
+	wifi_val(c, WS_CHANNEL, live, buf, n);
+	return 0;
+}
+GET(g_r_width)
+{
+	char live[16];
+
+	snprintf(live, sizeof(live), "%dMHz", c->ap->width ? c->ap->width : 20);
+	wifi_val(c, WS_WIDTH, live, buf, n);
+	return 0;
+}
+GET(g_r_widths) { snprintf(buf, n, "%s", c->ap->band == 5 ? "20MHz,40MHz,80MHz,Auto" : "20MHz,40MHz,Auto"); return 0; }
+GET(g_ap_n) { (void)c; snprintf(buf, n, "%d", count(TB_AP)); return 0; }
+GET(g_ap_ssid) { snprintf(buf, n, "Device.WiFi.SSID.%u", c->inst); return 0; }
+GET(g_ap_sta) { snprintf(buf, n, "%d", c->ap->stations); return 0; }
+GET(g_ap_modes) { (void)c; snprintf(buf, n, "None,WPA2-Personal,WPA3-Personal,WPA2-WPA3-Personal"); return 0; }
+GET(g_ap_mode)
+{
+	char live[32];
+
+	wifi_mode(c->ap->iface, live, sizeof(live));
+	wifi_val(c, WS_MODE, live, buf, n);
+	return 0;
+}
+GET(g_ap_key) { (void)c; snprintf(buf, n, "%s", ""); return 0; }      /* TR-181: always reads empty */
+
+GET(g_fw_n) { (void)c; snprintf(buf, n, "%d", count(TB_FW)); return 0; }
+static void fw_ref(int which, char *buf, size_t n)
+{
+	struct fw_image all[FW_MAX];
+	int i, k = fw_list(all, FW_MAX);
+
+	snprintf(buf, n, "%s", "");
+	for (i = 0; i < k; i++)
+		if (which ? all[i].boot : all[i].active)
+			snprintf(buf, n, "Device.DeviceInfo.FirmwareImage.%u", all[i].id);
+}
+GET(g_fw_active) { (void)c; fw_ref(0, buf, n); return 0; }
+GET(g_fw_boot) { (void)c; fw_ref(1, buf, n); return 0; }
+GET(g_fw_name) { snprintf(buf, n, "%s", c->fw.name); return 0; }
+GET(g_fw_version) { snprintf(buf, n, "%s", c->fw.version); return 0; }
+GET(g_fw_status) { snprintf(buf, n, "%s", c->fw.status); return 0; }
+GET(g_fw_avail) { snprintf(buf, n, "%s", strcmp(c->fw.status, "NoImage") ? "true" : "false"); return 0; }
 GET(g_s_bssid) { snprintf(buf, n, "%s", c->ap->bssid); return 0; }
 GET(g_s_band) { snprintf(buf, n, "%s", c->ap->band == 5 ? "5GHz" : c->ap->band == 2 ? "2.4GHz" : ""); return 0; }
 GET(g_s_chan) { snprintf(buf, n, "%d", c->ap->channel); return 0; }
@@ -558,6 +651,29 @@ static int s_mode(const struct ictx *c, const char *v, int apply, char *err, siz
 	return E_OK;
 }
 
+/* Wi-Fi settings: checked in both passes, staged on apply; m_set gives them to the handler */
+static int wifi_set(const struct ictx *c, int what, const char *v, int apply, char *err, size_t en)
+{
+	if (req_remote && !cfg.mgmt_wifi) {
+		snprintf(err, en, "changing Wi-Fi settings is not allowed for management systems (mgmt.wifi 0)");
+		return E_REFUSED;
+	}
+	if (!wifi_handler()) {
+		snprintf(err, en, "no Wi-Fi handler on this gateway (wifi.handler)");
+		return E_REFUSED;
+	}
+	if (wifiset_check(c->ap->iface, what, v, err, en) < 0)
+		return E_INVALID_VALUE;
+	if (apply)
+		wifiset_stage(c->ap->iface, what, v);
+	return E_OK;
+}
+static int s_ssid(const struct ictx *c, const char *v, int a, char *e, size_t n) { return wifi_set(c, WS_SSID, v, a, e, n); }
+static int s_key(const struct ictx *c, const char *v, int a, char *e, size_t n) { return wifi_set(c, WS_KEY, v, a, e, n); }
+static int s_apmode(const struct ictx *c, const char *v, int a, char *e, size_t n) { return wifi_set(c, WS_MODE, v, a, e, n); }
+static int s_chan(const struct ictx *c, const char *v, int a, char *e, size_t n) { return wifi_set(c, WS_CHANNEL, v, a, e, n); }
+static int s_width(const struct ictx *c, const char *v, int a, char *e, size_t n) { return wifi_set(c, WS_WIDTH, v, a, e, n); }
+
 /* ---------- the schema ---------- */
 
 #define W 1                             /* writable */
@@ -574,9 +690,17 @@ static struct dm_param {
 	{ "Device.DeviceInfo.ProductClass", T_STR, 0, TB_NONE, g_product, NULL },
 	{ "Device.DeviceInfo.ManufacturerOUI", T_STR, 0, TB_NONE, g_oui, NULL },
 	{ "Device.DeviceInfo.SerialNumber", T_STR, 0, TB_NONE, g_serial, NULL },
-	{ "Device.DeviceInfo.SoftwareVersion", T_STR, 0, TB_NONE, g_swver, NULL },
+	{ "Device.DeviceInfo.SoftwareVersion", T_STR, N, TB_NONE, g_swver, NULL },
+	{ "Device.DeviceInfo.AdditionalSoftwareVersion", T_STR, 0, TB_NONE, g_addsw, NULL },
 	{ "Device.DeviceInfo.UpTime", T_UINT, 0, TB_NONE, g_uptime, NULL },
 	{ "Device.DeviceInfo.X_AIGW_DataModelVersion", T_STR, 0, TB_NONE, g_dmver, NULL },
+	{ "Device.DeviceInfo.FirmwareImageNumberOfEntries", T_UINT, 0, TB_NONE, g_fw_n, NULL },
+	{ "Device.DeviceInfo.ActiveFirmwareImage", T_STR, 0, TB_NONE, g_fw_active, NULL },
+	{ "Device.DeviceInfo.BootFirmwareImage", T_STR, 0, TB_NONE, g_fw_boot, NULL },
+	{ "Device.DeviceInfo.FirmwareImage.{i}.Name", T_STR, 0, TB_FW, g_fw_name, NULL },
+	{ "Device.DeviceInfo.FirmwareImage.{i}.Version", T_STR, 0, TB_FW, g_fw_version, NULL },
+	{ "Device.DeviceInfo.FirmwareImage.{i}.Available", T_BOOL, 0, TB_FW, g_fw_avail, NULL },
+	{ "Device.DeviceInfo.FirmwareImage.{i}.Status", T_STR, N, TB_FW, g_fw_status, NULL },
 
 	{ "Device.Hosts.HostNumberOfEntries", T_UINT, N, TB_NONE, g_host_n, NULL },
 	{ "Device.Hosts.Host.{i}.PhysAddress", T_STR, 0, TB_HOST, g_h_mac, NULL },
@@ -594,14 +718,30 @@ static struct dm_param {
 	{ "Device.Hosts.Host.{i}.X_AIGW_WiFiBand", T_UINT, 0, TB_HOST, g_h_band, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_WiFiSignal", T_INT, 0, TB_HOST, g_h_signal, NULL },
 
+	{ "Device.WiFi.RadioNumberOfEntries", T_UINT, 0, TB_NONE, g_radio_n, NULL },
+	{ "Device.WiFi.Radio.{i}.Enable", T_BOOL, 0, TB_RADIO, g_r_enable, NULL },
+	{ "Device.WiFi.Radio.{i}.Status", T_STR, 0, TB_RADIO, g_r_status, NULL },
+	{ "Device.WiFi.Radio.{i}.Name", T_STR, 0, TB_RADIO, g_s_name, NULL },
+	{ "Device.WiFi.Radio.{i}.SupportedFrequencyBands", T_STR, 0, TB_RADIO, g_r_bands, NULL },
+	{ "Device.WiFi.Radio.{i}.OperatingFrequencyBand", T_STR, 0, TB_RADIO, g_r_band, NULL },
+	{ "Device.WiFi.Radio.{i}.Channel", T_UINT, W | N, TB_RADIO, g_r_chan, s_chan },
+	{ "Device.WiFi.Radio.{i}.SupportedOperatingChannelBandwidths", T_STR, 0, TB_RADIO, g_r_widths, NULL },
+	{ "Device.WiFi.Radio.{i}.OperatingChannelBandwidth", T_STR, W, TB_RADIO, g_r_width, s_width },
 	{ "Device.WiFi.SSIDNumberOfEntries", T_UINT, 0, TB_NONE, g_ssid_n, NULL },
 	{ "Device.WiFi.SSID.{i}.Name", T_STR, 0, TB_SSID, g_s_name, NULL },
-	{ "Device.WiFi.SSID.{i}.SSID", T_STR, 0, TB_SSID, g_s_ssid, NULL },
+	{ "Device.WiFi.SSID.{i}.LowerLayers", T_STR, 0, TB_SSID, g_s_lower, NULL },
+	{ "Device.WiFi.SSID.{i}.SSID", T_STR, W, TB_SSID, g_s_ssid, s_ssid },
 	{ "Device.WiFi.SSID.{i}.BSSID", T_STR, 0, TB_SSID, g_s_bssid, NULL },
 	{ "Device.WiFi.SSID.{i}.X_AIGW_Band", T_STR, 0, TB_SSID, g_s_band, NULL },
 	{ "Device.WiFi.SSID.{i}.X_AIGW_Channel", T_UINT, N, TB_SSID, g_s_chan, NULL },
 	{ "Device.WiFi.SSID.{i}.X_AIGW_Width", T_UINT, 0, TB_SSID, g_s_width, NULL },
 	{ "Device.WiFi.SSID.{i}.X_AIGW_Stations", T_UINT, 0, TB_SSID, g_s_sta, NULL },
+	{ "Device.WiFi.AccessPointNumberOfEntries", T_UINT, 0, TB_NONE, g_ap_n, NULL },
+	{ "Device.WiFi.AccessPoint.{i}.SSIDReference", T_STR, 0, TB_AP, g_ap_ssid, NULL },
+	{ "Device.WiFi.AccessPoint.{i}.AssociatedDeviceNumberOfEntries", T_UINT, 0, TB_AP, g_ap_sta, NULL },
+	{ "Device.WiFi.AccessPoint.{i}.Security.ModesSupported", T_STR, 0, TB_AP, g_ap_modes, NULL },
+	{ "Device.WiFi.AccessPoint.{i}.Security.ModeEnabled", T_STR, W, TB_AP, g_ap_mode, s_apmode },
+	{ "Device.WiFi.AccessPoint.{i}.Security.KeyPassphrase", T_STR, W, TB_AP, g_ap_key, s_key },
 
 	{ "Device.X_AIGW_.Mode", T_STR, W | N, TB_NONE, g_mode, s_mode },
 	{ "Device.X_AIGW_.ActionsAllowed", T_BOOL, 0, TB_NONE, g_actions, NULL },
@@ -775,18 +915,102 @@ static int r_block(const struct ictx *c, struct blob_attr *a, struct blob_buf *o
 	return request("block", dom, ttl, o, e, n);
 }
 
+/* ---------- firmware (asynchronous: the answer comes when the handler is done) ---------- */
+
+struct dm_async {
+	struct ubus_request_data req;
+	struct ubus_context *ctx;
+	char cmd[160];
+	char who[48];
+};
+static struct dm_async *cur_async;      /* the request an asynchronous command belongs to */
+
+static void async_done(void *ctx, int ok, const char *msg)
+{
+	struct dm_async *a = ctx;
+	struct blob_buf rb = { 0 };
+	void *t;
+
+	blob_buf_init(&rb, 0);
+	t = blobmsg_open_table(&rb, "out");
+	blobmsg_close_table(&rb, t);
+	blobmsg_add_u8(&rb, "ok", ok);
+	if (!ok) {
+		blobmsg_add_string(&rb, "code", err_names[E_REFUSED]);
+		blobmsg_add_string(&rb, "message", msg && *msg ? msg : "failed");
+	}
+	ubus_send_reply(a->ctx, &a->req, rb.head);
+	ubus_complete_deferred_request(a->ctx, &a->req, 0);
+	blob_buf_free(&rb);
+	AG_INFO("dm: %s by %s: %s%s%s", a->cmd, a->who, ok ? "done" : "failed", ok ? "" : " -- ", ok ? "" : msg);
+	free(a);
+}
+
+static int arg_true(struct blob_attr *a, const char *name)
+{
+	const char *v = arg(a, name);
+
+	return v && (!strcmp(v, "true") || !strcmp(v, "1"));
+}
+
+static int fw_allowed(char *e, size_t n)
+{
+	if (req_remote && !cfg.mgmt_firmware) {
+		snprintf(e, n, "firmware upgrades are not allowed for management systems (mgmt.firmware 0)");
+		return 0;
+	}
+	return 1;
+}
+
+static int r_fw_download(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
+{
+	struct fw_request r = { 0 };
+
+	(void)o;
+	if (!fw_allowed(e, n))
+		return E_REFUSED;
+	r.url = arg(a, "URL");
+	r.user = arg(a, "Username");
+	r.password = arg(a, "Password");
+	r.size = arg(a, "FileSize");
+	r.alg = arg(a, "CheckSumAlgorithm");
+	r.sum = arg(a, "CheckSum");
+	r.activate = arg_true(a, "AutoActivate");
+	/* a TR-069 client saves its session and reboots by itself */
+	r.reboot = strcmp(req_origin, "acs") != 0;
+	if (!r.url || !*r.url) {
+		snprintf(e, n, "URL is required");
+		return E_INVALID_ARGS;
+	}
+	return fw_download(c->inst, &r, req_origin, async_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
+}
+
+static int r_fw_activate(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
+{
+	(void)a;
+	(void)o;
+	if (!fw_allowed(e, n))
+		return E_REFUSED;
+	return fw_activate(c->inst, strcmp(req_origin, "acs") != 0, req_origin, async_done, cur_async, e, n) < 0 ?
+		E_REFUSED : E_PENDING;
+}
+
 static struct dm_cmd {
 	const char *path;
 	int table;
 	const char *in, *out;           /* argument names, comma-separated */
 	run_t run;
 	int action;                     /* changes something: needs mgmt.actions for a management system */
+	int async;                      /* answers when done (USP: an asynchronous command) */
 } cmds[] = {
-	{ "Device.X_AIGW_.Decision.{i}.Approve()", TB_DECISION, "", "State", r_approve, 0 },
-	{ "Device.X_AIGW_.Decision.{i}.Reject()", TB_DECISION, "", "State", r_reject, 0 },
-	{ "Device.X_AIGW_.Decision.{i}.Undo()", TB_DECISION, "", "State", r_undo, 0 },
-	{ "Device.X_AIGW_.Quarantine()", TB_NONE, "Host,Duration", "Decision", r_quarantine, 1 },
-	{ "Device.X_AIGW_.Block()", TB_NONE, "Domain,Duration", "Decision", r_block, 1 },
+	{ "Device.X_AIGW_.Decision.{i}.Approve()", TB_DECISION, "", "State", r_approve, 0, 0 },
+	{ "Device.X_AIGW_.Decision.{i}.Reject()", TB_DECISION, "", "State", r_reject, 0, 0 },
+	{ "Device.X_AIGW_.Decision.{i}.Undo()", TB_DECISION, "", "State", r_undo, 0, 0 },
+	{ "Device.X_AIGW_.Quarantine()", TB_NONE, "Host,Duration", "Decision", r_quarantine, 1, 0 },
+	{ "Device.X_AIGW_.Block()", TB_NONE, "Domain,Duration", "Decision", r_block, 1, 0 },
+	{ "Device.DeviceInfo.FirmwareImage.{i}.Download()", TB_FW,
+	  "URL,AutoActivate,Username,Password,FileSize,CheckSumAlgorithm,CheckSum", "", r_fw_download, 0, 1 },
+	{ "Device.DeviceInfo.FirmwareImage.{i}.Activate()", TB_FW, "", "", r_fw_activate, 0, 1 },
 };
 #define N_CMDS ((int)(sizeof(cmds) / sizeof(cmds[0])))
 
@@ -906,6 +1130,7 @@ static int m_schema(struct ubus_context *ctx, struct ubus_object *obj, struct ub
 	for (i = 0; i < N_CMDS; i++) {
 		t = blobmsg_open_table(&b, NULL);
 		blobmsg_add_string(&b, "path", cmds[i].path);
+		blobmsg_add_u8(&b, "async", cmds[i].async != 0);
 		l = blobmsg_open_array(&b, "in");
 		snprintf(tmp, sizeof(tmp), "%s", cmds[i].in);
 		for (s = strtok_r(tmp, ",", &save); s; s = strtok_r(NULL, ",", &save))
@@ -1111,6 +1336,11 @@ static int m_set(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_
 				bad++;
 			}
 		}
+	/* Wi-Fi settings: one handler call per access point, with all this request changed */
+	if (bad || passes < 2)
+		wifiset_drop();
+	else
+		wifiset_flush(req_origin);
 	blobmsg_close_table(&b, t);
 	blobmsg_add_u8(&b, "ok", !bad);
 	return ubus_send_reply(ctx, req, b.head);
@@ -1138,7 +1368,25 @@ static int m_operate(struct ubus_context *ctx, struct ubus_object *obj, struct u
 		if (match_exact(q, cmds[i].path, &inst)) {
 			if (resolve(cmds[i].table, inst, &c) < 0)
 				break;
+			if (cmds[i].async && !(cur_async = calloc(1, sizeof(*cur_async)))) {
+				rc = E_INTERNAL;
+				break;
+			}
+			if (cur_async) {
+				snprintf(cur_async->cmd, sizeof(cur_async->cmd), "%s", q);
+				snprintf(cur_async->who, sizeof(cur_async->who), "%s", req_origin);
+			}
 			rc = cmds[i].run(&c, tb[P_ARGS], &b, err, sizeof(err));
+			if (rc == E_PENDING) {
+				/* the handler answers later (async_done) */
+				cur_async->ctx = ctx;
+				ubus_defer_request(ctx, req, &cur_async->req);
+				cur_async = NULL;
+				AG_INFO("dm: %s by %s: started", q, req_origin);
+				return 0;
+			}
+			free(cur_async);
+			cur_async = NULL;
 			break;
 		}
 	blobmsg_close_table(&b, t);

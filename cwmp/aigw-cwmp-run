@@ -80,6 +80,16 @@ settings | while read -r sec opt val; do
 done
 $CUCI commit cwmp
 
+# icwmp's session kept in flash before a firmware activation (aigw-cwmp-dm):
+# back where icwmp reads it, once, so the ACS gets its TransferComplete
+KEEP=${AIGW_ICWMP_KEEP:-/etc/icwmpd} IRUN=${AIGW_ICWMP_RUN:-/var/run/icwmpd}
+if [ -f "$KEEP/icwmpd_backup_session.xml" ] && [ ! -f "$IRUN/icwmpd_backup_session.xml" ]; then
+	mkdir -p "$IRUN"
+	for f in icwmpd_backup_session.xml dm_enabled_notify icwmpd_notify_import_marker; do
+		[ -f "$KEEP/$f" ] && mv "$KEEP/$f" "$IRUN/$f"
+	done
+fi
+
 DMPID=
 cleanup() { [ -n "$DMPID" ] && kill "$DMPID" 2>/dev/null; [ -n "${CWPID:-}" ] && kill "$CWPID" 2>/dev/null; true; }
 trap cleanup EXIT INT TERM

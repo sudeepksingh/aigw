@@ -51,8 +51,10 @@ endef
 
 # icwmp's build copies the binary to the top of its source tree
 define Package/icwmp/install
-	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/icwmpd
+	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/icwmpd $(1)/lib/upgrade/keep.d
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/icwmpd $(1)/usr/sbin/
+	# its session (a pending TransferComplete) survives a firmware upgrade
+	echo /etc/icwmpd/ > $(1)/lib/upgrade/keep.d/icwmp
 endef
 
 $(eval $(call BuildPackage,icwmp))

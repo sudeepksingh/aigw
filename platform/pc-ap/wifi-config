@@ -1,0 +1,74 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# wifi-config: AIGW OS's Wi-Fi handler for the PC access point (aigw-ap).
+# agd calls it after checking the values; it saves them in /etc/aigw/pc-ap.conf
+# and restarts the access points they concern.
+#
+#   wifi-config set <iface>      the new values in the environment:
+#     AIGW_WIFI_SSID, AIGW_WIFI_KEY, AIGW_WIFI_MODE (TR-181 names: None,
+#     WPA2-Personal, WPA3-Personal, WPA2-WPA3-Personal), AIGW_WIFI_CHANNEL,
+#     AIGW_WIFI_WIDTH (20MHz, 40MHz, 80MHz, Auto)
+#
+# The name, passphrase and security mode are the same on both bands here; the
+# channel and width are each access point's.
+set -eu
+
+CONF=${AIGW_PCAP_CONF:-/etc/aigw/pc-ap.conf}
+RUN=${AIGW_RUN:-/run/aigw}
+AP=${AIGW_AP:-$(command -v aigw-ap || echo /usr/local/sbin/aigw-ap)}
+
+die() { echo "wifi-config: $*" >&2; exit 1; }
+
+[ "${1:-}" = set ] && [ -n "${2:-}" ] || { echo "usage: wifi-config set <iface> (values in AIGW_WIFI_*)" >&2; exit 2; }
+IF=$2
+case $IF in *[!A-Za-z0-9_.-]*) die "bad interface name" ;; esac
+C="$RUN/hostapd-$IF.conf"
+[ -f "$C" ] || die "no access point on $IF"
+[ -f "$CONF" ] || die "missing $CONF"
+
+# NAME='value' in $CONF (sourced by aigw-ap: quoted, so any characters are safe)
+setvar() {
+	q=$(printf '%s' "$2" | sed "s/'/'\\\\''/g")
+	grep -v "^$1=" "$CONF" > "$CONF.new" || true
+	printf "%s='%s'\n" "$1" "$q" >> "$CONF.new"
+	chmod 600 "$CONF.new"
+	mv "$CONF.new" "$CONF"
+}
+
+# in BAND=dual the 2.4 GHz access point has its own channel settings
+sfx=
+if grep -q '^hw_mode=g' "$C" && grep -Eq "^BAND=['\"]?dual" "$CONF"; then sfx=_24; fi
+
+all=0
+if [ -n "${AIGW_WIFI_SSID+x}" ]; then setvar SSID "$AIGW_WIFI_SSID"; all=1; fi
+if [ -n "${AIGW_WIFI_KEY+x}" ]; then setvar PASSPHRASE "$AIGW_WIFI_KEY"; all=1; fi
+if [ -n "${AIGW_WIFI_MODE+x}" ]; then
+	case $AIGW_WIFI_MODE in
+	None) m=none ;;
+	WPA2-Personal) m=wpa2 ;;
+	WPA3-Personal) m=wpa3 ;;
+	WPA2-WPA3-Personal) m=wpa2-wpa3 ;;
+	*) die "unknown security mode $AIGW_WIFI_MODE" ;;
+	esac
+	setvar SECURITY "$m"; all=1
+fi
+ch= w=
+if [ -n "${AIGW_WIFI_CHANNEL+x}" ]; then ch=$AIGW_WIFI_CHANNEL; setvar "CHANNEL$sfx" "$ch"; fi
+if [ -n "${AIGW_WIFI_WIDTH+x}" ]; then
+	case $AIGW_WIFI_WIDTH in
+	20MHz) w=20 ;; 40MHz) w=40 ;; 80MHz) w=80 ;; Auto) w=auto ;;
+	*) die "unknown width $AIGW_WIFI_WIDTH" ;;
+	esac
+	setvar "WIDTH$sfx" "$w"
+fi
+
+# this access point (with its new channel or width), then, for a new name,
+# passphrase or mode, every other one
+"$AP" reconf "$IF" "$ch" "$w"
+if [ $all = 1 ]; then
+	for c in "$RUN"/hostapd-*.conf; do
+		[ -f "$c" ] || continue
+		i=${c##*/hostapd-}; i=${i%.conf}
+		[ "$i" = "$IF" ] || "$AP" reconf "$i"
+	done
+fi

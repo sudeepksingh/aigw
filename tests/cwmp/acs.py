@@ -3,8 +3,9 @@
 """A small TR-069 ACS (CWMP over HTTP) for tests/cwmp-test.sh.
 
     acs.py serve DIR [--port 7557]        the ACS: every Inform is appended to
-                                          DIR/informs.jsonl; queued jobs run
-                                          in the next session
+                                          DIR/informs.jsonl, every TransferComplete
+                                          to DIR/transfers.jsonl; queued jobs run
+                                          in the next session; GET serves DIR/files
     acs.py job DIR JOB.json [--cr URL --user U --password P] [--timeout S]
                                           queue a job (a list of RPCs), wake the
                                           CPE with a connection request, print
@@ -15,7 +16,8 @@
 
 A job: {"rpcs": [{"method": "GetParameterValues", "names": [...]},
                  {"method": "SetParameterValues", "params": [[name, value, xsd type]], "key": "k"},
-                 {"method": "GetParameterNames", "path": "Device.", "next": true}]}
+                 {"method": "GetParameterNames", "path": "Device.", "next": true},
+                 {"method": "Download", "url": "http://...", "key": "k", "size": 123}]}
 """
 import argparse
 import http.server
@@ -76,6 +78,12 @@ def rpc_body(r):
     if m == "GetParameterNames":
         return (f'<cwmp:GetParameterNames><ParameterPath>{escape(r["path"])}</ParameterPath>'
                 f'<NextLevel>{"true" if r.get("next") else "false"}</NextLevel></cwmp:GetParameterNames>')
+    if m == "Download":
+        return (f'<cwmp:Download><CommandKey>{escape(r.get("key", ""))}</CommandKey>'
+                f'<FileType>{escape(r.get("file_type", "1 Firmware Upgrade Image"))}</FileType>'
+                f'<URL>{escape(r["url"])}</URL><Username></Username><Password></Password>'
+                f'<FileSize>{int(r.get("size", 0))}</FileSize><TargetFileName></TargetFileName>'
+                f'<DelaySeconds>0</DelaySeconds><SuccessURL></SuccessURL><FailureURL></FailureURL></cwmp:Download>')
     raise ValueError(m)
 
 
@@ -99,6 +107,8 @@ def parse_response(el):
         return {"status": int(text(el, "Status") or 0)}
     if name == "GetParameterNamesResponse":
         return {"names": {text(p, "Name"): text(p, "Writable") in ("1", "true") for p in kids(el, "ParameterList")}}
+    if name == "DownloadResponse":
+        return {"status": int(text(el, "Status") or 0)}
     return {"response": name}
 
 
@@ -151,6 +161,21 @@ def make_handler(d):
             if body:
                 self.wfile.write(body)
 
+        def do_GET(self):
+            # the file server: DIR/files/<name> (firmware images for Download)
+            name = os.path.basename(self.path.split("?")[0])
+            path = os.path.join(d, "files", name)
+            if not name or not os.path.isfile(path):
+                self.reply(b"", 404)
+                return
+            with open(path, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
         def do_POST(self):
             n = int(self.headers.get("Content-Length") or 0)
             raw = self.rfile.read(n) if n else b""
@@ -188,6 +213,12 @@ def make_handler(d):
                                     f'"xsd:string[{len(methods)}]">{ms}</MethodList></cwmp:GetRPCMethodsResponse>'))
                 return
             if el is not None and local(el.tag) in ("TransferComplete", "AutonomousTransferComplete"):
+                fault = child(el, "FaultStruct")
+                rec = {"time": time.time(), "key": text(el, "CommandKey"),
+                       "fault": int(text(fault, "FaultCode") or 0) if fault is not None else 0,
+                       "string": text(fault, "FaultString") if fault is not None else ""}
+                with open(os.path.join(d, "transfers.jsonl"), "a") as f:
+                    f.write(json.dumps(rec) + "\n")
                 self.reply(envelope(s.cwmp_ns, cwmp_id, f"<cwmp:{local(el.tag)}Response/>"))
                 return
             if el is not None and s.current and s.current[1]:

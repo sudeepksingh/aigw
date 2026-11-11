@@ -46,6 +46,14 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.21:** **what an ISP does first: firmware upgrades and Wi-Fi settings.**
+> Over USP or TR-069, an ISP can now change the Wi-Fi name, passphrase,
+> security mode (WPA2/WPA3), channel and width, and upgrade the firmware
+> (download, check, activate, reboot, report back). Both use the standard TR-181
+> parameters and commands. The work itself is done by small handler programs:
+> OpenWRT's `uci`/`wifi` and `sysupgrade` by default, or an OEM's own for A/B
+> flash or its own Wi-Fi stack.
+>
 > **v0.20:** **your names, not ours.** An ISP or OEM ships AIGW OS under its own
 > TR-106 vendor prefix (`X_<OUI>_` or `X_<DOMAIN>_` in place of `X_AIGW_`) and its
 > own manufacturer, model and product class: one setting each, followed by USP,
@@ -443,7 +451,9 @@ There is one data model, in `agd`, for both. It includes:
 
 - the standard TR-181 `Device.Hosts.Host` objects, with AIGW OS's own fields
   (type, zone, rates);
-- `Device.WiFi.SSID`;
+- `Device.WiFi` radios, SSIDs and access points, with the name, passphrase,
+  security mode, channel and width writable;
+- `Device.DeviceInfo.FirmwareImage`, with `Download()` and `Activate()`;
 - `Device.X_AIGW_`: alerts and decisions, with commands to approve, reject and
   undo, `Quarantine()` and `Block()`, and the events `Alert!` and
   `DecisionChanged!`.

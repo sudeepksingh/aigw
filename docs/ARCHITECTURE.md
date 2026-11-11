@@ -861,6 +861,23 @@ Not done yet: TR-069 Download (firmware) and other RPCs beyond the data model; c
 
 **As built in v0.20: the vendor prefix and identity are the ISP's or OEM's.** AIGW OS doesn't claim a TR-106 prefix for itself. `mgmt.vendor_prefix` (checked: `X_`, upper case, digits, `-`, `_`; else `X_AIGW_` and a warning) is applied once in `dm_init` to every parameter, object, command and event path, and to the references agd hands out (`Decision`, `Alert`). `ag.dm schema` reports it as `vendor_prefix`; the USP plug-in registers whatever paths the schema lists, `aigw-cwmp-dm` builds `Request.` and `LastEvent.` under it and writes icwmp's notification file itself (`-n`), and `scripts/dm-xml` names it in the published file. `mgmt.manufacturer`, `model_name` and `product_class` set `DeviceInfo.` (and so the TR-069 DeviceId and the USP agent's settings). `tests/dm-test.sh` checks a prefix and names end to end in agd, and `tests/cwmp-test.sh` runs entirely under `X_EXAMPLE-COM_`.
 
+**As built in v0.21: firmware upgrades and Wi-Fi settings, by the ISP.** What an ISP does first with a gateway, through the standard TR-181 objects and over both protocols.
+
+| Piece | As built |
+|-------|----------|
+| Platform handlers (`agd/handler.c`) | agd decides (what may change, who may change it, which values are valid). Small programs carry it out, so an OEM replaces them without touching agd: `wifi.handler`, and `mgmt.firmware_handler`. They are run without a shell, with secrets in the environment. In the background they report back on the loop; quick questions (`list`, `version`) have a 5 s limit. |
+| Wi-Fi (`agd/manage.c`, data model 1.2) | `Device.WiFi.Radio.{i}` / `SSID.{i}` / `AccessPoint.{i}` share one instance number per access point. Writable: `SSID`, `Security.KeyPassphrase` (always reads empty), `Security.ModeEnabled` (WPA2, WPA3, mixed, none; read from hostapd's `GET_CONFIG`), `Channel` and `OperatingChannelBandwidth`. Values are checked in the set's first pass and staged in the second. After the set, one handler call per access point. Reads show the new values until the access point runs with them (90 s at most). `mgmt.wifi` (default 1). Handlers: OpenWRT `wifi-config` (`network.wireless status` → section and radio, `uci`, `wifi reload <radio>`); PC `wifi-config` (`pc-ap.conf`, `aigw-ap reconf`, which also has `SECURITY` wpa2 / wpa3 / wpa2-wpa3 / none now). |
+| Firmware | `Device.DeviceInfo.FirmwareImage.{i}` from the handler's `list`, `Active`/`BootFirmwareImage`; `SoftwareVersion` is the running image's version, and `AdditionalSoftwareVersion` is "AIGW OS x.y.z". `Download()` and `Activate()` are the schema's first asynchronous commands: agd defers its ubus reply until the handler exits. Activation reboots after 3 s, except for origin `acs`, because icwmp saves its session and reboots by itself. OpenWRT handler: image 1 running, image 2 a RAM slot; `uclient-fetch`, size, SHA-1/256/512, `sysupgrade -T`, version from `fwtool` metadata; activate = `sysupgrade` keeping the configuration. `mgmt.firmware` (default 1). |
+| USP | The plug-in registers asynchronous commands with `USP_REGISTER_AsyncOperation`. Each runs on a thread with its own ubus connection (60 min limit) and ends with `USP_SIGNAL_OperationComplete`. |
+| TR-069 | icwmp handles `Download` itself: fetch, `sysupgrade -T`, then `fwbank dump`, `bbfdm operate FirmwareImage.N.Download()`, `fwbank set_bootbank`, reboot. aigw-cwmp-dm now answers `operate` for the firmware commands (faults inside `output`, as icwmp reads them), and publishes `fwbank` unless the platform has one. Before activating, it saves icwmp's session to `/etc/icwmpd`, kept over sysupgrade (`keep.d`). `aigw-cwmp-run` puts it back at boot, so the ACS gets its `TransferComplete`. |
+
+Verified by:
+- `tests/dm-test.sh` and `tests/usp-test.sh`, with a two-bank test handler that is also the OEM example (`tests/fw/firmware`): bad images, wrong checksums, the running bank and `mgmt.firmware 0` are refused; over USP, a download with AutoActivate over HTTP ends with OperationComplete and a reboot into the new version.
+- `tests/cwmp-test.sh`: the bank calls as icwmp makes them; with real icwmp, a `Download` RPC through to `1 BOOT`, `7 TRANSFER COMPLETE`, the new SoftwareVersion and a `TransferComplete` without a fault. In its mount namespace, `reboot` is a script, so the test can never reboot the machine.
+- `tests/hwsim-test.sh`: a new name, passphrase and channel through the data model, hostapd back with them, the client joining with the new passphrase.
+
+Not done yet: turning an access point off, guest networks, `RegulatoryDomain`; firmware time windows and scheduled downloads; a firmware handler for a PC.
+
 ---
 
 ## 17. Status and risks
