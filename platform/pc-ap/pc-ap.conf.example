@@ -31,6 +31,10 @@ WIDTH=auto
 CHANNEL_24=6
 WIDTH_24=20
 AP_IFACE_24=auto
+# BAND=dual: devices weaker than this (dBm) on 5 GHz stay on 2.4 GHz, instead
+# of hopping between the bands; AIGW's band steering moves strong ones up.
+# 0 = off
+RSSI_MIN_5=-72
 
 # Client network: <SUBNET>.1 is this PC, clients get <SUBNET>.20-.250
 SUBNET=10.42.0
