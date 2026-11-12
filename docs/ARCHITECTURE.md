@@ -908,6 +908,18 @@ Verified by `tests/amx-test.sh` (CI, real Ambiorix): ubusd, agd, `amxrt -B mod-a
 
 Verified by `tests/test_heal.c` (each cause, including the real channel-6 case) and `tests/hwsim-test.sh` (CI: a client in use measured Good, 30 % `netem` loss on its access point read as Congestion in agctl and the data model with the event, Good again after). On the PC access point (two RTL8821CU, real phone): "2.4 GHz (channel 11): OnePlus-Nord-5 loses 6% of its traffic with a weak signal (-77 dBm)", which matches what had been traced by hand. Part 2: acting on it (a measured channel change, the 5 GHz floor) through the guardrails.
 
+**As built in v0.25: AIGW Self-Healing Wi-Fi, part 2 (act on it, and check the fix).** The diagnosis becomes action, always through the guardrails, and every change is measured before it stays.
+
+| Piece | As built |
+|-------|----------|
+| Channel trial (`agd/heal.c`) | `Congestion` held for `wifi.heal_hold` (300 s) and no trial in `heal_retry` (1800 s): the first of `chan_options()` (the band's candidates `allowed_here`, not the current one) not marked bad, as alert `wifi-congestion` (target `<iface>:<ch>`); policy `wifi_congestion` (built in, ttl 3600) → `channel` decision. Seen active (`act_channel_for`, origin the policy): the trial starts, "before" = the radio's loss and delay then. After `heal_trial` (180 s), a diagnosis over probes sent after start + 20 s only. Kept when measured, loss not higher, and Good, or loss halved, or delay halved: `act_keep` (state `kept`: no time limit, no switch back) and `wifiset_save` (the handler with `AIGW_WIFI_SAVE_ONLY=1`). Else `act_undo_because` (state `tried`: switched back; cortex learns nothing from it), the channel bad for 24 h. Nobody measurable: waits up to 2x the trial, then switches back. Log line and `ag.wifi` event `trial-kept` / `trial-tried`. |
+| stay24 (`agd/act.c`, `agd/wifi.c`) | A device action by MAC: `wifi_ban_band(mac, 5)` puts it on hostapd's `DENY_ACL` of the 5 GHz access points only and deauthenticates it there; steer.c skips it (`act_active`). Undo or the time limit lifts it; one that ran out while agd was down is lifted at start. Policy `wifi_hopping` (built in, ttl 86400) on alert `wifi-hopping` (per device, once a day by alerts.c's repeat rule). |
+| Advice | New verdicts `WeakCoverage`, `Device` raise `wifi-coverage`, `wifi-device` (info) per affected device; `Radio` raises `wifi-radio` (warning). No built-in policy acts on them. |
+| Save only | `platform/pc-ap/wifi-config`: writes `pc-ap.conf`, no `aigw-ap reconf`. `platform/openwrt/.../wifi-config`: `uci commit`, no `wifi reload`. |
+| Settings | `wifi.heal_act` (1), `heal_hold`, `heal_trial`, `heal_retry`. Explanations leave out delays under 5 ms. |
+
+Verified by `tests/hwsim-test.sh` (CI, enforce mode, hold 20 s, trial 40 s): `agctl do stay24` moves the client to 2.4 GHz, only the 5 GHz access point refuses it, steering leaves it there; 30 % `netem` loss → Congestion → a `wifi_congestion` channel decision → the loss removed → `kept`, hostapd on the new channel, `CHANNEL` saved in `pc-ap.conf`; Good again; the loss again → a second trial on another channel → still lossy → `tried`, back on the kept channel, which stays saved; undoing stay24 lifts the refusal.
+
 ---
 
 ## 17. Status and risks

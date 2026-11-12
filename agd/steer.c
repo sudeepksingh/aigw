@@ -210,7 +210,8 @@ void steer_tick(void)
 			d->steer_cond_since = now;
 		if (now - d->steer_cond_since < cfg.steer_hold || now - d->wifi_since < SETTLE_S ||
 		    now - d->steer_last < cfg.steer_gap || now < d->steer_pause_until ||
-		    minute_moves >= cfg.steer_rate ||(!d->wifi_btm && !cfg.steer_kick) || act_is_protected(d))
+		    minute_moves >= cfg.steer_rate ||(!d->wifi_btm && !cfg.steer_kick) || act_is_protected(d) ||
+		    act_active("stay24", d->mac))     /* kept on 2.4 GHz (Self-Healing Wi-Fi) */
 			continue;
 		if (up) {
 			from = a2;

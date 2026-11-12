@@ -32,7 +32,7 @@ struct ag_policy {
 	char name[32];
 	char alert[32];           /* alert kind: dga, new-destination, upload-spike, ... */
 	char action[48];          /* quarantine, disconnect, throttle, deprioritize, priority,
-	                             or a plug-in's action: "<plugin>.<action>" */
+	                             channel, stay24, or a plug-in's action: "<plugin>.<action>" */
 	char zone[16];            /* only devices in this zone ("" = any) */
 	int ttl;                  /* seconds; 0 = the global default */
 	int rate_kbps;            /* throttle; 0 = the global default */
@@ -101,6 +101,10 @@ struct ag_config {
 	int heal_delay;           /* ms of delay that is a problem (and 3x a device's usual) */
 	int heal_weak;            /* dBm at or below which a signal is weak */
 	int heal_hops;            /* band changes in 10 minutes that count as hopping */
+	int heal_act;             /* act on it: channel trials, keeping a device on 2.4 GHz (via policies) */
+	int heal_hold;            /* seconds of congestion before a channel trial */
+	int heal_trial;           /* seconds a trial runs before it is judged */
+	int heal_retry;           /* seconds between two trials on one access point */
 	int chan_heal;            /* watch how busy each access point's channel is; suggest a quieter one */
 	int chan_busy;            /* % of the air used by others that counts as busy */
 	int chan_hold;            /* seconds it must stay that busy */

@@ -58,9 +58,11 @@
 #define MIN_RATE         64          /* kbit/s */
 #define MAX_RATE         10000000
 
-enum dec_state { D_PROPOSED, D_ACTIVE, D_REVERTED, D_EXPIRED, D_REJECTED, D_FAILED, D_LAPSED };
+/* kept: a trial (Self-Healing Wi-Fi's channel) that worked, so it stays: not undone */
+/* kept: a trial that worked, it stays; tried: a trial that didn't, AIGW switched back */
+enum dec_state { D_PROPOSED, D_ACTIVE, D_REVERTED, D_EXPIRED, D_REJECTED, D_FAILED, D_LAPSED, D_KEPT, D_TRIED };
 static const char *const state_names[] = {
-	"proposed", "active", "reverted", "expired", "rejected", "failed", "lapsed",
+	"proposed", "active", "reverted", "expired", "rejected", "failed", "lapsed", "kept", "tried",
 };
 
 struct decision {
@@ -90,12 +92,14 @@ static uint64_t applied_total;
 static int is_device_action(const char *a)
 {
 	return !strcmp(a, "quarantine") || !strcmp(a, "priority") || !strcmp(a, "deprioritize") ||
-	       !strcmp(a, "throttle") || !strcmp(a, "disconnect");
+	       !strcmp(a, "throttle") || !strcmp(a, "disconnect") || !strcmp(a, "stay24");
 }
 
+/* stay24: kept on 2.4 GHz (refused on the 5 GHz access points), for a device
+   that hops to a 5 GHz it can barely reach (Self-Healing Wi-Fi) */
 static int by_mac(const char *a)
 {
-	return !strcmp(a, "quarantine") || !strcmp(a, "disconnect");
+	return !strcmp(a, "quarantine") || !strcmp(a, "disconnect") || !strcmp(a, "stay24");
 }
 
 /* carried out by an actuator plug-in: "<plugin>.<action>" */
@@ -434,6 +438,8 @@ static int actuate(struct decision *d, char *err, size_t errlen)
 		return dns_policy_write(err, errlen);
 	if (!strcmp(d->action, "disconnect"))
 		return wifi_ban(d->target, 1, err, errlen);
+	if (!strcmp(d->action, "stay24"))
+		return wifi_ban_band(d->target, 5, 1, err, errlen);
 	if (!strcmp(d->action, "channel")) {
 		const char *colon = strrchr(d->target, ':');
 		char iface[32];
@@ -494,6 +500,11 @@ static void unactuate(struct decision *d)
 	if (!strcmp(d->action, "disconnect")) {
 		if (wifi_ban(d->target, 0, err, sizeof(err)))
 			AG_DEBUG("undo disconnect %s: %s", d->target, err);
+		return;
+	}
+	if (!strcmp(d->action, "stay24")) {
+		if (wifi_ban_band(d->target, 5, 0, err, sizeof(err)))
+			AG_DEBUG("undo stay24 %s: %s", d->target, err);
 		return;
 	}
 	if (!strcmp(d->action, "channel")) {   /* back to the channel it had (kept in scope) */
@@ -684,7 +695,7 @@ static int guard(const char *action, const char *what, const struct act_opts *o,
 	}
 	if (!is_device_action(action)) {
 		snprintf(err, errlen, "unknown action '%s' (priority, deprioritize, throttle, block, "
-			 "quarantine, disconnect, channel, or a plug-in's: agctl plugins)", action);
+			 "quarantine, disconnect, stay24, channel, or a plug-in's: agctl plugins)", action);
 		return -1;
 	}
 	if (!(dv = guard_device(what, out->device, err, errlen)))
@@ -852,6 +863,67 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 	return 0;
 }
 
+/* ---------- for Self-Healing Wi-Fi (heal.c) ---------- */
+
+/* the channel decision live on this access point: 0 and its id, state
+   (1 active, 0 proposed) and whether policy `policy` made it; -1 none */
+int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours)
+{
+	size_t n = strlen(iface);
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++) {
+		struct decision *d = &decs[i];
+
+		if (!d->used || (d->state != D_ACTIVE && d->state != D_PROPOSED) || strcmp(d->action, "channel") ||
+		    strncmp(d->target, iface, n) || d->target[n] != ':')
+			continue;
+		*id = d->id;
+		*active = d->state == D_ACTIVE;
+		*ours = policy && strstr(d->origin, policy) != NULL;
+		return 0;
+	}
+	return -1;
+}
+
+/* a trial that worked: it stays (no switching back at its time limit) */
+int act_keep(uint32_t id, const char *note)
+{
+	struct decision *d = dec_get(id);
+
+	if (!d || d->state != D_ACTIVE)
+		return -1;
+	snprintf(d->note, sizeof(d->note), "%s", note);
+	set_state(d, D_KEPT);
+	return 0;
+}
+
+/* a trial that didn't: undone, saying why */
+int act_undo_because(uint32_t id, const char *note)
+{
+	struct decision *d = dec_get(id);
+
+	if (!d || d->state != D_ACTIVE)
+		return -1;
+	d->state = D_TRIED;
+	unactuate(d);
+	snprintf(d->note, sizeof(d->note), "%s", note);
+	set_state(d, D_TRIED);          /* not "reverted": no person said it was wrong */
+	return 0;
+}
+
+/* is this action live for this target (e.g. stay24 on a MAC)? */
+int act_active(const char *action, const char *target)
+{
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++)
+		if (decs[i].used && decs[i].state == D_ACTIVE && !strcmp(decs[i].action, action) &&
+		    !strcasecmp(decs[i].target, target))
+			return 1;
+	return 0;
+}
+
 /* your policies first, then skills' policies; a zone limits a policy to devices in it */
 static const struct ag_policy *policy_for(const char *kind, const char *ip, char *origin, size_t n, int *cap)
 {
@@ -942,7 +1014,7 @@ void act_init(void)
 			continue;
 		if (d->expires <= ag_wall_s()) {
 			d->state = D_EXPIRED;
-			if (!strcmp(d->action, "disconnect"))
+			if (!strcmp(d->action, "disconnect") || !strcmp(d->action, "stay24"))
 				unactuate(d);
 			continue;
 		}

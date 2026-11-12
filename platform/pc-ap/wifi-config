@@ -7,7 +7,8 @@
 #   wifi-config set <iface>      the new values in the environment:
 #     AIGW_WIFI_SSID, AIGW_WIFI_KEY, AIGW_WIFI_MODE (TR-181 names: None,
 #     WPA2-Personal, WPA3-Personal, WPA2-WPA3-Personal), AIGW_WIFI_CHANNEL,
-#     AIGW_WIFI_WIDTH (20MHz, 40MHz, 80MHz, Auto)
+#     AIGW_WIFI_WIDTH (20MHz, 40MHz, 80MHz, Auto); AIGW_WIFI_SAVE_ONLY=1:
+#     already in effect, only saved
 #
 # The name, passphrase and security mode are the same on both bands here; the
 # channel and width are each access point's.
@@ -62,6 +63,11 @@ if [ -n "${AIGW_WIFI_WIDTH+x}" ]; then
 	setvar "WIDTH$sfx" "$w"
 fi
 
+# AIGW_WIFI_SAVE_ONLY=1: already in effect (a channel trial that worked): saved, nothing restarted
+if [ "${AIGW_WIFI_SAVE_ONLY:-0}" = 1 ]; then
+	echo "saved in $CONF (in effect already)"
+	exit 0
+fi
 # this access point (with its new channel or width), then, for a new name,
 # passphrase or mode, every other one
 "$AP" reconf "$IF" "$ch" "$w"

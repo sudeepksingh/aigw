@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw-usp
-PKG_VERSION:=0.24.0
+PKG_VERSION:=0.25.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0

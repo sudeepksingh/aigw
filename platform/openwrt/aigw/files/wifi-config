@@ -65,5 +65,10 @@ if [ -n "${AIGW_WIFI_WIDTH+x}" ] && [ "$AIGW_WIFI_WIDTH" != Auto ]; then
 	uci set "wireless.$RADIO.htmode=$std${AIGW_WIFI_WIDTH%MHz}"
 fi
 uci commit wireless
+# AIGW_WIFI_SAVE_ONLY=1: already in effect (a channel trial that worked): saved, not reloaded
+if [ "${AIGW_WIFI_SAVE_ONLY:-0}" = 1 ]; then
+	echo "saved in /etc/config/wireless ($SEC on $RADIO), in effect already"
+	exit 0
+fi
 wifi reload "$RADIO"
 echo "saved in /etc/config/wireless ($SEC on $RADIO), $RADIO reloaded"

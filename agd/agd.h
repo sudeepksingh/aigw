@@ -388,6 +388,8 @@ void chan_blob(struct blob_buf *b, const char *iface);
 int chan_valid(int band, int ch);
 int chan_parse(const char *target, const struct wifi_ap **ap, int *ch);
 int chan_switch(const char *iface, int ch, char *err, size_t errlen);
+/* the other channels AIGW would use on this access point (allowed here) */
+int chan_options(const struct wifi_ap *a, int *out, int max);
 
 /* presence: arrivals and departures */
 void presence_tick(void);
@@ -395,6 +397,13 @@ const char *presence_near(const struct device *d);
 int presence_count(void);
 int act_is_protected(const struct device *d);
 int wifi_ban(const char *mac, int on, char *err, size_t errlen);
+/* the same, only on the access points of one band (2 or 5) */
+int wifi_ban_band(const char *mac, int band, int on, char *err, size_t errlen);
+/* act.c, for Self-Healing Wi-Fi */
+int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours);
+int act_keep(uint32_t id, const char *note);
+int act_undo_because(uint32_t id, const char *note);
+int act_active(const char *action, const char *target);
 /* every access point: send a command; returns how many answered OK (reply of the first in *reply) */
 int wifi_all(const char *cmd, char *reply, size_t n);
 int wifi_kick(const char *mac);
@@ -425,6 +434,8 @@ int wifiset_check(const char *iface, int what, const char *v, char *err, size_t 
 void wifiset_stage(const char *iface, int what, const char *v);
 void wifiset_flush(const char *who);      /* give what was staged to the handler */
 void wifiset_drop(void);                  /* forget what was staged */
+/* already in effect: save it in the Wi-Fi config, restart nothing */
+void wifiset_save(const char *iface, int what, const char *v, const char *who);
 const char *wifiset_pending(const char *iface, int what);
 void wifiset_seen(const char *iface, int what, const char *v);
 

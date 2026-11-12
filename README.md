@@ -46,6 +46,16 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.25:** **AIGW Self-Healing Wi-Fi, part 2: the gateway fixes it, and checks
+> the fix.** A busy channel gets a measured trial: AIGW switches, measures what
+> devices feel for 3 minutes, and keeps (and saves) the new channel only if it
+> is clearly better; otherwise it switches back and avoids that channel for a
+> day. A device hopping to a 5 GHz it can barely reach is kept on 2.4 GHz for a
+> day. Weak coverage, a faulty device or radio become plain-words advice. All
+> of it through AIGW's guardrails (advise or enforce, hourly limit, time
+> limits, undo), and visible to the ISP as alerts and decisions.
+> [docs/self-healing-wifi.md](docs/self-healing-wifi.md)
+>
 > **v0.24:** **AIGW Self-Healing Wi-Fi, part 1: the gateway knows why Wi-Fi is
 > slow.** AIGW measures what each device in use actually feels (loss and delay,
 > not what the radio claims), learns the home's normal, and names the cause:
@@ -53,8 +63,7 @@ illustrated version.
 > the radio. It tells the home in plain words, and the ISP's help desk over
 > USP / TR-069 (`Device.X_AIGW_.WiFiHealth`), before anyone calls. It works on
 > any radio. On the PC access point it found, by itself, the weak coverage we
-> had traced by hand. Part 2 fixes what is safe to fix.
-> [docs/self-healing-wifi.md](docs/self-healing-wifi.md)
+> had traced by hand.
 >
 > **v0.23:** **a native prplOS component.** `aigw-amx` publishes AIGW OS's data
 > model (alerts, decisions, mode, commands, events) on prplOS's bus as an
@@ -567,7 +576,7 @@ packages) and on emulated ARM64 (the Filogic packages). To try it on your own ro
 | Fast path | `fastpath.enabled 1`: established connections, past their first packets, of devices AIGW isn't acting on skip the forwarding rules through the kernel flowtable (`offload 1`: the switch chip, on MT7621 / Filogic). When an action starts on a device, agd sends its offloaded connections back through the rules, so quarantine, throttle and priority still hold; traffic counts stay right. Off by default until tested on real routers; keep fw4's own flow offloading off (`aigw-selftest` warns). |
 | Traffic meter | An eBPF program on each LAN interface (tcx, Linux 6.6+) counts every device's bytes and packets in the kernel: `agctl device <name>` shows its rate right now, also for fast-path connections. Written as BPF instructions in agd, so no BPF compiler is needed; it only counts and is gone when agd stops. |
 | Presence | Who is home: arrivals and departures as `ag.presence` events (a device unseen for 10 minutes has left), and how near each Wi-Fi device is to the access point. |
-| Decisions | Policies, proposals, approval, guardrails and six actions (prioritize, deprioritize, throttle, block, quarantine, disconnect), each with a time limit and undo. See above. |
+| Decisions | Policies, proposals, approval, guardrails and eight actions (prioritize, deprioritize, throttle, block, quarantine, disconnect, channel, stay24), each with a time limit and undo. See above. |
 | Alerts | `dga` (machine-generated lookup, or handshake name), `no-dns` (connection without a lookup or a handshake name), `dns-bypass` (device using its own encrypted DNS, also recognised from the handshake), `new-destination`, `upload-spike`, `unusual-hour` (behaviour baselines). Each has a plain-language reason; repeats are counted, not repeated. A connection to an address next to a name the home looked up (same /24) is labelled "(nearby)" instead of flagged, which keeps apps with their own server lists, such as WhatsApp, quiet. |
 | Plug-in host | Finds plug-ins by itself, checks manifest, host, trust and needs, wires events, actions and skill policies, runs them unprivileged with restarts and budgets. See above. |
 | Wi-Fi keys | A key and QR code per device, bound to its MAC on first join, zoned, revocable on its own. |

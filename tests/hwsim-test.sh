@@ -151,11 +151,15 @@ config wifi 'wifi'
 	option keys '$T/wifi-keys'
 	option steer_hold '3'
 	option handler '$REPO/platform/pc-ap/wifi-config'
+	option heal_hold '20'
+	option heal_trial '40'
+	option heal_retry '60'
 
 config mgmt 'mgmt'
 	option enabled '1'
 
 config act 'act'
+	option mode 'enforce'
 	option dns_policy '$T/dns-policy'
 
 config plugins 'plugins'
@@ -222,6 +226,18 @@ if [ "$(grep -c "CTRL-EVENT-CONNECTED" "$T/wpas.log" || true)" != "$assoc_before
 fi
 sleep 6
 "$BIN/agctl/agctl" wifi
+# decisions as "id state action origin target", one per line
+decs() {
+	"$BIN/agctl/agctl" -j decisions | python3 -c "
+import json, sys
+for x in json.load(sys.stdin).get('decisions', []):
+    print(x['id'], x['state'], x['action'], x.get('origin', '').replace(' ', '_'), x.get('target', ''))
+"
+}
+# done with it: undone, so Self-Healing Wi-Fi may try channels on this access point later
+CID=$(decs | awk '$2 == "active" && $3 == "channel" {print $1; exit}')
+[ -n "$CID" ] && "$BIN/agctl/agctl" undo "$CID" > /dev/null || fail "undo the manual channel decision"
+sleep 6
 
 echo "== Wi-Fi settings from a management system (TR-181, through the PC's Wi-Fi handler)"
 dm() { "${UBUS:-$(command -v ubus || echo /usr/local/bin/ubus)}" -s "$AIGW_UBUS" call ag.dm "$@"; }
@@ -303,6 +319,22 @@ wait_health() {   # wait_health <status regex> <cause regex> <seconds>
 }
 wait_health Good None 120 || fail "the client's access point should be measured as Good first"
 echo "   $AP_H: Good"
+
+echo "== Self-Healing Wi-Fi: a device kept on 2.4 GHz (stay24), refused on 5 GHz only"
+"$BIN/agctl/agctl" do stay24 "$STAMAC" 30m || fail "agctl do stay24"
+i=0
+until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 24'; do
+	i=$((i + 1)); [ $i -gt 60 ] && fail "the client should be on 2.4 GHz with stay24"; sleep 1
+done
+sleep 10
+ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 24' || fail "the client should stay on 2.4 GHz (not steered back)"
+hostapd_cli -p "$T/run/hostapd" -i "$AP5" deny_acl show | grep -qi "$STAMAC" || fail "the 5 GHz access point should refuse it"
+hostapd_cli -p "$T/run/hostapd" -i "$AP24" deny_acl show | grep -qi "$STAMAC" && fail "the 2.4 GHz access point should not refuse it"
+SID=$(decs | awk '$2 == "active" && $3 == "stay24" {print $1; exit}')
+[ -n "$SID" ] || fail "no active stay24 decision"
+echo "   on 2.4 GHz, refused on $AP5 only (decision #$SID)"
+wait_health Good None 120 || fail "the client's 2.4 GHz access point should be measured as Good"
+[ "$AP_H" = "$AP24" ] || fail "the client should be measured on $AP24, is on $AP_H"
 "${UBUS:-$(command -v ubus || echo /usr/local/bin/ubus)}" -s "$AIGW_UBUS" listen ag.dm.event > "$T/heal-events.log" 2>&1 & PIDS="$PIDS $!"
 command -v tc >/dev/null || fail "missing tc"
 modprobe sch_netem 2>/dev/null || true
@@ -314,7 +346,85 @@ grep -q 'Cause = Congestion' "$T/heal-dm.txt" && grep -q "AffectedHosts = Device
 	fail "the data model: $(cat "$T/heal-dm.txt")"
 grep -q 'WiFiHealthChanged!' "$T/heal-events.log" || fail "no WiFiHealthChanged! event"
 echo "   30% loss: $(grep -o 'Status = .*' "$T/heal-dm.txt"), Congestion; $(sed -n 's/.*Explanation = //p' "$T/heal-dm.txt" | cut -c1-110)..."
+
+echo "== Self-Healing Wi-Fi: congestion held: a channel trial (enforce mode), kept when it measures better"
+CH0=$(hostapd_cli -p "$T/run/hostapd" -i "$AP_H" status | sed -n 's/^channel=//p')
+i=0
+until decs | grep -q ' active channel policy_wifi_congestion '; do
+	i=$((i + 1))
+	if [ $i -gt 120 ]; then
+		tc qdisc del dev "$AP_H" root 2>/dev/null
+		echo "--- agd"; grep -iE 'wifi health|alert|channel' "$T/agd.log" | tail -n 12
+		fail "no channel trial after congestion held (heal_hold 20 s)"
+	fi
+	sleep 1
+done
+TID=$(decs | awk '$2 == "active" && $4 == "policy_wifi_congestion" {print $1; exit}')
+CH1=$(decs | awk '$1 == '"$TID"' {print $5}' | sed 's/.*://')
+echo "   trial #$TID: channel $CH0 -> $CH1; the interference goes away"
+tc qdisc del dev "$AP_H" root 2>/dev/null || true
+i=0
+until decs | grep -q "^$TID kept "; do
+	i=$((i + 1))
+	if [ $i -gt 150 ]; then
+		echo "--- agd"; grep -iE 'wifi health|trial|decision' "$T/agd.log" | tail -n 12
+		decs
+		fail "the trial should be kept (devices did clearly better)"
+	fi
+	sleep 1
+done
+hostapd_cli -p "$T/run/hostapd" -i "$AP_H" status | grep -q "^channel=$CH1$" || fail "the access point should stay on channel $CH1"
+i=0
+until grep -q "^CHANNEL='$CH1'" "$T/pc-ap.conf"; do
+	i=$((i + 1)); [ $i -gt 20 ] && fail "the kept channel should be saved in pc-ap.conf: $(grep CHANNEL "$T/pc-ap.conf")"; sleep 1
+done
+grep -q "wifi health: $AP_H Channel $CH0 -> $CH1 worked" "$T/agd.log" || fail "agd should say the trial worked"
+echo "   kept: channel $CH1, saved (no restart); $("$BIN/agctl/agctl" decisions | grep -m1 'note: kept' | sed 's/^ *//')"
+wait_health Good None 240 || fail "Good again once the loss is gone"
+echo "   Good again"
+
+echo "== Self-Healing Wi-Fi: a trial that doesn't help is switched back"
+tc qdisc add dev "$AP_H" root netem loss 30% || fail "netem again on $AP_H"
+i=0
+until decs | awk '$1 != '"$TID"' && $2 == "active" && $4 == "policy_wifi_congestion"' | grep -q .; do
+	i=$((i + 1))
+	if [ $i -gt 240 ]; then
+		tc qdisc del dev "$AP_H" root 2>/dev/null
+		echo "--- agd"; grep -iE 'wifi health|alert' "$T/agd.log" | tail -n 12
+		fail "no second channel trial"
+	fi
+	sleep 1
+done
+TID2=$(decs | awk '$1 != '"$TID"' && $2 == "active" && $4 == "policy_wifi_congestion" {print $1; exit}')
+CH2=$(decs | awk '$1 == '"$TID2"' {print $5}' | sed 's/.*://')
+echo "   trial #$TID2: channel $CH1 -> $CH2; the interference stays"
+i=0
+until decs | grep -q "^$TID2 tried "; do
+	i=$((i + 1))
+	if [ $i -gt 150 ]; then
+		tc qdisc del dev "$AP_H" root 2>/dev/null
+		echo "--- agd"; grep -iE 'wifi health|trial|decision' "$T/agd.log" | tail -n 12
+		decs
+		fail "the trial should be switched back (no better)"
+	fi
+	sleep 1
+done
+i=0
+until hostapd_cli -p "$T/run/hostapd" -i "$AP_H" status | grep -q "^channel=$CH1$"; do
+	i=$((i + 1)); [ $i -gt 20 ] && { tc qdisc del dev "$AP_H" root 2>/dev/null; fail "back on channel $CH1"; }; sleep 1
+done
+grep -q "^CHANNEL='$CH1'" "$T/pc-ap.conf" || fail "the saved channel should still be $CH1"
+grep -q "wifi health: $AP_H Channel $CH1 -> $CH2 did not help" "$T/agd.log" || fail "agd should say the trial did not help"
+echo "   tried: back on channel $CH1, $CH2 avoided for a day"
 tc qdisc del dev "$AP_H" root
 wait_health Good None 240 || fail "Good again once the loss is gone"
-echo "   loss removed: Good again"
+
+echo "== stay24 undone: the 5 GHz access point takes the client again"
+"$BIN/agctl/agctl" undo "$SID" > /dev/null || fail "undo stay24"
+hostapd_cli -p "$T/run/hostapd" -i "$AP5" deny_acl show | grep -qi "$STAMAC" && fail "the 5 GHz access point should take it again"
+i=0
+until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 5'; do
+	i=$((i + 1)); [ $i -gt 60 ] && break; sleep 1
+done
+[ $i -le 60 ] && echo "   steered back to 5 GHz after ${i}s" || echo "   (not steered back within 60 s; the ban is lifted)"
 echo "HWSIM TEST OK"
