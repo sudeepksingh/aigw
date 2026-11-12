@@ -178,7 +178,7 @@ export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_AP="$REPO/plat
 UBUSD=$(command -v ubusd || echo /usr/local/sbin/ubusd)
 "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.5
-"$BIN/agd/agd" > "$T/agd.log" 2>&1 & PIDS="$PIDS $!"
+"$BIN/agd/agd" > "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
 
 echo "== agd steers the client to 5 GHz"
 i=0
@@ -418,6 +418,29 @@ grep -q "wifi health: $AP_H Channel $CH1 -> $CH2 did not help" "$T/agd.log" || f
 echo "   tried: back on channel $CH1, $CH2 avoided for a day"
 tc qdisc del dev "$AP_H" root
 wait_health Good None 240 || fail "Good again once the loss is gone"
+
+echo "== the healing report: what was found and fixed, for the ISP"
+"$BIN/agctl/agctl" wifi --report | tee "$T/report.txt"
+# the trials on the client's 2.4 GHz access point; stay24 on the one it was on (5 GHz) when it was set
+grep -A3 "^$AP_H " "$T/report.txt" | grep -q "channel trials kept 1, switched back 1" ||
+	fail "agctl wifi --report should show 1 trial kept, 1 switched back on $AP_H"
+grep -q "devices kept on 2.4 GHz 1" "$T/report.txt" || fail "agctl wifi --report should count the device kept on 2.4 GHz"
+"$BIN/agctl/agctl" dm get "Device.X_AIGW_.WiFiHealth.$N.Stats.Day." > "$T/stats.txt"
+grep -q "Stats.Day.ChannelTrialsKept = 1" "$T/stats.txt" && grep -q "Stats.Day.ChannelTrialsTried = 1" "$T/stats.txt" &&
+	grep -Eq "Stats.Day.CongestionFound = [2-9]" "$T/stats.txt" && grep -q "Stats.Day.Fixes = 1" "$T/stats.txt" &&
+	grep -Eq "Stats.Day.LossBeforePercent = [1-9]" "$T/stats.txt" && grep -Eq "Stats.Day.MeanTimeToFix = [1-9]" "$T/stats.txt" ||
+	fail "the data model's Stats.Day: $(cat "$T/stats.txt")"
+echo "   Stats.Day: $(grep -E 'GoodPercent|ProblemsFound|Fixes|MeanTimeToFix|LossBefore|LossAfter' "$T/stats.txt" | sed 's/.*Stats\.Day\.//' | tr '\n' ' ')"
+# kept across a restart (agd's state file)
+kill "$AGD"
+i=0; while kill -0 "$AGD" 2>/dev/null; do i=$((i + 1)); [ $i -gt 20 ] && fail "agd did not stop"; sleep 0.5; done
+"$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
+i=0
+until "$BIN/agctl/agctl" wifi --report > "$T/report2.txt" 2>/dev/null && grep -q "channel trials kept 1, switched back 1" "$T/report2.txt"; do
+	i=$((i + 1)); [ $i -gt 30 ] && { cat "$T/report2.txt"; fail "the healing report should survive a restart"; }; sleep 1
+done
+grep -q "restored [0-9]* days of the healing report" "$T/agd.log" || fail "agd should say it restored the report"
+echo "   kept across an agd restart"
 
 echo "== stay24 undone: the 5 GHz access point takes the client again"
 "$BIN/agctl/agctl" undo "$SID" > /dev/null || fail "undo stay24"

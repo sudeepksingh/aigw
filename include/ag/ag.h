@@ -105,6 +105,7 @@ struct ag_config {
 	int heal_hold;            /* seconds of congestion before a channel trial */
 	int heal_trial;           /* seconds a trial runs before it is judged */
 	int heal_retry;           /* seconds between two trials on one access point */
+	int heal_weak_margin;     /* dB above heal_weak before a weak signal counts as fine again */
 	int chan_heal;            /* watch how busy each access point's channel is; suggest a quieter one */
 	int chan_busy;            /* % of the air used by others that counts as busy */
 	int chan_hold;            /* seconds it must stay that busy */

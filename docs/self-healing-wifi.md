@@ -39,6 +39,19 @@ The status is `Good`, `Degraded` (5 % loss, or 100 ms and 3x its usual delay)
 or `Poor` (20 %, or 300 ms). A new verdict must hold for two looks (20 s), and
 `Good` again for three, so one bad moment doesn't flap.
 
+**A steady verdict** (v0.26). On a real phone at the edge of coverage, the
+signal wanders around -75 dBm, and the cause used to flip between
+`Congestion` and `WeakCoverage` every minute or two, which also kept a channel
+trial from ever starting. Now:
+
+- A device's signal counts as weak at -75 dBm or below, and as fine again only
+  above -72 (`heal_weak_margin`, 3 dB).
+- While there is a problem, a different cause must hold for a minute (six
+  looks) before the verdict changes. `Degraded` and `Poor` don't count as a
+  change of cause.
+- A channel trial waits for the *cause* to hold for `heal_hold`, whether the
+  status reads `Degraded` or `Poor` meanwhile.
+
 ## Fix it, and check the fix
 
 Every action goes through the same guardrails as the rest of AIGW: `act.mode`
@@ -87,6 +100,39 @@ action, a weaker mode, a zone) or turns acting off with `heal_act 0`.
   sees the diagnosis, and what was done about it, before anyone calls.
 - `ag.wifi` events for plug-ins: `health`, `trial-kept`, `trial-tried`.
 
+## The healing report: what an ISP measures it by
+
+Per access point and day, kept for 31 days in agd's state (it survives
+restarts), summed over the last day, 7 days and 30 days:
+
+| | |
+|---|---|
+| Time | seconds `Good`, `Degraded`, `Poor`, and % of the measured time that was `Good` |
+| Found | problems found (a new verdict that isn't `Good`), in total and per cause |
+| Fixed | channel trials kept and switched back, devices kept on 2.4 GHz, fixes that stayed |
+| Time to fix | on average, seconds from the problem's start to the fix |
+| Difference made | for kept channels, average loss before and after (and delay, in `agctl`) |
+
+- **The home:** `agctl wifi --report`, e.g.
+
+  ```
+  wlan1  2.4 GHz, channel 1
+    last day     Good 93% of 23h 10m (Degraded 1h 20m, Poor 15m)
+                 found 3 problems (Congestion 2, BandHopping 1)
+                 fixed 2: channel trials kept 1, switched back 1; devices kept on 2.4 GHz 1; 9m from problem to fix on average
+                 kept channels: loss 15% -> 1%, delay 180 -> 12 ms
+  ```
+
+- **The ISP**, over USP and TR-069: `Device.X_AIGW_.WiFiHealth.{i}.Stats.Day.`,
+  `.Week.` and `.Month.` (`GoodSeconds`, `DegradedSeconds`, `PoorSeconds`,
+  `GoodPercent`, `ProblemsFound`, `CongestionFound`, `WeakCoverageFound`,
+  `BandHoppingFound`, `DeviceFound`, `RadioFound`, `ChannelTrialsKept`,
+  `ChannelTrialsTried`, `BandRules`, `Fixes`, `MeanTimeToFix`,
+  `LossBeforePercent`, `LossAfterPercent`). Collected across homes, it shows
+  how many homes had Wi-Fi problems, how many AIGW fixed by itself, and by how
+  much: the numbers a help desk is measured by.
+- `ag.wifi radios`, per access point: `health.report.day|week|month`.
+
 ## Settings (`/etc/config/aigw`, section `wifi`)
 
 | Option | Default | |
@@ -96,6 +142,7 @@ action, a weaker mode, a zone) or turns acting off with `heal_act 0`.
 | `heal_delay` | `100` | ms of delay that is a problem (and 3x a device's usual) |
 | `heal_weak` | `-75` | dBm at or below which a signal is weak |
 | `heal_hops` | `4` | band changes in 10 minutes that count as hopping |
+| `heal_weak_margin` | `3` | dB above `heal_weak` before a weak signal counts as fine again |
 | `heal_act` | `1` | act on it (channel trials, `wifi-hopping`), through `act.mode` |
 | `heal_hold` | `300` | seconds `Congestion` must hold before a channel trial |
 | `heal_trial` | `180` | seconds a trial is measured |
@@ -111,7 +158,9 @@ writes `pc-ap.conf`, the OpenWRT one `/etc/config/wireless` without
 ## Tests
 
 - `tests/test_heal.c` (unit): each cause, including the real case found on the
-  PC access point (channel 6: 15 % loss at about -70 dBm).
+  PC access point (channel 6: 15 % loss at about -70 dBm); a signal wandering
+  between -76 and -71 dBm changes the cause only twice with the margin; the
+  report's day, week and month sums, and old days leaving the 31-day ring.
 - `tests/hwsim-test.sh` (simulated radios, CI): a client in use is measured
   `Good`; `stay24` moves it to 2.4 GHz and only the 5 GHz access point refuses
   it; 30 % loss injected on its access point (`tc netem`) reads as
@@ -119,4 +168,7 @@ writes `pc-ap.conf`, the OpenWRT one `/etc/config/wireless` without
   event; in enforce mode, a channel trial starts, the loss goes away, the
   trial is `kept` and the channel saved in `pc-ap.conf`; `Good` again; with
   the loss back, a second trial on another channel doesn't help and is
-  switched back (`tried`); undoing `stay24` lifts the refusal.
+  switched back (`tried`); `agctl wifi --report` and `Stats.Day` count one
+  trial kept, one switched back, one device kept on 2.4 GHz, with the loss
+  before and after and the time to fix, also after an agd restart; undoing
+  `stay24` lifts the refusal.

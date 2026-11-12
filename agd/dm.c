@@ -39,7 +39,7 @@
 #include "ag/heal.h"
 #include "agd.h"
 
-#define DM_VERSION "1.3"
+#define DM_VERSION "1.4"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -620,6 +620,36 @@ GET(g_heal_loss) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%d
 GET(g_heal_rtt) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%d", r && r->rtt_ms > 0 ? r->rtt_ms : 0); return 0; }
 GET(g_heal_meas) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%d", r ? r->measured : 0); return 0; }
 GET(g_heal_since) { const struct heal_radio *r = heal_of(c); fmt_time(r ? r->since : 0, buf, n); return 0; }
+
+/* the healing report, per period: Stats.Day (1 day), Stats.Week (7), Stats.Month (30) */
+static void hstats(const struct ictx *c, int days, struct heal_day *s)
+{
+	if (heal_report_of(c->ap->iface, days, s) < 0)
+		memset(s, 0, sizeof(*s));
+}
+#define HSTAT(fn, days, expr) \
+	GET(fn) { struct heal_day s; hstats(c, days, &s); snprintf(buf, n, "%u", (unsigned)(expr)); return 0; }
+#define HSTATS(P, days) \
+	HSTAT(g_hs_good_##P, days, s.secs[HEAL_GOOD]) \
+	HSTAT(g_hs_degr_##P, days, s.secs[HEAL_DEGRADED]) \
+	HSTAT(g_hs_poor_##P, days, s.secs[HEAL_POOR]) \
+	HSTAT(g_hs_goodpct_##P, days, heal_day_good_pct(&s) < 0 ? 0 : heal_day_good_pct(&s)) \
+	HSTAT(g_hs_found_##P, days, heal_day_problems(&s)) \
+	HSTAT(g_hs_cong_##P, days, s.found[HC_CONGESTION]) \
+	HSTAT(g_hs_cov_##P, days, s.found[HC_COVERAGE]) \
+	HSTAT(g_hs_hop_##P, days, s.found[HC_HOPPING]) \
+	HSTAT(g_hs_dev_##P, days, s.found[HC_DEVICE]) \
+	HSTAT(g_hs_radio_##P, days, s.found[HC_RADIO]) \
+	HSTAT(g_hs_kept_##P, days, s.kept) \
+	HSTAT(g_hs_tried_##P, days, s.tried) \
+	HSTAT(g_hs_band_##P, days, s.band_rules) \
+	HSTAT(g_hs_fixes_##P, days, s.fixes) \
+	HSTAT(g_hs_ttf_##P, days, s.fixes ? s.fix_secs / s.fixes : 0) \
+	HSTAT(g_hs_lb_##P, days, s.kept ? s.loss_before / s.kept : 0) \
+	HSTAT(g_hs_la_##P, days, s.kept ? s.loss_after / s.kept : 0)
+HSTATS(day, 1)
+HSTATS(week, 7)
+HSTATS(month, 30)
 GET(g_heal_hosts)
 {
 	const struct heal_radio *r = heal_of(c);
@@ -814,6 +844,28 @@ static struct dm_param {
 	{ "Device.X_AIGW_.WiFiHealth.{i}.StationsMeasured", T_UINT, 0, TB_HEAL, g_heal_meas, NULL },
 	{ "Device.X_AIGW_.WiFiHealth.{i}.AffectedHosts", T_STR, 0, TB_HEAL, g_heal_hosts, NULL },
 	{ "Device.X_AIGW_.WiFiHealth.{i}.Since", T_TIME, 0, TB_HEAL, g_heal_since, NULL },
+#define HROWS(O, P) \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".GoodSeconds", T_UINT, 0, TB_HEAL, g_hs_good_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".DegradedSeconds", T_UINT, 0, TB_HEAL, g_hs_degr_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".PoorSeconds", T_UINT, 0, TB_HEAL, g_hs_poor_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".GoodPercent", T_UINT, 0, TB_HEAL, g_hs_goodpct_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".ProblemsFound", T_UINT, 0, TB_HEAL, g_hs_found_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".CongestionFound", T_UINT, 0, TB_HEAL, g_hs_cong_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".WeakCoverageFound", T_UINT, 0, TB_HEAL, g_hs_cov_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".BandHoppingFound", T_UINT, 0, TB_HEAL, g_hs_hop_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".DeviceFound", T_UINT, 0, TB_HEAL, g_hs_dev_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".RadioFound", T_UINT, 0, TB_HEAL, g_hs_radio_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".ChannelTrialsKept", T_UINT, 0, TB_HEAL, g_hs_kept_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".ChannelTrialsTried", T_UINT, 0, TB_HEAL, g_hs_tried_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".BandRules", T_UINT, 0, TB_HEAL, g_hs_band_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".Fixes", T_UINT, 0, TB_HEAL, g_hs_fixes_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".MeanTimeToFix", T_UINT, 0, TB_HEAL, g_hs_ttf_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".LossBeforePercent", T_UINT, 0, TB_HEAL, g_hs_lb_##P, NULL }, \
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Stats." O ".LossAfterPercent", T_UINT, 0, TB_HEAL, g_hs_la_##P, NULL },
+	HROWS("Day", day)
+	HROWS("Week", week)
+	HROWS("Month", month)
+#undef HROWS
 };
 #define N_PARAMS ((int)(sizeof(params) / sizeof(params[0])))
 

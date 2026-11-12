@@ -149,6 +149,7 @@ void ag_config_load(struct ag_config *c)
 	c->heal_hold = 300;
 	c->heal_trial = 180;
 	c->heal_retry = 1800;
+	c->heal_weak_margin = 3;
 	c->steer_up = -60;
 	c->steer_down = -75;
 	c->steer_hold = 30;
@@ -308,6 +309,9 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "wifi", "heal_retry");
 		if (v && atoi(v) >= 10)
 			c->heal_retry = atoi(v);
+		v = opt(ctx, p, "wifi", "heal_weak_margin");
+		if (v && atoi(v) >= 0 && atoi(v) <= 20)
+			c->heal_weak_margin = atoi(v);
 		v = opt(ctx, p, "wifi", "chan_heal");
 		if (v)
 			c->chan_heal = atoi(v) != 0;

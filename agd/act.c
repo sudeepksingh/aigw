@@ -213,6 +213,8 @@ static void set_state(struct decision *d, int state)
 		d->scope, state_names[state], d->note[0] ? " -- " : "", d->note);
 	dec_event(d);
 	dm_on_decision(d->id, state_names[state]);
+	if (state == D_ACTIVE && !strcmp(d->action, "stay24"))
+		heal_on_band_rule(d->target, d->id);   /* the healing report counts it (once per decision) */
 }
 
 /* who answers the next approve / reject / undo: "you", or a management system (dm.c) */

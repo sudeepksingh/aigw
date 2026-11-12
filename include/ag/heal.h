@@ -30,6 +30,7 @@ struct heal_sta {
 	int base_rtt_ms;        /* its usual delay, learned; 0 not yet */
 	int signal;             /* dBm, smoothed */
 	int roams;              /* band changes in the hopping window */
+	int weak;               /* 0: judge by signal; 1 weak, 2 strong (agd, with a margin: heal_weak_step) */
 };
 
 struct heal_params {
@@ -53,11 +54,47 @@ struct heal_result {
 };
 
 void heal_params_default(struct heal_params *p);
+/*
+ * A signal near the line would flip "weak" back and forth (and with it the
+ * cause): weak at or below weak_signal, strong again only above
+ * weak_signal + margin. prev and the result: 0 unknown, 1 weak, 2 strong.
+ */
+int heal_weak_step(int prev, int signal, int weak_signal, int margin);
 int heal_sta_loss_pct(const struct heal_sta *s);
 int heal_sta_degraded(const struct heal_sta *s, const struct heal_params *p);
 /* n devices (at most 32 are looked at) */
 void heal_diagnose(const struct heal_sta *s, int n, const struct heal_params *p, struct heal_result *r);
 const char *heal_status_name(enum heal_status st);
 const char *heal_cause_name(enum heal_cause c);
+
+/*
+ * The healing report: what the gateway found and fixed, per access point and
+ * day (UTC), for the last 31 days. What an ISP measures AIGW by.
+ */
+#define HEAL_DAYS 31
+#define HEAL_CAUSES 6                   /* HC_NONE .. HC_RADIO */
+
+struct heal_day {
+	long day;                       /* days since 1970-01-01 (UTC); 0 = empty */
+	unsigned secs[4];               /* seconds Unknown, Good, Degraded, Poor */
+	unsigned found[HEAL_CAUSES];    /* problems found (a new verdict that isn't Good), by cause */
+	unsigned kept, tried;           /* channel trials */
+	unsigned band_rules;            /* devices kept on 2.4 GHz */
+	unsigned fixes, fix_secs;       /* fixes that stayed, and seconds from the problem to each */
+	unsigned loss_before, loss_after;  /* sums of % over kept trials */
+	unsigned rtt_before, rtt_after;    /* sums of ms over kept trials */
+};
+
+struct heal_report {
+	struct heal_day d[HEAL_DAYS];   /* d[day % HEAL_DAYS] */
+};
+
+/* today's slot (emptied when it last held an older day) */
+struct heal_day *heal_report_day(struct heal_report *r, long wall_s);
+/* the last `days` days up to wall_s, added up */
+void heal_report_sum(const struct heal_report *r, long wall_s, int days, struct heal_day *out);
+unsigned heal_day_problems(const struct heal_day *d);
+/* % of the measured time (not Unknown) that was Good; -1 none measured */
+int heal_day_good_pct(const struct heal_day *d);
 
 #endif

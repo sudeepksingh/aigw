@@ -278,7 +278,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand"><img src="brand/logo-mark.svg" alt="">AIGW <span>OS</span></div>
-  <div class="ver">architecture v0.3 · code v0.25 · 2026-11-12</div>
+  <div class="ver">architecture v0.3 · code v0.26 · 2026-11-12</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1385,6 +1385,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Proof</td><td>Simulated radios: stay24 moves the client to 2.4 GHz; a trial with the interference gone is kept and saved; one with it still there is switched back.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.26: a steady verdict, and the healing report</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Steady verdict</td><td>A signal at the edge no longer flips the cause: weak at -75 dBm, fine again only above -72; another cause must hold a minute.</td></tr>
+      <tr><td>Healing report</td><td>Per access point and day (31 days, kept across restarts): time Good / Degraded / Poor, problems by cause, trials kept and switched back, devices kept on 2.4 GHz, time to fix, loss before and after.</td></tr>
+      <tr><td>For the ISP</td><td><code>Device.X_AIGW_.WiFiHealth.{i}.Stats.Day / Week / Month</code> over USP and TR-069: across its homes, how much AIGW fixed by itself.</td></tr>
+      <tr><td>For the home</td><td><code>agctl wifi --report</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1425,7 +1435,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.25 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-12</footer>
+<footer>AIGW architecture v0.3 · implementation v0.26 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-12</footer>
 </main>
 </div>
 

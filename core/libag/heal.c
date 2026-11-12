@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* AIGW Self-Healing Wi-Fi: the diagnosis (see include/ag/heal.h) */
+#include <string.h>
+
 #include "ag/heal.h"
 
 void heal_params_default(struct heal_params *p)
@@ -12,6 +14,24 @@ void heal_params_default(struct heal_params *p)
 	p->hops = 4;
 	p->poor_loss_pct = 20;
 	p->poor_delay_ms = 300;
+}
+
+int heal_weak_step(int prev, int signal, int weak_signal, int margin)
+{
+	if (!signal)
+		return prev;                    /* nothing measured: as it was */
+	if (signal <= weak_signal)
+		return 1;
+	if (signal > weak_signal + margin)
+		return 2;
+	return prev ? prev : 2;                 /* in the margin: unchanged */
+}
+
+static int is_weak(const struct heal_sta *s, const struct heal_params *p)
+{
+	if (s->weak)
+		return s->weak == 1;
+	return s->signal && s->signal <= p->weak_signal;
 }
 
 int heal_sta_loss_pct(const struct heal_sta *s)
@@ -61,7 +81,7 @@ void heal_diagnose(const struct heal_sta *s, int n, const struct heal_params *p,
 			continue;
 		nd++;
 		r->affected |= 1u << i;
-		if (s[i].signal && s[i].signal <= p->weak_signal)
+		if (is_weak(&s[i], p))
 			nweak++;
 		if (poor(&s[i], p))
 			any_poor = 1;
@@ -112,4 +132,70 @@ const char *heal_cause_name(enum heal_cause c)
 	static const char *const n[] = { "None", "Congestion", "WeakCoverage", "BandHopping", "Device", "Radio" };
 
 	return c <= HC_RADIO ? n[c] : "None";
+}
+
+/* ---------- the healing report ---------- */
+
+static long day_of(long wall_s)
+{
+	return wall_s > 0 ? wall_s / 86400 : 0;
+}
+
+struct heal_day *heal_report_day(struct heal_report *r, long wall_s)
+{
+	long day = day_of(wall_s);
+	struct heal_day *d = &r->d[day % HEAL_DAYS];
+
+	if (d->day != day) {
+		memset(d, 0, sizeof(*d));
+		d->day = day;
+	}
+	return d;
+}
+
+void heal_report_sum(const struct heal_report *r, long wall_s, int days, struct heal_day *out)
+{
+	long today = day_of(wall_s);
+	int i, k;
+
+	memset(out, 0, sizeof(*out));
+	out->day = today;
+	if (days > HEAL_DAYS)
+		days = HEAL_DAYS;
+	for (i = 0; i < HEAL_DAYS; i++) {
+		const struct heal_day *d = &r->d[i];
+
+		if (!d->day || d->day > today || d->day <= today - days)
+			continue;
+		for (k = 0; k < 4; k++)
+			out->secs[k] += d->secs[k];
+		for (k = 0; k < HEAL_CAUSES; k++)
+			out->found[k] += d->found[k];
+		out->kept += d->kept;
+		out->tried += d->tried;
+		out->band_rules += d->band_rules;
+		out->fixes += d->fixes;
+		out->fix_secs += d->fix_secs;
+		out->loss_before += d->loss_before;
+		out->loss_after += d->loss_after;
+		out->rtt_before += d->rtt_before;
+		out->rtt_after += d->rtt_after;
+	}
+}
+
+unsigned heal_day_problems(const struct heal_day *d)
+{
+	unsigned n = 0;
+	int k;
+
+	for (k = 1; k < HEAL_CAUSES; k++)
+		n += d->found[k];
+	return n;
+}
+
+int heal_day_good_pct(const struct heal_day *d)
+{
+	unsigned long m = (unsigned long)d->secs[HEAL_GOOD] + d->secs[HEAL_DEGRADED] + d->secs[HEAL_POOR];
+
+	return m ? (int)((d->secs[HEAL_GOOD] * 100UL + m / 2) / m) : -1;
 }
