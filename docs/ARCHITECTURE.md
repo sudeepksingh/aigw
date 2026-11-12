@@ -920,6 +920,18 @@ Verified by `tests/test_heal.c` (each cause, including the real channel-6 case) 
 
 Verified by `tests/hwsim-test.sh` (CI, enforce mode, hold 20 s, trial 40 s): `agctl do stay24` moves the client to 2.4 GHz, only the 5 GHz access point refuses it, steering leaves it there; 30 % `netem` loss → Congestion → a `wifi_congestion` channel decision → the loss removed → `kept`, hostapd on the new channel, `CHANNEL` saved in `pc-ap.conf`; Good again; the loss again → a second trial on another channel → still lossy → `tried`, back on the kept channel, which stays saved; undoing stay24 lifts the refusal.
 
+**As built in v0.26: a steady verdict, and the healing report.** The diagnosis stops renaming one problem, and the gateway counts what it found and fixed, in numbers an ISP can collect across homes.
+
+| Piece | As built |
+|-------|----------|
+| Signal margin (`core/libag/heal.c`) | `heal_weak_step(prev, signal, weak, margin)`: weak at or below `wifi.heal_weak` (-75), fine again only above it + `heal_weak_margin` (3 dB); in the margin, unchanged. agd keeps it per device (`hdev.weak`) and passes it in `heal_sta.weak` (0: judge by signal, as before). |
+| Sticky cause (`agd/heal.c`) | While a problem lasts, another cause needs 6 looks (1 min) instead of 2; pending looks match on the cause alone (Degraded / Poor alike). `heal_radio.cause_since` (the cause held since) and `problem_since` (not Good since); the trial's `heal_hold` counts from `cause_since`. |
+| Report (`core/libag/heal.c`, pure) | `struct heal_day` per access point and UTC day in a ring of 31 (`heal_report_day`, `heal_report_sum`, `heal_day_problems`, `heal_day_good_pct`). agd adds 10 s per look to the status that held, `found[cause]` on a new problem or a new cause, `kept` (with loss and delay before and after, and seconds since `problem_since`), `tried`, and `band_rules` from act.c's `set_state` (stay24 active, once per decision; on the access point whose BandHopping lists the device, else the one it is on). |
+| Kept | `wifi_report` in agd's state file: per access point, one array per day with anything in it; restored at start. |
+| Shown | `ag.wifi radios` `health.report.{day,week,month}`; `agctl wifi --report`; data model 1.4: `Device.X_AIGW_.WiFiHealth.{i}.Stats.{Day,Week,Month}.` (17 parameters each, 51 in all). |
+
+Verified by `tests/test_heal.c` (the margin over a -76..-71 dBm walk changes the cause twice; day / week / month sums over 40 days, at most 31 kept), `tests/dm-test.sh` (the published DM XML), and `tests/hwsim-test.sh` (CI: after the kept and the switched-back trial and stay24, `agctl wifi --report` and `Stats.Day` count them, with loss before and after and time to fix, and still do after an agd restart).
+
 ---
 
 ## 17. Status and risks

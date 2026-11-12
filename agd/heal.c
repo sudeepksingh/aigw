@@ -76,10 +76,14 @@ struct hdev {
 	int64_t pkts_ms;
 	int64_t hops[HOPS_KEPT];        /* when it changed band */
 	int nhops;
+	int weak;                       /* heal_weak_step: 0 unknown, 1 weak, 2 strong */
 };
+
+#define CAUSE_LOOKS 6                   /* a problem's cause changing must hold this many looks (1 min) */
 
 static struct hdev hd[DEV_MAX];
 static struct heal_radio radios[WIFI_AP_MAX];
+static struct heal_report reps[WIFI_AP_MAX];   /* the healing report, same index as radios */
 static int nradios;
 static int sock = -1;
 static uint16_t ident;
@@ -290,6 +294,9 @@ static void window(int i, struct heal_sta *s, int64_t since_ms)
 	s->base_rtt_ms = (int)(h->base_rtt + 0.5);
 	s->signal = devs[i].wifi_sig_avg ? (int)(devs[i].wifi_sig_avg - 0.5) : devs[i].wifi_signal;
 	s->roams = roams(h);
+	/* weak with a margin, so a signal at the line doesn't flip the cause */
+	h->weak = heal_weak_step(h->weak, s->signal, cfg.heal_weak, cfg.heal_weak_margin);
+	s->weak = h->weak;
 }
 
 /* ---------- diagnosis per access point ---------- */
@@ -304,6 +311,7 @@ static struct heal_radio *radio_for(const char *iface, int create)
 	if (!create || nradios >= WIFI_AP_MAX)
 		return NULL;
 	memset(&radios[nradios], 0, sizeof(radios[nradios]));
+	memset(&reps[nradios], 0, sizeof(reps[nradios]));
 	snprintf(radios[nradios].iface, sizeof(radios[nradios].iface), "%.23s", iface);
 	radios[nradios].since = ag_wall_s();
 	return &radios[nradios++];
@@ -399,6 +407,8 @@ struct trial {
 	uint32_t id;                    /* its decision */
 	int from, to;                   /* channels */
 	int before_loss, before_rtt;    /* what devices felt before */
+	int64_t fresh_ms;               /* monotonic: the last trial was judged; the verdict counts only
+	                                   probes after it (the window still held the old channel's) */
 	struct { int ch; int64_t until; } bad[BAD_KEPT];
 };
 
@@ -450,7 +460,7 @@ static void heal_event(const char *what, const struct wifi_ap *ap, const char *t
 }
 
 /* the trial on this access point: started, judged, or a new one asked for */
-static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio *r, const struct heal_result *now_res,
+static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, const struct heal_result *now_res,
 		       const struct heal_params *p)
 {
 	struct trial *t = &trials[a];
@@ -478,8 +488,16 @@ static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio 
 		       (after.status == HEAL_GOOD || (t->before_loss > 0 && after.loss_pct * 2 <= t->before_loss) ||
 			(t->before_rtt > 0 && after.rtt_ms >= 0 && after.rtt_ms * 2 <= t->before_rtt));
 		if (keep) {
+			struct heal_day *day = heal_report_day(&reps[a], (long)wall);
 			char ch[8];
 
+			day->kept++;
+			day->fixes++;
+			day->fix_secs += r->problem_since ? (unsigned)(wall - r->problem_since) : 0;
+			day->loss_before += (unsigned)t->before_loss;
+			day->loss_after += (unsigned)after.loss_pct;
+			day->rtt_before += t->before_rtt > 0 ? (unsigned)t->before_rtt : 0;
+			day->rtt_after += after.rtt_ms > 0 ? (unsigned)after.rtt_ms : 0;
 			snprintf(note, sizeof(note), "kept: on channel %d devices lose %d%% (%d ms), before %d%% (%d ms)",
 				 t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms, t->before_loss,
 				 t->before_rtt < 0 ? 0 : t->before_rtt);
@@ -498,6 +516,7 @@ static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio 
 					 t->from);
 			act_undo_because(t->id, note);
 			mark_bad(t, t->to);
+			heal_report_day(&reps[a], (long)wall)->tried++;
 			snprintf(text, sizeof(text), "Channel %d -> %d did not help: switched back; channel %d is avoided for a day.",
 				 t->from, t->to, t->to);
 		}
@@ -505,6 +524,11 @@ static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio 
 		heal_event(keep ? "trial-kept" : "trial-tried", ap, text);
 		t->start_ms = 0;
 		t->last_try = wall;
+		/* from here on, judged on what devices feel now: not the old channel's probes
+		   still in the window, and a new hold before the next trial */
+		t->fresh_ms = now_ms();
+		if (r->cause_since)
+			r->cause_since = wall;
 		return;
 	}
 	if (has) {
@@ -522,7 +546,7 @@ static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio 
 		return;                                 /* proposed, waiting for a person, or someone else's */
 	}
 	if (r->status == HEAL_GOOD || r->status == HEAL_UNKNOWN || r->cause != HC_CONGESTION ||
-	    wall - r->since < cfg.heal_hold || (t->last_try && wall - t->last_try < cfg.heal_retry))
+	    wall - r->cause_since < cfg.heal_hold || (t->last_try && wall - t->last_try < cfg.heal_retry))
 		return;
 	{
 		int opts[16], no = chan_options(ap, opts, 16), i, pick = 0;
@@ -540,7 +564,7 @@ static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio 
 		snprintf(target, sizeof(target), "%.23s:%d", ap->iface, pick);
 		snprintf(reason, sizeof(reason),
 			 "%.400s For %d minutes now. A trial on channel %d: measured for %d s, kept if devices do clearly "
-			 "better, else switched back.", r->explanation, (int)((wall - r->since) / 60), pick, cfg.heal_trial);
+			 "better, else switched back.", r->explanation, (int)((wall - r->cause_since) / 60), pick, cfg.heal_trial);
 		alerts_raise("wifi-congestion", "info", target, ap->iface, now_res->loss_pct / 100.0, reason);
 	}
 }
@@ -593,11 +617,13 @@ static void evaluate(void)
 		struct heal_radio *r = radio_for(ap->iface, 1);
 		struct heal_sta s[32];
 		struct heal_result res;
-		int idx[32], n = 0, i, need;
+		int idx[32], n = 0, i, need, was_bad, now_bad;
 
 		if (!r)
 			continue;
-		collect(ap, s, idx, &n, 0);
+		/* the report: the last 10 s were in the verdict that held */
+		heal_report_day(&reps[r - radios], (long)ag_wall_s())->secs[r->status & 3] += EVAL_EVERY;
+		collect(ap, s, idx, &n, trials[r - radios].fresh_ms);
 		heal_diagnose(s, n, &p, &res);
 		if (cfg.heal_act)
 			trial_step((int)(r - radios), ap, r, &res, &p);
@@ -608,23 +634,44 @@ static void evaluate(void)
 
 				h->base_rtt = h->base_rtt > 0 ? 0.8 * h->base_rtt + 0.2 * s[i].rtt_ms : s[i].rtt_ms;
 			}
+		/* just after a trial, too few new probes yet: the verdict stays as it is */
+		if (res.status == HEAL_UNKNOWN && trials[r - radios].fresh_ms &&
+		    now_ms() - trials[r - radios].fresh_ms < 60000)
+			continue;
 		r->measured = res.measured;
 		r->loss_pct = res.loss_pct;
 		r->rtt_ms = res.rtt_ms;
 		/* a new verdict holds for two looks before it counts, "Good" again for three */
 		if ((int)res.status != r->status || (int)res.cause != r->cause) {
-			if ((int)res.status == r->pend_status && (int)res.cause == r->pend_cause)
+			was_bad = r->status == HEAL_DEGRADED || r->status == HEAL_POOR;
+			now_bad = res.status == HEAL_DEGRADED || res.status == HEAL_POOR;
+			/* the same pending verdict again; for a new cause, Degraded or Poor alike */
+			if ((int)res.cause == r->pend_cause &&
+			    ((int)res.status == r->pend_status ||
+			     (now_bad && (r->pend_status == HEAL_DEGRADED || r->pend_status == HEAL_POOR) &&
+			      (int)res.cause != r->cause)))
 				r->pend_n++;
-			else {
-				r->pend_status = (int)res.status;
-				r->pend_cause = (int)res.cause;
+			else
 				r->pend_n = 1;
-			}
+			r->pend_status = (int)res.status;
+			r->pend_cause = (int)res.cause;
 			need = res.status == HEAL_GOOD && r->status != HEAL_UNKNOWN ? 3 : 2;
 			if (r->status == HEAL_UNKNOWN && res.status == HEAL_GOOD)
 				need = 1;
+			/* still a problem, another cause: only when it holds a minute (a signal
+			   near the line, a burst of hops, shouldn't keep renaming it) */
+			if (was_bad && now_bad && (int)res.cause != r->cause)
+				need = CAUSE_LOOKS;
 			if (r->pend_n < need)
 				continue;
+			if (now_bad && (!was_bad || (int)res.cause != r->cause)) {
+				heal_report_day(&reps[r - radios], (long)ag_wall_s())->found[res.cause % HEAL_CAUSES]++;
+				r->cause_since = ag_wall_s();
+			}
+			if (now_bad && !was_bad)
+				r->problem_since = ag_wall_s();
+			if (!now_bad)
+				r->problem_since = r->cause_since = 0;
 			r->status = (int)res.status;
 			r->cause = (int)res.cause;
 			r->since = ag_wall_s();
@@ -707,5 +754,179 @@ void heal_blob(struct blob_buf *b, const char *iface)
 	blobmsg_add_u32(b, "loss_pct", (uint32_t)r->loss_pct);
 	blobmsg_add_u32(b, "rtt_ms", (uint32_t)(r->rtt_ms < 0 ? 0 : r->rtt_ms));
 	blobmsg_add_u64(b, "since", (uint64_t)r->since);
+	{
+		static const struct { const char *name; int days; } per[] = { { "day", 1 }, { "week", 7 }, { "month", 30 } };
+		void *rt = blobmsg_open_table(b, "report");
+		unsigned k;
+
+		for (k = 0; k < sizeof(per) / sizeof(per[0]); k++) {
+			struct heal_day s;
+			void *pt;
+			int c;
+
+			heal_report_sum(&reps[r - radios], (long)ag_wall_s(), per[k].days, &s);
+			pt = blobmsg_open_table(b, per[k].name);
+			blobmsg_add_u32(b, "good_s", s.secs[HEAL_GOOD]);
+			blobmsg_add_u32(b, "degraded_s", s.secs[HEAL_DEGRADED]);
+			blobmsg_add_u32(b, "poor_s", s.secs[HEAL_POOR]);
+			if (heal_day_good_pct(&s) >= 0)
+				blobmsg_add_u32(b, "good_pct", (uint32_t)heal_day_good_pct(&s));
+			blobmsg_add_u32(b, "problems", heal_day_problems(&s));
+			for (c = 1; c < HEAL_CAUSES; c++)
+				blobmsg_add_u32(b, heal_cause_name(c), s.found[c]);
+			blobmsg_add_u32(b, "trials_kept", s.kept);
+			blobmsg_add_u32(b, "trials_tried", s.tried);
+			blobmsg_add_u32(b, "band_rules", s.band_rules);
+			blobmsg_add_u32(b, "fixes", s.fixes);
+			if (s.fixes)
+				blobmsg_add_u32(b, "time_to_fix_s", s.fix_secs / s.fixes);
+			if (s.kept) {
+				blobmsg_add_u32(b, "loss_before_pct", s.loss_before / s.kept);
+				blobmsg_add_u32(b, "loss_after_pct", s.loss_after / s.kept);
+				blobmsg_add_u32(b, "rtt_before_ms", s.rtt_before / s.kept);
+				blobmsg_add_u32(b, "rtt_after_ms", s.rtt_after / s.kept);
+			}
+			blobmsg_close_table(b, pt);
+		}
+		blobmsg_close_table(b, rt);
+	}
 	blobmsg_close_table(b, t);
+}
+
+/* ---------- the healing report ---------- */
+
+int heal_report_of(const char *iface, int days, struct heal_day *out)
+{
+	const struct heal_radio *r = heal_for(iface);
+
+	if (!r)
+		return -1;
+	heal_report_sum(&reps[r - radios], (long)ag_wall_s(), days, out);
+	return 0;
+}
+
+/* act.c: stay24 in effect for a device: counted on the access point whose hopping it fixes */
+void heal_on_band_rule(const char *mac, uint32_t decision_id)
+{
+	static uint32_t seen[16];
+	static int nseen;
+	const struct device *d = dev_find_mac(mac, 0);
+	struct heal_radio *r = NULL;
+	struct heal_day *day;
+	int64_t wall = ag_wall_s();
+	int i;
+
+	for (i = 0; i < 16; i++)
+		if (seen[i] == decision_id)
+			return;                         /* its time limit restarted: counted already */
+	seen[nseen++ % 16] = decision_id;
+	for (i = 0; i < nradios && !r; i++)
+		if (radios[i].cause == HC_HOPPING && strcasestr(radios[i].affected, mac))
+			r = &radios[i];
+	if (!r && d && d->wifi_iface[0])
+		r = radio_for(d->wifi_iface, 1);
+	if (!r)
+		return;
+	day = heal_report_day(&reps[r - radios], (long)wall);
+	day->band_rules++;
+	day->fixes++;
+	day->fix_secs += r->problem_since ? (unsigned)(wall - r->problem_since) : 0;
+}
+
+/* saved with agd's state (devices.c): per access point, the days with anything in them */
+void heal_save(struct blob_buf *b)
+{
+	void *t = blobmsg_open_table(b, "wifi_report");
+	int i, k;
+
+	for (i = 0; i < nradios; i++) {
+		void *arr = blobmsg_open_array(b, radios[i].iface);
+
+		for (k = 0; k < HEAL_DAYS; k++) {
+			const struct heal_day *d = &reps[i].d[k];
+			void *row;
+			int c;
+
+			if (!d->day)
+				continue;
+			row = blobmsg_open_array(b, NULL);
+			blobmsg_add_u64(b, NULL, (uint64_t)d->day);
+			for (c = 0; c < 4; c++)
+				blobmsg_add_u32(b, NULL, d->secs[c]);
+			for (c = 0; c < HEAL_CAUSES; c++)
+				blobmsg_add_u32(b, NULL, d->found[c]);
+			blobmsg_add_u32(b, NULL, d->kept);
+			blobmsg_add_u32(b, NULL, d->tried);
+			blobmsg_add_u32(b, NULL, d->band_rules);
+			blobmsg_add_u32(b, NULL, d->fixes);
+			blobmsg_add_u32(b, NULL, d->fix_secs);
+			blobmsg_add_u32(b, NULL, d->loss_before);
+			blobmsg_add_u32(b, NULL, d->loss_after);
+			blobmsg_add_u32(b, NULL, d->rtt_before);
+			blobmsg_add_u32(b, NULL, d->rtt_after);
+			blobmsg_close_array(b, row);
+		}
+		blobmsg_close_array(b, arr);
+	}
+	blobmsg_close_table(b, t);
+}
+
+static unsigned long long jnum(struct blob_attr *a)
+{
+	switch (blobmsg_type(a)) {
+	case BLOBMSG_TYPE_INT64: return (unsigned long long)blobmsg_get_u64(a);
+	case BLOBMSG_TYPE_INT32: return blobmsg_get_u32(a);
+	case BLOBMSG_TYPE_INT16: return blobmsg_get_u16(a);
+	case BLOBMSG_TYPE_INT8: return blobmsg_get_u8(a);
+	case BLOBMSG_TYPE_DOUBLE: return (unsigned long long)blobmsg_get_double(a);
+	default: return 0;
+	}
+}
+
+void heal_load(struct blob_attr *t)
+{
+	struct blob_attr *ap, *row, *v;
+	size_t r1, r2, r3;
+	int n = 0;
+
+	blobmsg_for_each_attr(ap, t, r1) {
+		struct heal_radio *r;
+
+		if (blobmsg_type(ap) != BLOBMSG_TYPE_ARRAY || !(r = radio_for(blobmsg_name(ap), 1)))
+			continue;
+		blobmsg_for_each_attr(row, ap, r2) {
+			unsigned long long x[4 + HEAL_CAUSES + 10];
+			struct heal_day *d;
+			int k = 0, c;
+
+			if (blobmsg_type(row) != BLOBMSG_TYPE_ARRAY)
+				continue;
+			memset(x, 0, sizeof(x));
+			blobmsg_for_each_attr(v, row, r3)
+				if (k < (int)(sizeof(x) / sizeof(x[0])))
+					x[k++] = jnum(v);
+			if (!x[0])
+				continue;
+			d = &reps[r - radios].d[x[0] % HEAL_DAYS];
+			memset(d, 0, sizeof(*d));
+			d->day = (long)x[0];
+			for (c = 0; c < 4; c++)
+				d->secs[c] = (unsigned)x[1 + c];
+			for (c = 0; c < HEAL_CAUSES; c++)
+				d->found[c] = (unsigned)x[5 + c];
+			k = 5 + HEAL_CAUSES;
+			d->kept = (unsigned)x[k++];
+			d->tried = (unsigned)x[k++];
+			d->band_rules = (unsigned)x[k++];
+			d->fixes = (unsigned)x[k++];
+			d->fix_secs = (unsigned)x[k++];
+			d->loss_before = (unsigned)x[k++];
+			d->loss_after = (unsigned)x[k++];
+			d->rtt_before = (unsigned)x[k++];
+			d->rtt_after = (unsigned)x[k++];
+			n++;
+		}
+	}
+	if (n)
+		AG_INFO("wifi health: restored %d days of the healing report", n);
 }

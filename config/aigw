@@ -264,6 +264,8 @@ config wifi 'wifi'
 	# a weak signal (dBm), and band changes in 10 minutes that count as hopping
 	# option heal_weak '-75'
 	# option heal_hops '4'
+	# a weak signal counts as fine again only this many dB above heal_weak
+	# option heal_weak_margin '3'
 	# act on it (through act.mode and the wifi_congestion / wifi_hopping
 	# policies): congestion held this many seconds starts a channel trial,
 	# judged after heal_trial seconds; another trial at most every heal_retry

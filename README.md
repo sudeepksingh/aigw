@@ -46,6 +46,15 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.26:** **the healing report: proof, in numbers.** Each gateway counts what
+> Self-Healing Wi-Fi found and fixed: time Good / Degraded / Poor, problems by
+> cause, channel trials kept and switched back, devices kept on 2.4 GHz, time
+> from problem to fix, loss before and after. Per day, week and month in
+> `agctl wifi --report`, and for the ISP in the data model
+> (`Device.X_AIGW_.WiFiHealth.{i}.Stats`), so it can show across its homes how
+> much AIGW fixed by itself. The diagnosis is also steadier: a signal at the
+> edge no longer flips the cause back and forth.
+>
 > **v0.25:** **AIGW Self-Healing Wi-Fi, part 2: the gateway fixes it, and checks
 > the fix.** A busy channel gets a measured trial: AIGW switches, measures what
 > devices feel for 3 minutes, and keeps (and saves) the new channel only if it

@@ -414,6 +414,8 @@ struct heal_radio {
 	int status, cause;              /* enum heal_status / heal_cause (ag/heal.h) */
 	int measured, loss_pct, rtt_ms;
 	int64_t since;                  /* the verdict holds since */
+	int64_t cause_since;            /* this cause, whether Degraded or Poor, since */
+	int64_t problem_since;          /* not Good since (0: Good or Unknown) */
 	char explanation[400];
 	char affected[256];             /* MACs, comma-separated */
 	int pend_status, pend_cause, pend_n;
@@ -424,6 +426,13 @@ void heal_roamed(const struct device *d, int old_band, int old_signal);
 const struct heal_radio *heal_for(const char *iface);
 void heal_blob(struct blob_buf *b, const char *iface);
 void dm_on_heal(const char *iface);
+/* act.c: a device was kept on 2.4 GHz (stay24 in effect) */
+void heal_on_band_rule(const char *mac, uint32_t decision_id);
+/* the healing report of one access point over the last `days` days; -1 none */
+struct heal_day;
+int heal_report_of(const char *iface, int days, struct heal_day *out);
+void heal_save(struct blob_buf *b);
+void heal_load(struct blob_attr *t);
 
 /* manage.c: Wi-Fi settings and firmware, as a management system changes them */
 enum { WS_SSID, WS_KEY, WS_MODE, WS_CHANNEL, WS_WIDTH, WS_N };

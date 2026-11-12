@@ -37,6 +37,7 @@ static void usage(void)
 		"  dns [N]             last N DNS lookups (default 30)\n"
 		"  dns cache           the DNS cache: hits, answer times, prefetches, stale answers\n"
 		"  wifi                access points (band, channel), their devices, band steering\n"
+		"  wifi --report       what Self-Healing Wi-Fi found and fixed: last day, 7 and 30 days\n"
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
@@ -257,6 +258,76 @@ static void show_radios(struct ubus_request *req, int type, struct blob_attr *ms
 			       "%llu moves asked, %llu done\n", (int32_t)fnum(st, "up_dbm"), (int32_t)fnum(st, "down_dbm"),
 			       (unsigned long long)fnum(st, "moves_asked"), (unsigned long long)fnum(st, "moves_done"));
 	}
+}
+
+static const char *dur_short(unsigned long long s, char *out, size_t n)
+{
+	if (s >= 86400)
+		snprintf(out, n, "%llud %lluh", s / 86400, s % 86400 / 3600);
+	else if (s >= 3600)
+		snprintf(out, n, "%lluh %llum", s / 3600, s % 3600 / 60);
+	else
+		snprintf(out, n, "%llum", s / 60);
+	return out;
+}
+
+/* agctl wifi --report: what Self-Healing Wi-Fi found and fixed, per access point */
+static void show_report(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	static const char *const per[] = { "day", "week", "month" };
+	static const char *const label[] = { "last day", "last 7 days", "last 30 days" };
+	static const char *const causes[] = { "Congestion", "WeakCoverage", "BandHopping", "Device", "Radio" };
+	struct blob_attr *arr = field(msg, "radios"), *r;
+	size_t rem;
+	int any = 0;
+
+	if (json_out)
+		return print_json(msg);
+	blobmsg_for_each_attr(r, arr, rem) {
+		struct blob_attr *rep = field(field(r, "health"), "report");
+		unsigned k, c;
+
+		if (!rep)
+			continue;
+		any = 1;
+		printf("%s  %s GHz, channel %llu\n", fstr(r, "iface"), orb(fstr(r, "band"), "?"),
+		       (unsigned long long)fnum(r, "channel"));
+		for (k = 0; k < 3; k++) {
+			struct blob_attr *p = field(rep, per[k]);
+			char t1[32], t2[32], t3[32], found[160] = "";
+			unsigned long long meas;
+
+			if (!p)
+				continue;
+			meas = fnum(p, "good_s") + fnum(p, "degraded_s") + fnum(p, "poor_s");
+			printf("  %-13s", label[k]);
+			if (!meas) {
+				printf("nothing measured yet\n");
+				continue;
+			}
+			printf("Good %llu%% of %s (Degraded %s, Poor %s)\n", (unsigned long long)fnum(p, "good_pct"),
+			       dur_short(meas, t1, sizeof(t1)), dur_short(fnum(p, "degraded_s"), t2, sizeof(t2)),
+			       dur_short(fnum(p, "poor_s"), t3, sizeof(t3)));
+			for (c = 0; c < 5; c++)
+				if (fnum(p, causes[c]))
+					snprintf(found + strlen(found), sizeof(found) - strlen(found), "%s%s %llu",
+						 found[0] ? ", " : "", causes[c], (unsigned long long)fnum(p, causes[c]));
+			printf("               found %llu problem%s%s%s%s\n", (unsigned long long)fnum(p, "problems"),
+			       fnum(p, "problems") == 1 ? "" : "s", found[0] ? " (" : "", found, found[0] ? ")" : "");
+			printf("               fixed %llu: channel trials kept %llu, switched back %llu; devices kept on 2.4 GHz %llu",
+			       (unsigned long long)fnum(p, "fixes"), (unsigned long long)fnum(p, "trials_kept"),
+			       (unsigned long long)fnum(p, "trials_tried"), (unsigned long long)fnum(p, "band_rules"));
+			if (field(p, "time_to_fix_s"))
+				printf("; %s from problem to fix on average", dur_short(fnum(p, "time_to_fix_s"), t1, sizeof(t1)));
+			printf("\n");
+			if (field(p, "loss_before_pct"))
+				printf("               kept channels: loss %llu%% -> %llu%%, delay %llu -> %llu ms\n",
+				       (unsigned long long)fnum(p, "loss_before_pct"), (unsigned long long)fnum(p, "loss_after_pct"),
+				       (unsigned long long)fnum(p, "rtt_before_ms"), (unsigned long long)fnum(p, "rtt_after_ms"));
+		}
+	}
+	if (!any)
+		printf("No healing report yet (Self-Healing Wi-Fi off, or no access point measured).\n");
 }
 
 static void show_dnscache(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -1621,7 +1692,8 @@ int main(int argc, char **argv)
 		rc = call("ag.alert", "list", args.head, show_alerts);
 		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "wifi")) {
-		rc = call("ag.wifi", "radios", NULL, show_radios);
+		rc = call("ag.wifi", "radios", NULL,
+			  i < argc && (!strcmp(argv[i], "--report") || !strcmp(argv[i], "report")) ? show_report : show_radios);
 	} else if (!strcmp(cmd, "dns") && i < argc && !strcmp(argv[i], "cache")) {
 		rc = call("ag.dnscache", "stats", NULL, show_dnscache);
 	} else if (!strcmp(cmd, "dns") || !strcmp(cmd, "flows")) {
