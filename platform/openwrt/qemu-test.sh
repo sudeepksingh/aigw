@@ -110,10 +110,13 @@ NOREBOOT="-no-reboot"
 ACS=""
 if [ "$MGMT" = 1 ]; then
 	ACS_PORT=$((PORT + 1))
+	# the ACS wakes the CPE with connection requests (port 7547 on its wan side)
+	CR_PORT=$((PORT + 2))
+	BOOT=$(echo "$BOOT" | sed "s|hostfwd=tcp:127.0.0.1:$LUCI_PORT-:80|&,hostfwd=tcp:127.0.0.1:$CR_PORT-:7547|")
 	mkdir -p "$W/acs/files"
 	python3 "$REPO/tests/cwmp/acs.py" serve "$W/acs" --port "$ACS_PORT" > "$W/acs.log" 2>&1 &
 	ACS=$!
-	ISP="--acs=$W/acs:$ACS_PORT"
+	ISP="--acs=$W/acs:$ACS_PORT:$CR_PORT"
 	if [ "$ARCH" = x86_64 ]; then
 		cp "$CACHE/$FILE" "$W/acs/files/$FILE"
 		ISP="$ISP --upgrade=$FILE"

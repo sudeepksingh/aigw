@@ -1,0 +1,14 @@
+#!/usr/bin/amxrt
+// SPDX-License-Identifier: Apache-2.0
+// aigw-amx: AIGW OS's data model (Device.X_<prefix>_.) as an Ambiorix
+// component. The objects are made at start from agd's schema, so nothing is
+// defined here; the plug-in does it.
+%config {
+    name = "aigw-amx";
+}
+
+import "@AIGW_AMX_SO@" as "aigw";
+
+%define {
+    entry-point aigw.aigw_main;
+}

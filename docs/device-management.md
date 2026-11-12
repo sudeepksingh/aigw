@@ -210,6 +210,51 @@ next, so agd leaves it to a small program, `mgmt.firmware_handler`
 - **A PC** has no firmware image. Without a handler, the firmware objects are
   empty and `Download()` is refused.
 
+## On prplOS: an Ambiorix component (`aigw-amx`)
+
+prplOS builds its TR-181 tree from Ambiorix components. Each publishes its
+objects on the system bus, and prplOS's own USP agent, TR-069 client, CLI and
+web UI read them there. `aigw-amx` makes AIGW OS one of those components, so on
+prplOS no AIGW protocol client is needed:
+
+- **It runs** as a plug-in in `amxrt`, prplOS's component runtime, from
+  `/etc/amx/aigw-amx/aigw-amx.odl`.
+- **It publishes only AIGW's own subtree:** `X_<prefix>_` with its `Alert` and
+  `Decision` tables, the mode, the commands (`Quarantine`, `Block`, and
+  `Approve` / `Reject` / `Undo` on decisions) and the events (`Alert!`,
+  `DecisionChanged!`). What prplOS already has (`WiFi`, `Hosts`, `DeviceInfo`,
+  firmware) stays prplOS's. On prplOS, AIGW's Wi-Fi and firmware handlers can
+  point at prplOS's own objects.
+- **It is built from agd's schema at start**, like the USP and TR-069 adapters,
+  so the vendor prefix and new parameters follow.
+- **Reads and writes:**
+  - reads are agd's values, typed (booleans, numbers, dates);
+  - a write is checked by agd when amxd validates it, then applied;
+  - errors are amxd's: invalid value (10), permission denied (23).
+- **Commands and events:**
+  - commands return their outputs (e.g. `Block()` returns `Decision`);
+  - instances follow agd within a second of an alert or a decision, and every 5 seconds;
+  - agd's events become Ambiorix signals.
+- **Who asks:** origin `prplos` (`AIGW_AMX_ORIGIN`). The home's rules hold as for
+  any management system (`mgmt.actions`, `mgmt.alert_details`).
+
+Building it needs Ambiorix. It is built whenever CMake finds the headers, as in
+prplOS's SDK. On a PC, `scripts/build-ambiorix.sh` builds the pinned libraries
+and `amxrt`:
+
+```sh
+scripts/build-ambiorix.sh                 # ~/.cache/aigw-amx/root
+cmake -S . -B build -DAIGW_AMX_ROOT=$HOME/.cache/aigw-amx/root && cmake --build build
+amxrt -B .../mod-amxb-ubus.so -u ubus:/var/run/ubus/ubus.sock build/amx/aigw-amx-build.odl
+```
+
+Not done yet:
+- a prplOS feed package and init script;
+- mounting `X_<prefix>_` under prplOS's `Device.` (the way the image joins its components' objects);
+- a run on a real prplOS image.
+
+The plug-in, Ambiorix and amxb_ubus are tested together in CI (`tests/amx-test.sh`).
+
 ## Reboot and factory reset
 
 `Device.Reboot()` and `Device.FactoryReset()` over USP, and the TR-069
@@ -435,6 +480,11 @@ Rules for adding:
   - a download into the running bank is refused;
   - `mgmt.firmware 0` holds;
   - over USP, `Download(AutoActivate)` ends with OperationComplete and a reboot into the new version.
+- **`tests/amx-test.sh`** (prplOS) runs agd and `amxrt` with aigw-amx on a private ubus, as prplOS's agents reach components:
+  - the subtree is published from the schema, with typed reads;
+  - an alert becomes an instance and the `Alert!` signal, without the name;
+  - an invalid mode is refused (10), and so are a mode change and `Block()` with `mgmt.actions 0` (23);
+  - with `mgmt.actions 1`, the mode is set and saved, and a `Block()` and its `Undo()` are recorded as by prplos.
 - **Reboot and factory reset:**
   - dm-test: `mgmt.reset 0` refuses a management system; a factory reset reaches the handler;
   - usp-test: `Device.Reboot()` reaches the handler through the plug-in's hook;

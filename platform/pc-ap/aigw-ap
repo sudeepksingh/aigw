@@ -34,6 +34,7 @@ WIDTH=${WIDTH:-auto}
 CHANNEL_24=${CHANNEL_24:-6}
 WIDTH_24=${WIDTH_24:-20}
 AP_IFACE_24=${AP_IFACE_24:-auto}
+RSSI_MIN_5=${RSSI_MIN_5:--72}
 BRIDGE=aigwbr0
 SUBNET=${SUBNET:-10.42.0}
 UPLINK=${UPLINK:-auto}
@@ -100,7 +101,8 @@ wsl_attach() {
 			;;
 		*)
 			say "attaching USB adapter $bus to WSL"
-			"$u" attach --wsl --busid "$bus" >/dev/null 2>&1 || { say "usbipd could not attach $bus"; continue; }
+			# </dev/null: a Windows program reads stdin, and would eat the rest of this list
+			"$u" attach --wsl --busid "$bus" </dev/null >/dev/null 2>&1 || { say "usbipd could not attach $bus"; continue; }
 			;;
 		esac
 		WSL_ADAPTERS=$((WSL_ADAPTERS + 1))
@@ -254,6 +256,15 @@ write_hostapd() {
 		width_lines "$width" "$band" "$ch"
 		# 802.11v: devices can be asked to move to the other band (agd band steering)
 		echo "bss_transition=1"
+		# BAND=dual: a device too weak for 5 GHz stays on 2.4 instead of hopping
+		# back and forth (phones roam by themselves, and 5 GHz fades sooner with
+		# distance). RSSI_MIN_5 dBm, 0 = off; agd's band steering moves strong
+		# devices up to 5 GHz
+		if [ "$band" = 5 ] && [ "$BAND" = dual ] && [ "$RSSI_MIN_5" != 0 ]; then
+			echo "rssi_ignore_probe_request=$RSSI_MIN_5"
+			echo "rssi_reject_assoc_rssi=$RSSI_MIN_5"
+			echo "rssi_reject_assoc_timeout=30"
+		fi
 		echo "wmm_enabled=1"
 		echo "auth_algs=1"
 		# SECURITY: wpa2 (default), wpa3, wpa2-wpa3 or none
