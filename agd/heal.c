@@ -407,6 +407,8 @@ struct trial {
 	uint32_t id;                    /* its decision */
 	int from, to;                   /* channels */
 	int before_loss, before_rtt;    /* what devices felt before */
+	int64_t fresh_ms;               /* monotonic: the last trial was judged; the verdict counts only
+	                                   probes after it (the window still held the old channel's) */
 	struct { int ch; int64_t until; } bad[BAD_KEPT];
 };
 
@@ -458,7 +460,7 @@ static void heal_event(const char *what, const struct wifi_ap *ap, const char *t
 }
 
 /* the trial on this access point: started, judged, or a new one asked for */
-static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio *r, const struct heal_result *now_res,
+static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, const struct heal_result *now_res,
 		       const struct heal_params *p)
 {
 	struct trial *t = &trials[a];
@@ -522,6 +524,11 @@ static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio 
 		heal_event(keep ? "trial-kept" : "trial-tried", ap, text);
 		t->start_ms = 0;
 		t->last_try = wall;
+		/* from here on, judged on what devices feel now: not the old channel's probes
+		   still in the window, and a new hold before the next trial */
+		t->fresh_ms = now_ms();
+		if (r->cause_since)
+			r->cause_since = wall;
 		return;
 	}
 	if (has) {
@@ -616,7 +623,7 @@ static void evaluate(void)
 			continue;
 		/* the report: the last 10 s were in the verdict that held */
 		heal_report_day(&reps[r - radios], (long)ag_wall_s())->secs[r->status & 3] += EVAL_EVERY;
-		collect(ap, s, idx, &n, 0);
+		collect(ap, s, idx, &n, trials[r - radios].fresh_ms);
 		heal_diagnose(s, n, &p, &res);
 		if (cfg.heal_act)
 			trial_step((int)(r - radios), ap, r, &res, &p);
@@ -627,6 +634,10 @@ static void evaluate(void)
 
 				h->base_rtt = h->base_rtt > 0 ? 0.8 * h->base_rtt + 0.2 * s[i].rtt_ms : s[i].rtt_ms;
 			}
+		/* just after a trial, too few new probes yet: the verdict stays as it is */
+		if (res.status == HEAL_UNKNOWN && trials[r - radios].fresh_ms &&
+		    now_ms() - trials[r - radios].fresh_ms < 60000)
+			continue;
 		r->measured = res.measured;
 		r->loss_pct = res.loss_pct;
 		r->rtt_ms = res.rtt_ms;
