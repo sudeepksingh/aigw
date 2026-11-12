@@ -139,6 +139,11 @@ void ag_config_load(struct ag_config *c)
 	c->flow_sni_group = 4419;
 	copy(c->wifi_ctrl, sizeof(c->wifi_ctrl), owrt ? "/var/run/hostapd" : "/run/aigw/hostapd");
 	c->steer = 1;
+	c->heal = 1;
+	c->heal_loss = 5;
+	c->heal_delay = 100;
+	c->heal_weak = -75;
+	c->heal_hops = 4;
 	c->steer_up = -60;
 	c->steer_down = -75;
 	c->steer_hold = 30;
@@ -271,6 +276,21 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "wifi", "presence_away");
 		if (v && atoi(v) >= 10)
 			c->presence_away = atoi(v);
+		v = opt(ctx, p, "wifi", "heal");
+		if (v)
+			c->heal = atoi(v) != 0;
+		v = opt(ctx, p, "wifi", "heal_loss");
+		if (v && atoi(v) >= 1 && atoi(v) <= 100)
+			c->heal_loss = atoi(v);
+		v = opt(ctx, p, "wifi", "heal_delay");
+		if (v && atoi(v) >= 10)
+			c->heal_delay = atoi(v);
+		v = opt(ctx, p, "wifi", "heal_weak");
+		if (v && atoi(v) < 0 && atoi(v) > -100)
+			c->heal_weak = atoi(v);
+		v = opt(ctx, p, "wifi", "heal_hops");
+		if (v && atoi(v) >= 2)
+			c->heal_hops = atoi(v);
 		v = opt(ctx, p, "wifi", "chan_heal");
 		if (v)
 			c->chan_heal = atoi(v) != 0;

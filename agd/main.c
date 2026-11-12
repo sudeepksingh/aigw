@@ -812,6 +812,7 @@ static int m_wifi_radios(struct ubus_context *ctx, struct ubus_object *obj,
 		blobmsg_add_u32(&b, "freq", (uint32_t)a->freq);
 		blobmsg_add_u32(&b, "width", (uint32_t)a->width);
 		chan_blob(&b, a->iface);
+		heal_blob(&b, a->iface);
 		sa = blobmsg_open_array(&b, "stations");
 		for (j = 0; j < DEV_MAX; j++) {
 			const struct device *d = &devs[j];
@@ -1009,6 +1010,7 @@ int main(int argc, char **argv)
 	sni_init();                     /* after the flow sensor: it names its connections */
 	meter_init();
 	wifi_init();
+	heal_init();
 	keys_init();
 	plugin_init();
 

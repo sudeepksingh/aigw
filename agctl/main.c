@@ -228,6 +228,14 @@ static void show_radios(struct ubus_request *req, int type, struct blob_attr *ms
 			       fnum(r, "suggest") ? "" : "\n");
 		if (fnum(r, "suggest"))
 			printf("; quieter: channel %llu\n", (unsigned long long)fnum(r, "suggest"));
+		if (field(r, "health")) {
+			struct blob_attr *h = field(r, "health");
+
+			printf("  health          %s%s%s\n", fstr(h, "status"),
+			       strcmp(fstr(h, "cause"), "None") ? ", " : "", strcmp(fstr(h, "cause"), "None") ? fstr(h, "cause") : "");
+			if (*fstr(h, "explanation"))
+				printf("                  %s\n", fstr(h, "explanation"));
+		}
 		blobmsg_for_each_attr(s, field(r, "stations"), rem2) {
 			printf("  %-17.17s %-15.15s %4d dBm %-4s %7.1f Mbit/s  %-13s %s",
 			       orb(fstr(s, "hostname"), fstr(s, "mac")), orb(fstr(s, "ip"), "-"), (int32_t)fnum(s, "signal"),

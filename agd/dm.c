@@ -36,9 +36,10 @@
 
 #include <libubus.h>
 
+#include "ag/heal.h"
 #include "agd.h"
 
-#define DM_VERSION "1.2"
+#define DM_VERSION "1.3"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -141,7 +142,7 @@ static const char *vx_path(const char *s)
 
 /* ---------- tables ---------- */
 
-enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_N };
+enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_N };
 
 static int host_listed(const struct device *d)
 {
@@ -199,6 +200,7 @@ static struct {
 	[TB_RADIO]    = { "Device.WiFi.Radio.{i}.", list_ssids },
 	[TB_AP]       = { "Device.WiFi.AccessPoint.{i}.", list_ssids },
 	[TB_FW]       = { "Device.DeviceInfo.FirmwareImage.{i}.", list_fw },
+	[TB_HEAL]     = { "Device.X_AIGW_.WiFiHealth.{i}.", list_ssids },
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -231,6 +233,7 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 	case TB_SSID:
 	case TB_RADIO:
 	case TB_AP:
+	case TB_HEAL:
 		k = imap_key(&ssid_map, inst);
 		for (i = 0; k && i < wifi_n_aps; i++)
 			if (!strcmp(wifi_aps[i].iface, k))
@@ -606,6 +609,38 @@ GET(g_ap_mode)
 }
 GET(g_ap_key) { (void)c; snprintf(buf, n, "%s", ""); return 0; }      /* TR-181: always reads empty */
 
+/* Self-Healing Wi-Fi: what each radio's devices feel, and why */
+GET(g_heal_n) { (void)c; snprintf(buf, n, "%d", count(TB_HEAL)); return 0; }
+GET(g_heal_radio) { snprintf(buf, n, "Device.WiFi.Radio.%u", c->inst); return 0; }
+static const struct heal_radio *heal_of(const struct ictx *c) { return heal_for(c->ap->iface); }
+GET(g_heal_status) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%s", heal_status_name(r ? r->status : 0)); return 0; }
+GET(g_heal_cause) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%s", heal_cause_name(r ? r->cause : 0)); return 0; }
+GET(g_heal_expl) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%s", r ? r->explanation : ""); return 0; }
+GET(g_heal_loss) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%d", r ? r->loss_pct : 0); return 0; }
+GET(g_heal_rtt) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%d", r && r->rtt_ms > 0 ? r->rtt_ms : 0); return 0; }
+GET(g_heal_meas) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%d", r ? r->measured : 0); return 0; }
+GET(g_heal_since) { const struct heal_radio *r = heal_of(c); fmt_time(r ? r->since : 0, buf, n); return 0; }
+GET(g_heal_hosts)
+{
+	const struct heal_radio *r = heal_of(c);
+	char macs[256], *m, *save, ref[48];
+
+	buf[0] = '\0';
+	if (!r)
+		return 0;
+	snprintf(macs, sizeof(macs), "%s", r->affected);
+	for (m = strtok_r(macs, ",", &save); m; m = strtok_r(NULL, ",", &save)) {
+		struct device *d = dev_find_mac(m, 0);
+
+		/* its number, given now if nobody has listed the hosts yet */
+		if (!d || !host_listed(d))
+			continue;
+		snprintf(ref, sizeof(ref), "Device.Hosts.Host.%u", imap_num(&hosts_map, d->mac));
+		snprintf(buf + strlen(buf), n - strlen(buf), "%s%s", buf[0] ? "," : "", ref);
+	}
+	return 0;
+}
+
 GET(g_fw_n) { (void)c; snprintf(buf, n, "%d", count(TB_FW)); return 0; }
 static void fw_ref(int which, char *buf, size_t n)
 {
@@ -768,6 +803,17 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Decision.{i}.Automatic", T_BOOL, 0, TB_DECISION, g_d_auto, NULL },
 	{ "Device.X_AIGW_.Decision.{i}.Created", T_TIME, 0, TB_DECISION, g_d_created, NULL },
 	{ "Device.X_AIGW_.Decision.{i}.Expires", T_TIME, 0, TB_DECISION, g_d_expires, NULL },
+
+	{ "Device.X_AIGW_.WiFiHealthNumberOfEntries", T_UINT, 0, TB_NONE, g_heal_n, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Radio", T_STR, 0, TB_HEAL, g_heal_radio, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Status", T_STR, N, TB_HEAL, g_heal_status, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Cause", T_STR, N, TB_HEAL, g_heal_cause, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Explanation", T_STR, 0, TB_HEAL, g_heal_expl, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.LossPercent", T_UINT, 0, TB_HEAL, g_heal_loss, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.LatencyMs", T_UINT, 0, TB_HEAL, g_heal_rtt, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.StationsMeasured", T_UINT, 0, TB_HEAL, g_heal_meas, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.AffectedHosts", T_STR, 0, TB_HEAL, g_heal_hosts, NULL },
+	{ "Device.X_AIGW_.WiFiHealth.{i}.Since", T_TIME, 0, TB_HEAL, g_heal_since, NULL },
 };
 #define N_PARAMS ((int)(sizeof(params) / sizeof(params[0])))
 
@@ -1020,6 +1066,7 @@ static struct {
 } events[] = {
 	{ "Device.X_AIGW_.Alert!", "Alert,Kind,Severity,Host,Subject,Reason" },
 	{ "Device.X_AIGW_.DecisionChanged!", "Decision,Action,State,Host" },
+	{ "Device.X_AIGW_.WiFiHealthChanged!", "WiFiHealth,Radio,Status,Cause,Explanation" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -1515,6 +1562,24 @@ void dm_on_decision(uint32_t id, const char *state)
 		const char *kv[] = { "Decision", ref, "Action", action, "State", state, "Host", host, NULL };
 
 		emit(events[1].path, kv);   /* DecisionChanged! */
+	}
+}
+
+void dm_on_heal(const char *iface)
+{
+	const struct heal_radio *r = heal_for(iface);
+	uint32_t num = imap_find(&ssid_map, iface);
+	char ref[96], radio[48];
+
+	if (!r || !num)
+		return;
+	snprintf(ref, sizeof(ref), "Device.%s.WiFiHealth.%u", vx, num);
+	snprintf(radio, sizeof(radio), "Device.WiFi.Radio.%u", num);
+	{
+		const char *kv[] = { "WiFiHealth", ref, "Radio", radio, "Status", heal_status_name(r->status),
+				     "Cause", heal_cause_name(r->cause), "Explanation", r->explanation, NULL };
+
+		emit(events[2].path, kv);   /* WiFiHealthChanged! */
 	}
 }
 

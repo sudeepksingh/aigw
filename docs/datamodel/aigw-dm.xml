@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.2. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.3. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-2" file="aigw-dm-1-2.xml">
+             spec="urn:aigw-os:aigw-dm-1-3" file="aigw-dm-1-3.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.2">
+  <model name="AIGW-OS:1.3">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DeviceInfo." access="readOnly" minEntries="1" maxEntries="1">
@@ -35,6 +35,7 @@
       <parameter name="AlertDetails" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="AlertNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="DecisionNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WiFiHealthNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <command name="Quarantine()">
         <input>
           <parameter name="Host"><syntax><string/></syntax></parameter>
@@ -67,6 +68,13 @@
         <parameter name="State"><syntax><string/></syntax></parameter>
         <parameter name="Host"><syntax><string/></syntax></parameter>
       </event>
+      <event name="WiFiHealthChanged!">
+        <parameter name="WiFiHealth"><syntax><string/></syntax></parameter>
+        <parameter name="Radio"><syntax><string/></syntax></parameter>
+        <parameter name="Status"><syntax><string/></syntax></parameter>
+        <parameter name="Cause"><syntax><string/></syntax></parameter>
+        <parameter name="Explanation"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DeviceInfo.FirmwareImage." access="readOnly" minEntries="1" maxEntries="1">
     </object>
@@ -81,6 +89,8 @@
     <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Decision." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.WiFiHealth." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DeviceInfo.FirmwareImage.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="FirmwareImageNumberOfEntries">
       <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -179,6 +189,17 @@
           <parameter name="State"><syntax><string/></syntax></parameter>
         </output>
       </command>
+    </object>
+    <object name="Device.X_AIGW_.WiFiHealth.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="WiFiHealthNumberOfEntries">
+      <parameter name="Radio" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Cause" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Explanation" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="LossPercent" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LatencyMs" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="StationsMeasured" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="AffectedHosts" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
     </object>
     <object name="Device.WiFi.AccessPoint.{i}.Security." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="ModesSupported" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>

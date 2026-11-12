@@ -46,6 +46,16 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.24:** **AIGW Self-Healing Wi-Fi, part 1: the gateway knows why Wi-Fi is
+> slow.** AIGW measures what each device in use actually feels (loss and delay,
+> not what the radio claims), learns the home's normal, and names the cause:
+> a busy channel, weak coverage, a device hopping between bands, one device, or
+> the radio. It tells the home in plain words, and the ISP's help desk over
+> USP / TR-069 (`Device.X_AIGW_.WiFiHealth`), before anyone calls. It works on
+> any radio. On the PC access point it found, by itself, the weak coverage we
+> had traced by hand. Part 2 fixes what is safe to fix.
+> [docs/self-healing-wifi.md](docs/self-healing-wifi.md)
+>
 > **v0.23:** **a native prplOS component.** `aigw-amx` publishes AIGW OS's data
 > model (alerts, decisions, mode, commands, events) on prplOS's bus as an
 > Ambiorix component. prplOS's own USP agent, TR-069 client, CLI and web UI see

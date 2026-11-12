@@ -244,6 +244,7 @@ static void poll_iface(const char *dir, const char *iface)
 			d->wifi_sig_avg = d->wifi_signal;
 			d->steer_cond_since = 0;
 			emit("roamed", d);
+			heal_roamed(d);
 		}
 		d->wifi_signal = (int)kv(reply, "signal", d->wifi_signal);
 		if (d->wifi_signal)

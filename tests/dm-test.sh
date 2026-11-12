@@ -91,7 +91,7 @@ js() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 
 echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
-js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 7 and len(d['events']) == 2 and
+js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 7 and len(d['events']) == 3 and
          [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()'] else 1)" < "$T/schema.json" ||
 	fail "schema: $(head -c 300 "$T/schema.json")"
 python3 "$REPO/scripts/dm-xml" "$T/schema.json" > "$T/dm.xml"

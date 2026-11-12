@@ -271,4 +271,50 @@ until ip netns exec "$NC" iw dev "$STA" link | grep -q 'SSID: AIGW-NEW'; do
 	i=$((i + 1)); [ $i -gt 30 ] && fail "the client did not join AIGW-NEW with the new passphrase"; sleep 1
 done
 echo "   name, passphrase and channel 11 set over the data model, saved, applied; the client joined again"
+
+echo "== Self-Healing Wi-Fi: what the client feels, and why (loss injected on its access point)"
+STAMAC=$(ip netns exec "$NC" cat "/sys/class/net/$STA/address")
+ip -n "$NC" addr add 10.95.0.50/24 dev "$STA" 2>/dev/null || true
+echo "1999999999 $STAMAC 10.95.0.50 hwsim-phone *" >> "$T/leases"
+# in use (a phone being used passes traffic; one asleep isn't measured)
+ip netns exec "$NC" ping -q -i 0.2 10.95.0.1 > /dev/null 2>&1 & PIDS="$PIDS $!"
+radio_of_client() {   # the access point the client is on, and its health: "<iface> <status> <cause>"
+	"$BIN/agctl/agctl" -j wifi | python3 -c "
+import json, sys
+for r in json.load(sys.stdin)['radios']:
+    if any(s.get('mac', '').lower() == '$STAMAC'.lower() for s in r.get('stations', [])):
+        h = r.get('health', {})
+        print(r['iface'], h.get('status', ''), h.get('cause', ''))
+"
+}
+wait_health() {   # wait_health <status regex> <cause regex> <seconds>
+	i=0
+	while [ $i -lt "$3" ]; do
+		set -- "$1" "$2" "$3" $(radio_of_client)
+		if [ -n "${5:-}" ] && echo "$5" | grep -Eq "^($1)$" && echo "${6:-}" | grep -Eq "^($2)$"; then
+			AP_H=$4
+			return 0
+		fi
+		sleep 2; i=$((i + 2))
+	done
+	echo "--- agd"; grep -i 'wifi health' "$T/agd.log" | tail -n 5
+	"$BIN/agctl/agctl" wifi
+	return 1
+}
+wait_health Good None 120 || fail "the client's access point should be measured as Good first"
+echo "   $AP_H: Good"
+"${UBUS:-$(command -v ubus || echo /usr/local/bin/ubus)}" -s "$AIGW_UBUS" listen ag.dm.event > "$T/heal-events.log" 2>&1 & PIDS="$PIDS $!"
+command -v tc >/dev/null || fail "missing tc"
+modprobe sch_netem 2>/dev/null || true
+tc qdisc add dev "$AP_H" root netem loss 30% || fail "netem (sch_netem) on $AP_H"
+wait_health 'Degraded|Poor' Congestion 200 || { tc qdisc del dev "$AP_H" root 2>/dev/null; fail "30% loss with a strong signal should read as Congestion"; }
+N=$("$BIN/agctl/agctl" dm get Device.WiFi.SSID. | sed -n "s/^Device\.WiFi\.SSID\.\([0-9]*\)\.Name = $AP_H$/\1/p")
+"$BIN/agctl/agctl" dm get "Device.X_AIGW_.WiFiHealth.$N." > "$T/heal-dm.txt"
+grep -q 'Cause = Congestion' "$T/heal-dm.txt" && grep -q "AffectedHosts = Device.Hosts.Host" "$T/heal-dm.txt" ||
+	fail "the data model: $(cat "$T/heal-dm.txt")"
+grep -q 'WiFiHealthChanged!' "$T/heal-events.log" || fail "no WiFiHealthChanged! event"
+echo "   30% loss: $(grep -o 'Status = .*' "$T/heal-dm.txt"), Congestion; $(sed -n 's/.*Explanation = //p' "$T/heal-dm.txt" | cut -c1-110)..."
+tc qdisc del dev "$AP_H" root
+wait_health Good None 240 || fail "Good again once the loss is gone"
+echo "   loss removed: Good again"
 echo "HWSIM TEST OK"

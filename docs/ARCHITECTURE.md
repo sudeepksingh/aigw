@@ -897,6 +897,17 @@ Verified also by usp-test (the agent on a mosquitto TLS listener requiring a cli
 
 Verified by `tests/amx-test.sh` (CI, real Ambiorix): ubusd, agd, `amxrt -B mod-amxb-ubus.so … aigw-amx-build.odl`; checked over ubus as prplOS's agents reach components (`_get`, `_set`, methods, `ubus subscribe` for signals). Not done yet: a prplOS feed package, mounting under prplOS's `Device.`, a real prplOS image.
 
+**As built in v0.24: AIGW Self-Healing Wi-Fi, part 1 (measure, learn, diagnose, report).** Where AIGW is meant to beat prplOS and RDK-B, which carry the data model but don't understand the home: the gateway finds out why Wi-Fi is bad, from what devices feel.
+
+| Piece | As built |
+|-------|----------|
+| Measure (`agd/heal.c`) | A raw ICMP socket on the loop. Once a second, an echo to each Wi-Fi device that is in use: hostapd `STA` says `inactive_msec` < 300, or rx + tx packets grow by 4 or more a second (more than the probe's own). Sleeping devices aren't measured, since power save fakes loss and delay. A ring of 128 probes per device; timeout 1 s; window 2 minutes: loss, median delay. |
+| Learn | Each device's usual delay (EWMA while it is not degraded); band changes from wifi.c's "roamed" (kept 10 minutes). |
+| Diagnose (`core/libag/heal.c`, pure, `tests/test_heal.c`) | Per access point every 10 s. Degraded device: at least 15 probes and (loss >= `wifi.heal_loss` 5 % or (delay >= `heal_delay` 100 ms and >= 3x usual)). Radio: at least 2 measured, all lost. BandHopping: >= `heal_hops` 4 band changes (named first: fixable). WeakCoverage: most affected at or below `heal_weak` -75 dBm. Device: one affected of at least 2. Otherwise Congestion. Poor at 20 % or 300 ms. A change must hold for 2 looks (3 for Good). |
+| Report | Log line, `ag.wifi` event `health`, `ag.wifi radios` `health` (`agctl wifi`), data model 1.3: `Device.X_AIGW_.WiFiHealth.{i}` (same number as its Radio; `AffectedHosts` as Host references) and `WiFiHealthChanged!`. |
+
+Verified by `tests/test_heal.c` (each cause, including the real channel-6 case) and `tests/hwsim-test.sh` (CI: a client in use measured Good, 30 % `netem` loss on its access point read as Congestion in agctl and the data model with the event, Good again after). On the PC access point (two RTL8821CU, real phone): "2.4 GHz (channel 11): OnePlus-Nord-5 loses 6% of its traffic with a weak signal (-77 dBm)", which matches what had been traced by hand. Part 2: acting on it (a measured channel change, the 5 GHz floor) through the guardrails.
+
 ---
 
 ## 17. Status and risks
