@@ -328,8 +328,8 @@ until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 24'; do
 done
 sleep 10
 ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 24' || fail "the client should stay on 2.4 GHz (not steered back)"
-hostapd_cli -p "$T/run/hostapd" -i "$AP5" deny_acl show | grep -qi "$STAMAC" || fail "the 5 GHz access point should refuse it"
-hostapd_cli -p "$T/run/hostapd" -i "$AP24" deny_acl show | grep -qi "$STAMAC" && fail "the 2.4 GHz access point should not refuse it"
+hostapd_cli -p "$T/run/hostapd" -i "$AP5" deny_acl SHOW | grep -qi "$STAMAC" || fail "the 5 GHz access point should refuse it"
+hostapd_cli -p "$T/run/hostapd" -i "$AP24" deny_acl SHOW | grep -qi "$STAMAC" && fail "the 2.4 GHz access point should not refuse it"
 SID=$(decs | awk '$2 == "active" && $3 == "stay24" {print $1; exit}')
 [ -n "$SID" ] || fail "no active stay24 decision"
 echo "   on 2.4 GHz, refused on $AP5 only (decision #$SID)"
@@ -421,7 +421,7 @@ wait_health Good None 240 || fail "Good again once the loss is gone"
 
 echo "== stay24 undone: the 5 GHz access point takes the client again"
 "$BIN/agctl/agctl" undo "$SID" > /dev/null || fail "undo stay24"
-hostapd_cli -p "$T/run/hostapd" -i "$AP5" deny_acl show | grep -qi "$STAMAC" && fail "the 5 GHz access point should take it again"
+hostapd_cli -p "$T/run/hostapd" -i "$AP5" deny_acl SHOW | grep -qi "$STAMAC" && fail "the 5 GHz access point should take it again"
 i=0
 until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 5'; do
 	i=$((i + 1)); [ $i -gt 60 ] && break; sleep 1
