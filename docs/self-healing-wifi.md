@@ -31,7 +31,7 @@ Every 10 seconds, for each access point (`core/libag/heal.c`, unit-tested in
 |---|---|---|
 | `Congestion` | loss or delay while the signal is fine | a quieter channel |
 | `WeakCoverage` | loss or delay with a weak signal (-75 dBm or weaker) | the access point or its antennas elsewhere |
-| `BandHopping` | a device changing band 4 times in 10 minutes | keeping it on 2.4 GHz |
+| `BandHopping` | a device changing band by itself 4 times in 10 minutes with a marginal 5 GHz signal (-65 dBm or weaker); moves AIGW's band steering asked for don't count | keeping it on 2.4 GHz |
 | `Device` | one device suffers while the others are fine | the device itself |
 | `Radio` | no device answers at all | the radio |
 

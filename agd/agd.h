@@ -410,7 +410,8 @@ struct heal_radio {
 	int pend_status, pend_cause, pend_n;
 };
 void heal_init(void);
-void heal_roamed(const struct device *d);
+/* wifi.c: it moved to another access point; its band and signal before */
+void heal_roamed(const struct device *d, int old_band, int old_signal);
 const struct heal_radio *heal_for(const char *iface);
 void heal_blob(struct blob_buf *b, const char *iface);
 void dm_on_heal(const char *iface);

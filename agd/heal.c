@@ -93,13 +93,26 @@ static struct hdev *state_of(int i)
 	return h;
 }
 
-/* wifi.c: the device is on another access point now */
-void heal_roamed(const struct device *d)
+/*
+ * wifi.c: the device is on another access point now. It counts towards
+ * "hopping" when it moved by itself with a marginal 5 GHz signal: not when
+ * AIGW steered it (band steering), and not with a strong signal (an access
+ * point restarted, say).
+ */
+#define HOP_STEERED_S 60
+#define HOP_MARGINAL  -65               /* dBm on 5 GHz at or below which it is marginal */
+
+void heal_roamed(const struct device *d, int old_band, int old_signal)
 {
 	struct hdev *h;
-	int i = (int)(d - devs);
+	int i = (int)(d - devs), sig5;
 
 	if (i < 0 || i >= DEV_MAX)
+		return;
+	if (d->steer_last && ag_wall_s() - d->steer_last <= HOP_STEERED_S)
+		return;
+	sig5 = d->wifi_band == 5 ? d->wifi_signal : old_band == 5 ? old_signal : 0;
+	if (!sig5 || sig5 > HOP_MARGINAL)
 		return;
 	h = state_of(i);
 	memmove(h->hops + 1, h->hops, sizeof(h->hops[0]) * (HOPS_KEPT - 1));
