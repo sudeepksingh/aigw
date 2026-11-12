@@ -399,6 +399,23 @@ int wifi_ban(const char *mac, int on, char *err, size_t errlen);
 int wifi_all(const char *cmd, char *reply, size_t n);
 int wifi_kick(const char *mac);
 
+/* heal.c: Self-Healing Wi-Fi (measure, diagnose, report) */
+struct heal_radio {
+	char iface[24];
+	int status, cause;              /* enum heal_status / heal_cause (ag/heal.h) */
+	int measured, loss_pct, rtt_ms;
+	int64_t since;                  /* the verdict holds since */
+	char explanation[400];
+	char affected[256];             /* MACs, comma-separated */
+	int pend_status, pend_cause, pend_n;
+};
+void heal_init(void);
+/* wifi.c: it moved to another access point; its band and signal before */
+void heal_roamed(const struct device *d, int old_band, int old_signal);
+const struct heal_radio *heal_for(const char *iface);
+void heal_blob(struct blob_buf *b, const char *iface);
+void dm_on_heal(const char *iface);
+
 /* manage.c: Wi-Fi settings and firmware, as a management system changes them */
 enum { WS_SSID, WS_KEY, WS_MODE, WS_CHANNEL, WS_WIDTH, WS_N };
 extern const char *const wifi_modes[];

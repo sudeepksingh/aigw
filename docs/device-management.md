@@ -285,7 +285,7 @@ The Wi-Fi handler (`wifi.handler`) is replaceable the same way:
 `wifi-config set <iface>`, with the new values in `AIGW_WIFI_SSID`,
 `AIGW_WIFI_KEY`, `AIGW_WIFI_MODE`, `AIGW_WIFI_CHANNEL` and `AIGW_WIFI_WIDTH`.
 
-## The data model (version 1.2)
+## The data model (version 1.3)
 
 The full definition, as ISPs load it into their controllers, is
 [`datamodel/aigw-dm.xml`](datamodel/aigw-dm.xml). It is made from what `agd`
@@ -299,6 +299,7 @@ the two differ.
 | `Device.Hosts.Host.{i}.` | `PhysAddress`, `IPAddress`, `HostName`, `Active`; `X_AIGW_` type, zone, first and last seen, rates and bytes up and down, Wi-Fi band and signal | no |
 | `Device.WiFi.Radio.{i}.` | `Enable`, `Status`, `Name`, `SupportedFrequencyBands`, `OperatingFrequencyBand`, `Channel`, `SupportedOperatingChannelBandwidths`, `OperatingChannelBandwidth` | `Channel`, `OperatingChannelBandwidth` |
 | `Device.WiFi.SSID.{i}.` | `Name` (interface), `LowerLayers`, `SSID`, `BSSID`; `X_AIGW_` band, channel, width, stations | `SSID` |
+| `Device.X_AIGW_.WiFiHealth.{i}.` | Self-Healing Wi-Fi, one per radio: `Radio`, `Status`, `Cause`, `Explanation`, `LossPercent`, `LatencyMs`, `StationsMeasured`, `AffectedHosts`, `Since`; event `WiFiHealthChanged!` ([self-healing-wifi.md](self-healing-wifi.md)) | no |
 | `Device.WiFi.AccessPoint.{i}.` | `SSIDReference`, `AssociatedDeviceNumberOfEntries`, `Security.ModesSupported`, `Security.ModeEnabled`, `Security.KeyPassphrase` | `ModeEnabled`, `KeyPassphrase` |
 | `Device.X_AIGW_.` | `Mode` (off / advise / enforce), `ActionsAllowed`, `AlertDetails` | `Mode` |
 | `Device.X_AIGW_.Alert.{i}.` | `Kind`, `Severity`, `Host` (a reference), `Subject`, `Reason`, `Score`, `FirstSeen`, `LastSeen`, `Count` | no |

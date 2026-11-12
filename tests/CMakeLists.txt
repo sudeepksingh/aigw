@@ -10,6 +10,10 @@ add_executable(test_sign test_sign.c)
 target_link_libraries(test_sign ag)
 add_test(NAME signatures COMMAND test_sign)
 
+add_executable(test_heal test_heal.c)
+target_link_libraries(test_heal ag)
+add_test(NAME wifi_diagnosis COMMAND test_heal)
+
 add_executable(test_sni test_sni.c)
 target_link_libraries(test_sni ag)
 add_test(NAME server_names COMMAND test_sni ${PROJECT_SOURCE_DIR}/tests/data)

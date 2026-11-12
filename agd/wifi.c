@@ -237,6 +237,9 @@ static void poll_iface(const char *dir, const char *iface)
 			emit("connected", d);
 		} else if (strcmp(d->wifi_iface, iface)) {
 			/* on another access point now (another band, or a mesh node) */
+			int old_band = d->wifi_band;
+			double old_sig = d->wifi_sig_avg;
+
 			snprintf(d->wifi_iface, sizeof(d->wifi_iface), "%.23s", iface);
 			d->wifi_band = band;
 			d->wifi_since = ag_wall_s() - kv(reply, "connected_time", 0);
@@ -244,6 +247,7 @@ static void poll_iface(const char *dir, const char *iface)
 			d->wifi_sig_avg = d->wifi_signal;
 			d->steer_cond_since = 0;
 			emit("roamed", d);
+			heal_roamed(d, old_band, (int)old_sig);
 		}
 		d->wifi_signal = (int)kv(reply, "signal", d->wifi_signal);
 		if (d->wifi_signal)

@@ -96,6 +96,11 @@ struct ag_config {
 	int steer_kick;           /* devices without 802.11v may be moved by refusing them on one band */
 	int steer_rate;           /* most moves a minute in the whole home */
 	int presence_away;        /* seconds unseen before a device has left */
+	int heal;                 /* Self-Healing Wi-Fi: measure what devices feel, name what is wrong */
+	int heal_loss;            /* % of lost probes that is a problem */
+	int heal_delay;           /* ms of delay that is a problem (and 3x a device's usual) */
+	int heal_weak;            /* dBm at or below which a signal is weak */
+	int heal_hops;            /* band changes in 10 minutes that count as hopping */
 	int chan_heal;            /* watch how busy each access point's channel is; suggest a quieter one */
 	int chan_busy;            /* % of the air used by others that counts as busy */
 	int chan_hold;            /* seconds it must stay that busy */

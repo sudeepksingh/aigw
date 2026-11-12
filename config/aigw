@@ -239,6 +239,16 @@ config policy 'wifi_busy'
 config wifi 'wifi'
 	# hostapd control sockets; leave unset for the platform default
 	# option ctrl_dir '/var/run/hostapd'
+	# Self-Healing Wi-Fi (docs/self-healing-wifi.md): measure what each device
+	# in use feels (loss, delay), learn the home's normal, name what is wrong
+	# (congestion, weak coverage, band hopping, one device, the radio)
+	option heal '1'
+	# a problem: this % of lost probes, or this many ms (and 3x the device's usual)
+	# option heal_loss '5'
+	# option heal_delay '100'
+	# a weak signal (dBm), and band changes in 10 minutes that count as hopping
+	# option heal_weak '-75'
+	# option heal_hops '4'
 	# the program that saves and applies Wi-Fi settings a management system
 	# changes; default: the platform's (OpenWRT: /etc/config/wireless; a PC:
 	# /etc/aigw/pc-ap.conf). An OEM with its own Wi-Fi stack names its own
