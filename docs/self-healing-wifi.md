@@ -3,8 +3,8 @@
 "My Wi-Fi is slow" is the most common, and most expensive, call an ISP's help
 desk gets. AIGW OS answers it on the gateway itself: it measures what each
 device actually feels, learns what is normal in this home, names the cause,
-and tells both the home and the ISP. Part 2 (next release) fixes what is safe
-to fix, through AIGW's guardrails.
+tells both the home and the ISP, and fixes what is safe to fix, through
+AIGW's guardrails, checking afterwards that the fix really helped.
 
 ## Measure what devices feel, not what the radio says
 
@@ -27,30 +27,65 @@ often it changes band, that is enough to tell most problems apart.
 Every 10 seconds, for each access point (`core/libag/heal.c`, unit-tested in
 `tests/test_heal.c`):
 
-| Cause | What it looks like | What would help |
+| Cause | What it looks like | What AIGW does |
 |---|---|---|
-| `Congestion` | loss or delay while the signal is fine | a quieter channel |
-| `WeakCoverage` | loss or delay with a weak signal (-75 dBm or weaker) | the access point or its antennas elsewhere |
-| `BandHopping` | a device changing band by itself 4 times in 10 minutes with a marginal 5 GHz signal (-65 dBm or weaker); moves AIGW's band steering asked for don't count | keeping it on 2.4 GHz |
-| `Device` | one device suffers while the others are fine | the device itself |
-| `Radio` | no device answers at all | the radio |
+| `Congestion` | loss or delay while the signal is fine | a measured channel trial (below) |
+| `WeakCoverage` | loss or delay with a weak signal (-75 dBm or weaker) | advice: alert `wifi-coverage` (move the access point or its antennas) |
+| `BandHopping` | a device changing band by itself 4 times in 10 minutes with a marginal 5 GHz signal (-65 dBm or weaker); moves AIGW's band steering asked for don't count | keeps it on 2.4 GHz for a day (below) |
+| `Device` | one device suffers while the others are fine | advice: alert `wifi-device` |
+| `Radio` | no device answers at all | alert `wifi-radio` (warning) |
 
 The status is `Good`, `Degraded` (5 % loss, or 100 ms and 3x its usual delay)
 or `Poor` (20 %, or 300 ms). A new verdict must hold for two looks (20 s), and
 `Good` again for three, so one bad moment doesn't flap.
 
+## Fix it, and check the fix
+
+Every action goes through the same guardrails as the rest of AIGW: `act.mode`
+(`advise` proposes and waits for a person, `enforce` acts on its own), the
+policies, the hourly limit on automatic actions, a time limit on every action,
+and undo (`agctl undo <id>`).
+
+**A channel trial, for `Congestion`.** When `Congestion` has held for
+`heal_hold` (5 minutes), agd raises alert `wifi-congestion` for another
+channel the radio may use here (not one that failed in the last day). The
+`wifi_congestion` policy makes it a `channel` decision. Once the switch is in
+effect, agd measures the new channel for `heal_trial` (3 minutes), counting
+only probes sent after the switch (and not the first 20 s, while devices
+reconnect), and compares with what devices felt before:
+
+- **Clearly better** (`Good`, or half the loss, or half the delay, and never
+  more loss): the decision becomes `kept`. It no longer switches back at its
+  time limit, and the channel is saved in the Wi-Fi config through the Wi-Fi
+  handler without restarting anything (`AIGW_WIFI_SAVE_ONLY=1`).
+- **Not better:** agd switches back, and the decision becomes `tried` (not
+  `reverted`, so cortex doesn't learn "a person said no"). That channel is
+  avoided for a day, and the next trial waits `heal_retry` (30 minutes).
+
+**A device kept on 2.4 GHz, for `BandHopping`.** Alert `wifi-hopping` (once a
+day per device). The `wifi_hopping` policy makes it a `stay24` decision for a
+day: the 5 GHz access points refuse the device (it is disconnected there, and
+joins 2.4 GHz), band steering leaves it alone, and the 2.4 GHz access points
+still take it. A person can do the same: `agctl do stay24 <device> 1d`.
+
+An ISP or OEM changes any of this with its own `policy` sections (another
+action, a weaker mode, a zone) or turns acting off with `heal_act 0`.
+
 ## Report it
 
-- **To the home:** `agctl wifi` and agd's log, in plain words, e.g.
-  *"2.4 GHz (channel 11): OnePlus-Nord-5 loses 6% of its traffic with a weak
-  signal (-77 dBm): too far from the access point, or walls in the way."*
-  (found on the PC access point, on real radios).
+- **To the home:** `agctl wifi`, `agctl decisions` and agd's log, in plain
+  words, e.g. *"2.4 GHz (channel 11): OnePlus-Nord-5 loses 6% of its traffic
+  with a weak signal (-77 dBm): too far from the access point, or walls in the
+  way."* (found on the PC access point, on real radios), or *"Channel 6 -> 1
+  worked (devices lose 0%, before 15%): kept and saved."*
 - **To the ISP**, over USP and TR-069 alike: `Device.X_AIGW_.WiFiHealth.{i}`,
   one per radio (`Radio` refers to `Device.WiFi.Radio.{i}`), with `Status`,
   `Cause`, `Explanation`, `LossPercent`, `LatencyMs`, `StationsMeasured`,
-  `AffectedHosts` and `Since`, and the event `WiFiHealthChanged!`. A help
-  desk sees the diagnosis before anyone calls.
-- An `ag.wifi` event `health` for plug-ins.
+  `AffectedHosts` and `Since`, and the event `WiFiHealthChanged!`; the alerts
+  and decisions (states `kept` and `tried` included) in
+  `Device.X_AIGW_.Alert.{i}` and `Device.X_AIGW_.Decision.{i}`. A help desk
+  sees the diagnosis, and what was done about it, before anyone calls.
+- `ag.wifi` events for plug-ins: `health`, `trial-kept`, `trial-tried`.
 
 ## Settings (`/etc/config/aigw`, section `wifi`)
 
@@ -61,12 +96,27 @@ or `Poor` (20 %, or 300 ms). A new verdict must hold for two looks (20 s), and
 | `heal_delay` | `100` | ms of delay that is a problem (and 3x a device's usual) |
 | `heal_weak` | `-75` | dBm at or below which a signal is weak |
 | `heal_hops` | `4` | band changes in 10 minutes that count as hopping |
+| `heal_act` | `1` | act on it (channel trials, `wifi-hopping`), through `act.mode` |
+| `heal_hold` | `300` | seconds `Congestion` must hold before a channel trial |
+| `heal_trial` | `180` | seconds a trial is measured |
+| `heal_retry` | `1800` | seconds between trials on one access point |
+
+## For whoever ships the gateway
+
+The Wi-Fi handler (`wifi.handler`) gets `AIGW_WIFI_SAVE_ONLY=1` when a value
+is already in effect and only needs saving (a kept channel). The PC handler
+writes `pc-ap.conf`, the OpenWRT one `/etc/config/wireless` without
+`wifi reload`; an OEM's own handler should do the same.
 
 ## Tests
 
 - `tests/test_heal.c` (unit): each cause, including the real case found on the
   PC access point (channel 6: 15 % loss at about -70 dBm).
 - `tests/hwsim-test.sh` (simulated radios, CI): a client in use is measured
-  `Good`; 30 % loss injected on its access point (`tc netem`) reads as
+  `Good`; `stay24` moves it to 2.4 GHz and only the 5 GHz access point refuses
+  it; 30 % loss injected on its access point (`tc netem`) reads as
   `Congestion` in `agctl` and the data model, with a `WiFiHealthChanged!`
-  event; without the loss, `Good` again.
+  event; in enforce mode, a channel trial starts, the loss goes away, the
+  trial is `kept` and the channel saved in `pc-ap.conf`; `Good` again; with
+  the loss back, a second trial on another channel doesn't help and is
+  switched back (`tried`); undoing `stay24` lifts the refusal.

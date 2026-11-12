@@ -195,7 +195,8 @@ config act 'act'
 
 # Policies: when an alert is raised, which action to propose. A policy's own
 # mode can only be weaker than act.mode. Actions: quarantine, disconnect,
-# throttle (with option rate, kbit/s), deprioritize, priority, or a plug-in's
+# throttle (with option rate, kbit/s), deprioritize, priority, channel (Wi-Fi),
+# stay24 (keep a device on 2.4 GHz), or a plug-in's
 # action ("<plugin>.<action>", see agctl plugins). 'option zone iot' limits a
 # policy to devices in that zone. Skills (plug-ins) bring policies of their own.
 # (Blocking a domain is never automatic: run 'agctl block <domain>'.)
@@ -230,6 +231,20 @@ config policy 'wifi_busy'
 	option action 'channel'
 	option ttl '86400'
 
+config policy 'wifi_congestion'
+	# Self-Healing Wi-Fi: devices lose traffic though their signal is fine:
+	# try a quieter channel, measure it, keep it if it is better, else back
+	option alert 'wifi-congestion'
+	option action 'channel'
+	option ttl '3600'
+
+config policy 'wifi_hopping'
+	# a device keeps hopping to a 5 GHz it can barely reach: keep it on 2.4 GHz
+	# for a day (refused on the 5 GHz access points only)
+	option alert 'wifi-hopping'
+	option action 'stay24'
+	option ttl '86400'
+
 # config policy 'upload_spike'
 #	option alert 'upload-spike'
 #	option action 'throttle'
@@ -249,6 +264,13 @@ config wifi 'wifi'
 	# a weak signal (dBm), and band changes in 10 minutes that count as hopping
 	# option heal_weak '-75'
 	# option heal_hops '4'
+	# act on it (through act.mode and the wifi_congestion / wifi_hopping
+	# policies): congestion held this many seconds starts a channel trial,
+	# judged after heal_trial seconds; another trial at most every heal_retry
+	# option heal_act '1'
+	# option heal_hold '300'
+	# option heal_trial '180'
+	# option heal_retry '1800'
 	# the program that saves and applies Wi-Fi settings a management system
 	# changes; default: the platform's (OpenWRT: /etc/config/wireless; a PC:
 	# /etc/aigw/pc-ap.conf). An OEM with its own Wi-Fi stack names its own

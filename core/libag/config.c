@@ -81,7 +81,8 @@ int ag_policy_action_ok(const char *action)
 		return 0;
 	/* blocking a domain is never automatic: the user names it */
 	if (!strcmp(action, "quarantine") || !strcmp(action, "disconnect") || !strcmp(action, "throttle") ||
-	    !strcmp(action, "deprioritize") || !strcmp(action, "priority") || !strcmp(action, "channel"))
+	    !strcmp(action, "deprioritize") || !strcmp(action, "priority") || !strcmp(action, "channel") ||
+	    !strcmp(action, "stay24"))
 		return 1;
 	dot = strchr(action, '.');
 	if (!dot || dot == action || (size_t)(dot - action) >= sizeof(plugin) || !dot[1] || strlen(dot + 1) > 23)
@@ -144,6 +145,10 @@ void ag_config_load(struct ag_config *c)
 	c->heal_delay = 100;
 	c->heal_weak = -75;
 	c->heal_hops = 4;
+	c->heal_act = 1;
+	c->heal_hold = 300;
+	c->heal_trial = 180;
+	c->heal_retry = 1800;
 	c->steer_up = -60;
 	c->steer_down = -75;
 	c->steer_hold = 30;
@@ -291,6 +296,18 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "wifi", "heal_hops");
 		if (v && atoi(v) >= 2)
 			c->heal_hops = atoi(v);
+		v = opt(ctx, p, "wifi", "heal_act");
+		if (v)
+			c->heal_act = atoi(v) != 0;
+		v = opt(ctx, p, "wifi", "heal_hold");
+		if (v && atoi(v) >= 10)
+			c->heal_hold = atoi(v);
+		v = opt(ctx, p, "wifi", "heal_trial");
+		if (v && atoi(v) >= 10)
+			c->heal_trial = atoi(v);
+		v = opt(ctx, p, "wifi", "heal_retry");
+		if (v && atoi(v) >= 10)
+			c->heal_retry = atoi(v);
 		v = opt(ctx, p, "wifi", "chan_heal");
 		if (v)
 			c->chan_heal = atoi(v) != 0;
@@ -476,6 +493,10 @@ defaults:
 		add_policy(c, "dga_burst", "dga-burst", "quarantine", NULL, 0, 0, AG_MODE_ENFORCE);
 		/* a quieter channel for a day; then back, and judged again */
 		add_policy(c, "wifi_busy", "wifi-busy", "channel", NULL, 86400, 0, AG_MODE_ENFORCE);
+		/* Self-Healing Wi-Fi: a channel trial (kept when it measures better, else
+		   back within the trial), and a device kept on 2.4 GHz for a day */
+		add_policy(c, "wifi_congestion", "wifi-congestion", "channel", NULL, 3600, 0, AG_MODE_ENFORCE);
+		add_policy(c, "wifi_hopping", "wifi-hopping", "stay24", NULL, 86400, 0, AG_MODE_ENFORCE);
 	}
 }
 

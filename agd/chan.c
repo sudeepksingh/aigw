@@ -241,6 +241,20 @@ static int scan(const char *iface, struct bss *out, int max)
 
 /* Whether this radio may run an access point on channel ch here
  * (`iw phy`: not disabled, no "no IR", no radar detection). */
+static int allowed_here(const char *iface, int band, int ch);
+
+/* for Self-Healing Wi-Fi's trials: the channels AIGW would use on this access point */
+int chan_options(const struct wifi_ap *a, int *out, int max)
+{
+	int n, i, k = 0;
+	const int *c = candidates(a->band, a->width ? a->width : 20, &n);
+
+	for (i = 0; i < n && k < max; i++)
+		if (c[i] != a->channel && allowed_here(a->iface, a->band, c[i]))
+			out[k++] = c[i];
+	return k;
+}
+
 static int allowed_here(const char *iface, int band, int ch)
 {
 	char cmd[160], line[256], want[24];

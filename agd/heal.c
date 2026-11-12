@@ -19,7 +19,20 @@
  *            data model's Device.X_AIGW_.WiFiHealth.{i} and its
  *            WiFiHealthChanged! event, `agctl wifi`.
  *
- * Part 2 acts on it (a quieter channel, the 5 GHz floor) through the guardrails.
+ * Part 2 acts on it, always through the guardrails (act.mode, the policies,
+ * the hourly limit, time limits, undo):
+ *   Congestion  held for wifi.heal_hold (5 min): alert "wifi-congestion" for
+ *               another channel; the wifi_congestion policy makes it a
+ *               "channel" decision. A trial: measured for wifi.heal_trial
+ *               (3 min) on the new channel, only probes sent after the switch.
+ *               Clearly better: kept (decision "kept", the channel saved in the
+ *               Wi-Fi config, nothing restarted). Not: switched back (decision
+ *               "tried"), that channel avoided for a day, the next try after
+ *               wifi.heal_retry (30 min).
+ *   BandHopping alert "wifi-hopping" for the device (once a day); the
+ *               wifi_hopping policy keeps it on 2.4 GHz for a day ("stay24").
+ *   WeakCoverage, Device, Radio: advice, as an alert ("wifi-coverage",
+ *               "wifi-device", "wifi-radio"); nothing a gateway could switch fixes them.
  */
 #define _GNU_SOURCE
 #include <arpa/inet.h>
@@ -249,7 +262,8 @@ static int cmp_int(const void *a, const void *b)
 	return *(const int *)a - *(const int *)b;
 }
 
-static void window(int i, struct heal_sta *s)
+/* the last 2 minutes, or only probes sent after since_ms (a channel trial) */
+static void window(int i, struct heal_sta *s, int64_t since_ms)
 {
 	struct hdev *h = state_of(i);
 	int64_t t = now_ms();
@@ -259,7 +273,7 @@ static void window(int i, struct heal_sta *s)
 	for (k = 0; k < RING; k++) {
 		struct probe *p = &h->ring[k];
 
-		if (!p->sent_ms || t - p->sent_ms > WINDOW_MS)
+		if (!p->sent_ms || t - p->sent_ms > WINDOW_MS || p->sent_ms < since_ms)
 			continue;
 		if (p->rtt_ms == -2 && t - p->sent_ms > TIMEOUT_MS)
 			p->rtt_ms = -1;                 /* no answer in time */
@@ -309,7 +323,7 @@ static const char *dname(const struct device *d)
 static void explain(struct heal_radio *r, const struct wifi_ap *ap, const struct heal_result *res,
 		    const struct heal_sta *s, int *idx, int n)
 {
-	char where[64], who[160] = "";
+	char where[64], who[160] = "", delay[48] = "";
 	int i, worst = -1, nw = 0;
 
 	snprintf(where, sizeof(where), "%s GHz (channel %d)", ap->band == 5 ? "5" : "2.4", ap->channel);
@@ -323,12 +337,15 @@ static void explain(struct heal_radio *r, const struct wifi_ap *ap, const struct
 		}
 	if (nw > 3)
 		snprintf(who + strlen(who), sizeof(who) - strlen(who), " and %d more", nw - 3);
+	/* a delay worth naming (not "replies take 0 ms") */
+	if (worst >= 0 && s[worst].rtt_ms >= 5)
+		snprintf(delay, sizeof(delay), " and replies take %d ms", s[worst].rtt_ms);
 	switch (res->cause) {
 	case HC_CONGESTION:
 		snprintf(r->explanation, sizeof(r->explanation),
-			 "%s: %s %s %d%% of its traffic and replies take %d ms, though the signal is fine (%d dBm): "
+			 "%s: %s %s %d%% of its traffic%s, though the signal is fine (%d dBm): "
 			 "the channel is busy (neighbouring networks or interference). A quieter channel would help.",
-			 where, who, nw > 1 ? "lose" : "loses", heal_sta_loss_pct(&s[worst]), s[worst].rtt_ms, s[worst].signal);
+			 where, who, nw > 1 ? "lose" : "loses", heal_sta_loss_pct(&s[worst]), delay, s[worst].signal);
 		break;
 	case HC_COVERAGE:
 		snprintf(r->explanation, sizeof(r->explanation),
@@ -344,9 +361,9 @@ static void explain(struct heal_radio *r, const struct wifi_ap *ap, const struct
 		break;
 	case HC_DEVICE:
 		snprintf(r->explanation, sizeof(r->explanation),
-			 "%s: only %s %s %d%% of its traffic (replies %d ms, signal %d dBm); the other devices here "
+			 "%s: only %s %s %d%% of its traffic%s (signal %d dBm); the other devices here "
 			 "are fine: the trouble is likely the device itself.",
-			 where, who, "loses", heal_sta_loss_pct(&s[worst]), s[worst].rtt_ms, s[worst].signal);
+			 where, who, "loses", heal_sta_loss_pct(&s[worst]), delay, s[worst].signal);
 		break;
 	case HC_RADIO:
 		snprintf(r->explanation, sizeof(r->explanation),
@@ -370,6 +387,197 @@ static void explain(struct heal_radio *r, const struct wifi_ap *ap, const struct
 				 r->affected[0] ? "," : "", devs[idx[i]].mac);
 }
 
+/* ---------- part 2: acting on it ---------- */
+
+#define TRIAL_GRACE_MS 20000            /* after a switch, devices reconnect: not counted */
+#define BAD_FOR        86400            /* a channel that didn't help is avoided for a day */
+#define BAD_KEPT       8
+
+struct trial {
+	int64_t last_try;               /* wall s: last time a trial was asked for */
+	int64_t start_ms;               /* monotonic: the switch took effect; 0 = no trial */
+	uint32_t id;                    /* its decision */
+	int from, to;                   /* channels */
+	int before_loss, before_rtt;    /* what devices felt before */
+	struct { int ch; int64_t until; } bad[BAD_KEPT];
+};
+
+static struct trial trials[WIFI_AP_MAX];
+
+static int is_bad(const struct trial *t, int ch)
+{
+	int i;
+
+	for (i = 0; i < BAD_KEPT; i++)
+		if (t->bad[i].ch == ch && t->bad[i].until > ag_wall_s())
+			return 1;
+	return 0;
+}
+
+static void mark_bad(struct trial *t, int ch)
+{
+	int i, k = 0;
+
+	for (i = 0; i < BAD_KEPT; i++)
+		if (t->bad[i].ch == ch || t->bad[i].until < t->bad[k].until)
+			k = i;
+	t->bad[k].ch = ch;
+	t->bad[k].until = ag_wall_s() + BAD_FOR;
+}
+
+static void collect(const struct wifi_ap *ap, struct heal_sta *s, int *idx, int *n, int64_t since_ms)
+{
+	int i;
+
+	*n = 0;
+	for (i = 0; i < DEV_MAX && *n < 32; i++)
+		if (devs[i].used && devs[i].wifi_connected && !strcmp(devs[i].wifi_iface, ap->iface)) {
+			window(i, &s[*n], since_ms);
+			idx[(*n)++] = i;
+		}
+}
+
+static void heal_event(const char *what, const struct wifi_ap *ap, const char *text)
+{
+	struct blob_buf b = { 0 };
+
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "event", what);
+	blobmsg_add_string(&b, "iface", ap->iface);
+	blobmsg_add_string(&b, "explanation", text);
+	agd_emit(AG_EV_WIFI, &b);
+	blob_buf_free(&b);
+}
+
+/* the trial on this access point: started, judged, or a new one asked for */
+static void trial_step(int a, const struct wifi_ap *ap, const struct heal_radio *r, const struct heal_result *now_res,
+		       const struct heal_params *p)
+{
+	struct trial *t = &trials[a];
+	uint32_t id = 0;
+	int active = 0, ours = 0, has = act_channel_for(ap->iface, "wifi_congestion", &id, &active, &ours) == 0;
+	int64_t wall = ag_wall_s();
+
+	if (t->start_ms) {                              /* a trial is running */
+		struct heal_sta s[32];
+		struct heal_result after;
+		int idx[32], n, elapsed = (int)((now_ms() - t->start_ms) / 1000), keep;
+		char note[200], text[400];
+
+		if (!has || !active || id != t->id) {   /* undone or expired meanwhile: not ours to judge */
+			t->start_ms = 0;
+			return;
+		}
+		if (elapsed < cfg.heal_trial)
+			return;
+		collect(ap, s, idx, &n, t->start_ms + TRIAL_GRACE_MS);
+		heal_diagnose(s, n, p, &after);
+		if (!after.measured && elapsed < 2 * cfg.heal_trial)
+			return;                         /* nobody awake to measure yet: a little longer */
+		keep = after.measured && after.loss_pct <= t->before_loss &&
+		       (after.status == HEAL_GOOD || (t->before_loss > 0 && after.loss_pct * 2 <= t->before_loss) ||
+			(t->before_rtt > 0 && after.rtt_ms >= 0 && after.rtt_ms * 2 <= t->before_rtt));
+		if (keep) {
+			char ch[8];
+
+			snprintf(note, sizeof(note), "kept: on channel %d devices lose %d%% (%d ms), before %d%% (%d ms)",
+				 t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms, t->before_loss,
+				 t->before_rtt < 0 ? 0 : t->before_rtt);
+			act_keep(t->id, note);
+			snprintf(ch, sizeof(ch), "%d", t->to);
+			wifiset_save(ap->iface, WS_CHANNEL, ch, "Self-Healing Wi-Fi");
+			snprintf(text, sizeof(text), "Channel %d -> %d worked (devices lose %d%%, before %d%%): kept and saved.",
+				 t->from, t->to, after.loss_pct, t->before_loss);
+		} else {
+			if (after.measured)
+				snprintf(note, sizeof(note), "tried: on channel %d devices lose %d%% (%d ms), before %d%% (%d ms); "
+					 "back to %d", t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms, t->before_loss,
+					 t->before_rtt < 0 ? 0 : t->before_rtt, t->from);
+			else
+				snprintf(note, sizeof(note), "tried: no device could be measured on channel %d; back to %d", t->to,
+					 t->from);
+			act_undo_because(t->id, note);
+			mark_bad(t, t->to);
+			snprintf(text, sizeof(text), "Channel %d -> %d did not help: switched back; channel %d is avoided for a day.",
+				 t->from, t->to, t->to);
+		}
+		AG_INFO("wifi health: %s %s", ap->iface, text);
+		heal_event(keep ? "trial-kept" : "trial-tried", ap, text);
+		t->start_ms = 0;
+		t->last_try = wall;
+		return;
+	}
+	if (has) {
+		/* the switch is in effect: the trial starts now, against what devices felt before
+		   (the 2-minute window is still nearly all before the switch) */
+		if (active && ours && ap->channel != t->from) {
+			t->start_ms = now_ms();
+			t->id = id;
+			t->to = ap->channel;
+			t->before_loss = now_res->loss_pct;
+			t->before_rtt = now_res->rtt_ms;
+			AG_INFO("wifi health: %s trial on channel %d (from %d): measuring for %d s", ap->iface, t->to, t->from,
+				cfg.heal_trial);
+		}
+		return;                                 /* proposed, waiting for a person, or someone else's */
+	}
+	if (r->status == HEAL_GOOD || r->status == HEAL_UNKNOWN || r->cause != HC_CONGESTION ||
+	    wall - r->since < cfg.heal_hold || (t->last_try && wall - t->last_try < cfg.heal_retry))
+		return;
+	{
+		int opts[16], no = chan_options(ap, opts, 16), i, pick = 0;
+		char target[40], reason[640];
+
+		for (i = 0; i < no && !pick; i++)
+			if (!is_bad(t, opts[i]))
+				pick = opts[i];
+		t->last_try = wall;
+		if (!pick) {
+			AG_INFO("wifi health: %s congested, but every other channel was tried in the last day", ap->iface);
+			return;
+		}
+		t->from = ap->channel;
+		snprintf(target, sizeof(target), "%.23s:%d", ap->iface, pick);
+		snprintf(reason, sizeof(reason),
+			 "%.400s For %d minutes now. A trial on channel %d: measured for %d s, kept if devices do clearly "
+			 "better, else switched back.", r->explanation, (int)((wall - r->since) / 60), pick, cfg.heal_trial);
+		alerts_raise("wifi-congestion", "info", target, ap->iface, now_res->loss_pct / 100.0, reason);
+	}
+}
+
+/* a new verdict: the alert that goes with it (once a day per device and kind, alerts.c) */
+static void verdict_alerts(const struct wifi_ap *ap, const struct heal_radio *r, const struct heal_result *res,
+			   const struct heal_sta *s, const int *idx, int n, const struct heal_params *p)
+{
+	const char *kind = r->cause == HC_COVERAGE ? "wifi-coverage" : r->cause == HC_DEVICE ? "wifi-device" :
+			   r->cause == HC_RADIO ? "wifi-radio" : r->cause == HC_HOPPING ? "wifi-hopping" : NULL;
+	int i;
+
+	if (!kind || r->status == HEAL_GOOD)
+		return;
+	if (r->cause == HC_RADIO) {
+		alerts_raise(kind, "warning", ap->iface, ap->iface, 1.0, r->explanation);
+		return;
+	}
+	for (i = 0; i < n; i++) {
+		const struct device *d = &devs[idx[i]];
+		char reason[400];
+
+		if (!(res->affected & (1u << i)) || !d->ip[0])
+			continue;
+		if (r->cause == HC_HOPPING) {
+			if (!cfg.heal_act || s[i].roams < p->hops)
+				continue;
+			snprintf(reason, sizeof(reason),
+				 "%s switched between 2.4 and 5 GHz %d times in 10 minutes, its 5 GHz signal marginal: keeping "
+				 "it on 2.4 GHz for a day gives it a steady connection.", dname(d), s[i].roams);
+			alerts_raise(kind, "info", d->ip, "5 GHz edge", s[i].roams, reason);
+		} else {
+			alerts_raise(kind, "info", d->ip, ap->iface, heal_sta_loss_pct(&s[i]) / 100.0, r->explanation);
+		}
+	}
+}
+
 static void evaluate(void)
 {
 	struct heal_params p;
@@ -389,12 +597,10 @@ static void evaluate(void)
 
 		if (!r)
 			continue;
-		for (i = 0; i < DEV_MAX && n < 32; i++)
-			if (devs[i].used && devs[i].wifi_connected && !strcmp(devs[i].wifi_iface, ap->iface)) {
-				window(i, &s[n]);
-				idx[n++] = i;
-			}
+		collect(ap, s, idx, &n, 0);
 		heal_diagnose(s, n, &p, &res);
+		if (cfg.heal_act)
+			trial_step((int)(r - radios), ap, r, &res, &p);
 		/* learn each well device's usual delay */
 		for (i = 0; i < n; i++)
 			if (s[i].samples >= p.min_samples && s[i].rtt_ms >= 0 && !heal_sta_degraded(&s[i], &p)) {
@@ -439,6 +645,7 @@ static void evaluate(void)
 				blob_buf_free(&b);
 			}
 			dm_on_heal(ap->iface);
+			verdict_alerts(ap, r, &res, s, idx, n, &p);
 		} else {
 			r->pend_n = 0;
 			explain(r, ap, &res, s, idx, n);        /* same verdict, today's numbers */

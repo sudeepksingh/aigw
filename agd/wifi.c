@@ -368,7 +368,20 @@ int wifi_kick(const char *mac)
  * list) and kick it off; off = let it join again. Returns 0 when at least
  * one access point did it.
  */
+static int ban(const char *mac, int band, int on, char *err, size_t errlen);
+
 int wifi_ban(const char *mac, int on, char *err, size_t errlen)
+{
+	return ban(mac, 0, on, err, errlen);
+}
+
+int wifi_ban_band(const char *mac, int band, int on, char *err, size_t errlen)
+{
+	return ban(mac, band, on, err, errlen);
+}
+
+/* band 0: every access point */
+static int ban(const char *mac, int band, int on, char *err, size_t errlen)
 {
 	char lmac[18], path[512], cmd[64], reply[4096];
 	DIR *dir;
@@ -390,6 +403,12 @@ int wifi_ban(const char *mac, int on, char *err, size_t errlen)
 		snprintf(path, sizeof(path), "%s/%s", cfg.wifi_ctrl, e->d_name);
 		if (stat(path, &st) || !S_ISSOCK(st.st_mode))
 			continue;
+		if (band) {
+			const struct wifi_ap *ap = wifi_ap_find(e->d_name);
+
+			if (!ap || ap->band != band)
+				continue;
+		}
 		aps++;
 		if (on) {
 			/* already refused (e.g. re-applied after a minute): leave it be */

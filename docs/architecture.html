@@ -278,7 +278,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand"><img src="brand/logo-mark.svg" alt="">AIGW <span>OS</span></div>
-  <div class="ver">architecture v0.3 · code v0.24 · 2026-11-11</div>
+  <div class="ver">architecture v0.3 · code v0.25 · 2026-11-12</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1374,6 +1374,17 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Proof</td><td>Unit test per cause; simulated radios with injected loss read as Congestion and recover; on the PC access point it found the weak coverage that had been traced by hand.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.25: AIGW Self-Healing Wi-Fi, part 2</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Channel trial</td><td>A busy channel for 5 minutes: switch, measure what devices feel for 3 minutes, keep and save the new channel only if it is clearly better (<code>kept</code>), else switch back and avoid it for a day (<code>tried</code>).</td></tr>
+      <tr><td>Stay on 2.4 GHz</td><td>A device hopping to a 5 GHz it can barely reach is refused by the 5 GHz access points for a day (<code>stay24</code>); band steering leaves it alone.</td></tr>
+      <tr><td>Advice</td><td>Weak coverage, one faulty device, or a dead radio: alerts in plain words.</td></tr>
+      <tr><td>Guardrails</td><td>All of it through <code>act.mode</code>, the policies, the hourly limit, time limits and undo; the ISP sees alerts and decisions over USP and TR-069.</td></tr>
+      <tr><td>Proof</td><td>Simulated radios: stay24 moves the client to 2.4 GHz; a trial with the interference gone is kept and saved; one with it still there is switched back.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1414,7 +1425,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.24 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-11</footer>
+<footer>AIGW architecture v0.3 · implementation v0.25 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-12</footer>
 </main>
 </div>
 

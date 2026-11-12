@@ -180,13 +180,27 @@ const char *wifi_handler(void)
 	return handler_path(cfg.wifi_handler, "wifi-config");
 }
 
+static void flush(const char *who, int save_only);
+
 void wifiset_flush(const char *who)
+{
+	flush(who, 0);
+}
+
+/* already in effect (a channel trial that worked): only saved, nothing restarted */
+void wifiset_save(const char *iface, int what, const char *v, const char *who)
+{
+	wifiset_stage(iface, what, v);
+	flush(who, 1);
+}
+
+static void flush(const char *who, int save_only)
 {
 	const char *prog = wifi_handler();
 	int s, w;
 
 	for (s = 0; s < WIFI_AP_MAX; s++) {
-		char envs[WS_N][100], *env[WS_N + 1], *argv[4];
+		char envs[WS_N + 1][100], *env[WS_N + 2], *argv[4];
 		struct ws_job *j;
 		int ne = 0;
 
@@ -198,6 +212,11 @@ void wifiset_flush(const char *who)
 				env[ne] = envs[ne];
 				ne++;
 			}
+		if (save_only) {
+			snprintf(envs[ne], sizeof(envs[ne]), "AIGW_WIFI_SAVE_ONLY=1");
+			env[ne] = envs[ne];
+			ne++;
+		}
 		env[ne] = NULL;
 		argv[0] = (char *)prog;
 		argv[1] = "set";
