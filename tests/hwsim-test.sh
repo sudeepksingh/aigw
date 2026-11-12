@@ -409,25 +409,28 @@ until decs | grep -q "^$TID2 tried "; do
 	fi
 	sleep 1
 done
+# the interference goes away now (left on, another trial would follow after heal_retry)
+tc qdisc del dev "$AP_H" root
 i=0
 until hostapd_cli -p "$T/run/hostapd" -i "$AP_H" status | grep -q "^channel=$CH1$"; do
-	i=$((i + 1)); [ $i -gt 20 ] && { tc qdisc del dev "$AP_H" root 2>/dev/null; fail "back on channel $CH1"; }; sleep 1
+	i=$((i + 1)); [ $i -gt 20 ] && fail "back on channel $CH1"; sleep 1
 done
 grep -q "^CHANNEL='$CH1'" "$T/pc-ap.conf" || fail "the saved channel should still be $CH1"
 grep -q "wifi health: $AP_H Channel $CH1 -> $CH2 did not help" "$T/agd.log" || fail "agd should say the trial did not help"
 echo "   tried: back on channel $CH1, $CH2 avoided for a day"
-tc qdisc del dev "$AP_H" root
 wait_health Good None 240 || fail "Good again once the loss is gone"
 
 echo "== the healing report: what was found and fixed, for the ISP"
 "$BIN/agctl/agctl" wifi --report | tee "$T/report.txt"
 # the trials on the client's 2.4 GHz access point; stay24 on the one it was on (5 GHz) when it was set
-grep -A3 "^$AP_H " "$T/report.txt" | grep -q "channel trials kept 1, switched back 1" ||
-	fail "agctl wifi --report should show 1 trial kept, 1 switched back on $AP_H"
+# (at least: the loss lingers in the 2-minute window, so one more trial may have run meanwhile)
+grep -A3 "^$AP_H " "$T/report.txt" | grep -Eq "channel trials kept [1-9], switched back [1-9]" ||
+	fail "agctl wifi --report should show trials kept and switched back on $AP_H"
 grep -q "devices kept on 2.4 GHz 1" "$T/report.txt" || fail "agctl wifi --report should count the device kept on 2.4 GHz"
 "$BIN/agctl/agctl" dm get "Device.X_AIGW_.WiFiHealth.$N.Stats.Day." > "$T/stats.txt"
-grep -q "Stats.Day.ChannelTrialsKept = 1" "$T/stats.txt" && grep -q "Stats.Day.ChannelTrialsTried = 1" "$T/stats.txt" &&
-	grep -Eq "Stats.Day.CongestionFound = [2-9]" "$T/stats.txt" && grep -q "Stats.Day.Fixes = 1" "$T/stats.txt" &&
+KEPT=$(sed -n 's/.*Stats\.Day\.ChannelTrialsKept = //p' "$T/stats.txt")
+grep -Eq "Stats.Day.ChannelTrialsKept = [1-9]" "$T/stats.txt" && grep -Eq "Stats.Day.ChannelTrialsTried = [1-9]" "$T/stats.txt" &&
+	grep -Eq "Stats.Day.CongestionFound = [2-9]" "$T/stats.txt" && grep -q "Stats.Day.Fixes = $KEPT$" "$T/stats.txt" &&
 	grep -Eq "Stats.Day.LossBeforePercent = [1-9]" "$T/stats.txt" && grep -Eq "Stats.Day.MeanTimeToFix = [1-9]" "$T/stats.txt" ||
 	fail "the data model's Stats.Day: $(cat "$T/stats.txt")"
 echo "   Stats.Day: $(grep -E 'GoodPercent|ProblemsFound|Fixes|MeanTimeToFix|LossBefore|LossAfter' "$T/stats.txt" | sed 's/.*Stats\.Day\.//' | tr '\n' ' ')"
@@ -436,7 +439,9 @@ kill "$AGD"
 i=0; while kill -0 "$AGD" 2>/dev/null; do i=$((i + 1)); [ $i -gt 20 ] && fail "agd did not stop"; sleep 0.5; done
 "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
 i=0
-until "$BIN/agctl/agctl" wifi --report > "$T/report2.txt" 2>/dev/null && grep -q "channel trials kept 1, switched back 1" "$T/report2.txt"; do
+until "$BIN/agctl/agctl" wifi --report > "$T/report2.txt" 2>/dev/null &&
+	[ "$(grep -A3 "^$AP_H " "$T/report.txt" | grep -m1 -o 'trials kept [0-9]*, switched back [0-9]*')" = \
+	  "$(grep -A3 "^$AP_H " "$T/report2.txt" | grep -m1 -o 'trials kept [0-9]*, switched back [0-9]*')" ]; do
 	i=$((i + 1)); [ $i -gt 30 ] && { cat "$T/report2.txt"; fail "the healing report should survive a restart"; }; sleep 1
 done
 grep -q "restored [0-9]* days of the healing report" "$T/agd.log" || fail "agd should say it restored the report"

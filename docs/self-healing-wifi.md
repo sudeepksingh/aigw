@@ -168,7 +168,7 @@ writes `pc-ap.conf`, the OpenWRT one `/etc/config/wireless` without
   event; in enforce mode, a channel trial starts, the loss goes away, the
   trial is `kept` and the channel saved in `pc-ap.conf`; `Good` again; with
   the loss back, a second trial on another channel doesn't help and is
-  switched back (`tried`); `agctl wifi --report` and `Stats.Day` count one
-  trial kept, one switched back, one device kept on 2.4 GHz, with the loss
+  switched back (`tried`); `agctl wifi --report` and `Stats.Day` count the
+  trials kept and switched back, the device kept on 2.4 GHz, with the loss
   before and after and the time to fix, also after an agd restart; undoing
   `stay24` lifts the refusal.
