@@ -109,10 +109,11 @@ def luci_check(base):
 
 
 class ACS:
-    """The host side of tests/cwmp/acs.py (serving in DIR): queue jobs, read what the CPE sent."""
+    """The host side of tests/cwmp/acs.py (serving in DIR): queue jobs, read what the CPE sent.
+    Jobs wake the CPE with connection requests (cr: url, user, password), as an ACS does."""
 
-    def __init__(self, d, vm):
-        self.d, self.vm = d, vm
+    def __init__(self, d, vm, cr=None):
+        self.d, self.vm, self.cr = d, vm, cr
         for sub in ("jobs", "done"):
             os.makedirs(os.path.join(d, sub), exist_ok=True)
 
@@ -148,7 +149,23 @@ class ACS:
             json.dump({"rpcs": rpcs}, f)
         os.rename(tmp, os.path.join(self.d, "jobs", name))
         done = os.path.join(self.d, "done", name)
-        if not self.wait(lambda: os.path.exists(done), timeout):
+        last = [0.0]
+
+        def ready():
+            if os.path.exists(done):
+                return True
+            if self.cr and time.time() - last[0] > 10:      # wake it (again, if a session was running)
+                last[0] = time.time()
+                url, user, password = self.cr
+                pm = urllib.request.HTTPPasswordMgrWithDefaultRealm()
+                pm.add_password(None, url, user, password)
+                op = urllib.request.build_opener(urllib.request.HTTPDigestAuthHandler(pm))
+                try:
+                    op.open(url, timeout=10).read()
+                except Exception:  # noqa: BLE001 - retried; the job's own timeout decides
+                    pass
+            return False
+        if not self.wait(ready, timeout):
             return None
         with open(done) as f:
             return json.load(f)["results"]
@@ -228,13 +245,14 @@ def main():
         print(f"    {'PASS' if good else 'FAIL'} {name}: {msg}", flush=True)
         return 0 if good else 1
 
-    def isp_checks(acs_dir, acs_port):
+    def isp_checks(acs_dir, acs_port, cr_port):
         """USP and TR-069 on this OpenWRT, and with --upgrade a real firmware upgrade from the ACS."""
         bad = 0
-        acs = ACS(acs_dir, vm)
+        acs = ACS(acs_dir, vm, (f"http://127.0.0.1:{cr_port}/", "cr", "qemu-cr-pass") if cr_port else None)
         say("USP: OB-USP-Agent with AIGW's plug-in, asked on the device (its CLI)")
         vm.run("uci set aigw.mgmt.enabled=1; uci set aigw.usp.broker=10.0.2.2; uci set aigw.usp.tls=0;"
                f" uci set aigw.cwmp.url=http://10.0.2.2:{acs_port}/; uci set aigw.cwmp.periodic_interval=30;"
+               " uci set aigw.cwmp.cr_username=cr; uci set aigw.cwmp.cr_password=qemu-cr-pass;"
                " uci commit aigw; /etc/init.d/aigw-usp enable; /etc/init.d/aigw-usp restart;"
                " /etc/init.d/aigw-cwmp enable; /etc/init.d/aigw-cwmp restart", 120)
         cli = "obuspa -s /etc/aigw/usp/cli.sock -c"
@@ -309,8 +327,9 @@ def main():
             print(f"    FAIL luci: {e}", flush=True)
             failed += 1
         if acs_arg:
-            acs_dir, acs_port = acs_arg.rsplit(":", 1)
-            failed += isp_checks(acs_dir, acs_port)
+            parts = acs_arg.split(":")
+            acs_dir, acs_port = parts[0], parts[1]
+            failed += isp_checks(acs_dir, acs_port, parts[2] if len(parts) > 2 else "")
         if keep:
             # something to look at, including a hostile host name the pages must show as text
             vm.run("t=$(( $(date +%s) + 86400 )); printf '%s\\n' "
