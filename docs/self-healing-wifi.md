@@ -61,7 +61,8 @@ and undo (`agctl undo <id>`).
 
 **A channel trial, for `Congestion`.** When `Congestion` has held for
 `heal_hold` (5 minutes), agd raises alert `wifi-congestion` for another
-channel the radio may use here (not one that failed in the last day). The
+channel the radio may use here (not one tried or proposed in the last day,
+which agd knows from its decisions, also after a restart). The
 `wifi_congestion` policy makes it a `channel` decision. Once the switch is in
 effect, agd measures the new channel for `heal_trial` (3 minutes), counting
 only probes sent after the switch (and not the first 20 s, while devices

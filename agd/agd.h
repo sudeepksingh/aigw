@@ -401,6 +401,7 @@ int wifi_ban(const char *mac, int on, char *err, size_t errlen);
 int wifi_ban_band(const char *mac, int band, int on, char *err, size_t errlen);
 /* act.c, for Self-Healing Wi-Fi */
 int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours, int *from);
+int act_channel_recent(const char *target, int64_t since);
 int act_keep(uint32_t id, const char *note);
 int act_undo_because(uint32_t id, const char *note);
 int act_active(const char *action, const char *target);

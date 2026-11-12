@@ -891,6 +891,20 @@ int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *ac
 	return -1;
 }
 
+/* a channel decision for this target ("iface:channel") made since `since`, in
+   any state: its alert would not be raised again so soon, and a trial that
+   didn't help is avoided (kept in the decisions: it survives a restart) */
+int act_channel_recent(const char *target, int64_t since)
+{
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++)
+		if (decs[i].used && !strcmp(decs[i].action, "channel") && !strcmp(decs[i].target, target) &&
+		    decs[i].created >= since)
+			return 1;
+	return 0;
+}
+
 /* a trial that worked: it stays (no switching back at its time limit) */
 int act_keep(uint32_t id, const char *note)
 {

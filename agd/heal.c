@@ -593,9 +593,13 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 		int opts[16], no = chan_options(ap, opts, 16), i, pick = 0;
 		char target[40], reason[640];
 
-		for (i = 0; i < no && !pick; i++)
-			if (!is_bad(t, opts[i]))
+		/* not one that failed in the last day, nor one proposed in it (its alert
+		   wouldn't be raised again), even if agd restarted since */
+		for (i = 0; i < no && !pick; i++) {
+			snprintf(target, sizeof(target), "%.23s:%d", ap->iface, opts[i]);
+			if (!is_bad(t, opts[i]) && !act_channel_recent(target, wall - BAD_FOR))
 				pick = opts[i];
+		}
 		t->last_try = wall;
 		if (!pick) {
 			AG_INFO("wifi health: %s congested, but every other channel was tried in the last day", ap->iface);
