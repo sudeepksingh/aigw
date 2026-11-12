@@ -400,6 +400,7 @@ static void explain(struct heal_radio *r, const struct wifi_ap *ap, const struct
 #define TRIAL_GRACE_MS 20000            /* after a switch, devices reconnect: not counted */
 #define BAD_FOR        86400            /* a channel that didn't help is avoided for a day */
 #define BAD_KEPT       8
+#define BEFORE_FOR_MS  180000           /* the last measured look stands for "before" this long */
 
 struct trial {
 	int64_t last_try;               /* wall s: last time a trial was asked for */
@@ -409,6 +410,8 @@ struct trial {
 	int before_loss, before_rtt;    /* what devices felt before */
 	int64_t fresh_ms;               /* monotonic: the last trial was judged; the verdict counts only
 	                                   probes after it (the window still held the old channel's) */
+	int last_loss, last_rtt;        /* the last look that measured someone, and when (monotonic): */
+	int64_t last_ms;                /* "before", when the switch itself left nobody to measure */
 	struct { int ch; int64_t until; } bad[BAD_KEPT];
 };
 
@@ -465,7 +468,8 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 {
 	struct trial *t = &trials[a];
 	uint32_t id = 0;
-	int active = 0, ours = 0, has = act_channel_for(ap->iface, "wifi_congestion", &id, &active, &ours) == 0;
+	int active = 0, ours = 0, from = 0,
+	    has = act_channel_for(ap->iface, "wifi_congestion", &id, &active, &ours, &from) == 0;
 	int64_t wall = ag_wall_s();
 
 	if (t->start_ms) {                              /* a trial is running */
@@ -484,30 +488,47 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 		heal_diagnose(s, n, p, &after);
 		if (!after.measured && elapsed < 2 * cfg.heal_trial)
 			return;                         /* nobody awake to measure yet: a little longer */
-		keep = after.measured && after.loss_pct <= t->before_loss &&
-		       (after.status == HEAL_GOOD || (t->before_loss > 0 && after.loss_pct * 2 <= t->before_loss) ||
-			(t->before_rtt > 0 && after.rtt_ms >= 0 && after.rtt_ms * 2 <= t->before_rtt));
+		/* "before" unknown (-1): kept only if devices are now plainly fine */
+		keep = after.measured &&
+		       (t->before_loss < 0 ? after.status == HEAL_GOOD :
+			after.loss_pct <= t->before_loss &&
+			(after.status == HEAL_GOOD || (t->before_loss > 0 && after.loss_pct * 2 <= t->before_loss) ||
+			 (t->before_rtt > 0 && after.rtt_ms >= 0 && after.rtt_ms * 2 <= t->before_rtt)));
 		if (keep) {
 			struct heal_day *day = heal_report_day(&reps[a], (long)wall);
 			char ch[8];
+			/* unknown before: counted as no change, so the report never claims a gain it didn't see */
+			int bl = t->before_loss < 0 ? after.loss_pct : t->before_loss,
+			    br = t->before_loss < 0 ? after.rtt_ms : t->before_rtt;
 
 			day->kept++;
 			day->fixes++;
 			day->fix_secs += r->problem_since ? (unsigned)(wall - r->problem_since) : 0;
-			day->loss_before += (unsigned)t->before_loss;
+			day->loss_before += (unsigned)bl;
 			day->loss_after += (unsigned)after.loss_pct;
-			day->rtt_before += t->before_rtt > 0 ? (unsigned)t->before_rtt : 0;
+			day->rtt_before += br > 0 ? (unsigned)br : 0;
 			day->rtt_after += after.rtt_ms > 0 ? (unsigned)after.rtt_ms : 0;
-			snprintf(note, sizeof(note), "kept: on channel %d devices lose %d%% (%d ms), before %d%% (%d ms)",
-				 t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms, t->before_loss,
-				 t->before_rtt < 0 ? 0 : t->before_rtt);
+			if (t->before_loss < 0)
+				snprintf(note, sizeof(note), "kept: on channel %d devices lose %d%% (%d ms), "
+					 "before not measured", t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms);
+			else
+				snprintf(note, sizeof(note), "kept: on channel %d devices lose %d%% (%d ms), before %d%% (%d ms)",
+					 t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms, t->before_loss,
+					 t->before_rtt < 0 ? 0 : t->before_rtt);
 			act_keep(t->id, note);
 			snprintf(ch, sizeof(ch), "%d", t->to);
 			wifiset_save(ap->iface, WS_CHANNEL, ch, "Self-Healing Wi-Fi");
-			snprintf(text, sizeof(text), "Channel %d -> %d worked (devices lose %d%%, before %d%%): kept and saved.",
-				 t->from, t->to, after.loss_pct, t->before_loss);
+			if (t->before_loss < 0)
+				snprintf(text, sizeof(text), "Channel %d -> %d worked (devices lose %d%%): kept and saved.",
+					 t->from, t->to, after.loss_pct);
+			else
+				snprintf(text, sizeof(text), "Channel %d -> %d worked (devices lose %d%%, before %d%%): kept and saved.",
+					 t->from, t->to, after.loss_pct, t->before_loss);
 		} else {
-			if (after.measured)
+			if (after.measured && t->before_loss < 0)
+				snprintf(note, sizeof(note), "tried: on channel %d devices lose %d%% (%d ms), before not measured; "
+					 "back to %d", t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms, t->from);
+			else if (after.measured)
 				snprintf(note, sizeof(note), "tried: on channel %d devices lose %d%% (%d ms), before %d%% (%d ms); "
 					 "back to %d", t->to, after.loss_pct, after.rtt_ms < 0 ? 0 : after.rtt_ms, t->before_loss,
 					 t->before_rtt < 0 ? 0 : t->before_rtt, t->from);
@@ -532,16 +553,36 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 		return;
 	}
 	if (has) {
+		/* where it switches back to: the decision knows, even after agd restarted
+		   between the proposal and a person's approval */
+		if (from > 0)
+			t->from = from;
 		/* the switch is in effect: the trial starts now, against what devices felt before
-		   (the 2-minute window is still nearly all before the switch) */
+		   (the 2-minute window is still nearly all before the switch). A radio that
+		   restarts to switch drops everyone for a moment: then the last look that
+		   measured someone, if recent, else "not measured" */
 		if (active && ours && ap->channel != t->from) {
-			t->start_ms = now_ms();
+			int64_t now = now_ms();
+
+			t->start_ms = now;
 			t->id = id;
 			t->to = ap->channel;
-			t->before_loss = now_res->loss_pct;
-			t->before_rtt = now_res->rtt_ms;
-			AG_INFO("wifi health: %s trial on channel %d (from %d): measuring for %d s", ap->iface, t->to, t->from,
-				cfg.heal_trial);
+			if (now_res->measured) {
+				t->before_loss = now_res->loss_pct;
+				t->before_rtt = now_res->rtt_ms;
+			} else if (t->last_ms && now - t->last_ms <= BEFORE_FOR_MS) {
+				t->before_loss = t->last_loss;
+				t->before_rtt = t->last_rtt;
+			} else {
+				t->before_loss = t->before_rtt = -1;
+			}
+			if (t->before_loss < 0)
+				AG_INFO("wifi health: %s trial on channel %d (from %d): measuring for %d s (before: not measured)",
+					ap->iface, t->to, t->from, cfg.heal_trial);
+			else
+				AG_INFO("wifi health: %s trial on channel %d (from %d): measuring for %d s (before: loss %d%%, %d ms)",
+					ap->iface, t->to, t->from, cfg.heal_trial, t->before_loss,
+					t->before_rtt < 0 ? 0 : t->before_rtt);
 		}
 		return;                                 /* proposed, waiting for a person, or someone else's */
 	}
@@ -627,6 +668,11 @@ static void evaluate(void)
 		heal_diagnose(s, n, &p, &res);
 		if (cfg.heal_act)
 			trial_step((int)(r - radios), ap, r, &res, &p);
+		if (res.measured && !trials[r - radios].start_ms) {     /* "before" for a trial to come */
+			trials[r - radios].last_loss = res.loss_pct;
+			trials[r - radios].last_rtt = res.rtt_ms;
+			trials[r - radios].last_ms = now_ms();
+		}
 		/* learn each well device's usual delay */
 		for (i = 0; i < n; i++)
 			if (s[i].samples >= p.min_samples && s[i].rtt_ms >= 0 && !heal_sta_degraded(&s[i], &p)) {

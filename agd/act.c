@@ -868,8 +868,9 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 /* ---------- for Self-Healing Wi-Fi (heal.c) ---------- */
 
 /* the channel decision live on this access point: 0 and its id, state
-   (1 active, 0 proposed) and whether policy `policy` made it; -1 none */
-int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours)
+   (1 active, 0 proposed), whether policy `policy` made it, and the channel it
+   switches back to (kept in the decision: it survives a restart); -1 none */
+int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours, int *from)
 {
 	size_t n = strlen(iface);
 	int i;
@@ -883,6 +884,8 @@ int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *ac
 		*id = d->id;
 		*active = d->state == D_ACTIVE;
 		*ours = policy && strstr(d->origin, policy) != NULL;
+		if (from)
+			*from = atoi(d->scope);
 		return 0;
 	}
 	return -1;
