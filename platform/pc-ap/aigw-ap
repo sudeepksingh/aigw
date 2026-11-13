@@ -287,6 +287,21 @@ write_hostapd() {
 	umask 022
 }
 
+# Run a daemon in a systemd scope of its own, where systemd runs: agd
+# restarts an access point to change its channel (aigw-ap channel), and a
+# hostapd left in agd's service would be stopped with agd (an upgrade, a
+# restart), taking the access point down with it.
+SCOPES=0
+own_scope() {
+	if [ -d /run/systemd/system ] && command -v systemd-run > /dev/null 2>&1 &&
+	   systemd-run --scope --quiet --collect --unit="aigw-scope-test-$$" true > /dev/null 2>&1; then
+		SCOPES=$((SCOPES + 1))
+		systemd-run --scope --quiet --collect --unit="aigw-$(basename "$1")-$$-$SCOPES" "$@"
+		return
+	fi
+	"$@"
+}
+
 # One access point: interface $1, band $2, channel $3, width wanted $4,
 # bridge $5. Tries narrower widths when hostapd refuses one; prints the
 # width it runs at, or nothing.
@@ -296,7 +311,7 @@ start_ap() {
 		write_hostapd "$iface" "$w" "$band" "$ch" "$RUN/hostapd-$iface.conf" "$br"
 		# -B returns before the access point is really up (channel checks,
 		# the 40 MHz neighbour scan); its state says whether it got there
-		if hostapd -B -P "$RUN/hostapd-$iface.pid" "$RUN/hostapd-$iface.conf" > "$RUN/hostapd-$iface.log" 2>&1 &&
+		if own_scope hostapd -B -P "$RUN/hostapd-$iface.pid" "$RUN/hostapd-$iface.conf" > "$RUN/hostapd-$iface.log" 2>&1 &&
 		   ap_enabled "$iface"; then
 			echo "$w"
 			return 0
