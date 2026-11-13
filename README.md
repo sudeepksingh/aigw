@@ -53,7 +53,9 @@ illustrated version.
 > `agctl wifi --report`, and for the ISP in the data model
 > (`Device.X_AIGW_.WiFiHealth.{i}.Stats`), so it can show across its homes how
 > much AIGW fixed by itself. The diagnosis is also steadier: a signal at the
-> edge no longer flips the cause back and forth.
+> edge no longer flips the cause back and forth. *v0.26.1:* a channel trial
+> approved after agd restarted, on a radio that restarts to switch, is judged
+> against what devices really felt before (found on the PC access point).
 >
 > **v0.25:** **AIGW Self-Healing Wi-Fi, part 2: the gateway fixes it, and checks
 > the fix.** A busy channel gets a measured trial: AIGW switches, measures what

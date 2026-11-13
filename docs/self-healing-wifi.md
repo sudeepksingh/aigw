@@ -61,11 +61,20 @@ and undo (`agctl undo <id>`).
 
 **A channel trial, for `Congestion`.** When `Congestion` has held for
 `heal_hold` (5 minutes), agd raises alert `wifi-congestion` for another
-channel the radio may use here (not one that failed in the last day). The
+channel the radio may use here (not one tried or proposed in the last day,
+which agd knows from its decisions, also after a restart). The
 `wifi_congestion` policy makes it a `channel` decision. Once the switch is in
 effect, agd measures the new channel for `heal_trial` (3 minutes), counting
 only probes sent after the switch (and not the first 20 s, while devices
-reconnect), and compares with what devices felt before:
+reconnect), and compares with what devices felt before. "Before" is the
+last two minutes on the old channel; a radio that restarts to switch (it
+can't announce the switch, like the PC access point's) drops everyone for a
+moment, so then it is the last look that measured someone, up to 3 minutes
+old. The channel to switch back to is kept in the decision, so a trial a
+person approves after agd restarted still knows it (v0.26.1).
+
+- **Not measured before** (nobody awake): kept only if devices are then
+  `Good`, and the report counts it as no change in loss.
 
 - **Clearly better** (`Good`, or half the loss, or half the delay, and never
   more loss): the decision becomes `kept`. It no longer switches back at its
@@ -170,5 +179,7 @@ writes `pc-ap.conf`, the OpenWRT one `/etc/config/wireless` without
   the loss back, a second trial on another channel doesn't help and is
   switched back (`tried`); `agctl wifi --report` and `Stats.Day` count the
   trials kept and switched back, the device kept on 2.4 GHz, with the loss
-  before and after and the time to fix, also after an agd restart; undoing
+  before and after and the time to fix, also after an agd restart; in advise
+  mode, a trial proposed, agd restarted, then approved, knows the channel it
+  came from and what devices felt before, and is switched back to it; undoing
   `stay24` lifts the refusal.

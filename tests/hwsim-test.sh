@@ -434,7 +434,8 @@ grep -Eq "Stats.Day.ChannelTrialsKept = [1-9]" "$T/stats.txt" && grep -Eq "Stats
 	grep -Eq "Stats.Day.LossBeforePercent = [1-9]" "$T/stats.txt" && grep -Eq "Stats.Day.MeanTimeToFix = [1-9]" "$T/stats.txt" ||
 	fail "the data model's Stats.Day: $(cat "$T/stats.txt")"
 echo "   Stats.Day: $(grep -E 'GoodPercent|ProblemsFound|Fixes|MeanTimeToFix|LossBefore|LossAfter' "$T/stats.txt" | sed 's/.*Stats\.Day\.//' | tr '\n' ' ')"
-# kept across a restart (agd's state file)
+# kept across a restart (agd's state file); from here on, a person approves (advise mode)
+sed -i "s/option mode 'enforce'/option mode 'advise'/" "$T/config/aigw"
 kill "$AGD"
 i=0; while kill -0 "$AGD" 2>/dev/null; do i=$((i + 1)); [ $i -gt 20 ] && fail "agd did not stop"; sleep 0.5; done
 "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
@@ -446,6 +447,53 @@ until "$BIN/agctl/agctl" wifi --report > "$T/report2.txt" 2>/dev/null &&
 done
 grep -q "restored [0-9]* days of the healing report" "$T/agd.log" || fail "agd should say it restored the report"
 echo "   kept across an agd restart"
+
+echo "== Self-Healing Wi-Fi: a trial proposed, agd restarted, then approved: it still knows where it came from"
+tc qdisc add dev "$AP_H" root netem loss 30% || fail "netem again on $AP_H"
+i=0
+until decs | grep -q ' proposed channel policy_wifi_congestion '; do
+	i=$((i + 1))
+	if [ $i -gt 240 ]; then
+		tc qdisc del dev "$AP_H" root 2>/dev/null
+		echo "--- agd"; grep -iE 'wifi health|alert|acting' "$T/agd.log" | tail -n 12
+		fail "no channel trial proposed (advise mode)"
+	fi
+	sleep 1
+done
+TID3=$(decs | awk '$2 == "proposed" && $4 == "policy_wifi_congestion" {print $1; exit}')
+CH3=$(decs | awk '$1 == '"$TID3"' {print $5}' | sed 's/.*://')
+kill "$AGD"
+i=0; while kill -0 "$AGD" 2>/dev/null; do i=$((i + 1)); [ $i -gt 20 ] && fail "agd did not stop"; sleep 0.5; done
+"$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
+# measured again after the restart, then a person says yes
+wait_health 'Degraded|Poor' Congestion 200 || { tc qdisc del dev "$AP_H" root 2>/dev/null; fail "Congestion again after the restart"; }
+decs | grep -q "^$TID3 proposed " || fail "the proposal #$TID3 should survive the restart"
+"$BIN/agctl/agctl" approve "$TID3" > /dev/null || fail "approve #$TID3"
+echo "   trial #$TID3 proposed (channel $CH1 -> $CH3), agd restarted, approved"
+i=0
+until decs | grep -Eq "^$TID3 (tried|kept) "; do
+	i=$((i + 1))
+	if [ $i -gt 150 ]; then
+		tc qdisc del dev "$AP_H" root 2>/dev/null
+		echo "--- agd"; grep -iE 'wifi health|trial|decision' "$T/agd.log" | tail -n 12
+		decs
+		fail "trial #$TID3 should be judged"
+	fi
+	sleep 1
+done
+tc qdisc del dev "$AP_H" root
+LINE=$(grep "wifi health: $AP_H trial on channel $CH3 " "$T/agd.log" | tail -n 1)
+echo "$LINE" | grep -q "(from $CH1)" || fail "the trial should know it came from channel $CH1: $LINE"
+echo "$LINE" | grep -Eq "before: loss [1-9]" || fail "the trial should know what devices felt before: $LINE"
+decs | grep -q "^$TID3 tried " || fail "trial #$TID3 should be switched back (the loss stayed): $(decs | grep "^$TID3 ")"
+grep "decision $TID3 channel .*: tried -- " "$T/agd.log" | grep -q "back to $CH1$" ||
+	fail "trial #$TID3's note should say back to $CH1: $(grep "decision $TID3 channel" "$T/agd.log" | tail -n 1)"
+i=0
+until hostapd_cli -p "$T/run/hostapd" -i "$AP_H" status | grep -q "^channel=$CH1$"; do
+	i=$((i + 1)); [ $i -gt 20 ] && fail "back on channel $CH1"; sleep 1
+done
+echo "   ${LINE#*wifi health: $AP_H }; switched back to $CH1"
+wait_health Good None 240 || fail "Good again once the loss is gone"
 
 echo "== stay24 undone: the 5 GHz access point takes the client again"
 "$BIN/agctl/agctl" undo "$SID" > /dev/null || fail "undo stay24"

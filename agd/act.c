@@ -868,8 +868,9 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 /* ---------- for Self-Healing Wi-Fi (heal.c) ---------- */
 
 /* the channel decision live on this access point: 0 and its id, state
-   (1 active, 0 proposed) and whether policy `policy` made it; -1 none */
-int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours)
+   (1 active, 0 proposed), whether policy `policy` made it, and the channel it
+   switches back to (kept in the decision: it survives a restart); -1 none */
+int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours, int *from)
 {
 	size_t n = strlen(iface);
 	int i;
@@ -883,9 +884,25 @@ int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *ac
 		*id = d->id;
 		*active = d->state == D_ACTIVE;
 		*ours = policy && strstr(d->origin, policy) != NULL;
+		if (from)
+			*from = atoi(d->scope);
 		return 0;
 	}
 	return -1;
+}
+
+/* a channel decision for this target ("iface:channel") made since `since`, in
+   any state: its alert would not be raised again so soon, and a trial that
+   didn't help is avoided (kept in the decisions: it survives a restart) */
+int act_channel_recent(const char *target, int64_t since)
+{
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++)
+		if (decs[i].used && !strcmp(decs[i].action, "channel") && !strcmp(decs[i].target, target) &&
+		    decs[i].created >= since)
+			return 1;
+	return 0;
 }
 
 /* a trial that worked: it stays (no switching back at its time limit) */
