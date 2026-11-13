@@ -79,15 +79,23 @@ static int64_t mono_ms(void)
 	return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
+/* the Internet checksum, read byte by byte: a uint16_t pointer into the packet
+   breaks C's aliasing rules, and the optimiser may then sum it before the
+   type is stored (seen here: every request dropped for a bad checksum) */
 static uint16_t csum(const void *p, size_t n)
 {
-	const uint16_t *w = p;
+	const unsigned char *c = p;
 	uint32_t s = 0;
+	size_t i;
 
-	for (; n > 1; n -= 2)
-		s += *w++;
-	if (n)
-		s += *(const uint8_t *)w;
+	for (i = 0; i + 1 < n; i += 2) {
+		uint16_t w;
+
+		memcpy(&w, c + i, 2);
+		s += w;
+	}
+	if (n & 1)
+		s += c[n - 1];
 	s = (s >> 16) + (s & 0xffff);
 	s += s >> 16;
 	return (uint16_t)~s;
