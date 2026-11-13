@@ -43,20 +43,34 @@ verdict comes with advice (what to do next). The rules are in
 
 ## Asking
 
-- **At home:** `agctl diagnose [device]` (a name, MAC or IP). For example (the
-  shape of the output; the numbers are illustrative):
+- **At home:** `agctl diagnose [device]` (a name, MAC or IP). For example, on
+  the PC access point (v0.27.0, a real home line; its next hop, the Windows
+  host, doesn't answer echo requests, which is not counted as a fault):
 
   ```
-  OnePlus-Nord-5: OnePlus-Nord-5's Wi-Fi signal is weak (-82 dBm on 2.4 GHz): too far from the access point, or walls in the way.
-    code      WIFI_COVERAGE (WiFi, warning)
-    advice    Move the device closer, or the access point higher and more central; a mesh node or extender would help.
-    measured  next hop 172.20.0.1 1 ms (0% lost), internet 14 ms (0% lost), DNS ok 22 ms
+  $ agctl diagnose
+  Everything the gateway can measure is fine: the problem is likely the service or website used, or one device.
+    code      OK (All, ok)
+    advice    Ask which app or website is slow, and try another device in the same place.
+    measured  next hop 172.30.160.1 no answer, internet 2 ms (0% lost), DNS ok 10 ms
     findings
-      warning  WIFI_COVERAGE    OnePlus-Nord-5's Wi-Fi signal is weak (-82 dBm on 2.4 GHz): ...
-      info     DEVICE_ON_24GHZ  OnePlus-Nord-5 is kept on 2.4 GHz for now (it kept switching bands at the edge of 5 GHz).
-      ok       INTERNET_OK      The internet answers in 14 ms, 0% lost.
-      ok       DNS_OK           Names resolve in 22 ms.
+    ok       OK               Everything the gateway can measure is fine: the problem is likely the service or website used, or one device.
+    ok       INTERNET_OK      The internet answers in 2 ms, 0% lost.
+    ok       DNS_OK           Names resolve in 10 ms.
+
+  $ agctl diagnose OnePlus-Nord-5
+  OnePlus-Nord-5: OnePlus-Nord-5 loses 10% of its traffic on Wi-Fi while the signal is fine (-69 dBm): the device itself (its Wi-Fi, power saving).
+    code      WIFI_DEVICE (WiFi, warning)
+    advice    Restart the device's Wi-Fi; turn off its power saving; update it.
+    measured  next hop 172.30.160.1 no answer, internet 2 ms (0% lost), DNS ok 2 ms
+    findings
+    warning  WIFI_DEVICE      OnePlus-Nord-5 loses 10% of its traffic on Wi-Fi while the signal is fine (-69 dBm): the device itself (its Wi-Fi, power saving).
+    ok       INTERNET_OK      The internet answers in 2 ms, 0% lost.
+    ok       DNS_OK           Names resolve in 2 ms.
   ```
+
+  The line is fine and so is the access point; only the phone loses traffic,
+  so the help desk's next question is about the phone, not the line.
 
 - **The ISP, over USP:** `Device.X_AIGW_.Diagnose()`, an asynchronous command
   (input `Host`: a `Device.Hosts.Host.{i}` path, MAC, IP or name; optional).

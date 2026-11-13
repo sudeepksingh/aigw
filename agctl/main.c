@@ -276,6 +276,15 @@ static const char *dur_short(unsigned long long s, char *out, size_t n)
 /* agctl diagnose [device]: "my internet is slow", answered */
 static int diag_failed;
 
+/* "12 ms (0% lost)", or "no answer" when nothing came back (there is no delay to show) */
+static void show_ping(struct blob_attr *m, const char *ms, const char *loss)
+{
+	if (fnum(m, loss) >= 100)
+		printf("no answer");
+	else
+		printf("%llu ms (%llu%% lost)", (unsigned long long)fnum(m, ms), (unsigned long long)fnum(m, loss));
+}
+
 static void show_diag(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	static const char *const mark[] = { "ok", "info", "warning", "problem" };
@@ -301,10 +310,12 @@ static void show_diag(struct ubus_request *req, int type, struct blob_attr *msg)
 		printf("  measured  ");
 		if (!fnum(m, "route"))
 			printf("no default route");
-		else
-			printf("next hop %s %llu ms (%llu%% lost), internet %llu ms (%llu%% lost)", orb(fstr(m, "next_hop"), "-"),
-			       (unsigned long long)fnum(m, "next_hop_ms"), (unsigned long long)fnum(m, "next_hop_loss_pct"),
-			       (unsigned long long)fnum(m, "internet_ms"), (unsigned long long)fnum(m, "internet_loss_pct"));
+		else {
+			printf("next hop %s ", orb(fstr(m, "next_hop"), "-"));
+			show_ping(m, "next_hop_ms", "next_hop_loss_pct");
+			printf(", internet ");
+			show_ping(m, "internet_ms", "internet_loss_pct");
+		}
 		printf(", DNS %s", fstr(m, "dns"));
 		if (!strcmp(fstr(m, "dns"), "ok"))
 			printf(" %llu ms", (unsigned long long)fnum(m, "dns_ms"));
