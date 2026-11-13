@@ -54,6 +54,9 @@ illustrated version.
 > help desk `Device.X_AIGW_.Diagnose()` over USP (TR-069: through `Request.`),
 > `LastDiagnosis.` and the `DiagnosisDone!` event. See
 > [docs/diagnose.md](docs/diagnose.md).
+> *v0.27.1:* a next hop or internet that never answers reads "no answer"
+> instead of "0 ms (100% lost)"; the docs show real output from the PC access
+> point.
 >
 > **v0.26:** **the healing report: proof, in numbers.** Each gateway counts what
 > Self-Healing Wi-Fi found and fixed: time Good / Degraded / Poor, problems by
