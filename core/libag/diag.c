@@ -164,7 +164,7 @@ void diag_judge(const struct diag_input *in, struct diag_result *out)
 		    in->inet.rtt_ms, gw, in->gw_ping.rtt_ms < 0 ? 0 : in->gw_ping.rtt_ms);
 
 	/* Wi-Fi: the device's own first, then any access point in trouble */
-	if (h->found && h->connected && h->radio >= 0 && h->radio < in->nradios) {
+	if (h->found && h->connected && !h->blocked && h->radio >= 0 && h->radio < in->nradios) {
 		const struct diag_radio *r = &in->radios[h->radio];
 
 		if (h->signal && h->signal <= in->weak_signal) {

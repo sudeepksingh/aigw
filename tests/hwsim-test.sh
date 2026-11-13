@@ -156,7 +156,7 @@ config wifi 'wifi'
 	option heal_retry '60'
 
 config diag 'diag'
-	option targets '10.95.0.50'
+	option targets '10.95.0.1'
 	option name 'example.com'
 
 config mgmt 'mgmt'
@@ -531,8 +531,9 @@ awk -v i="$AP5" '$1 == i {print $2}' "$T/aps.txt" | grep -qx 5 || fail "$AP5 sho
 echo "   $(tr '\n' ';' < "$T/aps.txt")"
 
 echo "== Diagnose: \"my internet is slow\", answered by the gateway"
-# here the "internet" (diag.targets) is the client, which answers; no DNS
-# server runs on the configured port, so names don't resolve: that is the verdict
+# here the "internet" (diag.targets) is the gateway's own LAN address, which
+# answers (not the client: it is disconnected below); no DNS server runs on the
+# configured port, so names don't resolve: that is the verdict
 "$BIN/agctl/agctl" diagnose | tee "$T/diag.txt"
 grep -q "code      DNS_FAILING (DNS, problem)" "$T/diag.txt" || fail "Diagnose should find that names don't resolve"
 grep -q "INTERNET_OK" "$T/diag.txt" || fail "Diagnose should find the internet (here: the client) answering"
@@ -548,6 +549,7 @@ DID=$(decs | awk '$2 == "active" && $3 == "disconnect" {print $1; exit}')
 "$BIN/agctl/agctl" diagnose hwsim-phone | tee "$T/diag2.txt"
 grep -q "code      DEVICE_BLOCKED (AIGW, problem)" "$T/diag2.txt" || fail "Diagnose should name AIGW's own disconnect first"
 grep -q "disconnect (#$DID" "$T/diag2.txt" || fail "Diagnose should say which decision keeps it off"
+grep -q "WIFI_DEVICE" "$T/diag2.txt" && fail "a device AIGW keeps off shouldn't get Wi-Fi findings"
 # the same for the ISP, over the data model (asynchronous, as USP runs it)
 "$BIN/agctl/agctl" dm do "Device.X_AIGW_.Diagnose()" Host=hwsim-phone > "$T/diag-dm.txt" ||
 	fail "Device.X_AIGW_.Diagnose(): $(cat "$T/diag-dm.txt")"

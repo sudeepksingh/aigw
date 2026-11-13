@@ -139,6 +139,21 @@ int main(void)
 	expect("AIGW itself keeps it off (even with the line down)", &in, "DEVICE_BLOCKED", "LINE_DOWN", "quarantine");
 	fine(&in);
 	phone(&in);
+	in.host.blocked = 1;
+	in.host.loss_pct = 12;          /* its last probes, as it was cut off */
+	snprintf(in.host.actions, sizeof(in.host.actions), "disconnect (#6, 0h04m left, by you)");
+	expect("kept off: its Wi-Fi isn't the story", &in, "DEVICE_BLOCKED", "INTERNET_OK", "disconnect");
+	if (1) {
+		struct diag_result r;
+
+		diag_judge(&in, &r);
+		if (has(&r, "WIFI_DEVICE")) {
+			printf("FAIL a device AIGW keeps off shouldn't get Wi-Fi findings\n");
+			failed++;
+		}
+	}
+	fine(&in);
+	phone(&in);
 	in.host.limited = 1;
 	snprintf(in.host.actions, sizeof(in.host.actions), "throttle (#5, 0h30m left, by you)");
 	expect("AIGW slows it", &in, "DEVICE_LIMITED", NULL, "throttle");
