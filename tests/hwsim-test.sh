@@ -155,6 +155,10 @@ config wifi 'wifi'
 	option heal_trial '40'
 	option heal_retry '60'
 
+config diag 'diag'
+	option targets '10.95.0.50'
+	option name 'example.com'
+
 config mgmt 'mgmt'
 	option enabled '1'
 
@@ -525,4 +529,33 @@ done
 awk -v i="$AP24" '$1 == i {print $2}' "$T/aps.txt" | grep -qx 2.4 || fail "$AP24 should be 2.4 GHz: $(cat "$T/aps.txt")"
 awk -v i="$AP5" '$1 == i {print $2}' "$T/aps.txt" | grep -qx 5 || fail "$AP5 should be 5 GHz: $(cat "$T/aps.txt")"
 echo "   $(tr '\n' ';' < "$T/aps.txt")"
+
+echo "== Diagnose: \"my internet is slow\", answered by the gateway"
+# here the "internet" (diag.targets) is the client, which answers; no DNS
+# server runs on the configured port, so names don't resolve: that is the verdict
+"$BIN/agctl/agctl" diagnose | tee "$T/diag.txt"
+grep -q "code      DNS_FAILING (DNS, problem)" "$T/diag.txt" || fail "Diagnose should find that names don't resolve"
+grep -q "INTERNET_OK" "$T/diag.txt" || fail "Diagnose should find the internet (here: the client) answering"
+grep -q "advice    " "$T/diag.txt" || fail "Diagnose should say what to do"
+# AIGW itself keeping the device off is named first, whatever else is wrong
+i=0
+until ip netns exec "$NC" iw dev "$STA" link | grep -q 'Connected'; do
+	i=$((i + 1)); [ $i -gt 60 ] && fail "the client should be connected before the next check"; sleep 1
+done
+"$BIN/agctl/agctl" disconnect hwsim-phone 5m > /dev/null || fail "agctl disconnect hwsim-phone"
+DID=$(decs | awk '$2 == "active" && $3 == "disconnect" {print $1; exit}')
+[ -n "$DID" ] || fail "no active disconnect decision"
+"$BIN/agctl/agctl" diagnose hwsim-phone | tee "$T/diag2.txt"
+grep -q "code      DEVICE_BLOCKED (AIGW, problem)" "$T/diag2.txt" || fail "Diagnose should name AIGW's own disconnect first"
+grep -q "disconnect (#$DID" "$T/diag2.txt" || fail "Diagnose should say which decision keeps it off"
+# the same for the ISP, over the data model (asynchronous, as USP runs it)
+"$BIN/agctl/agctl" dm do "Device.X_AIGW_.Diagnose()" Host=hwsim-phone > "$T/diag-dm.txt" ||
+	fail "Device.X_AIGW_.Diagnose(): $(cat "$T/diag-dm.txt")"
+grep -q "Code = DEVICE_BLOCKED" "$T/diag-dm.txt" && grep -q "Findings = DEVICE_BLOCKED,.*DNS_FAILING" "$T/diag-dm.txt" ||
+	fail "Device.X_AIGW_.Diagnose() outputs: $(cat "$T/diag-dm.txt")"
+"$BIN/agctl/agctl" dm get Device.X_AIGW_.LastDiagnosis. > "$T/diag-last.txt"
+grep -q "LastDiagnosis.Code = DEVICE_BLOCKED" "$T/diag-last.txt" || fail "LastDiagnosis: $(cat "$T/diag-last.txt")"
+grep -q 'DiagnosisDone!' "$T/heal-events.log" || fail "no DiagnosisDone! event"
+"$BIN/agctl/agctl" undo "$DID" > /dev/null || fail "undo the disconnect"
+echo "   $(grep -m1 'Code = ' "$T/diag-dm.txt" | sed 's/^ *//'); $(sed -n 's/.*Summary = //p' "$T/diag-dm.txt" | cut -c1-120)"
 echo "HWSIM TEST OK"

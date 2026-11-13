@@ -36,10 +36,11 @@
 
 #include <libubus.h>
 
+#include "ag/diag.h"
 #include "ag/heal.h"
 #include "agd.h"
 
-#define DM_VERSION "1.4"
+#define DM_VERSION "1.5"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -739,6 +740,38 @@ static int s_apmode(const struct ictx *c, const char *v, int a, char *e, size_t 
 static int s_chan(const struct ictx *c, const char *v, int a, char *e, size_t n) { return wifi_set(c, WS_CHANNEL, v, a, e, n); }
 static int s_width(const struct ictx *c, const char *v, int a, char *e, size_t n) { return wifi_set(c, WS_WIDTH, v, a, e, n); }
 
+/* the last diagnosis (Device.X_AIGW_.LastDiagnosis.): empty until one ran */
+static const struct diag_finding *ld(const char **host, int64_t *at)
+{
+	const struct diag_result *r;
+	const struct diag_input *in;
+
+	*at = diag_last(&r, &in, host);
+	return *at && r->n ? &r->f[0] : NULL;
+}
+GET(g_ld_time) { const char *h; int64_t at; (void)c; ld(&h, &at); fmt_time(at, buf, n); return 0; }
+GET(g_ld_host) { const char *h; int64_t at; (void)c; ld(&h, &at); snprintf(buf, n, "%s", at ? h : ""); return 0; }
+GET(g_ld_code) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? f->code : ""); return 0; }
+GET(g_ld_sev) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? diag_sev_name(f->sev) : ""); return 0; }
+GET(g_ld_summary) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? f->text : ""); return 0; }
+GET(g_ld_advice) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? diag_advice(f->code) : ""); return 0; }
+GET(g_ld_findings)
+{
+	const struct diag_result *r;
+	const struct diag_input *in;
+	const char *h;
+	size_t len = 0;
+	int i;
+
+	(void)c;
+	buf[0] = '\0';
+	if (!diag_last(&r, &in, &h))
+		return 0;
+	for (i = 0; i < r->n && len < n; i++)
+		len += (size_t)snprintf(buf + len, n - len, "%s%s", i ? "," : "", r->f[i].code);
+	return 0;
+}
+
 /* ---------- the schema ---------- */
 
 #define W 1                             /* writable */
@@ -866,6 +899,14 @@ static struct dm_param {
 	HROWS("Week", week)
 	HROWS("Month", month)
 #undef HROWS
+
+	{ "Device.X_AIGW_.LastDiagnosis.Time", T_TIME, 0, TB_NONE, g_ld_time, NULL },
+	{ "Device.X_AIGW_.LastDiagnosis.Host", T_STR, 0, TB_NONE, g_ld_host, NULL },
+	{ "Device.X_AIGW_.LastDiagnosis.Code", T_STR, N, TB_NONE, g_ld_code, NULL },
+	{ "Device.X_AIGW_.LastDiagnosis.Severity", T_STR, 0, TB_NONE, g_ld_sev, NULL },
+	{ "Device.X_AIGW_.LastDiagnosis.Summary", T_STR, 0, TB_NONE, g_ld_summary, NULL },
+	{ "Device.X_AIGW_.LastDiagnosis.Advice", T_STR, 0, TB_NONE, g_ld_advice, NULL },
+	{ "Device.X_AIGW_.LastDiagnosis.Findings", T_STR, 0, TB_NONE, g_ld_findings, NULL },
 };
 #define N_PARAMS ((int)(sizeof(params) / sizeof(params[0])))
 
@@ -1093,6 +1134,65 @@ static int r_fw_activate(const struct ictx *c, struct blob_attr *a, struct blob_
 		E_REFUSED : E_PENDING;
 }
 
+/* ---------- Diagnose (asynchronous: about 3 s of measuring) ---------- */
+
+/* the verdict as the command's outputs: flat values, the same for USP and TR-069 */
+static void diag_out(struct blob_buf *bb, const struct diag_result *r, const struct diag_input *in)
+{
+	const struct diag_finding *v = r->n ? &r->f[0] : NULL;
+	char codes[VAL_MAX] = "", num[16];
+	size_t len = 0;
+	int i;
+
+	for (i = 0; i < r->n && len < sizeof(codes); i++)
+		len += (size_t)snprintf(codes + len, sizeof(codes) - len, "%s%s", i ? "," : "", r->f[i].code);
+	blobmsg_add_string(bb, "Code", v ? v->code : "OK");
+	blobmsg_add_string(bb, "Area", v ? v->area : "All");
+	blobmsg_add_string(bb, "Severity", diag_sev_name(v ? v->sev : DS_OK));
+	blobmsg_add_string(bb, "Summary", v ? v->text : "");
+	blobmsg_add_string(bb, "Advice", diag_advice(v ? v->code : "OK"));
+	blobmsg_add_string(bb, "Findings", codes);
+	snprintf(num, sizeof(num), "%d", in->inet.sent ? in->inet.lost * 100 / in->inet.sent : 100);
+	blobmsg_add_string(bb, "InternetLossPercent", num);
+	snprintf(num, sizeof(num), "%d", in->inet.rtt_ms < 0 ? 0 : in->inet.rtt_ms);
+	blobmsg_add_string(bb, "InternetLatencyMs", num);
+	snprintf(num, sizeof(num), "%d", in->gw_ping.rtt_ms < 0 ? 0 : in->gw_ping.rtt_ms);
+	blobmsg_add_string(bb, "NextHopLatencyMs", num);
+	snprintf(num, sizeof(num), "%d", in->dns == 1 ? in->dns_ms : 0);
+	blobmsg_add_string(bb, "DNSLatencyMs", num);
+}
+
+static void diag_done(void *ctx, const struct diag_result *r, const struct diag_input *in)
+{
+	struct dm_async *a = ctx;
+	struct blob_buf rb = { 0 };
+	void *t;
+
+	blob_buf_init(&rb, 0);
+	t = blobmsg_open_table(&rb, "out");
+	diag_out(&rb, r, in);
+	blobmsg_close_table(&rb, t);
+	blobmsg_add_u8(&rb, "ok", 1);
+	ubus_send_reply(a->ctx, &a->req, rb.head);
+	ubus_complete_deferred_request(a->ctx, &a->req, 0);
+	blob_buf_free(&rb);
+	AG_INFO("dm: %s by %s: done -- %s", a->cmd, a->who, r->n ? r->f[0].code : "OK");
+	free(a);
+}
+
+static int r_diagnose(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
+{
+	const char *v = arg(a, "Host"), *h = v && *v ? host_arg(v) : "";
+
+	(void)c;
+	(void)o;
+	if (!h) {
+		snprintf(e, n, "Host is a Device.Hosts.Host. path, or a MAC, IP or name");
+		return E_INVALID_ARGS;
+	}
+	return diag_start(h, diag_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
+}
+
 static struct dm_cmd {
 	const char *path;
 	int table;
@@ -1109,6 +1209,9 @@ static struct dm_cmd {
 	{ "Device.DeviceInfo.FirmwareImage.{i}.Download()", TB_FW,
 	  "URL,AutoActivate,Username,Password,FileSize,CheckSumAlgorithm,CheckSum", "", r_fw_download, 0, 1 },
 	{ "Device.DeviceInfo.FirmwareImage.{i}.Activate()", TB_FW, "", "", r_fw_activate, 0, 1 },
+	{ "Device.X_AIGW_.Diagnose()", TB_NONE, "Host",
+	  "Code,Area,Severity,Summary,Advice,Findings,InternetLossPercent,InternetLatencyMs,NextHopLatencyMs,DNSLatencyMs",
+	  r_diagnose, 0, 1 },
 };
 #define N_CMDS ((int)(sizeof(cmds) / sizeof(cmds[0])))
 
@@ -1119,6 +1222,7 @@ static struct {
 	{ "Device.X_AIGW_.Alert!", "Alert,Kind,Severity,Host,Subject,Reason" },
 	{ "Device.X_AIGW_.DecisionChanged!", "Decision,Action,State,Host" },
 	{ "Device.X_AIGW_.WiFiHealthChanged!", "WiFiHealth,Radio,Status,Cause,Explanation" },
+	{ "Device.X_AIGW_.DiagnosisDone!", "Host,Code,Severity,Summary" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -1633,6 +1737,18 @@ void dm_on_heal(const char *iface)
 
 		emit(events[2].path, kv);   /* WiFiHealthChanged! */
 	}
+}
+
+/* diag.c: a diagnosis is done (asked from anywhere): DiagnosisDone! */
+void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const char *mac)
+{
+	char ref[96] = "";
+	const char *kv[] = { "Host", ref, "Code", r->n ? r->f[0].code : "OK",
+			     "Severity", diag_sev_name(r->n ? r->f[0].sev : DS_OK), "Summary", r->n ? r->f[0].text : "", NULL };
+
+	if (in->host.found && mac && *mac)
+		host_ref(mac, ref, sizeof(ref));
+	emit(events[3].path, kv);           /* DiagnosisDone! */
 }
 
 /* ---------- state ---------- */

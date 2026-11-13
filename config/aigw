@@ -98,6 +98,15 @@ config baseline 'baseline'
 	# days of history before "active at an unusual hour" alerts
 	option unusual_min_days '7'
 
+config diag 'diag'
+	# Diagnose ("my internet is slow": agctl diagnose [device], and for the
+	# ISP Device.X_AIGW_.Diagnose()): checks the line, DNS, Wi-Fi and the
+	# device in about 3 seconds. Internet addresses it sends echo requests
+	# to (the best one counts: some don't answer); an ISP puts its own here
+	# option targets '1.1.1.1 8.8.8.8 9.9.9.9'
+	# the name it asks the gateway's DNS for; '' = DNS not checked
+	# option name 'example.com'
+
 config mgmt 'mgmt'
 	# management by an ISP over USP (TR-369; package aigw-usp) or TR-069
 	# (package aigw-cwmp): one data model for both (agctl dm get Device.).

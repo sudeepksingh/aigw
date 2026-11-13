@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.26.2
+PKG_VERSION:=0.27.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0

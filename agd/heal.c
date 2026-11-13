@@ -845,6 +845,23 @@ void heal_blob(struct blob_buf *b, const char *iface)
 
 /* ---------- the healing report ---------- */
 
+/* Diagnose: what this device felt over the last 2 minutes (samples 0: not measured) */
+void heal_device(const struct device *d, int *loss_pct, int *rtt_ms, int *samples)
+{
+	struct heal_sta s;
+	int i = (int)(d - devs);
+
+	*loss_pct = 0;
+	*rtt_ms = -1;
+	*samples = 0;
+	if (sock < 0 || i < 0 || i >= DEV_MAX)
+		return;
+	window(i, &s, 0);
+	*samples = s.samples;
+	*loss_pct = heal_sta_loss_pct(&s);
+	*rtt_ms = s.rtt_ms;
+}
+
 int heal_report_of(const char *iface, int days, struct heal_day *out)
 {
 	const struct heal_radio *r = heal_for(iface);

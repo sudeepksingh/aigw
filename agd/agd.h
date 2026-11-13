@@ -402,6 +402,7 @@ int wifi_ban_band(const char *mac, int band, int on, char *err, size_t errlen);
 /* act.c, for Self-Healing Wi-Fi */
 int act_channel_for(const char *iface, const char *policy, uint32_t *id, int *active, int *ours, int *from);
 int act_channel_recent(const char *target, int64_t since);
+int act_on_device(const struct device *dv, char *out, size_t n, int *blocked, int *limited, int *on24);
 int act_keep(uint32_t id, const char *note);
 int act_undo_because(uint32_t id, const char *note);
 int act_active(const char *action, const char *target);
@@ -432,6 +433,19 @@ void heal_on_band_rule(const char *mac, uint32_t decision_id);
 /* the healing report of one access point over the last `days` days; -1 none */
 struct heal_day;
 int heal_report_of(const char *iface, int days, struct heal_day *out);
+void heal_device(const struct device *d, int *loss_pct, int *rtt_ms, int *samples);
+
+/* diag.c: Diagnose ("my internet is slow"): measures for a few seconds, then
+   calls back with the verdict (ag/diag.h); one at a time, others wait for it */
+struct diag_result;
+struct diag_input;
+typedef void (*diag_cb)(void *ctx, const struct diag_result *r, const struct diag_input *in);
+int diag_start(const char *host, diag_cb cb, void *ctx, char *err, size_t errlen);
+void diag_blob(struct blob_buf *b, const struct diag_result *r, const struct diag_input *in);
+/* the last verdict, for the data model: 0 none yet */
+int64_t diag_last(const struct diag_result **r, const struct diag_input **in, const char **host);
+/* dm.c: DiagnosisDone! (mac: the device asked about, "" none) */
+void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const char *mac);
 void heal_save(struct blob_buf *b);
 void heal_load(struct blob_attr *t);
 

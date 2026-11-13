@@ -905,6 +905,50 @@ int act_channel_recent(const char *target, int64_t since)
 	return 0;
 }
 
+/* what AIGW does to this device right now, for Diagnose: in words into out
+   ("quarantine (2h left, by policy dga)"), and whether that keeps it off the
+   network, slows it, or keeps it on 2.4 GHz; how many decisions */
+int act_on_device(const struct device *dv, char *out, size_t n, int *blocked, int *limited, int *on24)
+{
+	int64_t now = ag_wall_s();
+	size_t len = 0;
+	int i, k = 0;
+
+	*blocked = *limited = *on24 = 0;
+	if (n)
+		out[0] = '\0';
+	for (i = 0; i < DEC_MAX; i++) {
+		const struct decision *d = &decs[i];
+		long left;
+		int mine;
+
+		if (!d->used || d->state != D_ACTIVE || is_plugin_action(d->action) || !strcmp(d->action, "channel"))
+			continue;
+		if (!strcmp(d->action, "block"))
+			mine = d->scope[0] && dv->ip[0] && !strcmp(d->scope, dv->ip);
+		else if (by_mac(d->action))
+			mine = !strcasecmp(d->target, dv->mac);
+		else
+			mine = dv->ip[0] && !strcmp(d->target, dv->ip);
+		if (!mine)
+			continue;
+		if (!strcmp(d->action, "quarantine") || !strcmp(d->action, "disconnect"))
+			*blocked = 1;
+		else if (!strcmp(d->action, "throttle") || !strcmp(d->action, "deprioritize"))
+			*limited = 1;
+		else if (!strcmp(d->action, "stay24"))
+			*on24 = 1;
+		left = d->expires > now ? (long)(d->expires - now) : 0;
+		if (len < n)
+			len += (size_t)snprintf(out + len, n - len, "%s%s%s%s (#%u, %ldh%02ldm left, by %s)", k ? "; " : "",
+						d->action, !strcmp(d->action, "block") ? " " : "",
+						!strcmp(d->action, "block") ? d->target : "", d->id, left / 3600,
+						left % 3600 / 60, d->origin);
+		k++;
+	}
+	return k;
+}
+
 /* a trial that worked: it stays (no switching back at its time limit) */
 int act_keep(uint32_t id, const char *note)
 {
