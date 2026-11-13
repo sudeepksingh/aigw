@@ -150,15 +150,22 @@ static int roams(const struct hdev *h)
 
 /* ---------- probing ---------- */
 
+/* read byte by byte: a uint16_t pointer into the packet breaks C's aliasing
+   rules (diag.c's copy summed before the type was stored) */
 static uint16_t csum(const void *p, size_t n)
 {
-	const uint16_t *w = p;
+	const unsigned char *c = p;
 	uint32_t s = 0;
+	size_t i;
 
-	for (; n > 1; n -= 2)
-		s += *w++;
-	if (n)
-		s += *(const uint8_t *)w;
+	for (i = 0; i + 1 < n; i += 2) {
+		uint16_t w;
+
+		memcpy(&w, c + i, 2);
+		s += w;
+	}
+	if (n & 1)
+		s += c[n - 1];
 	s = (s >> 16) + (s & 0xffff);
 	s += s >> 16;
 	return (uint16_t)~s;
@@ -844,6 +851,23 @@ void heal_blob(struct blob_buf *b, const char *iface)
 }
 
 /* ---------- the healing report ---------- */
+
+/* Diagnose: what this device felt over the last 2 minutes (samples 0: not measured) */
+void heal_device(const struct device *d, int *loss_pct, int *rtt_ms, int *samples)
+{
+	struct heal_sta s;
+	int i = (int)(d - devs);
+
+	*loss_pct = 0;
+	*rtt_ms = -1;
+	*samples = 0;
+	if (sock < 0 || i < 0 || i >= DEV_MAX)
+		return;
+	window(i, &s, 0);
+	*samples = s.samples;
+	*loss_pct = heal_sta_loss_pct(&s);
+	*rtt_ms = s.rtt_ms;
+}
 
 int heal_report_of(const char *iface, int days, struct heal_day *out)
 {

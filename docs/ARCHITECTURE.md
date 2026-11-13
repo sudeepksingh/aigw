@@ -932,6 +932,16 @@ Verified by `tests/hwsim-test.sh` (CI, enforce mode, hold 20 s, trial 40 s): `ag
 
 Verified by `tests/test_heal.c` (the margin over a -76..-71 dBm walk changes the cause twice; day / week / month sums over 40 days, at most 31 kept), `tests/dm-test.sh` (the published DM XML), and `tests/hwsim-test.sh` (CI: after the kept and the switched-back trial and stay24, `agctl wifi --report` and `Stats.Day` count them, with loss before and after and time to fix, and still do after an agd restart).
 
+**As built in v0.27: Diagnose.** "My internet is slow", answered by the gateway in about 3 seconds, for the home and the ISP's help desk ([diagnose.md](diagnose.md)).
+
+| Piece | As built |
+|-------|----------|
+| Verdict (`core/libag/diag.c`, `include/ag/diag.h`) | Pure: `diag_judge(input, result)`. Findings with a code, area, severity and text, in order of what explains the problem best (AIGW's own block, the line, DNS, the device away, AIGW slowing it, the line's quality, Wi-Fi, then what is fine); `diag_advice(code)`. |
+| Measuring (`agd/diag.c`) | The default route (`/proc/net/route`); 10 echo requests, 200 ms apart, to the next hop and to each `diag.targets` address (a raw ICMP socket of its own; the best target counts); one DNS query to agdns for `diag.name`; Self-Healing Wi-Fi's verdict per access point and today's trials; for a device, `heal_device()` (its probes) and `act_on_device()` (active decisions on it). One at a time; the same question meanwhile shares the answer. |
+| Asked | `ag diagnose {host}` (deferred ubus reply); `agctl diagnose [device]`; data model 1.5: `Device.X_AIGW_.Diagnose()` (async; input `Host`; outputs `Code`, `Area`, `Severity`, `Summary`, `Advice`, `Findings`, four numbers), over TR-069 through `Request.`; `LastDiagnosis.` (7 parameters); event `DiagnosisDone!`. |
+
+Verified by `tests/test_diag.c` (every code and the order), `tests/dm-test.sh` (the schema and the published DM XML), and `tests/hwsim-test.sh` (CI: with no DNS server the verdict is `DNS_FAILING`; with the client disconnected by AIGW, `DEVICE_BLOCKED` naming the decision, over `agctl` and the data model, with `LastDiagnosis.` and `DiagnosisDone!`).
+
 ---
 
 ## 17. Status and risks

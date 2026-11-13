@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.4. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.5. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-4" file="aigw-dm-1-4.xml">
+             spec="urn:aigw-os:aigw-dm-1-5" file="aigw-dm-1-5.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.4">
+  <model name="AIGW-OS:1.5">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DeviceInfo." access="readOnly" minEntries="1" maxEntries="1">
@@ -54,6 +54,23 @@
           <parameter name="Decision"><syntax><string/></syntax></parameter>
         </output>
       </command>
+      <command name="Diagnose()" async="true">
+        <input>
+          <parameter name="Host"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Code"><syntax><string/></syntax></parameter>
+          <parameter name="Area"><syntax><string/></syntax></parameter>
+          <parameter name="Severity"><syntax><string/></syntax></parameter>
+          <parameter name="Summary"><syntax><string/></syntax></parameter>
+          <parameter name="Advice"><syntax><string/></syntax></parameter>
+          <parameter name="Findings"><syntax><string/></syntax></parameter>
+          <parameter name="InternetLossPercent"><syntax><string/></syntax></parameter>
+          <parameter name="InternetLatencyMs"><syntax><string/></syntax></parameter>
+          <parameter name="NextHopLatencyMs"><syntax><string/></syntax></parameter>
+          <parameter name="DNSLatencyMs"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
       <event name="Alert!">
         <parameter name="Alert"><syntax><string/></syntax></parameter>
         <parameter name="Kind"><syntax><string/></syntax></parameter>
@@ -75,6 +92,12 @@
         <parameter name="Cause"><syntax><string/></syntax></parameter>
         <parameter name="Explanation"><syntax><string/></syntax></parameter>
       </event>
+      <event name="DiagnosisDone!">
+        <parameter name="Host"><syntax><string/></syntax></parameter>
+        <parameter name="Code"><syntax><string/></syntax></parameter>
+        <parameter name="Severity"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DeviceInfo.FirmwareImage." access="readOnly" minEntries="1" maxEntries="1">
     </object>
@@ -89,6 +112,15 @@
     <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Decision." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.LastDiagnosis." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Time" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Host" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Code" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Severity" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Findings" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth." access="readOnly" minEntries="1" maxEntries="1">
     </object>

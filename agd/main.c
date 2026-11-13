@@ -907,8 +907,57 @@ static struct ubus_object domain_obj = {
 	.name = "ag.domain", .type = &domain_type, .methods = domain_methods, .n_methods = ARRAY_SIZE(domain_methods),
 };
 
+/* ag diagnose {host}: answers when the measuring is done (about 3 s) */
+struct diag_req {
+	struct ubus_context *ctx;
+	struct ubus_request_data req;
+};
+
+static void diag_answer(void *p, const struct diag_result *r, const struct diag_input *in)
+{
+	struct diag_req *q = p;
+	struct blob_buf rb = { 0 };
+
+	blob_buf_init(&rb, 0);
+	diag_blob(&rb, r, in);
+	ubus_send_reply(q->ctx, &q->req, rb.head);
+	ubus_complete_deferred_request(q->ctx, &q->req, 0);
+	blob_buf_free(&rb);
+	free(q);
+}
+
+enum { DG_HOST, __DG_MAX };
+static const struct blobmsg_policy diag_policy[__DG_MAX] = {
+	[DG_HOST] = { "host", BLOBMSG_TYPE_STRING },
+};
+
+static int m_diagnose(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		      const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__DG_MAX];
+	struct diag_req *q = calloc(1, sizeof(*q));
+	char err[160];
+
+	(void)obj;
+	(void)method;
+	if (!q)
+		return UBUS_STATUS_UNKNOWN_ERROR;
+	blobmsg_parse(diag_policy, __DG_MAX, tb, blob_data(msg), blob_len(msg));
+	q->ctx = ctx;
+	ubus_defer_request(ctx, req, &q->req);
+	if (diag_start(tb[DG_HOST] ? blobmsg_get_string(tb[DG_HOST]) : "", diag_answer, q, err, sizeof(err)) < 0) {
+		blob_buf_init(&b, 0);
+		blobmsg_add_string(&b, "error", err);
+		ubus_send_reply(ctx, &q->req, b.head);
+		ubus_complete_deferred_request(ctx, &q->req, 0);
+		free(q);
+	}
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
+	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {

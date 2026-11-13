@@ -38,6 +38,8 @@ static void usage(void)
 		"  dns cache           the DNS cache: hits, answer times, prefetches, stale answers\n"
 		"  wifi                access points (band, channel), their devices, band steering\n"
 		"  wifi --report       what Self-Healing Wi-Fi found and fixed: last day, 7 and 30 days\n"
+		"  diagnose [device]   \"my internet is slow\": the line, DNS, Wi-Fi and the device, checked\n"
+		"                      in a few seconds; what is wrong, most likely first, and what to do\n"
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
@@ -269,6 +271,53 @@ static const char *dur_short(unsigned long long s, char *out, size_t n)
 	else
 		snprintf(out, n, "%llum", s / 60);
 	return out;
+}
+
+/* agctl diagnose [device]: "my internet is slow", answered */
+static int diag_failed;
+
+static void show_diag(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	static const char *const mark[] = { "ok", "info", "warning", "problem" };
+	static const char *const sym[] = { "  ok     ", "  info   ", "  warning", "  problem" };
+	struct blob_attr *m = field(msg, "measured"), *f;
+	size_t rem;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (fstr(msg, "error")[0]) {
+		fprintf(stderr, "agctl: %s\n", fstr(msg, "error"));
+		diag_failed = 1;
+		return;
+	}
+	printf("%s%s%s\n", fstr(msg, "host")[0] ? fstr(msg, "host") : "", fstr(msg, "host")[0] ? ": " : "",
+	       fstr(msg, "summary"));
+	printf("  code      %s (%s, %s)\n", fstr(msg, "code"), fstr(msg, "area"), fstr(msg, "severity"));
+	if (fstr(msg, "advice")[0])
+		printf("  advice    %s\n", fstr(msg, "advice"));
+	if (m) {
+		printf("  measured  ");
+		if (!fnum(m, "route"))
+			printf("no default route");
+		else
+			printf("next hop %s %llu ms (%llu%% lost), internet %llu ms (%llu%% lost)", orb(fstr(m, "next_hop"), "-"),
+			       (unsigned long long)fnum(m, "next_hop_ms"), (unsigned long long)fnum(m, "next_hop_loss_pct"),
+			       (unsigned long long)fnum(m, "internet_ms"), (unsigned long long)fnum(m, "internet_loss_pct"));
+		printf(", DNS %s", fstr(m, "dns"));
+		if (!strcmp(fstr(m, "dns"), "ok"))
+			printf(" %llu ms", (unsigned long long)fnum(m, "dns_ms"));
+		printf("\n");
+	}
+	printf("  findings\n");
+	blobmsg_for_each_attr(f, field(msg, "findings"), rem) {
+		int s;
+
+		for (s = 0; s < 4 && strcmp(mark[s], fstr(f, "severity")); s++)
+			;
+		printf("%s  %-16s %s\n", sym[s < 4 ? s : 0], fstr(f, "code"), fstr(f, "text"));
+	}
 }
 
 /* agctl wifi --report: what Self-Healing Wi-Fi found and fixed, per access point */
@@ -1691,6 +1740,13 @@ int main(int argc, char **argv)
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
 		rc = call("ag.alert", "list", args.head, show_alerts);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "diagnose")) {
+		blob_buf_init(&args, 0);
+		if (i < argc)
+			blobmsg_add_string(&args, "host", argv[i]);
+		rc = call("ag", "diagnose", args.head, show_diag);
+		blob_buf_free(&args);
+		rc = rc || diag_failed;
 	} else if (!strcmp(cmd, "wifi")) {
 		rc = call("ag.wifi", "radios", NULL,
 			  i < argc && (!strcmp(argv[i], "--report") || !strcmp(argv[i], "report")) ? show_report : show_radios);

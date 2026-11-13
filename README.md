@@ -46,6 +46,15 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.27:** **Diagnose: "my internet is slow", answered by the gateway.** In
+> about 3 seconds it checks the line (next hop and internet), DNS, every access
+> point and, when asked, one device (its signal, what it feels, and whether
+> AIGW itself keeps it off or slows it), and names the cause, most likely
+> first, with a code and advice: `agctl diagnose [device]`, and for the ISP's
+> help desk `Device.X_AIGW_.Diagnose()` over USP (TR-069: through `Request.`),
+> `LastDiagnosis.` and the `DiagnosisDone!` event. See
+> [docs/diagnose.md](docs/diagnose.md).
+>
 > **v0.26:** **the healing report: proof, in numbers.** Each gateway counts what
 > Self-Healing Wi-Fi found and fixed: time Good / Degraded / Poor, problems by
 > cause, channel trials kept and switched back, devices kept on 2.4 GHz, time
