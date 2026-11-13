@@ -16,6 +16,7 @@
 #define _GNU_SOURCE
 #include <ctype.h>
 #include <dirent.h>
+#include <stddef.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,20 +63,38 @@ void wifi_init(void)
 	atexit(wifi_cleanup);
 }
 
-/* One request/response to hostapd. Returns reply length or -1. */
+/* One request/response to hostapd. Returns reply length or -1.
+ *
+ * One socket talks to every access point, so a reply that comes after its
+ * wait ran out (a hostapd busy starting) would otherwise be read as the
+ * answer to the next command, and every one after it: the access points'
+ * STATUS swapped for as long as agd ran (found on the PC access point).
+ * Late replies are dropped before sending, and only a reply from the
+ * hostapd asked counts. */
 static int hapd_cmd(const char *path, const char *cmd, char *reply, size_t n)
 {
-	struct sockaddr_un a = { .sun_family = AF_UNIX };
+	struct sockaddr_un a = { .sun_family = AF_UNIX }, from;
+	socklen_t fl;
 	ssize_t r;
+	int tries;
 
-	snprintf(a.sun_path, sizeof(a.sun_path), "%s", path);
+	while (recv(sock, reply, n - 1, MSG_DONTWAIT) >= 0)
+		;                                       /* late replies to earlier commands */
+	snprintf(a.sun_path, sizeof(a.sun_path), "%.*s", (int)sizeof(a.sun_path) - 1, path);
 	if (sendto(sock, cmd, strlen(cmd), 0, (struct sockaddr *)&a, sizeof(a)) < 0)
 		return -1;
-	r = recv(sock, reply, n - 1, 0);
-	if (r < 0)
-		return -1;
-	reply[r] = '\0';
-	return (int)r;
+	for (tries = 0; tries < 8; tries++) {
+		fl = sizeof(from);
+		memset(&from, 0, sizeof(from));
+		r = recvfrom(sock, reply, n - 1, 0, (struct sockaddr *)&from, &fl);
+		if (r < 0)
+			return -1;
+		if (fl > offsetof(struct sockaddr_un, sun_path) && strcmp(from.sun_path, a.sun_path))
+			continue;                       /* another access point's late reply */
+		reply[r] = '\0';
+		return (int)r;
+	}
+	return -1;
 }
 
 int wifi_cmd(const char *iface, const char *cmd, char *reply, size_t n)

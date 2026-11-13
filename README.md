@@ -56,6 +56,9 @@ illustrated version.
 > edge no longer flips the cause back and forth. *v0.26.1:* a channel trial
 > approved after agd restarted, on a radio that restarts to switch, is judged
 > against what devices really felt before (found on the PC access point).
+> *v0.26.2:* a hostapd that answers late no longer swaps two access points'
+> status in agd, and an access point agd restarted to change channel is no
+> longer stopped with agd (both found upgrading the PC access point).
 >
 > **v0.25:** **AIGW Self-Healing Wi-Fi, part 2: the gateway fixes it, and checks
 > the fix.** A busy channel gets a measured trial: AIGW switches, measures what

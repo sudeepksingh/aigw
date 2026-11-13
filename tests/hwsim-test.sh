@@ -503,4 +503,26 @@ until ip netns exec "$NC" iw dev "$STA" link | grep -q 'freq: 5'; do
 	i=$((i + 1)); [ $i -gt 60 ] && break; sleep 1
 done
 [ $i -le 60 ] && echo "   steered back to 5 GHz after ${i}s" || echo "   (not steered back within 60 s; the ban is lifted)"
+
+echo "== a hostapd that answers late: each access point keeps its own band and channel"
+# paused for longer than agd waits (300 ms): its replies come after agd gave
+# up, and must not be read as the answer to agd's next command (found on the
+# PC access point: the two access points' STATUS swapped until agd restarted)
+kill -STOP "$(cat "$H24.pid")"
+sleep 3
+kill -CONT "$(cat "$H24.pid")"
+sleep 6
+"$BIN/agctl/agctl" -j wifi | python3 -c "
+import json, sys
+for a in json.load(sys.stdin).get('radios', []):
+    print(a.get('iface'), a.get('band'), a.get('channel'), a.get('bssid'))
+" > "$T/aps.txt"
+for ifc in "$AP24" "$AP5"; do
+	want=$(cat "/sys/class/net/$ifc/address")
+	got=$(awk -v i="$ifc" '$1 == i {print $4}' "$T/aps.txt")
+	[ "$got" = "$want" ] || fail "after a late reply, $ifc shows another access point's status: $(cat "$T/aps.txt")"
+done
+awk -v i="$AP24" '$1 == i {print $2}' "$T/aps.txt" | grep -qx 2.4 || fail "$AP24 should be 2.4 GHz: $(cat "$T/aps.txt")"
+awk -v i="$AP5" '$1 == i {print $2}' "$T/aps.txt" | grep -qx 5 || fail "$AP5 should be 5 GHz: $(cat "$T/aps.txt")"
+echo "   $(tr '\n' ';' < "$T/aps.txt")"
 echo "HWSIM TEST OK"
