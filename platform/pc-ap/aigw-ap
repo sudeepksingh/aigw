@@ -82,8 +82,14 @@ wsl_attach() {
 	lines=$("$u" list 2>/dev/null | tr -d '\r' | sed -n '/^Connected:/,/^$/p' | grep -E '^[0-9]+-[0-9]+ ')
 	if [ -n "${USB_BUSID:-}" ]; then
 		pick=""
-		for b in $USB_BUSID; do pick="$pick$(echo "$lines" | grep -E "^$b ")
-"; done
+		# a bus id that isn't there (the adapter moved to another USB port)
+		# is said, not fatal: grep finding nothing would end the script (set -e)
+		for b in $USB_BUSID; do
+			l=$(echo "$lines" | grep -E "^$b " || true)
+			[ -n "$l" ] || say "USB_BUSID $b ($CONF): no such USB device now; moved to another port? See: usbipd.exe list"
+			pick="$pick$l
+"
+		done
 	else
 		pick=$(echo "$lines" | grep -iE 'wireless|wlan|wi-?fi|802\.11')
 	fi
@@ -295,8 +301,11 @@ SCOPES=0
 own_scope() {
 	if [ -d /run/systemd/system ] && command -v systemd-run > /dev/null 2>&1 &&
 	   systemd-run --scope --quiet --collect --unit="aigw-scope-test-$$" true > /dev/null 2>&1; then
+		# a unique name: each access point starts in its own subshell, where
+		# $$ and SCOPES are the same, so they alone would clash
 		SCOPES=$((SCOPES + 1))
-		systemd-run --scope --quiet --collect --unit="aigw-$(basename "$1")-$$-$SCOPES" "$@"
+		systemd-run --scope --quiet --collect \
+			--unit="aigw-$(basename "$1")-$$-$SCOPES-$(cut -c1-8 /proc/sys/kernel/random/uuid)" "$@"
 		return
 	fi
 	"$@"
