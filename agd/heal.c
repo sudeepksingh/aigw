@@ -749,6 +749,7 @@ static void evaluate(void)
 				blob_buf_free(&b);
 			}
 			dm_on_heal(ap->iface);
+			care_on_heal(r->status);
 			verdict_alerts(ap, r, &res, s, idx, n, &p);
 		} else {
 			r->pend_n = 0;

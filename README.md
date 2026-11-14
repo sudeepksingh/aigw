@@ -46,6 +46,17 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.28:** **Proactive care: fixed, or reported, before the customer calls.**
+> The gateway runs Diagnose by itself every 10 minutes, and within seconds when
+> Wi-Fi turns Poor. A problem with the line, the ISP's network or DNS is
+> reported to the ISP at once (`Device.X_AIGW_.ProblemDetected!`, then
+> `ProblemCleared!`). A Wi-Fi problem is Self-Healing Wi-Fi's to fix, and is
+> reported only if it lasts 30 minutes. Each home keeps a daily experience
+> score (the share of checks with nothing wrong) with the main cause, and
+> counts what was fixed by AIGW and what was reported: `agctl care`, and
+> `Device.X_AIGW_.Care.` for the ISP. See
+> [docs/proactive-care.md](docs/proactive-care.md).
+>
 > **v0.27:** **Diagnose: "my internet is slow", answered by the gateway.** In
 > about 3 seconds it checks the line (next hop and internet), DNS, every access
 > point and, when asked, one device (its signal, what it feels, and whether

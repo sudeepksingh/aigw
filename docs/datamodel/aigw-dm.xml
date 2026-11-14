@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.5. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.6. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-5" file="aigw-dm-1-5.xml">
+             spec="urn:aigw-os:aigw-dm-1-6" file="aigw-dm-1-6.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.5">
+  <model name="AIGW-OS:1.6">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DeviceInfo." access="readOnly" minEntries="1" maxEntries="1">
@@ -98,6 +98,20 @@
         <parameter name="Severity"><syntax><string/></syntax></parameter>
         <parameter name="Summary"><syntax><string/></syntax></parameter>
       </event>
+      <event name="ProblemDetected!">
+        <parameter name="Code"><syntax><string/></syntax></parameter>
+        <parameter name="Area"><syntax><string/></syntax></parameter>
+        <parameter name="Severity"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+        <parameter name="Advice"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="ProblemCleared!">
+        <parameter name="Code"><syntax><string/></syntax></parameter>
+        <parameter name="Area"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+        <parameter name="DurationSeconds"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DeviceInfo.FirmwareImage." access="readOnly" minEntries="1" maxEntries="1">
     </object>
@@ -110,6 +124,11 @@
     <object name="Device.WiFi.SSID." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.Care." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="LastCheck" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Decision." access="readOnly" minEntries="1" maxEntries="1">
     </object>
@@ -194,6 +213,17 @@
       <parameter name="LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="Count" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
+    <object name="Device.X_AIGW_.Care.Problem." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Code" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Area" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Severity" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="ReportedToISP" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Care.Stats." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
     <object name="Device.X_AIGW_.Decision.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="DecisionNumberOfEntries">
       <parameter name="Action" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Target" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -237,6 +267,33 @@
       <parameter name="ModesSupported" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="ModeEnabled" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="KeyPassphrase" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Care.Stats.Day." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="ExperienceScore" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Checks" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Problems" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ReportedToISP" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="FixedByAIGW" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProblemSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MainCause" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Care.Stats.Month." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="ExperienceScore" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Checks" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Problems" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ReportedToISP" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="FixedByAIGW" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProblemSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MainCause" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Care.Stats.Week." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="ExperienceScore" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Checks" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Problems" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ReportedToISP" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="FixedByAIGW" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProblemSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MainCause" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}.Stats." access="readOnly" minEntries="1" maxEntries="1">
     </object>

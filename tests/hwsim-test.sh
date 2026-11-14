@@ -159,6 +159,10 @@ config diag 'diag'
 	option targets '10.95.0.1'
 	option name 'example.com'
 
+config care 'care'
+	option interval '3600'
+	option recheck '3'
+
 config mgmt 'mgmt'
 	option enabled '1'
 
@@ -560,4 +564,70 @@ grep -q "LastDiagnosis.Code = DEVICE_BLOCKED" "$T/diag-last.txt" || fail "LastDi
 grep -q 'DiagnosisDone!' "$T/heal-events.log" || fail "no DiagnosisDone! event"
 "$BIN/agctl/agctl" undo "$DID" > /dev/null || fail "undo the disconnect"
 echo "   $(grep -m1 'Code = ' "$T/diag-dm.txt" | sed 's/^ *//'); $(sed -n 's/.*Summary = //p' "$T/diag-dm.txt" | cut -c1-120)"
+
+echo "== proactive care: found by the gateway itself, told to the ISP, over"
+# the same missing DNS server, now with nobody asking: the gateway's own
+# checks find it twice (recheck 3 s), report it at once (DNS is the ISP's),
+# see it clear when names resolve again, and find it again when they don't
+care_is() { # care_is <ok|problem> [reported]: wait for it
+	i=0
+	until "$BIN/agctl/agctl" -j care | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+p = d.get('problem', {})
+ok = d.get('status') == '$1' and ('$2' != 'reported' or p.get('reported') in (1, True))
+sys.exit(0 if ok else 1)"; do
+		i=$((i + 1)); [ $i -gt 40 ] && fail "proactive care should be $1 $2: $("$BIN/agctl/agctl" care)"; sleep 1
+	done
+}
+nev() { grep -c "$1" "$T/heal-events.log" || true; }
+"$BIN/agctl/agctl" care --check > /dev/null || fail "agctl care --check"
+care_is problem reported
+"$BIN/agctl/agctl" care | tee "$T/care.txt"
+grep -q "now       DNS_FAILING (DNS, problem)" "$T/care.txt" && grep -q "reported to the ISP" "$T/care.txt" ||
+	fail "agctl care should show the DNS problem, reported"
+"$BIN/agctl/agctl" dm get Device.X_AIGW_.Care. > "$T/care-dm.txt"
+grep -q "Care.Status = Problem" "$T/care-dm.txt" && grep -q "Care.Problem.Code = DNS_FAILING" "$T/care-dm.txt" &&
+	grep -q "Care.Problem.ReportedToISP = true" "$T/care-dm.txt" || fail "Device.X_AIGW_.Care.: $(cat "$T/care-dm.txt")"
+i=0
+until [ "$(nev 'ProblemDetected!')" -ge 1 ]; do
+	i=$((i + 1)); [ $i -gt 10 ] && fail "no ProblemDetected! event"; sleep 1
+done
+grep 'ProblemDetected!' "$T/heal-events.log" | grep -q DNS_FAILING || fail "ProblemDetected! should name DNS_FAILING"
+# names resolve again (a tiny DNS server that answers NOERROR): over
+python3 -c '
+import socket
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.bind(("127.0.0.1", 15356))
+while True:
+    q, a = s.recvfrom(512)
+    r = bytearray(q); r[2] |= 0x80; r[3] = 0x80
+    s.sendto(bytes(r), a)' > "$T/dnsd.log" 2>&1 & DNSD=$!; PIDS="$PIDS $DNSD"
+sleep 0.5
+"$BIN/agctl/agctl" care --check > /dev/null
+care_is ok
+i=0
+until [ "$(nev 'ProblemCleared!')" -ge 1 ]; do
+	i=$((i + 1)); [ $i -gt 10 ] && fail "no ProblemCleared! event"; sleep 1
+done
+D1=$(nev 'ProblemDetected!')
+# and failing again: found and reported again
+kill "$DNSD"; wait "$DNSD" 2>/dev/null || true
+"$BIN/agctl/agctl" care --check > /dev/null
+care_is problem reported
+i=0
+until [ "$(nev 'ProblemDetected!')" -gt "$D1" ]; do
+	i=$((i + 1)); [ $i -gt 10 ] && fail "no second ProblemDetected! event"; sleep 1
+done
+"$BIN/agctl/agctl" dm get Device.X_AIGW_.Care.Stats.Day. > "$T/care-day.txt"
+python3 - "$T/care-day.txt" <<'EOF' || fail "Care.Stats.Day: $(cat "$T/care-day.txt")"
+import re, sys
+v = dict(re.findall(r"Stats\.Day\.(\w+) = (\S*)", open(sys.argv[1]).read()))
+ok = int(v["Problems"]) >= 2 and int(v["ReportedToISP"]) >= 2 and int(v["ExperienceScore"]) < 100 and v["MainCause"] == "DNS"
+sys.exit(0 if ok else 1)
+EOF
+# the gateway's own checks are quiet: LastDiagnosis is still the one the help desk asked for
+"$BIN/agctl/agctl" dm get Device.X_AIGW_.LastDiagnosis.Code | grep -q "DEVICE_BLOCKED" ||
+	fail "proactive care's checks must not replace LastDiagnosis: $("$BIN/agctl/agctl" dm get Device.X_AIGW_.LastDiagnosis.Code)"
+echo "   $(grep -E 'last day' "$T/care.txt" | sed 's/^ *//')"
 echo "HWSIM TEST OK"
