@@ -186,6 +186,10 @@ export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock" AIGW_AP="$REPO/plat
 UBUSD=$(command -v ubusd || echo /usr/local/sbin/ubusd)
 "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.5
+# every data model event from agd's start: proactive care finds the missing
+# DNS server (below) within its first minute, long before its own section
+"${UBUS:-$(command -v ubus || echo /usr/local/bin/ubus)}" -s "$AIGW_UBUS" listen ag.dm.event > "$T/all-events.log" 2>&1 & PIDS="$PIDS $!"
+sleep 0.2
 "$BIN/agd/agd" > "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
 
 echo "== agd steers the client to 5 GHz"
@@ -566,9 +570,10 @@ grep -q 'DiagnosisDone!' "$T/heal-events.log" || fail "no DiagnosisDone! event"
 echo "   $(grep -m1 'Code = ' "$T/diag-dm.txt" | sed 's/^ *//'); $(sed -n 's/.*Summary = //p' "$T/diag-dm.txt" | cut -c1-120)"
 
 echo "== proactive care: found by the gateway itself, told to the ISP, over"
-# the same missing DNS server, now with nobody asking: the gateway's own
-# checks find it twice (recheck 3 s), report it at once (DNS is the ISP's),
-# see it clear when names resolve again, and find it again when they don't
+# the same missing DNS server, with nobody asking: the gateway's own checks
+# found it twice early on (recheck 3 s) and reported it at once (DNS is the
+# ISP's), kept it open across the restarts above without reporting it again;
+# they see it clear when names resolve again, and find it again when they don't
 care_is() { # care_is <ok|problem> [reported]: wait for it
 	i=0
 	until "$BIN/agctl/agctl" -j care | python3 -c "
@@ -580,7 +585,7 @@ sys.exit(0 if ok else 1)"; do
 		i=$((i + 1)); [ $i -gt 40 ] && fail "proactive care should be $1 $2: $("$BIN/agctl/agctl" care)"; sleep 1
 	done
 }
-nev() { grep -c "$1" "$T/heal-events.log" || true; }
+nev() { grep -c "$1" "$T/all-events.log" || true; }
 "$BIN/agctl/agctl" care --check > /dev/null || fail "agctl care --check"
 care_is problem reported
 "$BIN/agctl/agctl" care | tee "$T/care.txt"
@@ -593,7 +598,8 @@ i=0
 until [ "$(nev 'ProblemDetected!')" -ge 1 ]; do
 	i=$((i + 1)); [ $i -gt 10 ] && fail "no ProblemDetected! event"; sleep 1
 done
-grep 'ProblemDetected!' "$T/heal-events.log" | grep -q DNS_FAILING || fail "ProblemDetected! should name DNS_FAILING"
+[ "$(nev 'ProblemDetected!')" -eq 1 ] || fail "ProblemDetected! should be sent once, across the restarts: $(nev 'ProblemDetected!')"
+grep 'ProblemDetected!' "$T/all-events.log" | grep -q DNS_FAILING || fail "ProblemDetected! should name DNS_FAILING"
 # names resolve again (a tiny DNS server that answers NOERROR): over
 python3 -c '
 import socket
