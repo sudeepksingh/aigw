@@ -5,6 +5,7 @@
 #   sudo aigw-ap down      stop everything and release the Wi-Fi adapter
 #   sudo aigw-ap restart
 #   sudo aigw-ap status
+#   sudo aigw-ap check     exit 0 if up and whole (for a watchdog)
 #
 # Settings: /etc/aigw/pc-ap.conf
 set -eu
@@ -543,11 +544,35 @@ status() {
 	agctl status 2>/dev/null || true
 }
 
+# check: exit 0 when the access point is up and whole (every access point's
+# hostapd running, with its interface, and the services active), 1 if not;
+# says what is missing. For a watchdog (aigw-wsl.ps1 -Boot).
+check() {
+	[ -f "$RUN/iface" ] || { say "down"; return 1; }
+	bad=0
+	for iface in $(cat "$RUN/radios" 2>/dev/null || cat "$RUN/iface"); do
+		pidf="$RUN/hostapd-$iface.pid"
+		if [ ! -e "/sys/class/net/$iface" ]; then
+			say "$iface: adapter gone"; bad=1
+		elif ! { [ -f "$pidf" ] && kill -0 "$(cat "$pidf")" 2>/dev/null; }; then
+			say "$iface: hostapd not running"; bad=1
+		fi
+	done
+	if have_systemd; then
+		for s in $SERVICES; do
+			systemctl is-active --quiet "$s" || { say "service $s: not active"; bad=1; }
+		done
+	fi
+	[ $bad = 0 ] && say "up"
+	return $bad
+}
+
 case "${1:-}" in
 up) up ;;
 down) down ;;
 restart) down; up ;;
 status) status ;;
+check) check ;;
 channel|reconf)
 	# channel <iface> <channel>: one access point to another channel, until the
 	#   next `up` (agd's channel action, where the radio can't announce a switch)

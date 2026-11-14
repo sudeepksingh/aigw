@@ -62,6 +62,10 @@ illustrated version.
 > that no longer exists (the adapter moved to another USB port) is said instead
 > of stopping `aigw-ap up` without a word (both found moving the adapters to a
 > USB extension).
+> *v0.27.3:* on Windows, `aigw-wsl.cmd -Install` brings the PC access point up
+> by itself at every logon and keeps it up: after a restart, a power cut, WSL
+> shutting down or an adapter dropping off USB (`aigw-ap check`, once a
+> minute).
 >
 > **v0.26:** **the healing report: proof, in numbers.** Each gateway counts what
 > Self-Healing Wi-Fi found and fixed: time Good / Degraded / Poor, problems by
