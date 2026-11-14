@@ -84,7 +84,9 @@ function UsbId-Of($line) { return ($line.ToString().Trim() -split '\s+')[1] }
 function Start-KeepAlive {
     $running = & wsl.exe @WslArgs -u root -- sh -c "pgrep -f '^aigw-keepalive' >/dev/null && echo yes"
     if ($running -ne "yes") {
-        $argList = @($WslArgs + @("-u", "root", "--", "bash", "-c", "exec -a aigw-keepalive sleep infinity"))
+        # quoted: Start-Process joins its arguments with spaces, unquoted, and
+        # bash -c would get only "exec" (and exit at once)
+        $argList = @($WslArgs + @("-u", "root", "--", "bash", "-c", "`"exec -a aigw-keepalive sleep infinity`""))
         Start-Process wsl.exe -ArgumentList $argList -WindowStyle Hidden | Out-Null
         Start-Sleep 3
         return $true
