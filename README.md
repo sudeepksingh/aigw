@@ -66,6 +66,9 @@ illustrated version.
 > by itself at every logon and keeps it up: after a restart, a power cut, WSL
 > shutting down or an adapter dropping off USB (`aigw-ap check`, once a
 > minute).
+> *v0.27.4:* `aigw-wsl.cmd`'s keep-alive really keeps WSL running (it exited
+> at once, so WSL could shut down between commands, taking the access point
+> with it).
 >
 > **v0.26:** **the healing report: proof, in numbers.** Each gateway counts what
 > Self-Healing Wi-Fi found and fixed: time Good / Degraded / Poor, problems by
