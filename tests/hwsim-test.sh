@@ -575,14 +575,14 @@ echo "== proactive care: found by the gateway itself, told to the ISP, over"
 # ISP's), kept it open across the restarts above without reporting it again;
 # they see it clear when names resolve again, and find it again when they don't
 care_is() { # care_is <ok|problem> [reported]: wait for it
-	i=0
+	i=0; CR=${2:-}
 	until "$BIN/agctl/agctl" -j care | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 p = d.get('problem', {})
-ok = d.get('status') == '$1' and ('$2' != 'reported' or p.get('reported') in (1, True))
+ok = d.get('status') == '$1' and ('$CR' != 'reported' or p.get('reported') in (1, True))
 sys.exit(0 if ok else 1)"; do
-		i=$((i + 1)); [ $i -gt 40 ] && fail "proactive care should be $1 $2: $("$BIN/agctl/agctl" care)"; sleep 1
+		i=$((i + 1)); [ $i -gt 40 ] && fail "proactive care should be $1 $CR: $("$BIN/agctl/agctl" care)"; sleep 1
 	done
 }
 nev() { grep -c "$1" "$T/all-events.log" || true; }
