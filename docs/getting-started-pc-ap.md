@@ -163,6 +163,33 @@ cannot be passed to WSL.
 Pass `-BusId 1-6` if it picks the wrong USB device (`usbipd list` shows ids)
 and `-Distro Ubuntu-24.04` if AIGW is not in your default distribution.
 
+### Up by itself: after a restart, a power cut, WSL shutting down
+
+```bat
+platform\pc-ap\wsl\aigw-wsl.cmd -Install
+```
+
+This registers a Task Scheduler task, "AIGW OS access point", which asks for
+administrator approval once. At every logon the task:
+
+1. waits for the adapters (USB hubs and extensions come up late);
+2. shares an adapter again if Windows forgot it (another USB port, or another
+   USB driver taking the device);
+3. attaches the adapters, keeps WSL running and starts the access point.
+
+After that it checks once a minute (`aigw-ap check`). It starts the access
+point again if it went down: WSL shut down, or an adapter dropped off USB. It
+only starts an access point that is down; a running one is left alone. The
+adapters it looks after are the ones shared when `-Install` ran, matched by USB
+id, so moving them to another port is fine.
+
+Its log is `%LOCALAPPDATA%\aigw\aigw-wsl.log`. `aigw-wsl.cmd -Uninstall`
+removes the task.
+
+It starts at logon. After a power cut, the access point comes back only once
+Windows logs you in, so set Windows to log in by itself if the PC should come
+back alone.
+
 WSL's kernel cannot read the distribution's firmware files directly.
 `aigw-ap` copies the Wi-Fi firmware and the regulatory database to
 `/mnt/wsl/firmware` and points the kernel there, so no manual step is needed.
@@ -222,6 +249,8 @@ devices AIGW must never act on, and the `policy` sections), plug-ins
 | Problem | Fix |
 |---------|-----|
 | `no Wi-Fi adapter with AP mode found` | Check `iw dev`. On WSL, `usbipd list` should show the adapter as Shared or Attached; if it says Not shared, run `aigw-wsl.cmd` once |
+| `aigw-ap up` ends at once after the adapters moved to other USB ports | `USB_BUSID` in `/etc/aigw/pc-ap.conf` names the old bus ids: set the new ones from `usbipd list`, or leave it empty |
+| The access point is gone after a restart or a while idle | WSL stopped, or the adapters weren't attached: `aigw-wsl.cmd -Install` keeps it up (log: `%LOCALAPPDATA%\aigw\aigw-wsl.log`) |
 | `BAND=dual needs two Wi-Fi adapters` | Only one adapter came up: check `iw dev`, and on WSL that both show in `usbipd list` |
 | `hostapd could not start` | The message above it shows hostapd's reason. Try `BAND=2.4`, `CHANNEL=6`, or set `COUNTRY` |
 | 5 GHz refused | Set `COUNTRY`. Some adapters can't run an AP on 5 GHz at all |
