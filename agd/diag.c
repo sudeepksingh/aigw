@@ -49,6 +49,7 @@ struct waiter {
 
 static struct {
 	int running;
+	int quiet;                      /* proactive care's own check: not LastDiagnosis, no DiagnosisDone! */
 	char host[64];
 	char mac[18];                   /* the device asked about, once found */
 	struct waiter w[WAITERS];
@@ -65,6 +66,16 @@ static struct {
 	int rtt[TARGETS][ROUNDS];       /* -1 no answer */
 	struct diag_input in;
 } D;
+
+/* someone asked while proactive care's own check ran: theirs starts right after it */
+static struct {
+	int used;
+	char host[64];
+	diag_cb cb;
+	void *ctx;
+} queued;
+
+static int start(const char *host, int quiet, diag_cb cb, void *ctx, char *err, size_t errlen);
 
 static struct diag_input last_in;
 static struct diag_result last_res;
@@ -335,17 +346,28 @@ static void finish(void)
 	diag_judge(&D.in, &res);
 	in = D.in;
 	memcpy(w, D.w, sizeof(w));
-	last_in = in;
-	last_res = res;
-	snprintf(last_host, sizeof(last_host), "%s", D.host);
-	last_at = ag_wall_s();
-	AG_INFO("diagnose%s%s: %s -- %s", D.host[0] ? " " : "", D.host, res.n ? res.f[0].code : "OK",
-		res.n ? res.f[0].text : "");
 	D.running = 0;
 	D.nw = 0;
-	dm_on_diag(&res, &in, D.mac);
+	if (D.quiet) {
+		AG_DEBUG("care check: %s -- %s", res.n ? res.f[0].code : "OK", res.n ? res.f[0].text : "");
+	} else {
+		last_in = in;
+		last_res = res;
+		snprintf(last_host, sizeof(last_host), "%s", D.host);
+		last_at = ag_wall_s();
+		AG_INFO("diagnose%s%s: %s -- %s", D.host[0] ? " " : "", D.host, res.n ? res.f[0].code : "OK",
+			res.n ? res.f[0].text : "");
+		dm_on_diag(&res, &in, D.mac);
+	}
 	for (i = 0; i < nw; i++)
 		w[i].cb(w[i].ctx, &res, &in);
+	if (queued.used && !D.running) {
+		char err[96];
+
+		queued.used = 0;
+		if (start(queued.host, 0, queued.cb, queued.ctx, err, sizeof(err)) < 0)
+			AG_WARN("diagnose %s: %s", queued.host, err);
+	}
 }
 
 static void tick(struct uloop_timeout *t)
@@ -359,22 +381,31 @@ static void tick(struct uloop_timeout *t)
 	finish();
 }
 
-int diag_start(const char *host, diag_cb cb, void *ctx, char *err, size_t errlen)
+static int start(const char *host, int quiet, diag_cb cb, void *ctx, char *err, size_t errlen)
 {
 	char gw[48], tl[sizeof(cfg.diag_targets)], *s, *save;
 	int t, r;
 
 	host = host ? host : "";
 	if (D.running) {
-		if (strcmp(D.host, host) || D.nw >= WAITERS) {
+		if (!quiet && D.quiet && strcmp(D.host, host) && !queued.used) {
+			queued.used = 1;        /* only care's own check is running: right after it */
+			snprintf(queued.host, sizeof(queued.host), "%s", host);
+			queued.cb = cb;
+			queued.ctx = ctx;
+			return 0;
+		}
+		if (quiet || strcmp(D.host, host) || D.nw >= WAITERS) {
 			snprintf(err, errlen, "a diagnosis is running; ask again in a few seconds");
 			return -1;
 		}
 		D.w[D.nw].cb = cb;
 		D.w[D.nw++].ctx = ctx;  /* the same question: the same answer */
+		D.quiet = 0;            /* someone asked: it is their diagnosis too */
 		return 0;
 	}
 	memset(&D, 0, sizeof(D));
+	D.quiet = quiet;
 	D.icmp = D.udp = -1;
 	snprintf(D.host, sizeof(D.host), "%s", host);
 	D.w[0].cb = cb;
@@ -414,10 +445,25 @@ int diag_start(const char *host, diag_cb cb, void *ctx, char *err, size_t errlen
 	D.start_ms = mono_ms();
 	D.timer.cb = tick;
 	uloop_timeout_set(&D.timer, 1);
-	AG_INFO("diagnose%s%s: measuring (next hop %s, %d internet targets, DNS %s)", host[0] ? " " : "", host,
-		gw[0] ? gw : D.in.route ? "none" : "no route", D.ntgt > 1 ? D.ntgt - 1 : 0,
-		cfg.diag_name[0] ? cfg.diag_name : "not checked");
+	if (quiet)
+		AG_DEBUG("care check: measuring");
+	else
+		AG_INFO("diagnose%s%s: measuring (next hop %s, %d internet targets, DNS %s)", host[0] ? " " : "", host,
+			gw[0] ? gw : D.in.route ? "none" : "no route", D.ntgt > 1 ? D.ntgt - 1 : 0,
+			cfg.diag_name[0] ? cfg.diag_name : "not checked");
 	return 0;
+}
+
+int diag_start(const char *host, diag_cb cb, void *ctx, char *err, size_t errlen)
+{
+	return start(host, 0, cb, ctx, err, errlen);
+}
+
+int diag_check(diag_cb cb, void *ctx)
+{
+	char err[96];
+
+	return start("", 1, cb, ctx, err, sizeof(err));
 }
 
 void diag_blob(struct blob_buf *b, const struct diag_result *r, const struct diag_input *in)

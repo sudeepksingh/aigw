@@ -107,6 +107,19 @@ config diag 'diag'
 	# the name it asks the gateway's DNS for; '' = DNS not checked
 	# option name 'example.com'
 
+config care 'care'
+	# Proactive care: the gateway runs Diagnose by itself (agctl care) and
+	# keeps a daily experience score. A problem with the line or DNS is
+	# reported to the ISP at once (Device.X_AIGW_.ProblemDetected!); a Wi-Fi
+	# one only if Self-Healing Wi-Fi hasn't fixed it within wifi_grace
+	option enabled '1'
+	# seconds between checks while all is fine
+	# option interval '600'
+	# seconds to the next check after one found something (to confirm it,
+	# and then to see it clear)
+	# option recheck '60'
+	# option wifi_grace '1800'
+
 config mgmt 'mgmt'
 	# management by an ISP over USP (TR-369; package aigw-usp) or TR-069
 	# (package aigw-cwmp): one data model for both (agctl dm get Device.).

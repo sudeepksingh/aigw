@@ -557,6 +557,7 @@ int dev_state_save(void)
 	burst_save(&b);
 	dm_save(&b);
 	heal_save(&b);
+	care_save(&b);
 
 	json =blobmsg_format_json(b.head, true);
 	snprintf(tmp, sizeof(tmp), "%s.tmp", cfg.state_file);
@@ -655,6 +656,8 @@ int dev_state_load(void)
 			dm_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "wifi_report"))
 			heal_load(cur);
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "care"))
+			care_load(cur);
 		if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
 			continue;
 		if (!strcmp(blobmsg_name(cur), "devices"))

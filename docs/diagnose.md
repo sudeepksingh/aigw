@@ -85,6 +85,9 @@ verdict comes with advice (what to do next). The rules are in
   `Device.X_AIGW_.DiagnosisDone!` (`Host`, `Code`, `Severity`, `Summary`),
   whoever asked: a help desk sees what the home found.
 
+The gateway also runs Diagnose by itself, and tells the ISP about problems
+before anyone asks: see [proactive-care.md](proactive-care.md).
+
 Diagnose only reads: it changes nothing, so a management system may run it
 without `mgmt.actions`. One runs at a time; the same question asked meanwhile
 gets the same answer.
