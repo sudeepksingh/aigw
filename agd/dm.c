@@ -36,11 +36,12 @@
 
 #include <libubus.h>
 
+#include "ag/care.h"
 #include "ag/diag.h"
 #include "ag/heal.h"
 #include "agd.h"
 
-#define DM_VERSION "1.5"
+#define DM_VERSION "1.6"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -772,6 +773,33 @@ GET(g_ld_findings)
 	return 0;
 }
 
+/* proactive care (Device.X_AIGW_.Care.): the open problem, and the experience score per period */
+static const struct care_state *cs_open(void) { const struct care_state *s = care_now(); return s->active ? s : NULL; }
+GET(g_care_en) { (void)c; snprintf(buf, n, "%s", cfg.care ? "true" : "false"); return 0; }
+GET(g_care_status) { (void)c; snprintf(buf, n, "%s", cs_open() ? "Problem" : "OK"); return 0; }
+GET(g_care_last) { (void)c; fmt_time(care_now()->last_check, buf, n); return 0; }
+GET(g_cp_code) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? s->code : ""); return 0; }
+GET(g_cp_area) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? s->area : ""); return 0; }
+GET(g_cp_sev) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? diag_sev_name(s->sev) : ""); return 0; }
+GET(g_cp_summary) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? s->text : ""); return 0; }
+GET(g_cp_advice) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? diag_advice(s->code) : ""); return 0; }
+GET(g_cp_since) { const struct care_state *s = cs_open(); (void)c; fmt_time(s ? s->since : 0, buf, n); return 0; }
+GET(g_cp_rep) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s && s->reported ? "true" : "false"); return 0; }
+#define CSTAT(fn, days, expr) \
+	GET(fn) { struct care_day s; (void)c; care_report_of(days, &s); snprintf(buf, n, "%u", (unsigned)(expr)); return 0; }
+#define CSTATS(P, days) \
+	CSTAT(g_cs_score_##P, days, care_score(&s) < 0 ? 0 : care_score(&s)) \
+	CSTAT(g_cs_checks_##P, days, s.checks) \
+	CSTAT(g_cs_probs_##P, days, s.problems) \
+	CSTAT(g_cs_rep_##P, days, s.reported) \
+	CSTAT(g_cs_fixed_##P, days, s.fixed) \
+	CSTAT(g_cs_secs_##P, days, s.problem_secs) \
+	GET(g_cs_cause_##P) { struct care_day s; (void)c; care_report_of(days, &s); \
+		snprintf(buf, n, "%s", care_area_name(care_main_cause(&s))); return 0; }
+CSTATS(day, 1)
+CSTATS(week, 7)
+CSTATS(month, 30)
+
 /* ---------- the schema ---------- */
 
 #define W 1                             /* writable */
@@ -907,6 +935,29 @@ static struct dm_param {
 	{ "Device.X_AIGW_.LastDiagnosis.Summary", T_STR, 0, TB_NONE, g_ld_summary, NULL },
 	{ "Device.X_AIGW_.LastDiagnosis.Advice", T_STR, 0, TB_NONE, g_ld_advice, NULL },
 	{ "Device.X_AIGW_.LastDiagnosis.Findings", T_STR, 0, TB_NONE, g_ld_findings, NULL },
+
+	{ "Device.X_AIGW_.Care.Enable", T_BOOL, 0, TB_NONE, g_care_en, NULL },
+	{ "Device.X_AIGW_.Care.Status", T_STR, N, TB_NONE, g_care_status, NULL },
+	{ "Device.X_AIGW_.Care.LastCheck", T_TIME, 0, TB_NONE, g_care_last, NULL },
+	{ "Device.X_AIGW_.Care.Problem.Code", T_STR, N, TB_NONE, g_cp_code, NULL },
+	{ "Device.X_AIGW_.Care.Problem.Area", T_STR, 0, TB_NONE, g_cp_area, NULL },
+	{ "Device.X_AIGW_.Care.Problem.Severity", T_STR, 0, TB_NONE, g_cp_sev, NULL },
+	{ "Device.X_AIGW_.Care.Problem.Summary", T_STR, 0, TB_NONE, g_cp_summary, NULL },
+	{ "Device.X_AIGW_.Care.Problem.Advice", T_STR, 0, TB_NONE, g_cp_advice, NULL },
+	{ "Device.X_AIGW_.Care.Problem.Since", T_TIME, 0, TB_NONE, g_cp_since, NULL },
+	{ "Device.X_AIGW_.Care.Problem.ReportedToISP", T_BOOL, 0, TB_NONE, g_cp_rep, NULL },
+#define CROWS(O, P) \
+	{ "Device.X_AIGW_.Care.Stats." O ".ExperienceScore", T_UINT, 0, TB_NONE, g_cs_score_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".Checks", T_UINT, 0, TB_NONE, g_cs_checks_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".Problems", T_UINT, 0, TB_NONE, g_cs_probs_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".ReportedToISP", T_UINT, 0, TB_NONE, g_cs_rep_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".FixedByAIGW", T_UINT, 0, TB_NONE, g_cs_fixed_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".ProblemSeconds", T_UINT, 0, TB_NONE, g_cs_secs_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".MainCause", T_STR, 0, TB_NONE, g_cs_cause_##P, NULL },
+	CROWS("Day", day)
+	CROWS("Week", week)
+	CROWS("Month", month)
+#undef CROWS
 };
 #define N_PARAMS ((int)(sizeof(params) / sizeof(params[0])))
 
@@ -1223,6 +1274,8 @@ static struct {
 	{ "Device.X_AIGW_.DecisionChanged!", "Decision,Action,State,Host" },
 	{ "Device.X_AIGW_.WiFiHealthChanged!", "WiFiHealth,Radio,Status,Cause,Explanation" },
 	{ "Device.X_AIGW_.DiagnosisDone!", "Host,Code,Severity,Summary" },
+	{ "Device.X_AIGW_.ProblemDetected!", "Code,Area,Severity,Summary,Advice,Since" },
+	{ "Device.X_AIGW_.ProblemCleared!", "Code,Area,Since,DurationSeconds" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -1749,6 +1802,26 @@ void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const 
 	if (in->host.found && mac && *mac)
 		host_ref(mac, ref, sizeof(ref));
 	emit(events[3].path, kv);           /* DiagnosisDone! */
+}
+
+/* care.c: a problem the ISP must hear of (ProblemDetected!), and its end (ProblemCleared!) */
+void dm_on_care(int detected)
+{
+	const struct care_state *s = care_now();
+	char since[40], dur[24];
+
+	fmt_time(s->since, since, sizeof(since));
+	snprintf(dur, sizeof(dur), "%ld", s->duration);
+	if (detected) {
+		const char *kv[] = { "Code", s->code, "Area", s->area, "Severity", diag_sev_name(s->sev),
+				     "Summary", s->text, "Advice", diag_advice(s->code), "Since", since, NULL };
+
+		emit(events[4].path, kv);   /* ProblemDetected! */
+	} else {
+		const char *kv[] = { "Code", s->code, "Area", s->area, "Since", since, "DurationSeconds", dur, NULL };
+
+		emit(events[5].path, kv);   /* ProblemCleared! */
+	}
 }
 
 /* ---------- state ---------- */

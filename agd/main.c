@@ -955,9 +955,32 @@ static int m_diagnose(struct ubus_context *ctx, struct ubus_object *obj, struct 
 	return 0;
 }
 
+/* ag care {check}: proactive care's state and report; check: run one now */
+enum { CR_CHECK, __CR_MAX };
+static const struct blobmsg_policy care_policy[__CR_MAX] = {
+	[CR_CHECK] = { "check", BLOBMSG_TYPE_BOOL },
+};
+
+static int m_care(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		  const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__CR_MAX];
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(care_policy, __CR_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (tb[CR_CHECK] && blobmsg_get_bool(tb[CR_CHECK]) && care_check_now() < 0)
+		blobmsg_add_string(&b, "error", "proactive care is off (care.enabled)");
+	care_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
+	UBUS_METHOD("care", m_care, care_policy),
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1060,6 +1083,7 @@ int main(int argc, char **argv)
 	meter_init();
 	wifi_init();
 	heal_init();
+	care_init();
 	keys_init();
 	plugin_init();
 

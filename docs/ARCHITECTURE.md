@@ -942,6 +942,16 @@ Verified by `tests/test_heal.c` (the margin over a -76..-71 dBm walk changes the
 
 Verified by `tests/test_diag.c` (every code and the order), `tests/dm-test.sh` (the schema and the published DM XML), and `tests/hwsim-test.sh` (CI: with no DNS server the verdict is `DNS_FAILING`; with the client disconnected by AIGW, `DEVICE_BLOCKED` naming the decision, over `agctl` and the data model, with `LastDiagnosis.` and `DiagnosisDone!`).
 
+**As built in v0.28: proactive care.** The gateway runs Diagnose by itself, fixes what it can, tells the ISP about the rest before the customer calls, and keeps a daily experience score ([proactive-care.md](proactive-care.md)).
+
+| Piece | As built |
+|-------|----------|
+| Rules (`core/libag/care.c`, `include/ag/care.h`) | Pure: `care_step(state, report, verdict, now, params)`. A problem is a verdict of warning or worse on 2 checks in a row, and is over after 2 fine ones. The line and DNS are the ISP's: reported at once. Wi-Fi is Self-Healing Wi-Fi's: reported after `wifi_grace`, otherwise counted as fixed by AIGW. A change of cause is reported again. Day counts for 31 days; `care_score`, `care_main_cause`. |
+| Checks (`agd/care.c`) | A uloop timer: `care.interval`, or `care.recheck` while something is wrong; within seconds when a radio turns Poor (`care_on_heal`). `diag_check()` is a quiet Diagnose: no `LastDiagnosis.`, no `DiagnosisDone!`; a Diagnose someone asks for during it is queued, not refused. Saved with agd's state: the days, and an open problem (not reported twice after a restart). |
+| Seen | `ag care {check}`; `agctl care [--check]`; ubus event `ag.care`; data model 1.6: `Device.X_AIGW_.Care.` (`Enable`, `Status`, `LastCheck`, `Problem.` 7 parameters, `Stats.Day/Week/Month.` 7 each) and events `ProblemDetected!`, `ProblemCleared!`. |
+
+Verified by `tests/test_care.c` (every rule), `tests/care-test.sh` (found, reported once, remembered over a restart, over; quiet checks; a Diagnose during a check waits), `tests/dm-test.sh` (the object, the schema, the DM XML) and `tests/hwsim-test.sh` (the same with simulated radios).
+
 ---
 
 ## 17. Status and risks

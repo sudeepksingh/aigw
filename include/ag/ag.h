@@ -20,6 +20,7 @@
 #define AG_EV_DECISION "ag.decision"
 #define AG_EV_PLUGIN "ag.plugin"   /* plug-in lifecycle; plug-ins' own events use their types (iot.*) */
 #define AG_EV_MODEL "ag.model"     /* a model update loaded, refused or rolled back */
+#define AG_EV_CARE "ag.care"       /* proactive care: a problem found, reported, over */
 #define AG_EV_DM "ag.dm.event"     /* a data model event (TR-181 path ending in '!'), for USP / TR-069 */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
@@ -108,6 +109,10 @@ struct ag_config {
 	int heal_weak_margin;     /* dB above heal_weak before a weak signal counts as fine again */
 	char diag_targets[128];   /* Diagnose: internet addresses it sends echo requests to (the best counts) */
 	char diag_name[128];      /* Diagnose: the name it asks the gateway's DNS for; "" = DNS not checked */
+	int care;                 /* proactive care: the gateway checks itself and tells the ISP */
+	int care_interval;        /* s between checks while all is fine */
+	int care_recheck;         /* s to the next check after one found something (to confirm, then to see it clear) */
+	int care_wifi_grace;      /* s Self-Healing Wi-Fi has before a Wi-Fi problem is reported to the ISP */
 	int chan_heal;            /* watch how busy each access point's channel is; suggest a quieter one */
 	int chan_busy;            /* % of the air used by others that counts as busy */
 	int chan_hold;            /* seconds it must stay that busy */

@@ -152,6 +152,10 @@ void ag_config_load(struct ag_config *c)
 	c->heal_weak_margin = 3;
 	copy(c->diag_targets, sizeof(c->diag_targets), "1.1.1.1 8.8.8.8 9.9.9.9");
 	copy(c->diag_name, sizeof(c->diag_name), "example.com");
+	c->care = 1;
+	c->care_interval = 600;
+	c->care_recheck = 60;
+	c->care_wifi_grace = 1800;
 	c->steer_up = -60;
 	c->steer_down = -75;
 	c->steer_hold = 30;
@@ -320,6 +324,18 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "diag", "name");
 		if (v)
 			copy(c->diag_name, sizeof(c->diag_name), v);
+		v = opt(ctx, p, "care", "enabled");
+		if (v)
+			c->care = atoi(v) != 0;
+		v = opt(ctx, p, "care", "interval");
+		if (v && atoi(v) >= 10 && atoi(v) <= 86400)
+			c->care_interval = atoi(v);
+		v = opt(ctx, p, "care", "recheck");
+		if (v && atoi(v) >= 1 && atoi(v) <= 3600)
+			c->care_recheck = atoi(v);
+		v = opt(ctx, p, "care", "wifi_grace");
+		if (v && atoi(v) >= 0 && atoi(v) <= 86400)
+			c->care_wifi_grace = atoi(v);
 		v = opt(ctx, p, "wifi", "chan_heal");
 		if (v)
 			c->chan_heal = atoi(v) != 0;

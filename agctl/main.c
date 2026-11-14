@@ -39,6 +39,7 @@ static void usage(void)
 		"  wifi                access points (band, channel), their devices, band steering\n"
 		"  wifi --report       what Self-Healing Wi-Fi found and fixed: last day, 7 and 30 days\n"
 		"  diagnose [device]   \"my internet is slow\": the line, DNS, Wi-Fi and the device, checked\n"
+		"  care [--check]      proactive care: problems found by the gateway itself, the experience score\n"
 		"                      in a few seconds; what is wrong, most likely first, and what to do\n"
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
@@ -268,8 +269,10 @@ static const char *dur_short(unsigned long long s, char *out, size_t n)
 		snprintf(out, n, "%llud %lluh", s / 86400, s % 86400 / 3600);
 	else if (s >= 3600)
 		snprintf(out, n, "%lluh %llum", s / 3600, s % 3600 / 60);
-	else
+	else if (s >= 60 || !s)
 		snprintf(out, n, "%llum", s / 60);
+	else
+		snprintf(out, n, "%llus", s);
 	return out;
 }
 
@@ -328,6 +331,72 @@ static void show_diag(struct ubus_request *req, int type, struct blob_attr *msg)
 		for (s = 0; s < 4 && strcmp(mark[s], fstr(f, "severity")); s++)
 			;
 		printf("%s  %-16s %s\n", sym[s < 4 ? s : 0], fstr(f, "code"), fstr(f, "text"));
+	}
+}
+
+/* agctl care [--check]: proactive care, what it found and the experience score */
+static int care_asked_check;
+
+static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	static const char *const per[] = { "day", "week", "month" };
+	static const char *const label[] = { "last day", "last 7 days", "last 30 days" };
+	struct blob_attr *p = field(msg, "problem"), *rep = field(msg, "report");
+	unsigned long long now = (unsigned long long)time(NULL);
+	char t1[32], t2[32];
+	unsigned k;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (fstr(msg, "error")[0]) {
+		fprintf(stderr, "agctl: %s\n", fstr(msg, "error"));
+		diag_failed = 1;
+		return;
+	}
+	if (!fnum(msg, "enabled")) {
+		printf("Proactive care is off (care.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Proactive care: the gateway checks itself every %s", dur_short(fnum(msg, "interval_s"), t1, sizeof(t1)));
+	if (field(msg, "last_check") && now >= fnum(msg, "last_check"))
+		printf(" (last %s ago)", dur_short(now - fnum(msg, "last_check"), t2, sizeof(t2)));
+	printf("\n");
+	if (care_asked_check)
+		printf("  a check starts now: see agctl care again in a few seconds\n");
+	if (p) {
+		printf("  now       %s (%s, %s) for %s, %s\n", fstr(p, "code"), fstr(p, "area"), fstr(p, "severity"),
+		       dur_short(now > fnum(p, "since") ? now - fnum(p, "since") : 0, t1, sizeof(t1)),
+		       fnum(p, "reported") ? "reported to the ISP" :
+		       !strcmp(fstr(p, "owner"), "AIGW") ? "Self-Healing Wi-Fi is on it (not reported yet)" :
+		       !strcmp(fstr(p, "owner"), "ISP") ? "to be reported to the ISP" : "not the ISP's");
+		printf("            %s\n", fstr(p, "summary"));
+		if (fstr(p, "advice")[0])
+			printf("  advice    %s\n", fstr(p, "advice"));
+	} else
+		printf("  now       OK: no problem found\n");
+	for (k = 0; k < 3; k++) {
+		struct blob_attr *s = field(rep, per[k]);
+
+		if (!s)
+			continue;
+		printf("  %-13s", label[k]);
+		if (!fnum(s, "checks")) {
+			printf("no checks yet\n");
+			continue;
+		}
+		printf("experience score %llu%% (%llu checks)", (unsigned long long)fnum(s, "score"),
+		       (unsigned long long)fnum(s, "checks"));
+		if (fnum(s, "problems") || fstr(s, "main_cause")[0]) {
+			printf("; %llu problem%s", (unsigned long long)fnum(s, "problems"), fnum(s, "problems") == 1 ? "" : "s");
+			if (fstr(s, "main_cause")[0])
+				printf(", mostly %s", fstr(s, "main_cause"));
+			printf(": reported to the ISP %llu, fixed by AIGW %llu, %s with a problem",
+			       (unsigned long long)fnum(s, "reported"), (unsigned long long)fnum(s, "fixed_by_aigw"),
+			       dur_short(fnum(s, "problem_s"), t1, sizeof(t1)));
+		}
+		printf("\n");
 	}
 }
 
@@ -1756,6 +1825,15 @@ int main(int argc, char **argv)
 		if (i < argc)
 			blobmsg_add_string(&args, "host", argv[i]);
 		rc = call("ag", "diagnose", args.head, show_diag);
+		blob_buf_free(&args);
+		rc = rc || diag_failed;
+	} else if (!strcmp(cmd, "care")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && (!strcmp(argv[i], "--check") || !strcmp(argv[i], "check"))) {
+			blobmsg_add_u8(&args, "check", 1);
+			care_asked_check = 1;
+		}
+		rc = call("ag", "care", args.head, show_care);
 		blob_buf_free(&args);
 		rc = rc || diag_failed;
 	} else if (!strcmp(cmd, "wifi")) {

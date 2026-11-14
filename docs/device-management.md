@@ -285,7 +285,7 @@ The Wi-Fi handler (`wifi.handler`) is replaceable the same way:
 `wifi-config set <iface>`, with the new values in `AIGW_WIFI_SSID`,
 `AIGW_WIFI_KEY`, `AIGW_WIFI_MODE`, `AIGW_WIFI_CHANNEL` and `AIGW_WIFI_WIDTH`.
 
-## The data model (version 1.5)
+## The data model (version 1.6)
 
 The full definition, as ISPs load it into their controllers, is
 [`datamodel/aigw-dm.xml`](datamodel/aigw-dm.xml). It is made from what `agd`
@@ -305,6 +305,7 @@ the two differ.
 | `Device.X_AIGW_.Alert.{i}.` | `Kind`, `Severity`, `Host` (a reference), `Subject`, `Reason`, `Score`, `FirstSeen`, `LastSeen`, `Count` | no |
 | `Device.X_AIGW_.Decision.{i}.` | `Action`, `Target`, `Host`, `State`, `Origin`, `Reason`, `Note`, `Alert` (a reference), `Automatic`, `Created`, `Expires` | through commands |
 | `Device.X_AIGW_.LastDiagnosis.` | the last Diagnose: `Time`, `Host`, `Code`, `Severity`, `Summary`, `Advice`, `Findings`; event `DiagnosisDone!` ([diagnose.md](diagnose.md)) | no |
+| `Device.X_AIGW_.Care.` | proactive care: `Enable`, `Status` (OK / Problem), `LastCheck`; the open problem `Problem.` (`Code`, `Area`, `Severity`, `Summary`, `Advice`, `Since`, `ReportedToISP`); the experience score `Stats.Day.`, `Stats.Week.`, `Stats.Month.` (`ExperienceScore`, `Checks`, `Problems`, `ReportedToISP`, `FixedByAIGW`, `ProblemSeconds`, `MainCause`); events `ProblemDetected!` (Code, Area, Severity, Summary, Advice, Since) and `ProblemCleared!` (Code, Area, Since, DurationSeconds) ([proactive-care.md](proactive-care.md)) | no |
 | Commands | `Decision.{i}.Approve()`, `Reject()`, `Undo()` → `State`; `Quarantine(Host, Duration)`, `Block(Domain, Duration)` → `Decision`; `Diagnose(Host)` (async, read-only: no `mgmt.actions` needed) → `Code`, `Area`, `Severity`, `Summary`, `Advice`, `Findings`, `InternetLossPercent`, `InternetLatencyMs`, `NextHopLatencyMs`, `DNSLatencyMs` | |
 | Events | `Device.X_AIGW_.Alert!` (Alert, Kind, Severity, Host, Subject, Reason); `Device.X_AIGW_.DecisionChanged!` (Decision, Action, State, Host) | |
 

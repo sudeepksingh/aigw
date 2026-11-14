@@ -278,7 +278,7 @@ footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:v
 <div class="shell">
 <nav class="rail" aria-label="Sections">
   <div class="brand"><img src="brand/logo-mark.svg" alt="">AIGW <span>OS</span></div>
-  <div class="ver">architecture v0.3 · code v0.27 · 2026-11-13</div>
+  <div class="ver">architecture v0.3 · code v0.28 · 2026-11-14</div>
   <div class="navcols">
   <div>
     <div class="grp">Why</div>
@@ -1405,6 +1405,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>For the home</td><td><code>agctl diagnose [device]</code>.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.28: proactive care</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Checks</td><td>Diagnose by itself, quietly: every 10 minutes, and within seconds when Wi-Fi turns Poor. A problem is two bad checks in a row; it is over after two fine ones.</td></tr>
+      <tr><td>Who deals with it</td><td>The line, the ISP&rsquo;s network and DNS: reported to the ISP at once. Wi-Fi: Self-Healing Wi-Fi fixes it, and it is reported only if it lasts 30 minutes.</td></tr>
+      <tr><td>For the ISP</td><td>The events <code>ProblemDetected!</code> and <code>ProblemCleared!</code>; <code>Device.X_AIGW_.Care.</code>: the open problem, and the experience score per day, week and month, with the main cause, problems reported, and problems fixed by AIGW.</td></tr>
+      <tr><td>For the home</td><td><code>agctl care [--check]</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
@@ -1445,7 +1455,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   </ul>
 </section>
 
-<footer>AIGW architecture v0.3 · implementation v0.27 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-13</footer>
+<footer>AIGW architecture v0.3 · implementation v0.28 (phases P0–P5; P6 waiting for real routers; P7 under way) · 2026-11-14</footer>
 </main>
 </div>
 

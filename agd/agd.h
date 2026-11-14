@@ -448,6 +448,22 @@ int64_t diag_last(const struct diag_result **r, const struct diag_input **in, co
 void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const char *mac);
 void heal_save(struct blob_buf *b);
 void heal_load(struct blob_attr *t);
+/* the same, quietly, for proactive care: no LastDiagnosis, no DiagnosisDone!; -1 busy */
+int diag_check(diag_cb cb, void *ctx);
+
+/* care.c: proactive care (checks by itself, tells the ISP, the experience score) */
+struct care_state;
+struct care_day;
+void care_init(void);
+void care_on_heal(int status);
+int care_check_now(void);
+const struct care_state *care_now(void);
+int care_report_of(int days, struct care_day *out);
+void care_blob(struct blob_buf *b);
+void care_save(struct blob_buf *b);
+void care_load(struct blob_attr *t);
+/* dm.c: ProblemDetected! (1) or ProblemCleared! (0), from care_now() */
+void dm_on_care(int detected);
 
 /* manage.c: Wi-Fi settings and firmware, as a management system changes them */
 enum { WS_SSID, WS_KEY, WS_MODE, WS_CHANNEL, WS_WIDTH, WS_N };

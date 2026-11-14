@@ -52,6 +52,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/burst-test.sh build
       - name: Data model test (ag.dm, the layer USP and TR-069 share)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/dm-test.sh build
+      - name: Proactive care test (problems found by the gateway itself, told to the ISP, the score)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/care-test.sh build
       - name: USP test (a USP controller over MQTT, OB-USP-Agent, the aigw-usp plug-in)
         run: sudo AIGW_REQUIRE_USP=1 AIGW_OBUSPA="$OBUSPA_SRC/obuspa" PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/usp-test.sh build
       - name: TR-069 test (an ACS over HTTP, icwmp, the aigw-cwmp-dm data model daemon)
