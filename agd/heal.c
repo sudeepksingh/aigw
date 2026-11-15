@@ -415,9 +415,12 @@ struct trial {
 	uint32_t id;                    /* its decision */
 	int from, to;                   /* channels */
 	int before_loss, before_rtt;    /* what devices felt before */
+	int before_n, before_lost;      /* ... the probes it was measured on (0: not known) */
+	int sure_logged;                /* "not sure yet, measuring longer" said */
 	int64_t fresh_ms;               /* monotonic: the last trial was judged; the verdict counts only
 	                                   probes after it (the window still held the old channel's) */
 	int last_loss, last_rtt;        /* the last look that measured someone, and when (monotonic): */
+	int last_n, last_lost;
 	int64_t last_ms;                /* "before", when the switch itself left nobody to measure */
 	struct { int ch; int64_t until; } bad[BAD_KEPT];
 };
@@ -501,6 +504,22 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 			after.loss_pct <= t->before_loss &&
 			(after.status == HEAL_GOOD || (t->before_loss > 0 && after.loss_pct * 2 <= t->before_loss) ||
 			 (t->before_rtt > 0 && after.rtt_ms >= 0 && after.rtt_ms * 2 <= t->before_rtt)));
+		/* better on loss, by the numbers: but a few dozen probes can read 17 % where
+		   it is 30 %. Kept only when it is clearly less, not chance (the delay
+		   halved is its own reason); not sure yet: measured longer, up to 3 trials */
+		if (keep && t->before_loss > 0 && t->before_n > 0 &&
+		    !(t->before_rtt > 0 && after.rtt_ms >= 0 && after.rtt_ms * 2 <= t->before_rtt) &&
+		    heal_less_loss(after.lost, after.samples, t->before_lost, t->before_n) == 0) {
+			if (elapsed < 3 * cfg.heal_trial) {
+				if (!t->sure_logged)
+					AG_INFO("wifi health: %s trial on channel %d: devices lose %d%% of %d probes, before %d%% "
+						"of %d: not clearly better yet, measuring longer", ap->iface, t->to,
+						after.loss_pct, after.samples, t->before_loss, t->before_n);
+				t->sure_logged = 1;
+				return;
+			}
+			keep = 0;                       /* still not clearly better: back */
+		}
 		if (keep) {
 			struct heal_day *day = heal_report_day(&reps[a], (long)wall);
 			char ch[8];
@@ -574,12 +593,18 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 			t->start_ms = now;
 			t->id = id;
 			t->to = ap->channel;
+			t->sure_logged = 0;
+			t->before_n = t->before_lost = 0;
 			if (now_res->measured) {
 				t->before_loss = now_res->loss_pct;
 				t->before_rtt = now_res->rtt_ms;
+				t->before_n = now_res->samples;
+				t->before_lost = now_res->lost;
 			} else if (t->last_ms && now - t->last_ms <= BEFORE_FOR_MS) {
 				t->before_loss = t->last_loss;
 				t->before_rtt = t->last_rtt;
+				t->before_n = t->last_n;
+				t->before_lost = t->last_lost;
 			} else {
 				t->before_loss = t->before_rtt = -1;
 			}
@@ -682,6 +707,8 @@ static void evaluate(void)
 		if (res.measured && !trials[r - radios].start_ms) {     /* "before" for a trial to come */
 			trials[r - radios].last_loss = res.loss_pct;
 			trials[r - radios].last_rtt = res.rtt_ms;
+			trials[r - radios].last_n = res.samples;
+			trials[r - radios].last_lost = res.lost;
 			trials[r - radios].last_ms = now_ms();
 		}
 		/* learn each well device's usual delay */

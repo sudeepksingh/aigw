@@ -34,6 +34,24 @@ static int is_weak(const struct heal_sta *s, const struct heal_params *p)
 	return s->signal && s->signal <= p->weak_signal;
 }
 
+int heal_less_loss(int lost_a, int n_a, int lost_b, int n_b)
+{
+	double pa, pb, p, se;
+
+	if (n_a <= 0 || n_b <= 0)
+		return -1;
+	pa = (double)lost_a / n_a;
+	pb = (double)lost_b / n_b;
+	if (pa >= pb)
+		return 0;
+	/* one-sided two-proportion z test, pooled: z >= 1.96 (2.5 %) */
+	p = (double)(lost_a + lost_b) / (n_a + n_b);
+	se = p * (1 - p) * (1.0 / n_a + 1.0 / n_b);
+	if (se <= 0)
+		return 0;
+	return (pb - pa) * (pb - pa) >= 1.96 * 1.96 * se;
+}
+
 int heal_sta_loss_pct(const struct heal_sta *s)
 {
 	return s->samples > 0 ? (s->lost * 100 + s->samples / 2) / s->samples : 0;
@@ -89,6 +107,8 @@ void heal_diagnose(const struct heal_sta *s, int n, const struct heal_params *p,
 			worst_rtt = s[i].rtt_ms;
 	}
 	r->measured = measured;
+	r->samples = (int)samples;
+	r->lost = (int)lost;
 	r->loss_pct = samples ? (int)((lost * 100 + samples / 2) / samples) : 0;
 	r->rtt_ms = nd ? worst_rtt : rtt_all;
 

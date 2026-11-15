@@ -49,6 +49,7 @@ struct heal_result {
 	enum heal_cause cause;
 	int measured;           /* devices with enough samples */
 	int loss_pct;           /* over the measured devices */
+	int samples, lost;      /* ... the probes it is measured on */
 	int rtt_ms;             /* worst affected device's median, or the measured ones' */
 	unsigned affected;      /* bit i: device i is affected */
 };
@@ -61,6 +62,13 @@ void heal_params_default(struct heal_params *p);
  */
 int heal_weak_step(int prev, int signal, int weak_signal, int margin);
 int heal_sta_loss_pct(const struct heal_sta *s);
+/*
+ * Is a's loss (lost_a of n_a probes) clearly less than b's, not chance? A
+ * channel trial judged on a few dozen probes can read 17 % where the loss is
+ * 30 %: one-sided two-proportion test, 2.5 %. 1 yes, 0 no or not yet sure,
+ * -1 no counts.
+ */
+int heal_less_loss(int lost_a, int n_a, int lost_b, int n_b);
 int heal_sta_degraded(const struct heal_sta *s, const struct heal_params *p);
 /* n devices (at most 32 are looked at) */
 void heal_diagnose(const struct heal_sta *s, int n, const struct heal_params *p, struct heal_result *r);
