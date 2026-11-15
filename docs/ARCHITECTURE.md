@@ -952,6 +952,29 @@ Verified by `tests/test_diag.c` (every code and the order), `tests/dm-test.sh` (
 
 Verified by `tests/test_care.c` (every rule), `tests/care-test.sh` (found, reported once, remembered over a restart, over; quiet checks; a Diagnose during a check waits), `tests/dm-test.sh` (the object, the schema, the DM XML) and `tests/hwsim-test.sh` (the same with simulated radios).
 
+**As built in v0.29: TR-143, early warning, the fleet report.** The standard diagnostics an ISP runs ([tr143.md](tr143.md)). The home's normal is learned, and a drift is told before it is a fault, with a nightly speed test ([proactive-care.md](proactive-care.md)). Every home's care comes together in cortex ([fleet-report.md](fleet-report.md)).
+
+| Piece | As built |
+|-------|----------|
+| TR-143 (`agd/tr143.c`, `core/libag/tr143.c`, `include/ag/tr143.h`) | IPPing, TraceRoute (ICMP, growing TTL), DownloadDiagnostics (HTTP GET, TR-143's ROM/BOM/EOM and TCP open times, interface counters, time based), UploadDiagnostics (HTTP PUT, chunked when time based), NSLookupDiagnostics (A queries; default the gateway's own DNS). One of each kind at a time, in a child process (blocking code off agd's loop), killed after what it was given; the result through a pipe. Pure: URLs, HTTP heads, TR-106 times with µs, names. |
+| TR-143 in the data model (1.7) | Five asynchronous commands (USP), and the objects with `DiagnosticsState`, writable inputs and the results (TR-069; `RouteHops.{i}.` and `Result.{i}.` as tables); capability parameters. One generic getter and setter from the parameter's path (`ictx.ppath`). aigw-cwmp-dm forwards icwmp's bbfdm operate to agd asynchronously (deferred), and keeps TR-143 out of `Request.`; icwmp itself sends `8 DIAGNOSTICS COMPLETE`. aigw-amx publishes only AIGW's own subtree (prplOS keeps its diagnostics). |
+| Early warning (`core/libag/care_learn.c`) | Pure: `care_learn_step(learn, sample, hour, day, now, quiet_areas, params)`. Per metric (next hop, internet delay, loss, DNS, speed): 24 hourly normals (EWMA mean and mean absolute deviation, two weeks) shrunk towards the whole day's; a one-sided CUSUM of capped deviations (shift) with a minimum effect; a least-squares line over the days' averages (trend, R², days to the fault level). Nothing learned in an area with a problem open. |
+| Proactive care (`agd/care.c`) | Every regular check's measurements feed the normal. Warnings are `EarlyWarning!` and `EarlyWarningCleared!` (BecameProblem), and a problem soon after a warning counts as seen coming (`ProblemsWarnedOf`, lead time). The nightly speed test is a TR-143 download at a random minute of `care.speed_hour`; below `care.speed_min_pct` of `care.speed_mbps` twice: `LINE_SLOW_SPEED`, a second care state, reported. The normal, the warning and the speed are saved with agd's state. |
+| Fleet (`cortex/aigw_cortex/fleet.py`, the bridge) | The bridge adds agd's care (the plug-in query `care`: score, problem, warning, speed, the last 8 days' rows; a Wi-Fi summary only with `devices = names`) to each report. cortex stores `care_days` and `care_events` and builds the report: scores and their change, problems found, fixed and reported, causes, warnings and their lead time, speed, outages (problems starting in at least 3 homes and 10% of a group within 15 minutes of each other), and the attention list. As text, JSON, and the MCP tool `fleet_report`. Gateways have a group (`enroll --group`, `group`). |
+
+Verified by:
+
+- **Unit tests:**
+  - `tests/test_tr143.c`;
+  - `tests/test_warn.c` (weeks of simulated checks: quiet when normal; a shift, a drift and then its trend, loss, DNS and speed warned of; a fault not learned);
+  - `tests/test_cortex.py` (the fleet report, outages, attention).
+- **CI tests:**
+  - `tests/tr143-test.sh` (every test against local servers; TR-069's way through the data model);
+  - `tests/warn-test.sh` (speed tests teach the normal; a drop warned of and over; restart; `LINE_SLOW_SPEED`);
+  - `tests/usp-test.sh` (IPPing and TraceRoute over USP);
+  - `tests/cwmp-test.sh` (a real ACS through icwmp: Requested, `8 DIAGNOSTICS COMPLETE`, the results);
+  - `tests/outside-test.sh` (care through the bridge into the fleet report).
+
 ---
 
 ## 17. Status and risks

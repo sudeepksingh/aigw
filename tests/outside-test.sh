@@ -175,9 +175,22 @@ echo "== the gateway checks in: state, not traffic"
 cx_wait 15 "s.gateway('home')['last_seen'] > 0" "no report reached cortex"
 cx_wait 10 "any(d.get('hostname') == 'smoke-host' for d in s.snapshot('home').get('devices', []))" \
 	"report lacks the device list"
-cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices'}" \
+cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care'}" \
 	"report carries more than state"
 cx_wait 5 "s.snapshot('home')['models'][0]['source'] == 'package'" "report lacks the model in use"
+
+echo "== proactive care reaches cortex: the ISP's fleet report"
+agctl care --check > /dev/null || fail "agctl care --check"
+cx_wait 40 "any(r['checks'] >= 1 for r in s.care_days(0, 10**9))" "the gateway's care days should reach cortex"
+cx_wait 5 "'early_warning' in s.snapshot('home')['care'] and 'speed' in s.snapshot('home')['care']" "care's warning and speed"
+cortex fleet --json > "$T/fleet.json" || fail "cortex fleet"
+python3 -c "
+import json, sys
+r = json.load(open(sys.argv[1]))
+sys.exit(0 if r['homes']['reporting'] == 1 and r['experience']['checks'] >= 1 and r['per_home'][0]['name'] == 'home' else 1)" \
+	"$T/fleet.json" || fail "the fleet report: $(cat "$T/fleet.json")"
+cortex fleet | tee "$T/fleet.txt" | head -n 3
+grep -q "1 of 1 homes reporting" "$T/fleet.txt" || fail "cortex fleet (text)"
 
 echo "== an update signed by an untrusted key is refused"
 cortex publish "$REPO/models/domain-risk.agm" --notes "before the key is trusted" > /dev/null

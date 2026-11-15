@@ -113,6 +113,13 @@ struct ag_config {
 	int care_interval;        /* s between checks while all is fine */
 	int care_recheck;         /* s to the next check after one found something (to confirm, then to see it clear) */
 	int care_wifi_grace;      /* s Self-Healing Wi-Fi has before a Wi-Fi problem is reported to the ISP */
+	int care_warn;            /* early warnings: the home's normal learned, a drift told before it is a fault */
+	int care_learn_days;      /* days of learning before the first warning */
+	char care_speed_url[256]; /* the nightly speed test's download (TR-143, HTTP); "" none */
+	int care_speed_hour;      /* local hour it runs in (a random minute of it) */
+	int care_speed_seconds;   /* how long it downloads, at most */
+	int care_speed_mbps;      /* the line's speed (what was sold); 0 not known */
+	int care_speed_min_pct;   /* below this share of it, on two tests in a row: LINE_SLOW_SPEED, reported */
 	int chan_heal;            /* watch how busy each access point's channel is; suggest a quieter one */
 	int chan_busy;            /* % of the air used by others that counts as busy */
 	int chan_hold;            /* seconds it must stay that busy */

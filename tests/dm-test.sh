@@ -91,8 +91,10 @@ js() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 
 echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
-js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 8 and len(d['events']) == 6 and
-         [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()', 'Device.X_AIGW_.Diagnose()'] else 1)" < "$T/schema.json" ||
+js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 13 and len(d['events']) == 8 and
+         [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()', 'Device.X_AIGW_.Diagnose()',
+          'Device.IP.Diagnostics.IPPing()', 'Device.IP.Diagnostics.TraceRoute()', 'Device.IP.Diagnostics.DownloadDiagnostics()',
+          'Device.IP.Diagnostics.UploadDiagnostics()', 'Device.DNS.Diagnostics.NSLookupDiagnostics()'] else 1)" < "$T/schema.json" ||
 	fail "schema: $(head -c 300 "$T/schema.json")"
 python3 "$REPO/scripts/dm-xml" "$T/schema.json" > "$T/dm.xml"
 python3 - "$T/dm.xml" "$T/schema.json" <<'EOF' || fail "dm-xml output"
@@ -111,7 +113,9 @@ echo "   $(js "print(len(d['params']), 'parameters,', len(d['commands']), 'comma
 echo "== proactive care: its object"
 call get '{"paths":["Device.X_AIGW_.Care."]}' > "$T/care.json"
 js "v = d['values']; sys.exit(0 if v['Device.X_AIGW_.Care.Enable'] == 'true' and v['Device.X_AIGW_.Care.Status'] in ('OK', 'Problem') and
-    'Device.X_AIGW_.Care.Stats.Week.ExperienceScore' in v and 'Device.X_AIGW_.Care.Problem.ReportedToISP' in v else 1)" < "$T/care.json" ||
+    'Device.X_AIGW_.Care.Stats.Week.ExperienceScore' in v and 'Device.X_AIGW_.Care.Problem.ReportedToISP' in v and
+    v['Device.X_AIGW_.Care.EarlyWarning.Status'] in ('None', 'Learning', 'Warning') and 'Device.X_AIGW_.Care.Normal.InternetLatency' in v and
+    v['Device.X_AIGW_.Care.Speed.Enable'] == 'false' and 'Device.X_AIGW_.Care.Stats.Month.ProblemsWarnedOf' in v else 1)" < "$T/care.json" ||
 	fail "Device.X_AIGW_.Care.: $(cat "$T/care.json")"
 agctl -j care | js "sys.exit(0 if d['enabled'] in (1, True) and d['status'] in ('ok', 'problem') and 'week' in d['report'] else 1)" ||
 	fail "agctl care: $(agctl -j care)"

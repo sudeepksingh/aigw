@@ -320,6 +320,20 @@ sleep 4
 rm -rf "$T/fw"          # part 2 starts from bank 1 again
 echo "   banks listed; a bad image fault 9010; downloaded, set to boot next; no reboot by agd"
 
+echo "== part 1: TR-143, as icwmp runs it (the object's inputs, then bbfdm operate)"
+[ "$(setv Device.X_EXAMPLE-COM_.Request.Command IPPing)" = 9007 ] || fail "TR-143 isn't a Request. command"
+[ "$(setv Device.IP.Diagnostics.IPPing.Host 10.98.0.2)" = ok ] && [ "$(setv Device.IP.Diagnostics.IPPing.DiagnosticsState Requested)" = ok ] ||
+	fail "IPPing inputs"
+commit
+[ "$(val Device.IP.Diagnostics.IPPing.DiagnosticsState)" = Requested ] || fail "DiagnosticsState Requested"
+bb operate '{"path":"Device.IP.Diagnostics.IPPing()","input":{"Host":"10.98.0.2","NumberOfRepetitions":"2"}}' |
+	js "sys.exit(0 if d['results'][0]['output'] == [] else 'got %s' % d)" || fail "IPPing() through bbfdm"
+[ "$(val Device.IP.Diagnostics.IPPing.DiagnosticsState)" = Complete ] && [ "$(val Device.IP.Diagnostics.IPPing.SuccessCount)" = 2 ] ||
+	fail "IPPing results: $(val Device.IP.Diagnostics.IPPing.DiagnosticsState) $(val Device.IP.Diagnostics.IPPing.SuccessCount)"
+bb get '{"path":"Device.IP.Diagnostics.IPPing.SuccessCount"}' | js "sys.exit(0 if d['results'][0]['type'] == 'xsd:unsignedInt' else 1)" ||
+	fail "SuccessCount's type"
+echo "   IPPing to the ACS: 2 of 2, Complete in the object"
+
 ICWMPD=${AIGW_ICWMPD:-$(command -v icwmpd || true)}
 if [ -z "$ICWMPD" ] || [ ! -x "$ICWMPD" ]; then
 	[ "${AIGW_REQUIRE_CWMP:-0}" = 1 ] && fail "no icwmpd (set AIGW_ICWMPD)"
@@ -474,6 +488,34 @@ js "v = d['results'][1]['values']; sys.exit(0 if v['Device.X_EXAMPLE-COM_.Reques
 	fail "approve: $(cat "$T/r3.json")"
 gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:04' || fail "the phone should be quarantined in nft"
 echo "   $DEC2 active, approved by acs"
+
+echo "== part 2: TR-143 from the ACS (DiagnosticsState, 8 DIAGNOSTICS COMPLETE, the results)"
+diag() { # diag <object> <name=value...>: requested in one session, read after 8 DIAGNOSTICS COMPLETE
+	o=$1; shift
+	ps=""
+	for kv in "$@"; do ps="$ps[\"$o.${kv%%=*}\", \"${kv#*=}\", \"xsd:string\"], "; done
+	cat > "$T/jd.json" <<EOF
+{"rpcs": [{"method": "SetParameterValues", "params": [$ps["$o.DiagnosticsState", "Requested", "xsd:string"]], "key": "d"}]}
+EOF
+	n=$(wc -l < "$T/acs/informs.jsonl")
+	job "$T/jd.json" > "$T/rd.json" || fail "the ACS's $o request did not run"
+	js "sys.exit(0 if d['results'][0].get('status') is not None else 'got %s' % d)" < "$T/rd.json" || fail "$o: $(cat "$T/rd.json")"
+	acs wait "$T/acs" "8 DIAGNOSTICS COMPLETE" --after "$n" --timeout 90 > /dev/null || fail "no 8 DIAGNOSTICS COMPLETE for $o"
+	cat > "$T/jr.json" <<EOF
+{"rpcs": [{"method": "GetParameterValues", "names": ["$o."]}]}
+EOF
+	job "$T/jr.json" > "$T/rr.json" || fail "reading $o"
+}
+diag Device.IP.Diagnostics.IPPing Host=10.98.0.2 NumberOfRepetitions=3
+js "v = d['results'][0]['values']; p = 'Device.IP.Diagnostics.IPPing.'
+sys.exit(0 if v[p + 'DiagnosticsState'] == 'Complete' and v[p + 'SuccessCount'] == '3' and v[p + 'IPAddressUsed'] == '10.98.0.1' else 'got %s' % v)" \
+	< "$T/rr.json" || fail "IPPing from the ACS: $(cat "$T/rr.json")"
+head -c 2000000 /dev/zero > "$T/acs/files/speed.bin"
+diag Device.IP.Diagnostics.DownloadDiagnostics DownloadURL=http://10.98.0.2:7558/speed.bin
+js "v = d['results'][0]['values']; p = 'Device.IP.Diagnostics.DownloadDiagnostics.'
+sys.exit(0 if v[p + 'DiagnosticsState'] == 'Complete' and int(v[p + 'TestBytesReceived']) > 2000000 and v[p + 'EOMTime'] > v[p + 'BOMTime'] else 'got %s' % v)" \
+	< "$T/rr.json" || fail "DownloadDiagnostics from the ACS: $(cat "$T/rr.json")"
+echo "   IPPing 3 of 3 and a 2 MB DownloadDiagnostics, each Requested, run at the session's end, read after 8 DIAGNOSTICS COMPLETE"
 
 echo "== part 2: a firmware upgrade from the ACS (Download, reboot, TransferComplete)"
 printf 'AIGW-TEST-FIRMWARE 2.5\n' > "$T/acs/files/fw.img"

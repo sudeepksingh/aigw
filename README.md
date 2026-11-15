@@ -46,6 +46,30 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.29:** **TR-143 diagnostics, early warning, and the ISP's fleet report.**
+>
+> - **TR-143:** the standard tests every ISP's management system runs, the
+>   same way over USP (asynchronous commands) and TR-069 (`DiagnosticsState`,
+>   then `8 DIAGNOSTICS COMPLETE`): `IPPing`, `TraceRoute`,
+>   `DownloadDiagnostics`, `UploadDiagnostics` and `NSLookupDiagnostics`.
+>   From home: `agctl test ping|trace|download|upload|dns`.
+> - **Early warning:** proactive care learns each home's normal, per hour of
+>   the day: the next hop's and the internet's delay, loss, DNS time and the
+>   nightly speed. It tells the ISP of a drift while it is still below a fault
+>   (`Device.X_AIGW_.EarlyWarning!`), for a steady trend with when it would be
+>   one, and counts the problems it saw coming.
+> - **Nightly speed test:** a TR-143 download from the ISP's own server
+>   (`care.speed_url`). A line far below its speed is `LINE_SLOW_SPEED`,
+>   reported.
+> - **Fleet report:** cortex puts every home's care together:
+>   `python3 -m aigw_cortex fleet`, and an MCP tool. It shows the scores, the
+>   causes, what AIGW fixed and what it reported, the warnings, speeds, outages
+>   across the homes of an area, and the homes a help desk should look at
+>   first.
+>
+> See [docs/tr143.md](docs/tr143.md), [docs/proactive-care.md](docs/proactive-care.md)
+> and [docs/fleet-report.md](docs/fleet-report.md).
+>
 > **v0.28:** **Proactive care: fixed, or reported, before the customer calls.**
 > The gateway runs Diagnose by itself every 10 minutes, and within seconds when
 > Wi-Fi turns Poor. A problem with the line, the ISP's network or DNS is

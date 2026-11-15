@@ -21,6 +21,14 @@ add_executable(test_care test_care.c)
 target_link_libraries(test_care ag)
 add_test(NAME proactive_care COMMAND test_care)
 
+add_executable(test_warn test_warn.c)
+target_link_libraries(test_warn ag)
+add_test(NAME early_warning COMMAND test_warn)
+
+add_executable(test_tr143 test_tr143.c)
+target_link_libraries(test_tr143 ag)
+add_test(NAME tr143_diagnostics COMMAND test_tr143)
+
 add_executable(test_sni test_sni.c)
 target_link_libraries(test_sni ag)
 add_test(NAME server_names COMMAND test_sni ${PROJECT_SOURCE_DIR}/tests/data)

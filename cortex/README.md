@@ -14,6 +14,11 @@ NAS, a cloud VM. Gateways work fully without it. With it:
 - **Ask your home (MCP):** an MCP server for Claude Desktop, Claude Code or
   any MCP client. It can read everything above. It can only *suggest*
   actions, and each suggestion waits on the gateway for a person.
+- **The ISP's fleet report** (v0.29): every home's proactive care together:
+  experience scores, problems found, fixed by AIGW and reported, early
+  warnings, speeds, outages across an area's homes, and the homes to look at
+  first. `python3 -m aigw_cortex fleet`, and the MCP tool `fleet_report`
+  ([docs/fleet-report.md](../docs/fleet-report.md)).
 
 ```
  gateway (agd)                   bridge plug-in (nobody, curl)          cortex
@@ -127,6 +132,7 @@ key run the plug-in with its privileged capabilities, without
 | `list_devices`, `list_alerts`, `list_decisions` | from the latest report |
 | `model_status` | published models and what each gateway runs |
 | `list_proposals` | suggestions sent and how each was taken |
+| `fleet_report` | the ISP's fleet report (days, group): scores, causes, problems fixed and reported, early warnings, speeds, outages, homes needing attention |
 | `propose_action` | **the only write tool.** quarantine, priority, deprioritize, throttle, disconnect or block, with a reason. It travels to the gateway with the next check-in and waits there as a proposal (`agctl decisions`, then `agctl approve <id>`), even in enforce mode. The gateway's guardrails (protected devices, time limits) apply as for any request. |
 
 ## HTTP API (for bridges)

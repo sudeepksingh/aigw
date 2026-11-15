@@ -502,8 +502,8 @@ static int register_schema(struct blob_attr *schema)
 		}
 	if (top(schema, "commands"))
 		blobmsg_for_each_attr(cur, top(schema, "commands"), rem) {
-			char *p = (char *)str(field(cur, "path")), *in[16], *out[16];
-			int ni = names(field(cur, "in"), in, 16), nout = names(field(cur, "out"), out, 16);
+			char *p = (char *)str(field(cur, "path")), *in[32], *out[32];
+			int ni = names(field(cur, "in"), in, 32), nout = names(field(cur, "out"), out, 32);
 
 			struct blob_attr *as = field(cur, "async");
 

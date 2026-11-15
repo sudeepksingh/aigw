@@ -147,6 +147,14 @@ void care_report_sum(const struct care_report *r, long wall_s, int days, struct 
 		out->reported += d->reported;
 		out->fixed += d->fixed;
 		out->problem_secs += d->problem_secs;
+		out->warnings += d->warnings;
+		out->warned += d->warned;
+		out->lead_secs += d->lead_secs;
+		if (d->speed_tests && (!out->speed_tests || d->speed_kbps_min < out->speed_kbps_min))
+			out->speed_kbps_min = d->speed_kbps_min;
+		out->speed_tests += d->speed_tests;
+		out->speed_kbps_sum += d->speed_kbps_sum;
+		out->speed_low += d->speed_low;
 	}
 }
 

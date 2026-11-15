@@ -192,6 +192,97 @@ class Fed(unittest.TestCase):
             self.assertAlmostEqual(fed.epsilon(1.0, rounds=4), 11.6, places=1)  # adds up over rounds
 
 
+def care_day(day, checks, good, **kw):
+    """A day's row as a bridge sends it (agd's care_days_blob)."""
+    d = {"day": day, "checks": checks, "good": good, "Internet": 0, "DNS": 0, "WiFi": 0, "Device": 0, "AIGW": 0,
+         "problems": 0, "reported": 0, "fixed_by_aigw": 0, "problem_s": 0, "early_warnings": 0, "warned_of": 0,
+         "warning_lead_s": 0, "speed_tests": 0, "speed_kbps_sum": 0, "speed_kbps_min": 0, "speed_low": 0}
+    d.update(kw)
+    return d
+
+
+class Fleet(unittest.TestCase):
+    def test_report(self):
+        from aigw_cortex import fleet
+        now = 20000 * 86400 + 12 * 3600
+        today = now // 86400
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            gws = {}
+            for i in range(12):
+                gid, _ = s.enroll("home%02d" % i, "north" if i < 10 else "south")
+                gws[i] = gid
+                s.x("UPDATE gateways SET last_seen = ? WHERE id = ?", (now - 60, gid))
+            # every home: a week before at 99%, this week by its number
+            for i, gid in gws.items():
+                days = [care_day(today - 7 - k, 144, 143) for k in range(7)]
+                good = 144 if i % 3 else 100                       # homes 0, 3, 6, 9: poor (69%)
+                days += [care_day(today - k, 144, good, Internet=144 - good, problems=1 if good < 144 else 0,
+                                  reported=1 if good < 144 else 0) for k in range(7)]
+                if i == 1:
+                    days[-1].update(WiFi=4, good=140, problems=2, fixed_by_aigw=2, early_warnings=1, warned_of=1,
+                                    warning_lead_s=7200, speed_tests=1, speed_kbps_sum=95000, speed_kbps_min=95000)
+                care = {"days": days}
+                # six homes in the north lose the internet within 10 minutes: an outage
+                if 2 <= i <= 7:
+                    care["problem"] = {"code": "ISP_DOWN", "area": "Internet", "since": now - 3600 + i * 100,
+                                       "reported": 1, "summary": "the internet doesn't answer"}
+                if i == 11:     # one home in the south, alone: not an outage
+                    care["problem"] = {"code": "LINE_DOWN", "area": "Internet", "since": now - 3000, "reported": 1}
+                if i == 8:
+                    care["early_warning"] = {"status": "warning", "metric": "InternetLatency", "area": "Internet",
+                                             "since": now - 7200, "predicted": 1, "predicted_fault_days": 5,
+                                             "summary": "rising"}
+                s.care(gid, care, now)
+            r = fleet.report(s, 7, now=now)
+            self.assertEqual(r["homes"]["total"], 12)
+            self.assertEqual(r["homes"]["reporting"], 12)
+            self.assertEqual(r["experience"]["poor"], 4)
+            self.assertEqual(r["experience"]["mean_before"], 99.3)
+            self.assertLess(r["experience"]["mean"], r["experience"]["mean_before"])
+            self.assertEqual(r["problems"]["fixed_by_aigw"], 2)
+            self.assertEqual(r["problems"]["causes"]["Internet"], 4 * 7 * 44)
+            self.assertEqual(r["early_warnings"]["problems_seen_coming"], 1)
+            self.assertEqual(r["early_warnings"]["mean_lead_hours"], 2.0)
+            self.assertEqual(r["speed"]["median_mbps"], 95.0)
+            # the outage: the north's six homes, not the south's one
+            self.assertEqual(len(r["outages"]), 1, r["outages"])
+            o = r["outages"][0]
+            self.assertEqual((o["group"], o["homes"], o["homes_in_group"], o["still_open"]), ("north", 6, 10, 6))
+            self.assertEqual(o["codes"], {"ISP_DOWN": 6})
+            # attention: the open problems (oldest first), then the warning, then poor scores
+            a = r["attention"]
+            self.assertEqual([x["why"] for x in a[:7]], ["problem"] * 7)
+            self.assertEqual(a[0]["home"], "home02")
+            self.assertEqual(a[7]["why"], "early warning")
+            self.assertEqual(a[7]["predicted_fault_days"], 5)
+            self.assertTrue(all(x["why"] == "poor score" for x in a[8:12]))
+            t = fleet.text(r, now)
+            self.assertIn("OUTAGE       6 of 10 homes in north", t)
+            self.assertIn("2 fixed by AIGW itself", t)
+            # three homes come back: closed, the rest still open
+            for i in (2, 3, 4):
+                s.care(gws[i], {"days": []}, now + 600)
+            o = fleet.report(s, 7, now=now + 600)["outages"][0]
+            self.assertEqual(o["still_open"], 3)
+            # one group only
+            south = fleet.report(s, 7, group="south", now=now)
+            self.assertEqual((south["homes"]["total"], south["outages"]), (2, []))
+            # the AI assistant asks for it (read only)
+            out = Server(s).call("fleet_report", {"days": 7, "group": "north"})
+            self.assertEqual(out["homes"]["total"], 10)
+
+    def test_old_reports(self):
+        from aigw_cortex import fleet
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            gid, _ = s.enroll("old")
+            s.report(gid, {"status": {"version": "0.28.0"}})     # no care in it
+            r = fleet.report(s, 7)
+            self.assertEqual((r["homes"]["total"], r["homes"]["reporting"], r["experience"]["mean"]), (1, 0, None))
+            self.assertIn("no care data yet", fleet.text(r))
+
+
 class Mcp(unittest.TestCase):
     def test_guard(self):
         with tempfile.TemporaryDirectory() as d:

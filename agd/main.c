@@ -956,9 +956,10 @@ static int m_diagnose(struct ubus_context *ctx, struct ubus_object *obj, struct 
 }
 
 /* ag care {check}: proactive care's state and report; check: run one now */
-enum { CR_CHECK, __CR_MAX };
+enum { CR_CHECK, CR_SPEED, __CR_MAX };
 static const struct blobmsg_policy care_policy[__CR_MAX] = {
 	[CR_CHECK] = { "check", BLOBMSG_TYPE_BOOL },
+	[CR_SPEED] = { "speed", BLOBMSG_TYPE_BOOL },
 };
 
 static int m_care(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
@@ -972,6 +973,8 @@ static int m_care(struct ubus_context *ctx, struct ubus_object *obj, struct ubus
 	blob_buf_init(&b, 0);
 	if (tb[CR_CHECK] && blobmsg_get_bool(tb[CR_CHECK]) && care_check_now() < 0)
 		blobmsg_add_string(&b, "error", "proactive care is off (care.enabled)");
+	if (tb[CR_SPEED] && blobmsg_get_bool(tb[CR_SPEED]) && care_speed_now() < 0)
+		blobmsg_add_string(&b, "error", "no speed test: set care.speed_url (an HTTP download on the ISP's server)");
 	care_blob(&b);
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
@@ -1083,6 +1086,7 @@ int main(int argc, char **argv)
 	meter_init();
 	wifi_init();
 	heal_init();
+	tr143_init();
 	care_init();
 	keys_init();
 	plugin_init();

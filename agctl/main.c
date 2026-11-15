@@ -25,6 +25,7 @@
 static struct ubus_context *ctx;
 static int json_out;
 static const char *device_filter;
+static int call_timeout = 30000;        /* ms; a TR-143 test may take minutes */
 
 static void usage(void)
 {
@@ -39,8 +40,14 @@ static void usage(void)
 		"  wifi                access points (band, channel), their devices, band steering\n"
 		"  wifi --report       what Self-Healing Wi-Fi found and fixed: last day, 7 and 30 days\n"
 		"  diagnose [device]   \"my internet is slow\": the line, DNS, Wi-Fi and the device, checked\n"
-		"  care [--check]      proactive care: problems found by the gateway itself, the experience score\n"
 		"                      in a few seconds; what is wrong, most likely first, and what to do\n"
+		"  care [--check|--speed]  proactive care: problems found by the gateway itself, early\n"
+		"                      warnings, the experience score and the nightly speed (--speed: test now)\n"
+		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
+		"  test trace <host>                 echo requests, the route,\n"
+		"  test download <url> [seconds]     an HTTP download (seconds: time based),\n"
+		"  test upload <url> [bytes|Ns]      an HTTP upload (N s: time based),\n"
+		"  test dns <name> [server]          a name looked up (default: the gateway's own DNS)\n"
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
@@ -363,8 +370,10 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 	if (field(msg, "last_check") && now >= fnum(msg, "last_check"))
 		printf(" (last %s ago)", dur_short(now - fnum(msg, "last_check"), t2, sizeof(t2)));
 	printf("\n");
-	if (care_asked_check)
+	if (care_asked_check == 1)
 		printf("  a check starts now: see agctl care again in a few seconds\n");
+	else if (care_asked_check == 2)
+		printf("  a speed test starts now: see agctl care again in about %d seconds\n", 15);
 	if (p) {
 		printf("  now       %s (%s, %s) for %s, %s\n", fstr(p, "code"), fstr(p, "area"), fstr(p, "severity"),
 		       dur_short(now > fnum(p, "since") ? now - fnum(p, "since") : 0, t1, sizeof(t1)),
@@ -376,6 +385,57 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 			printf("  advice    %s\n", fstr(p, "advice"));
 	} else
 		printf("  now       OK: no problem found\n");
+	{
+		struct blob_attr *w = field(msg, "early_warning"), *nm = field(msg, "normal"), *sp = field(msg, "speed"), *cur;
+		size_t rem;
+		int any = 0;
+
+		if (w && !fnum(w, "enabled"))
+			printf("  warning   early warnings are off (care.warn)\n");
+		else if (w && !strcmp(fstr(w, "status"), "learning"))
+			printf("  warning   learning this home's normal: %llu of %llu days, early warnings after that\n",
+			       (unsigned long long)fnum(w, "learned_days"), (unsigned long long)fnum(w, "learn_days"));
+		else if (w && !strcmp(fstr(w, "status"), "warning")) {
+			printf("  warning   %s (%s, %s) for %s\n", fstr(w, "metric"), fstr(w, "area"), fstr(w, "kind"),
+			       dur_short(now > fnum(w, "since") ? now - fnum(w, "since") : 0, t1, sizeof(t1)));
+			printf("            %s\n", fstr(w, "summary"));
+			printf("  advice    %s\n", fstr(w, "advice"));
+		} else if (w)
+			printf("  warning   none: the line is as it normally is\n");
+		blobmsg_for_each_attr(cur, nm, rem) {
+			static const struct { const char *name, *words, *unit; } u[] = {
+				{ "NextHopLatency", "next hop", "ms" }, { "InternetLatency", "internet", "ms" },
+				{ "InternetLoss", "loss", "%" }, { "DNSLatency", "DNS", "ms" }, { "DownloadSpeed", "speed", "Mbit/s" },
+			};
+			unsigned j;
+
+			for (j = 0; j < sizeof(u) / sizeof(u[0]); j++)
+				if (!strcmp(blobmsg_name(cur), u[j].name)) {
+					printf("%s%s %s%s%s", any ? ", " : "  normal    at this hour: ", u[j].words,
+					       blobmsg_get_string(cur), u[j].unit[0] == '%' ? "" : " ", u[j].unit);
+					any = 1;
+				}
+		}
+		if (any)
+			printf(" (learned over %llu day%s)\n", (unsigned long long)fnum(w, "learned_days"),
+			       fnum(w, "learned_days") == 1 ? "" : "s");
+		if (sp && fnum(sp, "enabled")) {
+			printf("  speed     ");
+			if (!strcmp(fstr(sp, "status"), "None"))
+				printf("no test yet");
+			else if (!strcmp(fstr(sp, "status"), "Error"))
+				printf("the last test failed (%s)", fstr(sp, "why"));
+			else
+				printf("%s Mbit/s, %s%s", fstr(sp, "mbps"), ago(fnum(sp, "last"), t1, sizeof(t1)),
+				       !strcmp(fstr(sp, "status"), "Low") ? " (slow)" : "");
+			if (fnum(sp, "expected_mbps"))
+				printf("; the line's speed %llu, at least %llu%% required", (unsigned long long)fnum(sp, "expected_mbps"),
+				       (unsigned long long)fnum(sp, "min_pct"));
+			if (fnum(sp, "next") > now)
+				printf("; next in %s", dur_short(fnum(sp, "next") - now, t2, sizeof(t2)));
+			printf("\n");
+		}
+	}
 	for (k = 0; k < 3; k++) {
 		struct blob_attr *s = field(rep, per[k]);
 
@@ -386,8 +446,8 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 			printf("no checks yet\n");
 			continue;
 		}
-		printf("experience score %llu%% (%llu checks)", (unsigned long long)fnum(s, "score"),
-		       (unsigned long long)fnum(s, "checks"));
+		printf("experience score %llu%% (%llu check%s)", (unsigned long long)fnum(s, "score"),
+		       (unsigned long long)fnum(s, "checks"), fnum(s, "checks") == 1 ? "" : "s");
 		if (fnum(s, "problems") || fstr(s, "main_cause")[0]) {
 			printf("; %llu problem%s", (unsigned long long)fnum(s, "problems"), fnum(s, "problems") == 1 ? "" : "s");
 			if (fstr(s, "main_cause")[0])
@@ -396,7 +456,114 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 			       (unsigned long long)fnum(s, "reported"), (unsigned long long)fnum(s, "fixed_by_aigw"),
 			       dur_short(fnum(s, "problem_s"), t1, sizeof(t1)));
 		}
+		if (fnum(s, "early_warnings")) {
+			printf("; %llu early warning%s", (unsigned long long)fnum(s, "early_warnings"),
+			       fnum(s, "early_warnings") == 1 ? "" : "s");
+			if (fnum(s, "warned_of"))
+				printf(" (%llu problem%s seen coming, %s ahead on average)", (unsigned long long)fnum(s, "warned_of"),
+				       fnum(s, "warned_of") == 1 ? "" : "s", dur_short(fnum(s, "warning_lead_s"), t1, sizeof(t1)));
+		}
+		if (fnum(s, "speed_tests"))
+			printf("; speed %s Mbit/s on average (%s at least, %llu test%s)", fstr(s, "speed_mbps"),
+			       fstr(s, "speed_min_mbps"), (unsigned long long)fnum(s, "speed_tests"),
+			       fnum(s, "speed_tests") == 1 ? "" : "s");
 		printf("\n");
+	}
+}
+
+/* agctl test ...: a TR-143 test's outputs, in words */
+static int test_kind;                   /* 0 ping, 1 trace, 2 download, 3 upload, 4 dns */
+#define TR_HOPS_SHOWN 64
+
+/* a TR-106 dateTime (with microseconds) as seconds; 0 unknown */
+static double dt_s(const char *s)
+{
+	struct tm tm;
+	const char *rest;
+	double frac = 0;
+
+	memset(&tm, 0, sizeof(tm));
+	if (!s || !(rest = strptime(s, "%Y-%m-%dT%H:%M:%S", &tm)) || tm.tm_year < 100)
+		return 0;
+	if (*rest == '.')
+		frac = strtod(rest, NULL);
+	return (double)timegm(&tm) + frac;
+}
+
+static void show_test(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *o = field(msg, "out"), *cur;
+	const char *st = fstr(o, "Status");
+	size_t rem;
+	int i;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "ok")) {
+		fprintf(stderr, "agctl: %s\n", orb(fstr(msg, "message"), "the test could not run"));
+		diag_failed = 1;
+		return;
+	}
+	if (strcmp(st, "Complete")) {
+		printf("%s\n", st);
+		diag_failed = 1;
+		return;
+	}
+	switch (test_kind) {
+	case 0:
+		printf("%llu of %llu answered", strtoull(fstr(o, "SuccessCount"), NULL, 10),
+		       strtoull(fstr(o, "SuccessCount"), NULL, 10) + strtoull(fstr(o, "FailureCount"), NULL, 10));
+		if (strtoull(fstr(o, "SuccessCount"), NULL, 10))
+			printf(": %.2f ms on average (%.2f to %.2f)", strtoull(fstr(o, "AverageResponseTimeDetailed"), NULL, 10) / 1000.0,
+			       strtoull(fstr(o, "MinimumResponseTimeDetailed"), NULL, 10) / 1000.0,
+			       strtoull(fstr(o, "MaximumResponseTimeDetailed"), NULL, 10) / 1000.0);
+		printf(", from %s\n", orb(fstr(o, "IPAddressUsed"), "-"));
+		break;
+	case 1:
+		for (i = 1; i <= TR_HOPS_SHOWN; i++) {
+			char k[48];
+
+			snprintf(k, sizeof(k), "RouteHops.%d.HostAddress", i);
+			if (!field(o, k))
+				break;
+			printf("%3d  %-16s", i, orb(fstr(o, k), "*"));
+			snprintf(k, sizeof(k), "RouteHops.%d.RTTimes", i);
+			printf("  %s%s\n", fstr(o, k), fstr(o, k)[0] ? " ms" : "");
+		}
+		printf("reached in %d hop%s, %s ms\n", i - 1, i == 2 ? "" : "s", fstr(o, "ResponseTime"));
+		break;
+	case 2:
+	case 3: {
+		unsigned long long bytes = strtoull(fstr(o, test_kind == 2 ? "TestBytesReceived" : "TestBytesSent"), NULL, 10);
+		double s = dt_s(fstr(o, "EOMTime")) - dt_s(fstr(o, "BOMTime")),
+		       open = dt_s(fstr(o, "TCPOpenResponseTime")) - dt_s(fstr(o, "TCPOpenRequestTime"));
+
+		printf("%s %llu bytes in %.2f s: %.1f Mbit/s (connection opened in %.1f ms, from %s)\n",
+		       test_kind == 2 ? "received" : "sent", bytes, s, s > 0 ? bytes * 8 / s / 1e6 : 0, open * 1000,
+		       orb(fstr(o, "IPAddressUsed"), "-"));
+		break;
+	}
+	default:
+		printf("%s answered\n", fstr(o, "SuccessCount"));
+		blobmsg_for_each_attr(cur, o, rem) {
+			const char *k = blobmsg_name(cur), *dot;
+			char base[48], key[80];
+
+			if (strncmp(k, "Result.", 7) || !(dot = strrchr(k, '.')) || strcmp(dot, ".Status"))
+				continue;
+			snprintf(base, sizeof(base), "%.*s", (int)(dot - k), k);
+			printf("  %-28s", blobmsg_get_string(cur));
+			snprintf(key, sizeof(key), "%s.IPAddresses", base);
+			printf(" %-24s", orb(fstr(o, key), "-"));
+			snprintf(key, sizeof(key), "%s.ResponseTime", base);
+			printf(" %s ms", fstr(o, key));
+			snprintf(key, sizeof(key), "%s.DNSServerIP", base);
+			printf(" from %s", fstr(o, key));
+			snprintf(key, sizeof(key), "%s.AnswerType", base);
+			printf(" (%s)\n", fstr(o, key));
+		}
 	}
 }
 
@@ -1618,7 +1785,7 @@ static int call(const char *path, const char *method, struct blob_attr *args, ub
 		return 1;
 	}
 	/* generous: some calls run tools (remote on reloads the firewall: seconds on a small router) */
-	rc = ubus_invoke(ctx, id, method, args, cb, NULL, 30000);
+	rc = ubus_invoke(ctx, id, method, args, cb, NULL, call_timeout);
 	if (rc) {
 		fprintf(stderr, "agctl: %s %s failed: %s\n", path, method, ubus_strerror(rc));
 		return 1;
@@ -1832,10 +1999,54 @@ int main(int argc, char **argv)
 		if (i < argc && (!strcmp(argv[i], "--check") || !strcmp(argv[i], "check"))) {
 			blobmsg_add_u8(&args, "check", 1);
 			care_asked_check = 1;
+		} else if (i < argc && (!strcmp(argv[i], "--speed") || !strcmp(argv[i], "speed"))) {
+			blobmsg_add_u8(&args, "speed", 1);
+			care_asked_check = 2;
 		}
 		rc = call("ag", "care", args.head, show_care);
 		blob_buf_free(&args);
 		rc = rc || diag_failed;
+	} else if (!strcmp(cmd, "test") && i + 1 < argc) {
+		static const struct { const char *what, *cmd, *arg, *extra; } T[] = {
+			{ "ping", "Device.IP.Diagnostics.IPPing()", "Host", "NumberOfRepetitions" },
+			{ "trace", "Device.IP.Diagnostics.TraceRoute()", "Host", NULL },
+			{ "download", "Device.IP.Diagnostics.DownloadDiagnostics()", "DownloadURL", "TimeBasedTestDuration" },
+			{ "upload", "Device.IP.Diagnostics.UploadDiagnostics()", "UploadURL", "TestFileLength" },
+			{ "dns", "Device.DNS.Diagnostics.NSLookupDiagnostics()", "HostName", "DNSServer" },
+		};
+		const char *what = argv[i++];
+		unsigned k;
+		void *t;
+
+		for (k = 0; k < sizeof(T) / sizeof(T[0]) && strcmp(T[k].what, what); k++)
+			;
+		if (k == sizeof(T) / sizeof(T[0]) || (i + 1 < argc && !T[k].extra) || i + 2 < argc) {
+			usage();
+			return 1;
+		}
+		test_kind = (int)k;
+		blob_buf_init(&args, 0);
+		blobmsg_add_string(&args, "command", T[k].cmd);
+		t = blobmsg_open_table(&args, "args");
+		blobmsg_add_string(&args, T[k].arg, argv[i++]);
+		if (i < argc) {
+			size_t l = strlen(argv[i]);
+
+			/* upload <url> 10s: time based */
+			if (k == 3 && l > 1 && argv[i][l - 1] == 's') {
+				char sec[16];
+
+				snprintf(sec, sizeof(sec), "%.*s", (int)(l - 1), argv[i]);
+				blobmsg_add_string(&args, "TimeBasedTestDuration", sec);
+			} else
+				blobmsg_add_string(&args, T[k].extra, argv[i]);
+		}
+		blobmsg_close_table(&args, t);
+		call_timeout = 20 * 60 * 1000;
+		if (!json_out)
+			fprintf(stderr, "running %s (this can take a while)...\n", T[k].cmd);
+		rc = call("ag.dm", "operate", args.head, show_test) || diag_failed;
+		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "wifi")) {
 		rc = call("ag.wifi", "radios", NULL,
 			  i < argc && (!strcmp(argv[i], "--report") || !strcmp(argv[i], "report")) ? show_report : show_radios);

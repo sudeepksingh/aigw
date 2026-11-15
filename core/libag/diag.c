@@ -266,6 +266,8 @@ const char *diag_advice(const char *code)
 		{ "WIFI_DEVICE", "Restart the device's Wi-Fi; turn off its power saving; update it." },
 		{ "WIFI_RADIO", "Restart the access point; if no device can use it afterwards, the radio may be faulty." },
 		{ "DNS_SLOW", "Check the DNS servers the gateway uses (a closer or faster one)." },
+		/* proactive care's nightly speed test (a TR-143 download from the ISP's own server) */
+		{ "LINE_SLOW_SPEED", "The line delivers far less than its speed: check its sync rate and the access network." },
 	};
 	size_t i;
 

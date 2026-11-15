@@ -35,7 +35,7 @@
  *                    {"request": {action, target, ttl, reason}}     acts, as a person would
  *                    {"request": {"undo": id}}
  *                    {"done": {id, ok, error}}                      actuator result
- *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status", "id": n}
+ *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status" | "care", "id": n}
  *                    {"model": {file, sig, id}}     offer a signed model update (capability
  *                                                   model.offer; files in its own $AIGW_STATE)
  *                    {"fed": {round, center, scale, weights, lr, epochs, clip, noise, id}}
@@ -550,6 +550,10 @@ static void on_query(struct plugin *p, const char *what, int id)
 		blobmsg_add_u64(&d, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	} else if (!strcmp(what, "models")) {
 		models_blob(&d, "models");
+	} else if (!strcmp(what, "care")) {
+		/* proactive care: scores, problems, warnings, speed (no names but a Wi-Fi problem's summary) */
+		care_blob(&d);
+		care_days_blob(&d, 8);
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :
@@ -572,7 +576,7 @@ static void on_query(struct plugin *p, const char *what, int id)
 		alerts_blob(&d, 50, "alerts");
 	} else {
 		blob_buf_free(&d);
-		reply(p, id, NULL, "unknown query (status, devices, decisions, alerts, models)");
+		reply(p, id, NULL, "unknown query (status, care, devices, decisions, alerts, models)");
 		return;
 	}
 	reply(p, id, &d, NULL);
