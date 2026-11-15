@@ -11,7 +11,7 @@ outages seen as outages, and the homes a help desk should look at first.
 $ python3 -m aigw_cortex fleet --days 7
 Fleet report, 2026-11-09 to 2026-11-15: 1204 of 1210 homes reporting, 6 silent
   experience   97.8% on average (median 99.3%), +0.6 from the 7 days before; 1081 good, 97 fair, 26 poor homes; 1213632 checks
-  problems     412 found by the gateways: 167 fixed by AIGW itself (no call needed), 221 reported to the ISP before anyone called; 391.5 h in all; 9 open now
+  problems     412 found by the gateways: 167 fixed by AIGW itself (no call needed), 58 cleared by themselves, 221 reported to the ISP before anyone called; 391.5 h in all; 9 open now
                bad checks by cause: Internet 15232, WiFi 6120, DNS 1811
                codes: WIFI_CONGESTION 151, ISP_DOWN 96, LINE_LOSS 61, DNS_FAILING 38, ...
   warnings     58 early warnings; 21 problems seen coming, 31.4 h ahead on average; 12 open now
@@ -33,7 +33,7 @@ assistant, read-only.
 | Section | |
 |---|---|
 | experience | Each home's score over the period (the time without a problem, of the time its gateway watched; days from gateways before v0.29.1 have no times and count by checks). The fleet's average and median, and the change from the period before. Homes good (95% or more), fair (80 to 95) or poor. |
-| problems | Found by the gateways; fixed by AIGW itself (Wi-Fi problems over before they had to be reported: no call needed); reported to the ISP the moment they were found; the hours with a problem; bad checks by cause; the codes. |
+| problems | Found by the gateways; fixed by AIGW itself (Wi-Fi problems over before they had to be reported, after AIGW changed something for them: no call needed); cleared by themselves (over though AIGW changed nothing: not counted as its fix); reported to the ISP the moment they were found; the hours with a problem; bad checks by cause; the codes. |
 | warnings | Early warnings, the problems they saw coming, and how long before on average. |
 | speed | The nightly speed tests: the median, and the homes below their line's speed. |
 | outages | Problems on the line or DNS that start in many homes of one group within minutes of each other: at least 3 homes, and at least 10% of the group's, each within 15 minutes of the one before. That is the ISP's network, not the homes: one incident, not dozens of tickets. It shows how many homes are still affected. |

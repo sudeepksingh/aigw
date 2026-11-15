@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS care_days (
     device INTEGER, aigw INTEGER, problems INTEGER, reported INTEGER, fixed INTEGER, problem_s INTEGER,
     warnings INTEGER, warned INTEGER, lead_s INTEGER, speed_tests INTEGER, speed_kbps_sum INTEGER,
     speed_kbps_min INTEGER, speed_low INTEGER, watched_s INTEGER DEFAULT 0, ok_s INTEGER DEFAULT 0,
-    PRIMARY KEY (gateway, day));
+    cleared INTEGER DEFAULT 0, PRIMARY KEY (gateway, day));
 CREATE TABLE IF NOT EXISTS care_events (
     gateway TEXT, kind TEXT, code TEXT, area TEXT, since INTEGER, until INTEGER DEFAULT 0,
     reported INTEGER DEFAULT 0, summary TEXT DEFAULT '', predict INTEGER DEFAULT -1,
@@ -62,7 +62,9 @@ CARE_COLUMNS = (("checks", "checks"), ("good", "good"), ("Internet", "internet")
                 ("warned_of", "warned"), ("warning_lead_s", "lead_s"), ("speed_tests", "speed_tests"),
                 ("speed_kbps_sum", "speed_kbps_sum"), ("speed_kbps_min", "speed_kbps_min"), ("speed_low", "speed_low"),
                 # v0.29.1: the time watched, and of it without a problem (the score); 0 from older gateways
-                ("watched_s", "watched_s"), ("ok_s", "ok_s"))
+                ("watched_s", "watched_s"), ("ok_s", "ok_s"),
+                # v0.29.2: Wi-Fi problems over though AIGW changed nothing (not its fix)
+                ("cleared_by_itself", "cleared"))
 
 # what a person's answer to a decision says about the alert behind it
 APPROVED = 1      # the alert was right
@@ -89,7 +91,7 @@ class Store:
                 self.db.commit()
             # v0.29.1: the time a gateway watched the home
             cols = {r[1] for r in self.db.execute("PRAGMA table_info(care_days)").fetchall()}
-            for c in ("watched_s", "ok_s"):
+            for c in ("watched_s", "ok_s", "cleared"):
                 if c not in cols:
                     self.db.execute(f"ALTER TABLE care_days ADD COLUMN {c} INTEGER DEFAULT 0")
             self.db.commit()

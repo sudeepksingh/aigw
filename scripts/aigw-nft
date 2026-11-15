@@ -160,6 +160,19 @@ render_fastpath() {
 		list="$list\"$i\""
 	done
 	[ -n "$list" ] || return 0
+	# only a packet from the LAN offloads a connection: it comes from the device,
+	# so "ether saddr @quarantine" sees a quarantined one (and its packets are
+	# dropped before this chain anyway). A packet from the internet to it would
+	# otherwise offload its connection again after agd sent it back, and from
+	# then on the device's own packets would skip the drop. The flowtable
+	# entry covers both directions, so nothing else loses the fast path.
+	fromlan=""
+	lan=""
+	for i in $(uci_get lan.iface); do
+		[ -n "$lan" ] && lan="$lan, "
+		lan="$lan\"$i\""
+	done
+	[ -n "$lan" ] && fromlan="iifname != { $lan } return"
 	flags=""
 	[ "$(uci_get fastpath.offload)" = 1 ] && flags="flags offload;"
 	cat <<EOF
@@ -176,6 +189,7 @@ table inet ag {
 	chain fastpath {
 		type filter hook forward priority filter + 5; policy accept;
 		ct state != established return
+		$fromlan
 		ct original packets < 8 return
 		ct mark & 0x000000ff != 0 return
 		ether saddr @quarantine return

@@ -21,6 +21,15 @@
  * point, wifi.steer_gap (300 s) between two moves of a device, at most
  * wifi.steer_rate (2) moves a minute in the home, and a device that missed three moves in a row
  * is left alone for a day.
+ *
+ * Memory (v0.29.2): a device moved up that is back on 2.4 GHz within 30
+ * minutes (moved down again, or it went back by itself) bounced: 5 GHz
+ * doesn't hold where it is. No move up for an hour, doubling with each bounce
+ * in a row (a day at most); one that stays up 30 minutes starts afresh. And
+ * never a move up while it is hopping between the bands (Self-Healing Wi-Fi's
+ * BandHopping): a move would add to it. On the PC access point a phone at the
+ * edge was moved up at -60 dBm on 2.4 GHz and down at -77 on 5, again and
+ * again, and the hopping that followed was reported as a Wi-Fi problem.
  */
 #define _GNU_SOURCE
 #include <stdio.h>
@@ -33,6 +42,8 @@
 #define SETTLE_S     20
 #define MISSES_MAX   3
 #define PAUSE_S      86400
+#define BOUNCE_S     1800               /* back on 2.4 GHz this soon after a move up: it bounced */
+#define BOUNCE_PAUSE_S 3600             /* no move up for this long, doubling per bounce in a row */
 
 uint64_t steer_total, steer_ok_total;
 static int64_t minute_start;
@@ -159,6 +170,8 @@ static void follow_up(struct device *d, int64_t now)
 		d->steer_moves++;
 		d->steer_fails = 0;
 		steer_ok_total++;
+		if (d->wifi_band == 5)
+			d->steer_up_at = now;   /* does 5 GHz hold? watched for BOUNCE_S */
 		emit("steered", d, NULL, NULL, d->steer_method, NULL);
 		return;
 	}
@@ -171,6 +184,34 @@ static void follow_up(struct device *d, int64_t now)
 	emit("steer-missed", d, NULL, NULL, d->steer_method, NULL);
 }
 
+/* After a move up: back on 2.4 GHz soon (a bounce: pause moving it up), or it held */
+static void watch_up(struct device *d, int64_t now)
+{
+	int64_t pause;
+	char t[16];
+
+	if (d->wifi_connected && d->wifi_band == 2 && now - d->steer_up_at <= BOUNCE_S) {
+		if (d->steer_bounces < 16)
+			d->steer_bounces++;
+		pause = (int64_t)BOUNCE_PAUSE_S << (d->steer_bounces - 1 < 5 ? d->steer_bounces - 1 : 5);
+		if (pause > PAUSE_S)
+			pause = PAUSE_S;
+		d->steer_up_pause_until = now + pause;
+		if (pause >= 3600)
+			snprintf(t, sizeof(t), "%dh", (int)(pause / 3600));
+		else
+			snprintf(t, sizeof(t), "%dm", (int)(pause / 60));
+		AG_INFO("steer %s (%s): back on 2.4 GHz %d min after a move up (%d time%s in a row): "
+			"5 GHz doesn't hold here; no move up for %s", d->hostname[0] ? d->hostname : d->mac, d->mac,
+			(int)((now - d->steer_up_at) / 60), d->steer_bounces, d->steer_bounces == 1 ? "" : "s", t);
+		emit("steer-bounced", d, NULL, NULL, NULL, "back on 2.4 GHz soon after a move up");
+		d->steer_up_at = 0;
+	} else if (now - d->steer_up_at > BOUNCE_S) {
+		d->steer_up_at = 0;             /* it held: a good move, and a fresh start */
+		d->steer_bounces = 0;
+	}
+}
+
 void steer_tick(void)
 {
 	const struct wifi_ap *a2, *a5;
@@ -180,6 +221,9 @@ void steer_tick(void)
 	for (i = 0; i < DEV_MAX; i++)
 		if (devs[i].used && (devs[i].steer_check_at || devs[i].steer_unban[0]))
 			follow_up(&devs[i], now);
+	for (i = 0; i < DEV_MAX; i++)
+		if (devs[i].used && devs[i].steer_up_at)
+			watch_up(&devs[i], now);
 	if (!cfg.steer || !steer_ready(&a2, &a5))
 		return;
 	if (now - minute_start >= 60) {
@@ -199,7 +243,9 @@ void steer_tick(void)
 		 * device simply declines a move it can't make (a miss), while a
 		 * refusal on its band would cut a 2.4 GHz-only device off */
 		up = d->wifi_band == 2 && (d->wifi_dual || d->wifi_btm) && d->wifi_sig_avg >= cfg.steer_up &&
-		     !strcmp(d->wifi_iface, a2->iface);
+		     !strcmp(d->wifi_iface, a2->iface) &&
+		     now >= d->steer_up_pause_until &&  /* bounced lately: 5 GHz doesn't hold here */
+		     !heal_hopping(d);                  /* hopping between the bands: a move adds to it */
 		down = d->wifi_band == 5 && d->wifi_sig_avg && d->wifi_sig_avg <= cfg.steer_down &&
 		       !strcmp(d->wifi_iface, a5->iface);
 		if (!up && !down) {

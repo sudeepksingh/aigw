@@ -290,11 +290,16 @@ class Fleet(unittest.TestCase):
             s = Store(d)
             gid, _ = s.enroll("home")
             # the PC access point's day: 147 checks, 97 of them bad, 7 h 30 m watched, 1 h 39 m of problems
-            s.care(gid, {"days": [care_day(today, 147, 50, WiFi=97, problems=7, problem_s=5951,
-                                           watched_s=27000, ok_s=27000 - 5951)]}, now)
-            h = fleet.report(s, 1, now=now)["per_home"][0]
+            # v0.29.2: of its 7 problems, 6 were over though AIGW changed nothing (advise mode)
+            s.care(gid, {"days": [care_day(today, 147, 50, WiFi=97, problems=7, problem_s=5951, reported=1,
+                                           watched_s=27000, ok_s=27000 - 5951, cleared_by_itself=6)]}, now)
+            r = fleet.report(s, 1, now=now)
+            h = r["per_home"][0]
             self.assertEqual(h["score"], 78.0)
             self.assertEqual(h["watched_h"], 7.5)
+            self.assertEqual((h["fixed_by_aigw"], h["cleared_by_itself"]), (0, 6))
+            self.assertEqual((r["problems"]["fixed_by_aigw"], r["problems"]["cleared_by_itself"]), (0, 6))
+            self.assertIn("0 fixed by AIGW itself (no call needed), 6 cleared by themselves", fleet.text(r, now))
 
     def test_old_reports(self):
         from aigw_cortex import fleet

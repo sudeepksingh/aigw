@@ -122,8 +122,12 @@ int care_step(struct care_state *s, struct care_report *r, const struct care_ver
 		s->pending = 0;
 		if (s->active && ++s->ok_run >= p->clear) {
 			s->duration = now - s->since;
-			if (!s->reported && care_area_index(s->area) == CA_WIFI)
-				d->fixed++;
+			if (!s->reported && care_area_index(s->area) == CA_WIFI) {
+				if (s->acted_at && s->acted_at >= s->since - CARE_ACTED_BEFORE)
+					d->fixed++;
+				else
+					d->cleared++;
+			}
 			s->active = 0;
 			s->ok_run = 0;
 			ev |= CARE_CLEARED;
@@ -132,6 +136,11 @@ int care_step(struct care_state *s, struct care_report *r, const struct care_ver
 	}
 	s->last_check = now;
 	return ev;
+}
+
+void care_acted(struct care_state *s, long now)
+{
+	s->acted_at = now;
 }
 
 struct care_day *care_report_day(struct care_report *r, long wall_s)
@@ -176,6 +185,7 @@ void care_report_sum(const struct care_report *r, long wall_s, int days, struct 
 		out->speed_low += d->speed_low;
 		out->watched_secs += d->watched_secs;
 		out->ok_secs += d->ok_secs;
+		out->cleared += d->cleared;
 	}
 }
 

@@ -50,6 +50,7 @@ struct care_state {
 	long last_check;        /* wall s; 0 none yet */
 	long duration;          /* set on CARE_CLEARED: since -> the check that ended it */
 	long pending;           /* s since the first bad check of a run not yet a problem */
+	long acted_at;          /* wall s: AIGW last changed something on Wi-Fi (a channel, a device kept on 2.4 GHz) */
 };
 
 struct care_day {
@@ -58,7 +59,7 @@ struct care_day {
 	unsigned bad[CARE_AREAS];  /* bad checks by area */
 	unsigned problems;      /* problems that started */
 	unsigned reported;      /* told the ISP */
-	unsigned fixed;         /* Wi-Fi problems over before they had to be reported: fixed by AIGW */
+	unsigned fixed;         /* Wi-Fi problems AIGW changed something for, over before they had to be reported */
 	unsigned problem_secs;  /* time a problem was open */
 	unsigned warnings;      /* early warnings that started */
 	unsigned warned;        /* problems an early warning had seen coming */
@@ -69,6 +70,9 @@ struct care_day {
 	/* v0.29.1: the time watched (between two checks, gaps while agd was down
 	   left out), and of that the time without a problem: the score */
 	unsigned watched_secs, ok_secs;
+	/* v0.29.2: Wi-Fi problems over before they had to be reported, though AIGW
+	   changed nothing (advise mode, nobody answered; or it passed): not AIGW's fix */
+	unsigned cleared;
 };
 
 struct care_report {
@@ -88,6 +92,12 @@ int care_bad(const struct care_verdict *v);
 /* one check at wall time now: updates the state and the report; returns CARE_* bits */
 int care_step(struct care_state *s, struct care_report *r, const struct care_verdict *v, long now,
 	      const struct care_params *p);
+/* AIGW changed something on Wi-Fi now: a channel trial took effect, a device
+   was kept on 2.4 GHz. A Wi-Fi problem over before it had to be reported is
+   "fixed by AIGW" only if AIGW acted during it (or up to CARE_ACTED_BEFORE s
+   before its first bad check: the same trouble); otherwise "cleared by itself" */
+#define CARE_ACTED_BEFORE 600
+void care_acted(struct care_state *s, long now);
 /* would this open problem be reported (the ISP's), or is it AIGW's to fix */
 int care_isp_owned(const char *area);
 

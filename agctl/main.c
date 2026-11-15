@@ -455,9 +455,12 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 			printf("; %llu problem%s", (unsigned long long)fnum(s, "problems"), fnum(s, "problems") == 1 ? "" : "s");
 			if (fstr(s, "main_cause")[0])
 				printf(", mostly %s", fstr(s, "main_cause"));
-			printf(": reported to the ISP %llu, fixed by AIGW %llu, %s with a problem",
-			       (unsigned long long)fnum(s, "reported"), (unsigned long long)fnum(s, "fixed_by_aigw"),
-			       dur_short(fnum(s, "problem_s"), t1, sizeof(t1)));
+			printf(": reported to the ISP %llu, fixed by AIGW %llu, ", (unsigned long long)fnum(s, "reported"),
+			       (unsigned long long)fnum(s, "fixed_by_aigw"));
+			/* over without AIGW changing anything: not its fix (v0.29.2) */
+			if (fnum(s, "cleared_by_itself"))
+				printf("cleared by itself %llu, ", (unsigned long long)fnum(s, "cleared_by_itself"));
+			printf("%s with a problem", dur_short(fnum(s, "problem_s"), t1, sizeof(t1)));
 		}
 		if (fnum(s, "early_warnings")) {
 			printf("; %llu early warning%s", (unsigned long long)fnum(s, "early_warnings"),
@@ -1862,6 +1865,8 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 			       !strcmp(fstr(msg, "method"), "btm") ? "802.11v" : "refused on its band", fstr(msg, "reason"));
 		} else if (!strcmp(ev, "steered") || !strcmp(ev, "steer-missed")) {
 			printf("wifi  %-16s %s\n", who, !strcmp(ev, "steered") ? "moved as asked" : "stayed where it was");
+		} else if (!strcmp(ev, "steer-bounced")) {
+			printf("wifi  %-16s back on 2.4 GHz soon after a move up: not moved up again for a while\n", who);
 		} else {
 			printf("wifi  %-16s %s on %s", who, ev, fstr(msg, "iface"));
 			if (*fstr(msg, "band"))

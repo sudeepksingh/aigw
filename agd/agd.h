@@ -99,6 +99,9 @@ struct device {
 	uint32_t steer_moves, steer_misses;
 	uint8_t steer_fails;            /* misses in a row */
 	int64_t steer_pause_until;      /* won't move: leave it be until then */
+	int64_t steer_up_at;            /* landed on 5 GHz after a move up (0: none being watched) */
+	int64_t steer_up_pause_until;   /* came back down soon after: no move up until then */
+	uint8_t steer_bounces;          /* in a row: each doubles the pause */
 
 	/* presence */
 	uint8_t present;
@@ -425,6 +428,7 @@ struct heal_radio {
 void heal_init(void);
 /* wifi.c: it moved to another access point; its band and signal before */
 void heal_roamed(const struct device *d, int old_band, int old_signal);
+int heal_hopping(const struct device *d);       /* band changes in the window >= wifi.heal_hops */
 const struct heal_radio *heal_for(const char *iface);
 void heal_blob(struct blob_buf *b, const char *iface);
 void dm_on_heal(const char *iface);
@@ -456,6 +460,7 @@ struct care_state;
 struct care_day;
 void care_init(void);
 void care_on_heal(int status);
+void care_on_acted(const char *what);   /* AIGW changed something on Wi-Fi: "fixed by AIGW" needs it */
 int care_check_now(void);
 const struct care_state *care_now(void);
 int care_report_of(int days, struct care_day *out);

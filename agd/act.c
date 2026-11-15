@@ -215,6 +215,13 @@ static void set_state(struct decision *d, int state)
 	dm_on_decision(d->id, state_names[state]);
 	if (state == D_ACTIVE && !strcmp(d->action, "stay24"))
 		heal_on_band_rule(d->target, d->id);   /* the healing report counts it (once per decision) */
+	/* proactive care: a Wi-Fi problem is "fixed by AIGW" only if AIGW changed something */
+	if (state == D_ACTIVE && (!strcmp(d->action, "stay24") || !strcmp(d->action, "channel"))) {
+		char what[96];
+
+		snprintf(what, sizeof(what), "decision %u, %s %s", d->id, d->action, d->target);
+		care_on_acted(what);
+	}
 }
 
 /* who answers the next approve / reject / undo: "you", or a management system (dm.c) */
