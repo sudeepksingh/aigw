@@ -8,7 +8,8 @@
  *   new connection ── forward chains: quarantine, connection marks, throttle,
  *        │            priority (DSCP), handshake copies for connection names
  *        ▼
- *   established, past its first packets, device under no action
+ *   established, past its first packets, device under no action (judged on a
+ *        │            packet from the LAN, which is the device's own)
  *        │            → "flow add @fast": the rest of it bypasses netfilter
  *        ▼
  *   an action starts on a device (quarantine, throttle, priority, ...) →
