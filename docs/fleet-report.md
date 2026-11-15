@@ -32,7 +32,7 @@ assistant, read-only.
 
 | Section | |
 |---|---|
-| experience | Each home's score over the period (checks without a problem). The fleet's average and median, and the change from the period before. Homes good (95% or more), fair (80 to 95) or poor. |
+| experience | Each home's score over the period (the time without a problem, of the time its gateway watched; days from gateways before v0.29.1 have no times and count by checks). The fleet's average and median, and the change from the period before. Homes good (95% or more), fair (80 to 95) or poor. |
 | problems | Found by the gateways; fixed by AIGW itself (Wi-Fi problems over before they had to be reported: no call needed); reported to the ISP the moment they were found; the hours with a problem; bad checks by cause; the codes. |
 | warnings | Early warnings, the problems they saw coming, and how long before on average. |
 | speed | The nightly speed tests: the median, and the homes below their line's speed. |

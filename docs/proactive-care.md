@@ -31,7 +31,7 @@ Across many homes, cortex puts this together in the ISP's
 | A problem | A verdict of warning or worse on 2 checks in a row; one bad check is a blip. After a bad check, the next one comes after `care.recheck` (60 s), to confirm it quickly and then to see it clear. A problem is over after 2 fine checks in a row. |
 | Who deals with it | **The line, the ISP's network, DNS:** the ISP's. Reported at once. **Wi-Fi:** AIGW's own, through Self-Healing Wi-Fi (channel trials, keeping a device on 2.4 GHz). Reported only if it is still there after `care.wifi_grace` (30 minutes); otherwise it counts as fixed by AIGW. **A device, or an AIGW action on one:** nobody's to report. |
 | Telling the ISP | `Device.X_AIGW_.ProblemDetected!` (Code, Area, Severity, Summary, Advice, Since), once per problem. It is sent again only if the cause changes, for example when the Wi-Fi problem turns out to be the line. When the problem is over, `ProblemCleared!` (Code, Area, Since, DurationSeconds). Both go over USP and TR-069 like the other events, and to prplOS through aigw-amx. |
-| The score | Per day, for 31 days: checks, checks without a problem, bad checks by area, problems, reported, fixed by AIGW, and seconds with a problem open. `ExperienceScore` = % of checks without a problem. `MainCause` = the area with the most bad checks. |
+| The score | Per day, for 31 days: checks, checks without a problem, bad checks by area, problems, reported, fixed by AIGW, the time watched (between two checks; a gap while agd was down isn't), and of it the time with a problem open, from the problem's first bad check. `ExperienceScore` = % of the time watched without a problem. It is of the time, not of the checks: checks come every 10 minutes when all is well and every minute while something is wrong, so counting checks would weigh a bad minute like ten good ones (a home fine for 78% of the day scored 34%, until v0.29.1). A single bad check is a blip, not a problem, and doesn't lower it. Days saved before v0.29.1 have no times and keep the score by checks. `MainCause` = the area with the most bad checks. |
 | Restarts | The day counts, an open problem, the learned normal and an open early warning are saved with agd's state. After a restart, an open problem that was already reported isn't reported again. |
 
 ## Early warning: the home's normal, and a drift before it is a fault
@@ -92,8 +92,8 @@ Proactive care: the gateway checks itself every 10m (last 4m ago)
   advice    Check the ISP's network beyond the home: congestion is growing at these hours.
   normal    at this hour: next hop 1.2 ms, internet 18.4 ms, loss 0.3%, DNS 9.8 ms, speed 94.1 Mbit/s (learned over 21 days)
   speed     93.8 Mbit/s, 9h ago; the line's speed 100, at least 50% required; next in 14h 51m
-  last day     experience score 98% (144 checks); 1 problem, mostly DNS: reported to the ISP 1, fixed by AIGW 0, 12m with a problem; 1 early warning; speed 93.8 Mbit/s on average (93.8 at least, 1 test)
-  last 7 days  experience score 99% (1008 checks); 3 problems, mostly WiFi: reported to the ISP 1, fixed by AIGW 2, 41m with a problem; ...
+  last day     experience score 98% (1d 0h watched, 144 checks); 1 problem, mostly DNS: reported to the ISP 1, fixed by AIGW 0, 12m with a problem; 1 early warning; speed 93.8 Mbit/s on average (93.8 at least, 1 test)
+  last 7 days  experience score 99% (7d 0h watched, 1008 checks); 3 problems, mostly WiFi: reported to the ISP 1, fixed by AIGW 2, 41m with a problem; ...
 ```
 
 (The numbers are illustrative.) `agctl care --check` runs a check now,

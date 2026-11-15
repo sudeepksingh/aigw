@@ -134,6 +134,39 @@ int main(void)
 		if (!failed)
 			printf("ok   healing report: day, week, month sums; old days fall out of the ring\n");
 	}
+	/* a channel trial: clearly better, or chance (CI, 2026-11-15: 34 % of 120
+	   probes before, 30 % netem loss all along, and 4 of 23 probes lost on the
+	   trial read 17 %: "halved", and the channel was kept) */
+	{
+		struct {
+			int la, na, lb, nb, want;
+			const char *what;
+		} c[] = {
+			{ 4, 23, 41, 120, 0, "17% of 23 probes vs 34% of 120: could be chance, not sure yet" },
+			{ 36, 120, 41, 120, 0, "30% of 120 vs 34%: not better" },
+			{ 0, 20, 18, 120, 0, "0% of 20 vs 15% of 120: not sure yet" },
+			{ 0, 80, 18, 120, 1, "0% of 80 vs 15% of 120: clearly better" },
+			{ 8, 120, 41, 120, 1, "7% of 120 vs 34% of 120: clearly better" },
+			{ 50, 100, 30, 100, 0, "worse: no" },
+			{ 0, 0, 30, 100, -1, "no probes: no counts" },
+		};
+		unsigned i;
+		struct heal_sta s[] = { { 23, 4, 30, -1, -60, 0, 0 }, { 10, 9, 30, -1, -60, 0, 0 } };
+		struct heal_params p;
+		struct heal_result r;
+
+		for (i = 0; i < sizeof(c) / sizeof(c[0]); i++) {
+			int got = heal_less_loss(c[i].la, c[i].na, c[i].lb, c[i].nb);
+
+			printf("%s  trial: %s (got %d)\n", got == c[i].want ? "ok " : "FAIL", c[i].what, got);
+			failed += got != c[i].want;
+		}
+		heal_params_default(&p);
+		heal_diagnose(s, 2, &p, &r);
+		printf("%s  the result counts the measured devices' probes: %d of %d lost\n",
+		       r.samples == 23 && r.lost == 4 ? "ok " : "FAIL", r.lost, r.samples);
+		failed += !(r.samples == 23 && r.lost == 4);
+	}
 	if (failed)
 		printf("%d failed\n", failed);
 	return failed ? 1 : 0;

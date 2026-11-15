@@ -7,7 +7,7 @@ From what each gateway's bridge reports (agd's care: the day's checks, the
 problems it found, fixed and reported, its early warnings and speed tests;
 never names), for the last --days days against the days before:
 
-  experience   each home's score (checks without a problem), the fleet's
+  experience   each home's score (the time without a problem), the fleet's
                average and median, how many homes are good (95% or more), fair
                (80 to 95) or poor, and the change from the period before
   problems     found by the gateways, fixed by AIGW itself (no call needed),
@@ -31,13 +31,22 @@ SILENT_S = 86400
 AREAS = (("internet", "Internet"), ("dns", "DNS"), ("wifi", "WiFi"), ("device", "Device"), ("aigw", "AIGW"))
 
 
-def _score(good, checks):
-    return round(good * 100.0 / checks, 1) if checks else None
+def _score(c):
+    """The share of the time watched without a problem (a gateway checks every
+    10 minutes when all is well, every minute while something is wrong:
+    counting checks would weigh a bad minute like ten good ones); days from
+    gateways before v0.29.1 have no times: the share of the checks, unless
+    some days of the period have times (then those days)."""
+    watched, ok = c.get("watched_s") or 0, c.get("ok_s") or 0
+    if watched:
+        return round(min(ok, watched) * 100.0 / watched, 1)
+    return round(c["good"] * 100.0 / c["checks"], 1) if c.get("checks") else None
 
 
 def _sum(rows):
     keys = ("checks", "good", "internet", "dns", "wifi", "device", "aigw", "problems", "reported", "fixed",
-            "problem_s", "warnings", "warned", "lead_s", "speed_tests", "speed_kbps_sum", "speed_low")
+            "problem_s", "warnings", "warned", "lead_s", "speed_tests", "speed_kbps_sum", "speed_low",
+            "watched_s", "ok_s")
     out = {k: sum(int(r.get(k) or 0) for r in rows) for k in keys}
     mins = [int(r["speed_kbps_min"]) for r in rows if r.get("speed_tests")]
     out["speed_kbps_min"] = min(mins) if mins else 0
@@ -96,8 +105,8 @@ def report(store, days=7, group=None, now=None):
     homes = {}
     for g in ids:
         c = cur[g]
-        homes[g] = {"name": names[g], "group": groups[g], "score": _score(c["good"], c["checks"]),
-                    "score_before": _score(prev[g]["good"], prev[g]["checks"]), "checks": c["checks"],
+        homes[g] = {"name": names[g], "group": groups[g], "score": _score(c),
+                    "score_before": _score(prev[g]), "checks": c["checks"], "watched_h": round(c["watched_s"] / 3600.0, 1),
                     "problems": c["problems"], "reported": c["reported"], "fixed_by_aigw": c["fixed"],
                     "main_cause": max(AREAS, key=lambda a: c[a[0]])[1] if any(c[a[0]] for a in AREAS) else "",
                     "speed_mbps": round(c["speed_kbps_sum"] / 1000.0 / c["speed_tests"], 1) if c["speed_tests"] else None,

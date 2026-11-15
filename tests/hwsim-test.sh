@@ -378,7 +378,7 @@ tc qdisc del dev "$AP_H" root 2>/dev/null || true
 i=0
 until decs | grep -q "^$TID kept "; do
 	i=$((i + 1))
-	if [ $i -gt 150 ]; then
+	if [ $i -gt 200 ]; then	# a trial not clearly better yet is measured up to 3 x heal_trial
 		echo "--- agd"; grep -iE 'wifi health|trial|decision' "$T/agd.log" | tail -n 12
 		decs
 		fail "the trial should be kept (devices did clearly better)"
@@ -413,7 +413,7 @@ echo "   trial #$TID2: channel $CH1 -> $CH2; the interference stays"
 i=0
 until decs | grep -q "^$TID2 tried "; do
 	i=$((i + 1))
-	if [ $i -gt 150 ]; then
+	if [ $i -gt 200 ]; then	# a trial not clearly better yet is measured up to 3 x heal_trial
 		tc qdisc del dev "$AP_H" root 2>/dev/null
 		echo "--- agd"; grep -iE 'wifi health|trial|decision' "$T/agd.log" | tail -n 12
 		decs
@@ -485,7 +485,7 @@ echo "   trial #$TID3 proposed (channel $CH1 -> $CH3), agd restarted, approved"
 i=0
 until decs | grep -Eq "^$TID3 (tried|kept) "; do
 	i=$((i + 1))
-	if [ $i -gt 150 ]; then
+	if [ $i -gt 200 ]; then	# a trial not clearly better yet is measured up to 3 x heal_trial
 		tc qdisc del dev "$AP_H" root 2>/dev/null
 		echo "--- agd"; grep -iE 'wifi health|trial|decision' "$T/agd.log" | tail -n 12
 		decs

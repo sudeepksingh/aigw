@@ -67,27 +67,45 @@ int care_step(struct care_state *s, struct care_report *r, const struct care_ver
 	struct care_day *d = care_report_day(r, now);
 	int bad = care_bad(v), ev = 0, a = bad ? care_area_index(v->area) : -1;
 
+	long gap = 0;
+
 	d->checks++;
 	if (!bad)
 		d->good++;
 	else if (a >= 0)
 		d->bad[a]++;
-	/* the time since the last check was problem time (a gap while agd was down isn't) */
-	if (s->active && s->last_check && now > s->last_check && now - s->last_check <= p->max_gap)
-		d->problem_secs += (unsigned)(now - s->last_check);
+	/* the time since the last check was watched (a gap while agd was down
+	   wasn't): problem time if one was open, else fine, though it is problem
+	   time after all if the bad run before it turns into one */
+	if (s->last_check && now > s->last_check && now - s->last_check <= p->max_gap)
+		gap = now - s->last_check;
+	d->watched_secs += (unsigned)gap;
+	if (s->active)
+		d->problem_secs += (unsigned)gap;
+	else {
+		d->ok_secs += (unsigned)gap;
+		if (s->bad_run)
+			s->pending += gap;
+	}
 
 	if (bad) {
 		s->ok_run = 0;
 		if (s->bad_run < 1000)
 			s->bad_run++;
 		if (!s->active) {
-			if (s->bad_run == 1)
+			if (s->bad_run == 1) {
 				s->since = now;         /* the first bad check: when it started, if it lasts */
+				s->pending = 0;
+			}
 			if (s->bad_run >= p->confirm) {
 				s->active = 1;
 				s->reported = 0;
 				take(s, v);
 				d->problems++;
+				/* it was a problem since the first bad check */
+				d->problem_secs += (unsigned)s->pending;
+				d->ok_secs -= (unsigned)s->pending < d->ok_secs ? (unsigned)s->pending : d->ok_secs;
+				s->pending = 0;
 				ev |= CARE_STARTED;
 			}
 		} else if (strcmp(s->code, v->code)) {
@@ -101,6 +119,7 @@ int care_step(struct care_state *s, struct care_report *r, const struct care_ver
 		}
 	} else {
 		s->bad_run = 0;
+		s->pending = 0;
 		if (s->active && ++s->ok_run >= p->clear) {
 			s->duration = now - s->since;
 			if (!s->reported && care_area_index(s->area) == CA_WIFI)
@@ -155,11 +174,16 @@ void care_report_sum(const struct care_report *r, long wall_s, int days, struct 
 		out->speed_tests += d->speed_tests;
 		out->speed_kbps_sum += d->speed_kbps_sum;
 		out->speed_low += d->speed_low;
+		out->watched_secs += d->watched_secs;
+		out->ok_secs += d->ok_secs;
 	}
 }
 
 int care_score(const struct care_day *d)
 {
+	if (d->watched_secs)
+		return (int)((unsigned long long)(d->ok_secs < d->watched_secs ? d->ok_secs : d->watched_secs) * 100 /
+			     d->watched_secs);
 	return d->checks ? (int)(d->good * 100 / d->checks) : -1;
 }
 

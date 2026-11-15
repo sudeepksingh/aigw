@@ -80,6 +80,12 @@ person approves after agd restarted still knows it (v0.26.1).
   more loss): the decision becomes `kept`. It no longer switches back at its
   time limit, and the channel is saved in the Wi-Fi config through the Wi-Fi
   handler without restarting anything (`AIGW_WIFI_SAVE_ONLY=1`).
+  Less loss must also be more than chance (v0.29.1). A trial is a few dozen
+  probes, and 30% loss can read 17% on them (it did, in CI). So agd compares
+  the probes lost before and on the trial (a one-sided test of two
+  proportions, at 2.5%). If it isn't sure yet, it measures longer, up to 3
+  times `heal_trial`, and if it is still not clearly better, it switches back.
+  Half the delay needs no such test.
 - **Not better:** agd switches back, and the decision becomes `tried` (not
   `reverted`, so cortex doesn't learn "a person said no"). That channel is
   avoided for a day, and the next trial waits `heal_retry` (30 minutes).
