@@ -8,7 +8,8 @@ score** for the home, which an ISP can collect across its homes.
 
 What an ISP can measure with it:
 
-- **calls avoided:** problems the gateway fixed itself (`FixedByAIGW`), and
+- **calls avoided:** problems the gateway fixed itself (`FixedByAIGW`: only
+  where it changed something; those over without that are `ClearedByItself`), and
   problems the help desk already knew about when the customer called
   (`ProblemDetected!` before the call);
 - **time to find a fault:** the event already says where the problem is
@@ -29,7 +30,7 @@ Across many homes, cortex puts this together in the ISP's
 |---|---|
 | Checks | Diagnose without a device (the line, DNS and every access point), quietly: it doesn't replace `LastDiagnosis.` or send `DiagnosisDone!`, which stay for the diagnoses someone asked for. It runs every `care.interval` (10 minutes). When Self-Healing Wi-Fi turns a radio Poor, it checks within seconds. If someone asks Diagnose about a device during a check, their diagnosis runs right after it, about 3 seconds later. |
 | A problem | A verdict of warning or worse on 2 checks in a row; one bad check is a blip. After a bad check, the next one comes after `care.recheck` (60 s), to confirm it quickly and then to see it clear. A problem is over after 2 fine checks in a row. |
-| Who deals with it | **The line, the ISP's network, DNS:** the ISP's. Reported at once. **Wi-Fi:** AIGW's own, through Self-Healing Wi-Fi (channel trials, keeping a device on 2.4 GHz). Reported only if it is still there after `care.wifi_grace` (30 minutes); otherwise it counts as fixed by AIGW. **A device, or an AIGW action on one:** nobody's to report. |
+| Who deals with it | **The line, the ISP's network, DNS:** the ISP's. Reported at once. **Wi-Fi:** AIGW's own, through Self-Healing Wi-Fi (channel trials, keeping a device on 2.4 GHz). Reported only if it is still there after `care.wifi_grace` (30 minutes). If it is over before that, it counts as fixed by AIGW only if AIGW changed something for it: a channel trial took effect, or a device was kept on 2.4 GHz, during the problem or up to 10 minutes before it. Otherwise it was `ClearedByItself` (v0.29.2). On the PC access point, in advise mode with nobody answering the proposals, 9 problems in one day were counted as fixed by AIGW, though AIGW had changed nothing. **A device, or an AIGW action on one:** nobody's to report. |
 | Telling the ISP | `Device.X_AIGW_.ProblemDetected!` (Code, Area, Severity, Summary, Advice, Since), once per problem. It is sent again only if the cause changes, for example when the Wi-Fi problem turns out to be the line. When the problem is over, `ProblemCleared!` (Code, Area, Since, DurationSeconds). Both go over USP and TR-069 like the other events, and to prplOS through aigw-amx. |
 | The score | Per day, for 31 days: checks, checks without a problem, bad checks by area, problems, reported, fixed by AIGW, the time watched (between two checks; a gap while agd was down isn't), and of it the time with a problem open, from the problem's first bad check. `ExperienceScore` = % of the time watched without a problem. It is of the time, not of the checks: checks come every 10 minutes when all is well and every minute while something is wrong, so counting checks would weigh a bad minute like ten good ones (a home fine for 78% of the day scored 34%, until v0.29.1). A single bad check is a blip, not a problem, and doesn't lower it. Days saved before v0.29.1 have no times and keep the score by checks. `MainCause` = the area with the most bad checks. |
 | Restarts | The day counts, an open problem, the learned normal and an open early warning are saved with agd's state. After a restart, an open problem that was already reported isn't reported again. |
@@ -107,7 +108,7 @@ For the ISP, in the data model (version 1.7):
 |---|---|
 | `Device.X_AIGW_.Care.Enable`, `Status` (`OK` / `Problem`), `LastCheck` | |
 | `Device.X_AIGW_.Care.Problem.` | `Code`, `Area`, `Severity`, `Summary`, `Advice`, `Since`, `ReportedToISP` (empty when there is no problem) |
-| `Device.X_AIGW_.Care.Stats.Day.`, `Week.`, `Month.` | `ExperienceScore`, `Checks`, `Problems`, `ReportedToISP`, `FixedByAIGW`, `ProblemSeconds`, `MainCause`; v0.29: `EarlyWarnings`, `ProblemsWarnedOf`, `MeanWarningLeadSeconds`, `SpeedTests`, `SpeedTestsLow`, `MeanSpeedMbps`, `MinSpeedMbps` |
+| `Device.X_AIGW_.Care.Stats.Day.`, `Week.`, `Month.` | `ExperienceScore`, `Checks`, `Problems`, `ReportedToISP`, `FixedByAIGW`, `ProblemSeconds`, `MainCause`; v0.29.1: `WatchedSeconds`; v0.29.2: `ClearedByItself`; v0.29: `EarlyWarnings`, `ProblemsWarnedOf`, `MeanWarningLeadSeconds`, `SpeedTests`, `SpeedTestsLow`, `MeanSpeedMbps`, `MinSpeedMbps` |
 | `Device.X_AIGW_.Care.EarlyWarning.` | `Status` (`None` / `Learning` / `Warning`), `Metric`, `Area`, `Kind`, `Summary`, `Advice`, `Since`, `Normal`, `Current`, `PredictedFaultDays` (-1: not known) |
 | `Device.X_AIGW_.Care.Normal.` | at this hour: `NextHopLatency`, `InternetLatency` (ms), `InternetLoss` (%), `DNSLatency` (ms), `DownloadSpeed` (Mbit/s); `LearnedDays` |
 | `Device.X_AIGW_.Care.Speed.` | `Enable`, `Status` (`None` / `OK` / `Low` / `Error`), `LastTest`, `LastMbps`, `ExpectedMbps` |
@@ -140,7 +141,8 @@ default interval that is about 6 packets a minute.
 
 - `tests/test_care.c` (unit): a blip is no problem; the line and DNS are
   reported at once, once; Wi-Fi is reported only after the grace time, and is
-  counted as fixed by AIGW when it ends before that; a Wi-Fi problem that turns
+  counted as fixed by AIGW when it ends before that after AIGW changed
+  something, else as cleared by itself; a Wi-Fi problem that turns
   out to be the line is reported at once; time while agd was off isn't problem
   time; the score, and the days.
 - `tests/care-test.sh` (CI): with no DNS server, the gateway's own checks find

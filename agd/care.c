@@ -307,7 +307,9 @@ static void done(void *ctx, const struct diag_result *r, const struct diag_input
 	}
 	if (ev & CARE_CLEARED) {
 		AG_INFO("care: %s is over after %lds%s", st.code, st.duration,
-			st.reported ? "" : care_area_index(st.area) == CA_WIFI ? " (fixed by AIGW, not reported)" : "");
+			st.reported || care_area_index(st.area) != CA_WIFI ? "" :
+			st.acted_at && st.acted_at >= st.since - CARE_ACTED_BEFORE ? " (fixed by AIGW, not reported)" :
+			" (cleared by itself: AIGW changed nothing; not reported)");
 		if (st.reported)
 			dm_on_care(&st, 0);
 		tell("cleared");
@@ -654,6 +656,7 @@ void care_blob(struct blob_buf *b)
 		blobmsg_add_u32(b, "problems", s.problems);
 		blobmsg_add_u32(b, "reported", s.reported);
 		blobmsg_add_u32(b, "fixed_by_aigw", s.fixed);
+		blobmsg_add_u32(b, "cleared_by_itself", s.cleared);
 		blobmsg_add_u32(b, "problem_s", s.problem_secs);
 		blobmsg_add_u32(b, "watched_s", s.watched_secs);
 		if ((a = care_main_cause(&s)) >= 0)
@@ -708,12 +711,21 @@ void care_days_blob(struct blob_buf *b, int days)
 		blobmsg_add_u32(b, "speed_low", d->speed_low);
 		blobmsg_add_u32(b, "watched_s", d->watched_secs);
 		blobmsg_add_u32(b, "ok_s", d->ok_secs);
+		blobmsg_add_u32(b, "cleared_by_itself", d->cleared);
 		blobmsg_close_table(b, t);
 	}
 	blobmsg_close_array(b, arr);
 }
 
 /* ---------- saved with agd's state (devices.c) ---------- */
+
+/* AIGW changed something on Wi-Fi (act.c: a channel trial took effect, a device kept on 2.4 GHz) */
+void care_on_acted(const char *what)
+{
+	care_acted(&st, (long)ag_wall_s());
+	if (st.active || st.bad_run)
+		AG_INFO("care: AIGW acted on %s (%s): %s", st.active ? st.code : "what it saw", st.area[0] ? st.area : "WiFi", what);
+}
 
 static void save_open(struct blob_buf *b, const char *name, const struct care_state *s)
 {
@@ -801,6 +813,11 @@ void care_save(struct blob_buf *b)
 
 	save_open(b, "open", &st);
 	save_open(b, "speed_open", &sp);
+	/* v0.29.2: a restart (an upgrade) doesn't lose the time watched, or what AIGW did */
+	if (st.last_check)
+		blobmsg_add_u64(b, "last_check", (uint64_t)st.last_check);
+	if (st.acted_at)
+		blobmsg_add_u64(b, "acted_at", (uint64_t)st.acted_at);
 	if (spd.at) {
 		void *s = blobmsg_open_table(b, "speed");
 
@@ -839,6 +856,8 @@ void care_save(struct blob_buf *b)
 		/* v0.29.1 */
 		blobmsg_add_u32(b, NULL, d->watched_secs);
 		blobmsg_add_u32(b, NULL, d->ok_secs);
+		/* v0.29.2 */
+		blobmsg_add_u32(b, NULL, d->cleared);
 		blobmsg_close_array(b, row);
 	}
 	blobmsg_close_array(b, arr);
@@ -1020,10 +1039,18 @@ void care_load(struct blob_attr *t)
 				}
 			continue;
 		}
+		if (!strcmp(name, "last_check")) {
+			st.last_check = (long)jnum(cur);
+			continue;
+		}
+		if (!strcmp(name, "acted_at")) {
+			st.acted_at = (long)jnum(cur);
+			continue;
+		}
 		if (strcmp(name, "days") || blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
 			continue;
 		blobmsg_for_each_attr(row, cur, r2) {
-			unsigned long long x[3 + CARE_AREAS + 4 + 7 + 2];
+			unsigned long long x[3 + CARE_AREAS + 4 + 7 + 2 + 1];
 			struct care_day *d;
 			int k = 0, a;
 
@@ -1058,6 +1085,8 @@ void care_load(struct blob_attr *t)
 			/* v0.29.1 (0 in older states: that day keeps the score by checks) */
 			d->watched_secs = (unsigned)x[k++];
 			d->ok_secs = (unsigned)x[k++];
+			/* v0.29.2 */
+			d->cleared = (unsigned)x[k++];
 			n++;
 		}
 	}

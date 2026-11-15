@@ -148,6 +148,16 @@ static int roams(const struct hdev *h)
 	return n;
 }
 
+/* hopping between the bands now (band steering leaves it be: moving it adds to it) */
+int heal_hopping(const struct device *d)
+{
+	int i = (int)(d - devs);
+
+	if (i < 0 || i >= DEV_MAX)
+		return 0;
+	return roams(state_of(i)) >= cfg.heal_hops;
+}
+
 /* ---------- probing ---------- */
 
 /* read byte by byte: a uint16_t pointer into the packet breaks C's aliasing

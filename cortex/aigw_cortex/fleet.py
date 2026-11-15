@@ -10,7 +10,8 @@ never names), for the last --days days against the days before:
   experience   each home's score (the time without a problem), the fleet's
                average and median, how many homes are good (95% or more), fair
                (80 to 95) or poor, and the change from the period before
-  problems     found by the gateways, fixed by AIGW itself (no call needed),
+  problems     found by the gateways, fixed by AIGW itself (no call needed;
+               only where it changed something), cleared by themselves,
                reported to the ISP before anyone called; the main causes
   warnings     early warnings, the problems they saw coming and how long before
   speed        the nightly speed tests: the median, the homes below their line's speed
@@ -46,7 +47,7 @@ def _score(c):
 def _sum(rows):
     keys = ("checks", "good", "internet", "dns", "wifi", "device", "aigw", "problems", "reported", "fixed",
             "problem_s", "warnings", "warned", "lead_s", "speed_tests", "speed_kbps_sum", "speed_low",
-            "watched_s", "ok_s")
+            "watched_s", "ok_s", "cleared")
     out = {k: sum(int(r.get(k) or 0) for r in rows) for k in keys}
     mins = [int(r["speed_kbps_min"]) for r in rows if r.get("speed_tests")]
     out["speed_kbps_min"] = min(mins) if mins else 0
@@ -108,6 +109,7 @@ def report(store, days=7, group=None, now=None):
         homes[g] = {"name": names[g], "group": groups[g], "score": _score(c),
                     "score_before": _score(prev[g]), "checks": c["checks"], "watched_h": round(c["watched_s"] / 3600.0, 1),
                     "problems": c["problems"], "reported": c["reported"], "fixed_by_aigw": c["fixed"],
+                    "cleared_by_itself": c["cleared"],
                     "main_cause": max(AREAS, key=lambda a: c[a[0]])[1] if any(c[a[0]] for a in AREAS) else "",
                     "speed_mbps": round(c["speed_kbps_sum"] / 1000.0 / c["speed_tests"], 1) if c["speed_tests"] else None,
                     "speed_low": c["speed_low"]}
@@ -150,6 +152,8 @@ def report(store, days=7, group=None, now=None):
             "poor": sum(1 for s in scored if s < FAIR), "checks": fleet["checks"]},
         "problems": {
             "found": fleet["problems"], "fixed_by_aigw": fleet["fixed"], "reported_to_isp": fleet["reported"],
+            # over though AIGW changed nothing: not counted as its fix (v0.29.2)
+            "cleared_by_itself": fleet["cleared"],
             "hours": round(fleet["problem_s"] / 3600.0, 1),
             "causes": {name: fleet[k] for k, name in AREAS if fleet[k]},
             "codes": dict(Counter(e["code"] for e in problems).most_common()),
@@ -193,7 +197,9 @@ def text(r, now=None):
                f"{e['good']} good, {e['fair']} fair, {e['poor']} poor homes; {e['checks']} check{'' if e['checks'] == 1 else 's'}")
     causes = ", ".join(f"{k} {v}" for k, v in sorted(pr["causes"].items(), key=lambda x: -x[1]))
     out.append(f"  problems     {pr['found']} found by the gateways: {pr['fixed_by_aigw']} fixed by AIGW itself "
-               f"(no call needed), {pr['reported_to_isp']} reported to the ISP before anyone called; "
+               f"(no call needed), " +
+               (f"{pr['cleared_by_itself']} cleared by themselves, " if pr.get("cleared_by_itself") else "") +
+               f"{pr['reported_to_isp']} reported to the ISP before anyone called; "
                f"{pr['hours']} h in all; {pr['open']} open now")
     if causes:
         out.append(f"               bad checks by cause: {causes}")

@@ -42,7 +42,7 @@
 #include "ag/tr143.h"
 #include "agd.h"
 
-#define DM_VERSION "1.8"
+#define DM_VERSION "1.9"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -815,6 +815,7 @@ GET(g_cp_rep) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n
 	CSTAT(g_cs_fixed_##P, days, s.fixed) \
 	CSTAT(g_cs_secs_##P, days, s.problem_secs) \
 	CSTAT(g_cs_watched_##P, days, s.watched_secs) \
+	CSTAT(g_cs_cleared_##P, days, s.cleared) \
 	CSTAT(g_cs_warn_##P, days, s.warnings) \
 	CSTAT(g_cs_warned_##P, days, s.warned) \
 	CSTAT(g_cs_lead_##P, days, s.warned ? s.lead_secs / s.warned : 0) \
@@ -1054,6 +1055,7 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Care.Stats." O ".Problems", T_UINT, 0, TB_NONE, g_cs_probs_##P, NULL }, \
 	{ "Device.X_AIGW_.Care.Stats." O ".ReportedToISP", T_UINT, 0, TB_NONE, g_cs_rep_##P, NULL }, \
 	{ "Device.X_AIGW_.Care.Stats." O ".FixedByAIGW", T_UINT, 0, TB_NONE, g_cs_fixed_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".ClearedByItself", T_UINT, 0, TB_NONE, g_cs_cleared_##P, NULL }, \
 	{ "Device.X_AIGW_.Care.Stats." O ".ProblemSeconds", T_UINT, 0, TB_NONE, g_cs_secs_##P, NULL }, \
 	{ "Device.X_AIGW_.Care.Stats." O ".WatchedSeconds", T_UINT, 0, TB_NONE, g_cs_watched_##P, NULL }, \
 	{ "Device.X_AIGW_.Care.Stats." O ".MainCause", T_STR, 0, TB_NONE, g_cs_cause_##P, NULL }, \

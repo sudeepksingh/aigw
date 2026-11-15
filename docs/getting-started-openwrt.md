@@ -174,7 +174,10 @@ Close devices move to 5 GHz, far ones to 2.4 GHz (`wifi.steer_up`,
 `wifi.steer_down` in `/etc/config/aigw`). Devices without 802.11v are moved
 by refusing them on their band for 30 s; set `wifi.steer_kick 0` to never do
 that. 802.11v needs a hostapd with WNM support (`wpad-basic-*` or a full
-`wpad`); without it only that fallback works.
+`wpad`); without it only that fallback works. A device moved up to 5 GHz
+that is back on 2.4 GHz within 30 minutes (5 GHz doesn't hold where it is)
+isn't moved up again for an hour, doubling each time (a day at most), and a
+device hopping between the bands isn't moved up at all.
 
 ### Channel self-healing
 

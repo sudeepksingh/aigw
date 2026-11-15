@@ -11,6 +11,8 @@
 #   stubborn 2.4 GHz, -40 dBm, dual, 802.11v, ignores requests -> left alone after 3 misses
 #   watch    2.4 GHz, -42 dBm, 802.11v, lists no bands -> asked anyway (it may decline), moves to 5 GHz
 #   visitor  joins, then leaves                     -> "arrived", then "left" (presence)
+#   edge     2.4 GHz, -55 dBm, but -78 on 5 GHz      -> moved up, moved down again: it bounced,
+#                                                      no move up for an hour (no ping-pong)
 #
 # Needs root (private ubusd) and python3.
 #
@@ -52,6 +54,7 @@ st = {
     "02:00:00:00:51:06": ["wlan24", -40, -45, True, True, False, now - 100],  # stubborn
     "02:00:00:00:51:07": ["wlan24", -60, -66, False, False, True, now - 100], # visitor
     "02:00:00:00:51:08": ["wlan24", -42, -48, True, None, True, now - 100],   # watch: no bands listed
+    "02:00:00:00:51:09": ["wlan24", -55, -78, True, True, True, now - 100],   # edge: 5 GHz doesn't hold
 }
 deny = {"wlan24": set(), "wlan5": set()}
 socks = {}
@@ -158,7 +161,8 @@ echo "== devices settle (20 s on an access point before any move), then steering
 sleep 25
 echo "== the visitor leaves"
 echo "02:00:00:00:51:07" > "$T/gone"
-sleep 60    # moves, 15 s checks, the stubborn device's three misses, the visitor's 10 s away
+sleep 80    # moves, 15 s checks, the stubborn device's three misses, the visitor's 10 s away,
+            # the edge device up, down again, and long enough for a second move up if it had no memory
 
 agctl() { "$BIN/agctl/agctl" "$@"; }
 agctl wifi
@@ -190,11 +194,15 @@ for m in ("02:00:00:00:51:04", "02:00:00:00:51:05"):
 if hlog.count("BSS_TM_REQ 02:00:00:00:51:06") != 3: problems.append("stubborn device asked %d times, expected 3" % hlog.count("BSS_TM_REQ 02:00:00:00:51:06"))
 if "leaving it on its band for a day" not in agd: problems.append("stubborn device not left alone")
 if hlog.count("BSS_TM_REQ 02:00:00:00:51:03") != 1: problems.append("far device ping-ponged")
+want("02:00:00:00:51:09", "2.4", "edge device: back on 2.4 GHz, and left there")
+if hlog.count("BSS_TM_REQ 02:00:00:00:51:09") != 2:
+    problems.append("edge device asked %d times, expected 2 (up, down, then no more)" % hlog.count("BSS_TM_REQ 02:00:00:00:51:09"))
+if "5 GHz doesn't hold here; no move up for 1h" not in agd: problems.append("edge device's bounce not noted")
 if "moved as asked" not in watch or "stayed where it was" not in watch: problems.append("steering results missing from events")
 if "left" not in watch: problems.append("no 'left' event for the visitor")
 st = r["steering"]
 print("  steering: %d moves asked, %d done" % (st["moves_asked"], st["moves_done"]))
-if not st["dual_band"] or st["moves_done"] != 4: problems.append("steering summary: %s" % st)
+if not st["dual_band"] or st["moves_done"] != 6: problems.append("steering summary: %s" % st)
 for p in problems: print("  -", p)
 sys.exit(1 if problems else 0)
 EOF

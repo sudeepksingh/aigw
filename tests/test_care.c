@@ -77,12 +77,33 @@ int main(void)
 	ev = care_step(&s, &r, &WIFI_V, t += 60, &p);
 	CHECK((ev & CARE_STARTED) && !(ev & CARE_REPORT) && !s.reported,
 	      "Wi-Fi congestion: a problem, but Self-Healing Wi-Fi's to fix; not reported");
+	care_acted(&s, t + 300);                /* a channel trial took effect */
 	care_step(&s, &r, &WIFI_V, t += 600, &p);
 	care_step(&s, &r, &OK_V, t += 60, &p);
 	ev = care_step(&s, &r, &OK_V, t += 60, &p);
 	care_report_sum(&r, t, 1, &d);
-	CHECK((ev & CARE_CLEARED) && d.fixed == 1 && d.reported == 0,
-	      "over within the grace time: fixed by AIGW, never reported");
+	CHECK((ev & CARE_CLEARED) && d.fixed == 1 && d.cleared == 0 && d.reported == 0,
+	      "AIGW changed the channel, then it was over within the grace time: fixed by AIGW, never reported");
+
+	/* over by itself: AIGW changed nothing (advise mode, nobody answered) */
+	care_step(&s, &r, &WIFI_V, t += 600, &p);
+	care_step(&s, &r, &WIFI_V, t += 60, &p);
+	care_step(&s, &r, &OK_V, t += 60, &p);
+	ev = care_step(&s, &r, &OK_V, t += 60, &p);
+	care_report_sum(&r, t, 1, &d);
+	CHECK((ev & CARE_CLEARED) && d.fixed == 1 && d.cleared == 1,
+	      "over though AIGW changed nothing (its last change was before): cleared by itself, not AIGW's fix");
+
+	/* AIGW acted shortly before the first bad check, on the same trouble (a
+	   radio Poor before care's check saw it): its fix */
+	care_acted(&s, t + 300);
+	care_step(&s, &r, &WIFI_V, t += 600, &p);
+	care_step(&s, &r, &WIFI_V, t += 60, &p);
+	care_step(&s, &r, &OK_V, t += 60, &p);
+	ev = care_step(&s, &r, &OK_V, t += 60, &p);
+	care_report_sum(&r, t, 1, &d);
+	CHECK((ev & CARE_CLEARED) && d.fixed == 2 && d.cleared == 1,
+	      "acted 5 min before the first bad check: fixed by AIGW");
 
 	/* Wi-Fi that lasts: reported after the grace time */
 	memset(&s, 0, sizeof(s));
@@ -96,7 +117,8 @@ int main(void)
 	care_step(&s, &r, &OK_V, t += 60, &p);
 	ev = care_step(&s, &r, &OK_V, t += 60, &p);
 	care_report_sum(&r, t, 1, &d);
-	CHECK((ev & CARE_CLEARED) && d.fixed == 1, "over after being reported: not counted as fixed by AIGW");
+	CHECK((ev & CARE_CLEARED) && d.fixed == 2 && d.cleared == 1,
+	      "over after being reported: neither fixed by AIGW nor cleared by itself");
 
 	/* a Wi-Fi problem that becomes the line's: reported at once */
 	memset(&s, 0, sizeof(s));
