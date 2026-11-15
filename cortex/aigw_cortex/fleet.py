@@ -1,0 +1,222 @@
+# SPDX-License-Identifier: Apache-2.0
+"""The ISP's fleet report: every home's proactive care, together.
+
+    python3 -m aigw_cortex fleet [--days 7] [--group G] [--json]
+
+From what each gateway's bridge reports (agd's care: the day's checks, the
+problems it found, fixed and reported, its early warnings and speed tests;
+never names), for the last --days days against the days before:
+
+  experience   each home's score (checks without a problem), the fleet's
+               average and median, how many homes are good (95% or more), fair
+               (80 to 95) or poor, and the change from the period before
+  problems     found by the gateways, fixed by AIGW itself (no call needed),
+               reported to the ISP before anyone called; the main causes
+  warnings     early warnings, the problems they saw coming and how long before
+  speed        the nightly speed tests: the median, the homes below their line's speed
+  outages      problems on the line or DNS that start in many homes of one group
+               within minutes of each other: the ISP's network, not the homes
+  attention    the homes a help desk should look at first: an open problem, a
+               warning that says a fault is near, a poor score, a gateway gone quiet
+"""
+import statistics
+import time
+from collections import Counter
+
+GOOD, FAIR = 95, 80
+OUTAGE_WINDOW = 900             # s: problems this close together belong to one outage
+OUTAGE_MIN_HOMES = 3
+OUTAGE_SHARE = 0.1              # ... and at least this share of the group's homes
+SILENT_S = 86400
+AREAS = (("internet", "Internet"), ("dns", "DNS"), ("wifi", "WiFi"), ("device", "Device"), ("aigw", "AIGW"))
+
+
+def _score(good, checks):
+    return round(good * 100.0 / checks, 1) if checks else None
+
+
+def _sum(rows):
+    keys = ("checks", "good", "internet", "dns", "wifi", "device", "aigw", "problems", "reported", "fixed",
+            "problem_s", "warnings", "warned", "lead_s", "speed_tests", "speed_kbps_sum", "speed_low")
+    out = {k: sum(int(r.get(k) or 0) for r in rows) for k in keys}
+    mins = [int(r["speed_kbps_min"]) for r in rows if r.get("speed_tests")]
+    out["speed_kbps_min"] = min(mins) if mins else 0
+    return out
+
+
+def outages(events, groups, window=OUTAGE_WINDOW, min_homes=OUTAGE_MIN_HOMES, share=OUTAGE_SHARE):
+    """Problems on the line or DNS that start in many homes of one group within
+    minutes of each other. events: dicts with gateway, code, area, since, until;
+    groups: gateway id -> group. Returns the outages, newest first."""
+    size = Counter(groups.values())
+    by_group = {}
+    for e in events:
+        if e.get("kind", "problem") != "problem" or e.get("area") not in ("Internet", "DNS"):
+            continue
+        by_group.setdefault(groups.get(e["gateway"], ""), []).append(e)
+    found = []
+    for grp, evs in by_group.items():
+        evs.sort(key=lambda e: e["since"])
+        need = max(min_homes, int(size.get(grp, 0) * share + 0.999))
+        cluster = []
+
+        def close(cl):
+            homes = {e["gateway"] for e in cl}
+            if len(homes) >= need:
+                still = {e["gateway"] for e in cl if not e.get("until")}
+                ends = [e["until"] for e in cl if e.get("until")]
+                found.append({"group": grp, "start": cl[0]["since"], "homes": len(homes),
+                              "homes_in_group": size.get(grp, 0), "still_open": len(still),
+                              "end": 0 if still else max(ends), "codes": dict(Counter(e["code"] for e in cl)),
+                              "spread_s": cl[-1]["since"] - cl[0]["since"]})
+
+        for e in evs:
+            if cluster and e["since"] - cluster[-1]["since"] > window:
+                close(cluster)
+                cluster = []
+            cluster.append(e)
+        if cluster:
+            close(cluster)
+    return sorted(found, key=lambda o: -o["start"])
+
+
+def report(store, days=7, group=None, now=None):
+    now = int(now or time.time())
+    today = now // 86400
+    first, prev_first = today - days + 1, today - 2 * days + 1
+    gws = [g for g in store.q("SELECT id, name, grp, last_seen FROM gateways") if group is None or g["grp"] == group]
+    ids = {g["id"] for g in gws}
+    names = {g["id"]: g["name"] for g in gws}
+    groups = {g["id"]: g["grp"] or "" for g in gws}
+    rows = store.care_days(prev_first, today, ids)
+    cur = {g: _sum([r for r in rows if r["gateway"] == g and r["day"] >= first]) for g in ids}
+    prev = {g: _sum([r for r in rows if r["gateway"] == g and r["day"] < first]) for g in ids}
+    fleet = _sum([r for r in rows if r["day"] >= first])
+
+    homes = {}
+    for g in ids:
+        c = cur[g]
+        homes[g] = {"name": names[g], "group": groups[g], "score": _score(c["good"], c["checks"]),
+                    "score_before": _score(prev[g]["good"], prev[g]["checks"]), "checks": c["checks"],
+                    "problems": c["problems"], "reported": c["reported"], "fixed_by_aigw": c["fixed"],
+                    "main_cause": max(AREAS, key=lambda a: c[a[0]])[1] if any(c[a[0]] for a in AREAS) else "",
+                    "speed_mbps": round(c["speed_kbps_sum"] / 1000.0 / c["speed_tests"], 1) if c["speed_tests"] else None,
+                    "speed_low": c["speed_low"]}
+    scored = [h["score"] for h in homes.values() if h["score"] is not None]
+    before = [h["score_before"] for h in homes.values() if h["score_before"] is not None]
+    speeds = [h["speed_mbps"] for h in homes.values() if h["speed_mbps"] is not None]
+
+    events = store.care_events(first * 86400, ids)
+    problems = [e for e in events if e["kind"] == "problem" and e["since"] >= first * 86400]
+    warnings_open = [e for e in events if e["kind"] == "warning" and not e["until"]]
+    problems_open = [e for e in events if e["kind"] == "problem" and not e["until"]]
+
+    attention = []
+    for e in sorted(problems_open, key=lambda e: e["since"]):
+        attention.append({"home": names[e["gateway"]], "group": groups[e["gateway"]], "why": "problem",
+                          "code": e["code"], "area": e["area"], "since": e["since"], "reported": bool(e["reported"]),
+                          "summary": e["summary"]})
+    for e in sorted(warnings_open, key=lambda e: (e["predict"] if e["predict"] >= 0 else 999, e["since"])):
+        attention.append({"home": names[e["gateway"]], "group": groups[e["gateway"]], "why": "early warning",
+                          "code": e["code"], "area": e["area"], "since": e["since"],
+                          "predicted_fault_days": e["predict"] if e["predict"] >= 0 else None, "summary": e["summary"]})
+    for g, h in sorted(homes.items(), key=lambda x: x[1]["score"] if x[1]["score"] is not None else 101):
+        if h["score"] is not None and h["score"] < FAIR:
+            attention.append({"home": h["name"], "group": h["group"], "why": "poor score", "score": h["score"],
+                              "main_cause": h["main_cause"]})
+    for g in gws:
+        if g["last_seen"] and now - g["last_seen"] > SILENT_S:
+            attention.append({"home": g["name"], "group": g["grp"] or "", "why": "silent", "last_seen": g["last_seen"]})
+
+    return {
+        "period": {"days": days, "from": time.strftime("%Y-%m-%d", time.gmtime(first * 86400)),
+                   "to": time.strftime("%Y-%m-%d", time.gmtime(today * 86400)), "group": group},
+        "homes": {"total": len(gws), "reporting": len(scored),
+                  "silent": sum(1 for g in gws if g["last_seen"] and now - g["last_seen"] > SILENT_S)},
+        "experience": {
+            "mean": round(statistics.mean(scored), 1) if scored else None,
+            "median": round(statistics.median(scored), 1) if scored else None,
+            "mean_before": round(statistics.mean(before), 1) if before else None,
+            "good": sum(1 for s in scored if s >= GOOD), "fair": sum(1 for s in scored if FAIR <= s < GOOD),
+            "poor": sum(1 for s in scored if s < FAIR), "checks": fleet["checks"]},
+        "problems": {
+            "found": fleet["problems"], "fixed_by_aigw": fleet["fixed"], "reported_to_isp": fleet["reported"],
+            "hours": round(fleet["problem_s"] / 3600.0, 1),
+            "causes": {name: fleet[k] for k, name in AREAS if fleet[k]},
+            "codes": dict(Counter(e["code"] for e in problems).most_common()),
+            "open": len(problems_open)},
+        "early_warnings": {
+            "warnings": fleet["warnings"], "problems_seen_coming": fleet["warned"],
+            "mean_lead_hours": round(fleet["lead_s"] / 3600.0 / fleet["warned"], 1) if fleet["warned"] else None,
+            "open": len(warnings_open)},
+        "speed": {"homes_tested": len(speeds), "median_mbps": round(statistics.median(speeds), 1) if speeds else None,
+                  "tests": fleet["speed_tests"], "tests_below_line_speed": fleet["speed_low"],
+                  "homes_below_line_speed": sum(1 for h in homes.values() if h["speed_low"])},
+        "outages": outages(events, groups),
+        "attention": attention[:30],
+        "per_home": sorted(homes.values(), key=lambda h: (h["score"] is None, h["score"] or 0)),
+    }
+
+
+def _when(ts):
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(ts)) if ts else "-"
+
+
+def _ago(ts, now):
+    s = max(0, int(now - ts))
+    return f"{s // 60} min" if s < 7200 else f"{s // 3600} h" if s < 172800 else f"{s // 86400} days"
+
+
+def text(r, now=None):
+    """The report in words, for a person."""
+    now = now or time.time()
+    p, h, e, pr, w, sp = r["period"], r["homes"], r["experience"], r["problems"], r["early_warnings"], r["speed"]
+    out = [f"Fleet report, {p['from']} to {p['to']}" + (f", group {p['group']}" if p["group"] else "") +
+           f": {h['reporting']} of {h['total']} homes reporting" + (f", {h['silent']} silent" if h["silent"] else "")]
+    if e["mean"] is None:
+        out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
+        return "\n".join(out)
+    change = ""
+    if e["mean_before"] is not None:
+        d = e["mean"] - e["mean_before"]
+        change = f", {'+' if d >= 0 else ''}{d:.1f} from the {p['days']} days before"
+    out.append(f"  experience   {e['mean']}% on average (median {e['median']}%){change}; "
+               f"{e['good']} good, {e['fair']} fair, {e['poor']} poor homes; {e['checks']} check{'' if e['checks'] == 1 else 's'}")
+    causes = ", ".join(f"{k} {v}" for k, v in sorted(pr["causes"].items(), key=lambda x: -x[1]))
+    out.append(f"  problems     {pr['found']} found by the gateways: {pr['fixed_by_aigw']} fixed by AIGW itself "
+               f"(no call needed), {pr['reported_to_isp']} reported to the ISP before anyone called; "
+               f"{pr['hours']} h in all; {pr['open']} open now")
+    if causes:
+        out.append(f"               bad checks by cause: {causes}")
+    if pr["codes"]:
+        out.append("               codes: " + ", ".join(f"{k} {v}" for k, v in pr["codes"].items()))
+    lead = f", {w['mean_lead_hours']} h ahead on average" if w["mean_lead_hours"] is not None else ""
+    out.append(f"  warnings     {w['warnings']} early warnings; {w['problems_seen_coming']} problems seen coming{lead}; "
+               f"{w['open']} open now")
+    if sp["homes_tested"]:
+        out.append(f"  speed        {sp['homes_tested']} homes tested, median {sp['median_mbps']} Mbit/s; "
+                   f"{sp['homes_below_line_speed']} homes below their line's speed ({sp['tests_below_line_speed']} tests)")
+    for o in r["outages"]:
+        codes = ", ".join(f"{k} {v}" for k, v in o["codes"].items())
+        state = f"{o['still_open']} still affected" if o["still_open"] else f"over at {_when(o['end'])}"
+        out.append(f"  OUTAGE       {o['homes']} of {o['homes_in_group']} homes" +
+                   (f" in {o['group']}" if o["group"] else "") +
+                   f" from {_when(o['start'])} (within {max(1, o['spread_s'] // 60)} min: {codes}): the ISP's "
+                   f"network, not the homes; {state}")
+    if r["attention"]:
+        out.append("  attention")
+    for a in r["attention"]:
+        where = f" ({a['group']})" if a.get("group") else ""
+        if a["why"] == "problem":
+            out.append(f"    {a['home']}{where}: {a['code']} ({a['area']}) for {_ago(a['since'], now)}"
+                       f"{', reported' if a['reported'] else ''}" + (f": {a['summary']}" if a.get("summary") else ""))
+        elif a["why"] == "early warning":
+            when = (f"a fault in about {a['predicted_fault_days']} days" if a.get("predicted_fault_days")
+                    else "worse than its normal")
+            out.append(f"    {a['home']}{where}: early warning, {a['code']}: {when}")
+        elif a["why"] == "poor score":
+            out.append(f"    {a['home']}{where}: experience {a['score']}%" +
+                       (f", mostly {a['main_cause']}" if a["main_cause"] else ""))
+        else:
+            out.append(f"    {a['home']}{where}: not heard from for {_ago(a['last_seen'], now)}")
+    return "\n".join(out)

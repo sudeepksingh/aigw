@@ -119,6 +119,20 @@ config care 'care'
 	# and then to see it clear)
 	# option recheck '60'
 	# option wifi_grace '1800'
+	# early warning: the home's normal is learned (per hour) and a drift is
+	# told to the ISP before it is a fault (EarlyWarning!); none in the
+	# first learn_days
+	# option warn '1'
+	# option learn_days '3'
+	# the nightly speed test: a TR-143 download from the ISP's own server,
+	# at a random minute of speed_hour, for speed_seconds at most
+	# option speed_url 'http://speedtest.example.net/100MB.bin'
+	# option speed_hour '3'
+	# option speed_seconds '8'
+	# the line's speed (what was sold): below speed_min_pct of it on two
+	# tests in a row is a problem, LINE_SLOW_SPEED, reported to the ISP
+	# option speed_mbps '100'
+	# option speed_min_pct '50'
 
 config mgmt 'mgmt'
 	# management by an ISP over USP (TR-369; package aigw-usp) or TR-069

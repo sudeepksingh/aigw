@@ -86,7 +86,9 @@ verdict comes with advice (what to do next). The rules are in
   whoever asked: a help desk sees what the home found.
 
 The gateway also runs Diagnose by itself, and tells the ISP about problems
-before anyone asks: see [proactive-care.md](proactive-care.md).
+before anyone asks: see [proactive-care.md](proactive-care.md). The standard
+TR-143 tests (ping, traceroute, download, upload, DNS lookup), which every ACS
+can run, are there too: see [tr143.md](tr143.md).
 
 Diagnose only reads: it changes nothing, so a management system may run it
 without `mgmt.actions`. One runs at a time; the same question asked meanwhile

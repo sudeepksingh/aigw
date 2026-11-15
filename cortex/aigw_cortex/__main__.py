@@ -2,8 +2,10 @@
 """AIGW cortex command line.
 
     python3 -m aigw_cortex serve [--listen 0.0.0.0] [--port 8790] [--cert c --key k]
-    python3 -m aigw_cortex enroll <gateway-name>      prints the gateway's token, once
+    python3 -m aigw_cortex enroll <gateway-name> [--group G]  prints the gateway's token, once
     python3 -m aigw_cortex gateways | remove <name>
+    python3 -m aigw_cortex group <gateway> <group>    its area (outages are looked for within one)
+    python3 -m aigw_cortex fleet [--days 7] [--group G] [--json]   the ISP's fleet report
     python3 -m aigw_cortex pubkey                     the key gateways trust (agctl trust)
     python3 -m aigw_cortex publish <model.agm> [--notes text]
     python3 -m aigw_cortex retrain [--top N | --benign-file F] [--trees N]
@@ -185,8 +187,17 @@ def main(argv=None):
     p.add_argument("--key")
     p.add_argument("--quiet", action="store_true")
     fed_args(p)
-    sub.add_parser("enroll").add_argument("name")
+    p = sub.add_parser("enroll")
+    p.add_argument("name")
+    p.add_argument("--group", default="", help="its area, e.g. an exchange or a town")
     sub.add_parser("gateways")
+    p = sub.add_parser("group")
+    p.add_argument("gateway")
+    p.add_argument("group")
+    p = sub.add_parser("fleet")
+    p.add_argument("--days", type=int, default=7)
+    p.add_argument("--group")
+    p.add_argument("--json", action="store_true")
     sub.add_parser("remove").add_argument("name")
     sub.add_parser("pubkey")
     p = sub.add_parser("publish")
@@ -236,8 +247,17 @@ def main(argv=None):
                 print(f"published domain-adapter version {r['version']}: {r['note']}")
         else:
             show(fed.status(store, s))
+    elif a.cmd == "fleet":
+        from . import fleet
+        r = fleet.report(store, max(1, a.days), a.group)
+        if a.json:
+            show(r)
+        else:
+            print(fleet.text(r))
+    elif a.cmd == "group":
+        print("set" if store.set_group(a.gateway, a.group) else "no such gateway")
     elif a.cmd == "enroll":
-        gid, token = store.enroll(a.name)
+        gid, token = store.enroll(a.name, a.group)
         print(f"gateway {a.name} ({gid}) enrolled. On the gateway, as root:\n"
               f"  agctl bridge <this cortex's URL>\n"
               f"  agctl bridge token   (then paste the token)\n"

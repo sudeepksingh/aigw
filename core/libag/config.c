@@ -156,6 +156,11 @@ void ag_config_load(struct ag_config *c)
 	c->care_interval = 600;
 	c->care_recheck = 60;
 	c->care_wifi_grace = 1800;
+	c->care_warn = 1;
+	c->care_learn_days = 3;
+	c->care_speed_hour = 3;
+	c->care_speed_seconds = 8;
+	c->care_speed_min_pct = 50;
 	c->steer_up = -60;
 	c->steer_down = -75;
 	c->steer_hold = 30;
@@ -336,6 +341,27 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "care", "wifi_grace");
 		if (v && atoi(v) >= 0 && atoi(v) <= 86400)
 			c->care_wifi_grace = atoi(v);
+		v = opt(ctx, p, "care", "warn");
+		if (v)
+			c->care_warn = atoi(v) != 0;
+		v = opt(ctx, p, "care", "learn_days");
+		if (v && atoi(v) >= 0 && atoi(v) <= 60)
+			c->care_learn_days = atoi(v);
+		v = opt(ctx, p, "care", "speed_url");
+		if (v)
+			copy(c->care_speed_url, sizeof(c->care_speed_url), v);
+		v = opt(ctx, p, "care", "speed_hour");
+		if (v && atoi(v) >= 0 && atoi(v) <= 23)
+			c->care_speed_hour = atoi(v);
+		v = opt(ctx, p, "care", "speed_seconds");
+		if (v && atoi(v) >= 1 && atoi(v) <= 60)
+			c->care_speed_seconds = atoi(v);
+		v = opt(ctx, p, "care", "speed_mbps");
+		if (v && atoi(v) >= 0 && atoi(v) <= 100000)
+			c->care_speed_mbps = atoi(v);
+		v = opt(ctx, p, "care", "speed_min_pct");
+		if (v && atoi(v) >= 1 && atoi(v) <= 100)
+			c->care_speed_min_pct = atoi(v);
 		v = opt(ctx, p, "wifi", "chan_heal");
 		if (v)
 			c->chan_heal = atoi(v) != 0;

@@ -462,8 +462,41 @@ int care_report_of(int days, struct care_day *out);
 void care_blob(struct blob_buf *b);
 void care_save(struct blob_buf *b);
 void care_load(struct blob_attr *t);
-/* dm.c: ProblemDetected! (1) or ProblemCleared! (0), from care_now() */
-void dm_on_care(int detected);
+/* the open problem: a check's, else the nightly speed test's; NULL none */
+const struct care_state *care_open(void);
+/* early warning (ag/care.h): the open one (active 0: none), learning, in words */
+struct care_warning;
+const struct care_warning *care_warning_now(void);
+int care_warning_learning(void);
+void care_warning_words(char *buf, size_t n);
+int care_warning_became(void);          /* the warning that just ended: a problem followed */
+int care_normal_now(int metric, float *v);      /* the normal at this hour; -1 not known */
+int care_learned_days(void);
+const char *care_speed_status(void);    /* None, OK, Low, Error */
+int care_speed_now(void);               /* the speed test now; -1 no care.speed_url */
+void care_days_blob(struct blob_buf *b, int days);      /* the last days' rows (cortex's fleet report) */
+long care_speed_last(double *mbps);     /* when the last speed test ran (wall s), its Mbit/s */
+/* dm.c: ProblemDetected! (1) or ProblemCleared! (0); EarlyWarning! (1) or EarlyWarningCleared! (0) */
+void dm_on_care(const struct care_state *s, int detected);
+void dm_on_warning(int opened);
+
+/* tr143.c: TR-143 diagnostics (ag/tr143.h): one test of each kind at a time, in a child process */
+struct tr143_in;
+struct tr143_out;
+typedef void (*tr143_cb)(void *ctx, int kind, const struct tr143_out *o);
+void tr143_init(void);
+int tr143_start(int kind, const struct tr143_in *in, const char *who, tr143_cb cb, void *ctx, char *err, size_t en);
+int tr143_running(int kind);
+const struct tr143_out *tr143_last(int kind, int64_t *at);     /* *at 0: no result (yet, or stale) */
+/* a command's arguments (from the kind's defaults); -1 with err when one isn't valid */
+int tr143_args(int kind, struct blob_attr *args, struct tr143_in *in, char *err, size_t en);
+void tr143_failed(int kind, int status, const char *msg);
+/* TR-069's writable inputs and DiagnosticsState: check (apply 0), then apply */
+int tr143_set(int kind, const char *name, const char *v, int apply, char *err, size_t en);
+/* an input, DiagnosticsState or a result by its TR-181 name; inst > 0: RouteHops / Result row */
+int tr143_value(int kind, const char *name, uint32_t inst, char *buf, size_t n);
+int tr143_rows(int kind);
+void tr143_out_blob(struct blob_buf *b, int kind, const struct tr143_out *o);
 
 /* manage.c: Wi-Fi settings and firmware, as a management system changes them */
 enum { WS_SSID, WS_KEY, WS_MODE, WS_CHANNEL, WS_WIDTH, WS_N };

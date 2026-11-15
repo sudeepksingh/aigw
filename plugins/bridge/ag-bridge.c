@@ -4,7 +4,8 @@
  *
  *   gateway (agd)                     bridge                    cortex (cloud, PC, NAS)
  *   status, devices, alerts,  ──────► report ── HTTPS POST ───► fleet history, people's
- *   decisions, models                          /v1/report       answers become labels
+ *   decisions, models, care                    /v1/report       answers become labels,
+ *                                                               the ISP's fleet report
  *   signed model update       ◄────── offer ◄─ GET /v1/models ─ retrained, signed models
  *     (agd checks the signature and hot-loads it; the bridge can't install anything itself)
  *   proposal, waits for you   ◄────── propose ◄ GET /v1/proposals  suggestions (e.g. from
@@ -502,6 +503,37 @@ static const char *const model_fields[] = {
 	"refused", NULL
 };
 
+/*
+ * Proactive care, for cortex's fleet report: the score, problems, early
+ * warning and speed, and the last days' rows. No names, except that a Wi-Fi
+ * problem's summary can name a device: it leaves only with devices = names.
+ */
+static void add_care(struct blob_buf *r, struct blob_attr *care)
+{
+	struct blob_attr *cur, *f;
+	size_t rem, r2;
+	void *t, *p;
+	int names = !strcmp(c.devices, "names");
+
+	t = blobmsg_open_table(r, "care");
+	blobmsg_for_each_attr(cur, care, rem) {
+		const char *k = blobmsg_name(cur);
+
+		if (!strcmp(k, "error"))
+			continue;
+		if (!strcmp(k, "problem") && blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !names) {
+			p = blobmsg_open_table(r, k);
+			blobmsg_for_each_attr(f, cur, r2)
+				if (strcmp(blobmsg_name(f), "summary"))
+					copy_attr(r, blobmsg_name(f), f);
+			blobmsg_close_table(r, p);
+			continue;
+		}
+		copy_attr(r, k, cur);
+	}
+	blobmsg_close_table(r, t);
+}
+
 static struct blob_buf models_now;
 
 static void report(void)
@@ -519,6 +551,8 @@ static void report(void)
 		blobmsg_add_field(&models_now, BLOBMSG_TYPE_ARRAY, "models", blobmsg_data(d), blobmsg_data_len(d));
 		add_list(&r, "models", field(models_now.head, "models"), model_fields);
 	}
+	if ((d = query("care")))
+		add_care(&r, d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))

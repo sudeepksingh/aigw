@@ -39,9 +39,10 @@
 #include "ag/care.h"
 #include "ag/diag.h"
 #include "ag/heal.h"
+#include "ag/tr143.h"
 #include "agd.h"
 
-#define DM_VERSION "1.6"
+#define DM_VERSION "1.7"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -144,7 +145,7 @@ static const char *vx_path(const char *s)
 
 /* ---------- tables ---------- */
 
-enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_N };
+enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_HOP, TB_NSRES, TB_N };
 
 static int host_listed(const struct device *d)
 {
@@ -187,6 +188,18 @@ static int list_fw(uint32_t *out, int max)
 	return n;
 }
 
+/* the last TraceRoute's hops and NSLookup's results: 1..n */
+static int list_rows(int kind, uint32_t *out, int max)
+{
+	int i, n = tr143_rows(kind);
+
+	for (i = 0; i < n && i < max; i++)
+		out[i] = (uint32_t)i + 1;
+	return i;
+}
+static int list_hops(uint32_t *out, int max) { return list_rows(TK_TRACE, out, max); }
+static int list_nsres(uint32_t *out, int max) { return list_rows(TK_NSLOOKUP, out, max); }
+
 /*
  * One access point = one radio, one SSID, one AccessPoint, with one instance
  * number (AIGW runs one access point per radio).
@@ -203,12 +216,15 @@ static struct {
 	[TB_AP]       = { "Device.WiFi.AccessPoint.{i}.", list_ssids },
 	[TB_FW]       = { "Device.DeviceInfo.FirmwareImage.{i}.", list_fw },
 	[TB_HEAL]     = { "Device.X_AIGW_.WiFiHealth.{i}.", list_ssids },
+	[TB_HOP]      = { "Device.IP.Diagnostics.TraceRoute.RouteHops.{i}.", list_hops },
+	[TB_NSRES]    = { "Device.DNS.Diagnostics.NSLookupDiagnostics.Result.{i}.", list_nsres },
 };
 
 /* what an instance number stands for, resolved before a getter runs */
 struct ictx {
 	int table;
 	uint32_t inst;
+	const char *ppath;              /* the parameter's own path (pattern), for getters shared by many */
 	struct device *dev;
 	const struct wifi_ap *ap;
 	struct fw_image fw;
@@ -245,6 +261,10 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 		return alerts_field(inst, "kind", tmp, sizeof(tmp));
 	case TB_DECISION:
 		return act_field(inst, "action", tmp, sizeof(tmp));
+	case TB_HOP:
+		return inst >= 1 && inst <= (uint32_t)tr143_rows(TK_TRACE) ? 0 : -1;
+	case TB_NSRES:
+		return inst >= 1 && inst <= (uint32_t)tr143_rows(TK_NSLOOKUP) ? 0 : -1;
 	}
 	return -1;
 }
@@ -774,7 +794,7 @@ GET(g_ld_findings)
 }
 
 /* proactive care (Device.X_AIGW_.Care.): the open problem, and the experience score per period */
-static const struct care_state *cs_open(void) { const struct care_state *s = care_now(); return s->active ? s : NULL; }
+static const struct care_state *cs_open(void) { return care_open(); }
 GET(g_care_en) { (void)c; snprintf(buf, n, "%s", cfg.care ? "true" : "false"); return 0; }
 GET(g_care_status) { (void)c; snprintf(buf, n, "%s", cs_open() ? "Problem" : "OK"); return 0; }
 GET(g_care_last) { (void)c; fmt_time(care_now()->last_check, buf, n); return 0; }
@@ -794,11 +814,92 @@ GET(g_cp_rep) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n
 	CSTAT(g_cs_rep_##P, days, s.reported) \
 	CSTAT(g_cs_fixed_##P, days, s.fixed) \
 	CSTAT(g_cs_secs_##P, days, s.problem_secs) \
+	CSTAT(g_cs_warn_##P, days, s.warnings) \
+	CSTAT(g_cs_warned_##P, days, s.warned) \
+	CSTAT(g_cs_lead_##P, days, s.warned ? s.lead_secs / s.warned : 0) \
+	CSTAT(g_cs_sptests_##P, days, s.speed_tests) \
+	CSTAT(g_cs_splow_##P, days, s.speed_low) \
+	GET(g_cs_spavg_##P) { struct care_day s; (void)c; care_report_of(days, &s); \
+		snprintf(buf, n, "%.1f", s.speed_tests ? s.speed_kbps_sum / 1000.0 / s.speed_tests : 0.0); return 0; } \
+	GET(g_cs_spmin_##P) { struct care_day s; (void)c; care_report_of(days, &s); \
+		snprintf(buf, n, "%.1f", s.speed_tests ? s.speed_kbps_min / 1000.0 : 0.0); return 0; } \
 	GET(g_cs_cause_##P) { struct care_day s; (void)c; care_report_of(days, &s); \
 		snprintf(buf, n, "%s", care_area_name(care_main_cause(&s))); return 0; }
 CSTATS(day, 1)
 CSTATS(week, 7)
 CSTATS(month, 30)
+
+/* early warning (Care.EarlyWarning.), the normal at this hour (Care.Normal.), the nightly speed (Care.Speed.) */
+static const struct care_warning *cw_open(void) { const struct care_warning *w = care_warning_now(); return w->active ? w : NULL; }
+GET(g_cw_status) { (void)c; snprintf(buf, n, "%s", cw_open() ? "Warning" : care_warning_learning() ? "Learning" : "None"); return 0; }
+GET(g_cw_metric) { const struct care_warning *w = cw_open(); (void)c; snprintf(buf, n, "%s", w ? care_metric_name(w->metric) : ""); return 0; }
+GET(g_cw_area) { const struct care_warning *w = cw_open(); (void)c; snprintf(buf, n, "%s", w ? care_area_name(care_metric_area(w->metric)) : ""); return 0; }
+GET(g_cw_kind) { const struct care_warning *w = cw_open(); (void)c; snprintf(buf, n, "%s", !w ? "" : w->kind == CW_TREND ? "Trend" : "Shift"); return 0; }
+GET(g_cw_summary) { (void)c; buf[0] = '\0'; if (cw_open()) care_warning_words(buf, n); return 0; }
+GET(g_cw_advice) { const struct care_warning *w = cw_open(); (void)c; snprintf(buf, n, "%s", w ? care_warning_advice(w->metric) : ""); return 0; }
+GET(g_cw_since) { const struct care_warning *w = cw_open(); (void)c; fmt_time(w ? w->since : 0, buf, n); return 0; }
+GET(g_cw_normal) { const struct care_warning *w = cw_open(); (void)c; snprintf(buf, n, "%.1f", w ? w->normal : 0.0); return 0; }
+GET(g_cw_current) { const struct care_warning *w = cw_open(); (void)c; snprintf(buf, n, "%.1f", w ? w->current : 0.0); return 0; }
+GET(g_cw_pred) { const struct care_warning *w = cw_open(); (void)c; snprintf(buf, n, "%d", w ? w->predict : -1); return 0; }
+#define CNORM(fn, m) GET(fn) { float v = 0; (void)c; care_normal_now(m, &v); snprintf(buf, n, "%.1f", v); return 0; }
+CNORM(g_cn_gw, CM_GW_MS)
+CNORM(g_cn_inet, CM_INET_MS)
+CNORM(g_cn_loss, CM_LOSS)
+CNORM(g_cn_dns, CM_DNS_MS)
+CNORM(g_cn_speed, CM_SPEED)
+GET(g_cn_days) { (void)c; snprintf(buf, n, "%d", care_learned_days()); return 0; }
+GET(g_sp_enable) { (void)c; snprintf(buf, n, "%s", cfg.care && cfg.care_speed_url[0] ? "true" : "false"); return 0; }
+GET(g_sp_status) { (void)c; snprintf(buf, n, "%s", care_speed_status()); return 0; }
+GET(g_sp_last) { (void)c; fmt_time(care_speed_last(NULL), buf, n); return 0; }
+GET(g_sp_mbps) { double v = 0; (void)c; care_speed_last(&v); snprintf(buf, n, "%.1f", v); return 0; }
+GET(g_sp_expect) { (void)c; snprintf(buf, n, "%d", cfg.care_speed_mbps); return 0; }
+
+/* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
+static int tr_kind(const char *path)
+{
+	static const struct { const char *pre; int kind; } k[] = {
+		{ "Device.IP.Diagnostics.IPPing", TK_PING },
+		{ "Device.IP.Diagnostics.TraceRoute", TK_TRACE },
+		{ "Device.IP.Diagnostics.DownloadDiagnostics", TK_DOWNLOAD },
+		{ "Device.IP.Diagnostics.UploadDiagnostics", TK_UPLOAD },
+		{ "Device.DNS.Diagnostics.NSLookupDiagnostics", TK_NSLOOKUP },
+	};
+	unsigned i;
+
+	for (i = 0; i < sizeof(k) / sizeof(k[0]); i++)
+		if (!strncmp(path, k[i].pre, strlen(k[i].pre)) &&
+		    (path[strlen(k[i].pre)] == '.' || path[strlen(k[i].pre)] == '('))
+			return k[i].kind;
+	return -1;
+}
+static const char *last_name(const char *path) { const char *d = strrchr(path, '.'); return d ? d + 1 : path; }
+GET(g_tr143) { return tr143_value(tr_kind(c->ppath), last_name(c->ppath), c->inst, buf, n) < 0 ? -1 : 0; }
+static int s_tr143(const struct ictx *c, const char *v, int apply, char *err, size_t en)
+{
+	return tr143_set(tr_kind(c->ppath), last_name(c->ppath), v, apply, err, en) < 0 ? E_INVALID_VALUE : E_OK;
+}
+/* what this gateway's TR-143 can do */
+GET(g_tr_cap)
+{
+	static const char *const yes[] = { "IPv4PingSupported", "IPv4TraceRouteSupported", "IPv4DownloadDiagnosticsSupported",
+					   "IPv4UploadDiagnosticsSupported", NULL };
+	const char *nm = last_name(c->ppath);
+	int i;
+
+	if (strstr(nm, "Transports"))
+		snprintf(buf, n, "HTTP");
+	else if (strstr(nm, "MaxConnections"))
+		snprintf(buf, n, "1");
+	else if (strstr(nm, "MaxIncrementalResult"))
+		snprintf(buf, n, "0");
+	else {
+		snprintf(buf, n, "false");
+		for (i = 0; yes[i]; i++)
+			if (!strcmp(nm, yes[i]))
+				snprintf(buf, n, "true");
+	}
+	return 0;
+}
 
 /* ---------- the schema ---------- */
 
@@ -953,11 +1054,100 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Care.Stats." O ".ReportedToISP", T_UINT, 0, TB_NONE, g_cs_rep_##P, NULL }, \
 	{ "Device.X_AIGW_.Care.Stats." O ".FixedByAIGW", T_UINT, 0, TB_NONE, g_cs_fixed_##P, NULL }, \
 	{ "Device.X_AIGW_.Care.Stats." O ".ProblemSeconds", T_UINT, 0, TB_NONE, g_cs_secs_##P, NULL }, \
-	{ "Device.X_AIGW_.Care.Stats." O ".MainCause", T_STR, 0, TB_NONE, g_cs_cause_##P, NULL },
+	{ "Device.X_AIGW_.Care.Stats." O ".MainCause", T_STR, 0, TB_NONE, g_cs_cause_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".EarlyWarnings", T_UINT, 0, TB_NONE, g_cs_warn_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".ProblemsWarnedOf", T_UINT, 0, TB_NONE, g_cs_warned_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".MeanWarningLeadSeconds", T_UINT, 0, TB_NONE, g_cs_lead_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".SpeedTests", T_UINT, 0, TB_NONE, g_cs_sptests_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".SpeedTestsLow", T_UINT, 0, TB_NONE, g_cs_splow_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".MeanSpeedMbps", T_DEC, 0, TB_NONE, g_cs_spavg_##P, NULL }, \
+	{ "Device.X_AIGW_.Care.Stats." O ".MinSpeedMbps", T_DEC, 0, TB_NONE, g_cs_spmin_##P, NULL },
 	CROWS("Day", day)
 	CROWS("Week", week)
 	CROWS("Month", month)
 #undef CROWS
+	{ "Device.X_AIGW_.Care.EarlyWarning.Status", T_STR, N, TB_NONE, g_cw_status, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Metric", T_STR, 0, TB_NONE, g_cw_metric, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Area", T_STR, 0, TB_NONE, g_cw_area, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Kind", T_STR, 0, TB_NONE, g_cw_kind, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Summary", T_STR, 0, TB_NONE, g_cw_summary, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Advice", T_STR, 0, TB_NONE, g_cw_advice, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Since", T_TIME, 0, TB_NONE, g_cw_since, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Normal", T_DEC, 0, TB_NONE, g_cw_normal, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.Current", T_DEC, 0, TB_NONE, g_cw_current, NULL },
+	{ "Device.X_AIGW_.Care.EarlyWarning.PredictedFaultDays", T_INT, 0, TB_NONE, g_cw_pred, NULL },
+	{ "Device.X_AIGW_.Care.Normal.LearnedDays", T_UINT, 0, TB_NONE, g_cn_days, NULL },
+	{ "Device.X_AIGW_.Care.Normal.NextHopLatency", T_DEC, 0, TB_NONE, g_cn_gw, NULL },
+	{ "Device.X_AIGW_.Care.Normal.InternetLatency", T_DEC, 0, TB_NONE, g_cn_inet, NULL },
+	{ "Device.X_AIGW_.Care.Normal.InternetLoss", T_DEC, 0, TB_NONE, g_cn_loss, NULL },
+	{ "Device.X_AIGW_.Care.Normal.DNSLatency", T_DEC, 0, TB_NONE, g_cn_dns, NULL },
+	{ "Device.X_AIGW_.Care.Normal.DownloadSpeed", T_DEC, 0, TB_NONE, g_cn_speed, NULL },
+	{ "Device.X_AIGW_.Care.Speed.Enable", T_BOOL, 0, TB_NONE, g_sp_enable, NULL },
+	{ "Device.X_AIGW_.Care.Speed.Status", T_STR, N, TB_NONE, g_sp_status, NULL },
+	{ "Device.X_AIGW_.Care.Speed.LastTest", T_TIME, 0, TB_NONE, g_sp_last, NULL },
+	{ "Device.X_AIGW_.Care.Speed.LastMbps", T_DEC, 0, TB_NONE, g_sp_mbps, NULL },
+	{ "Device.X_AIGW_.Care.Speed.ExpectedMbps", T_UINT, 0, TB_NONE, g_sp_expect, NULL },
+
+	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
+#define TD "Device.IP.Diagnostics."
+#define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
+#define TIN(O, P, T) { O P, T, W, TB_NONE, g_tr143, s_tr143 }
+#define TOUT(O, P, T) { O P, T, 0, TB_NONE, g_tr143, NULL }
+	TCAP("IPv4PingSupported"), TCAP("IPv6PingSupported"), TCAP("IPv4TraceRouteSupported"),
+	TCAP("IPv6TraceRouteSupported"), TCAP("IPv4DownloadDiagnosticsSupported"), TCAP("IPv6DownloadDiagnosticsSupported"),
+	TCAP("IPv4UploadDiagnosticsSupported"), TCAP("IPv6UploadDiagnosticsSupported"),
+	{ TD "DownloadTransports", T_STR, 0, TB_NONE, g_tr_cap, NULL },
+	{ TD "DownloadDiagnosticMaxConnections", T_UINT, 0, TB_NONE, g_tr_cap, NULL },
+	{ TD "DownloadDiagnosticsMaxIncrementalResult", T_UINT, 0, TB_NONE, g_tr_cap, NULL },
+	{ TD "UploadTransports", T_STR, 0, TB_NONE, g_tr_cap, NULL },
+	{ TD "UploadDiagnosticsMaxConnections", T_UINT, 0, TB_NONE, g_tr_cap, NULL },
+	{ TD "UploadDiagnosticsMaxIncrementalResult", T_UINT, 0, TB_NONE, g_tr_cap, NULL },
+#define TP TD "IPPing."
+	TIN(TP, "DiagnosticsState", T_STR), TIN(TP, "Interface", T_STR), TIN(TP, "ProtocolVersion", T_STR),
+	TIN(TP, "Host", T_STR), TIN(TP, "NumberOfRepetitions", T_UINT), TIN(TP, "Timeout", T_UINT),
+	TIN(TP, "DataBlockSize", T_UINT), TIN(TP, "DSCP", T_UINT),
+	TOUT(TP, "IPAddressUsed", T_STR), TOUT(TP, "SuccessCount", T_UINT), TOUT(TP, "FailureCount", T_UINT),
+	TOUT(TP, "AverageResponseTime", T_UINT), TOUT(TP, "MinimumResponseTime", T_UINT),
+	TOUT(TP, "MaximumResponseTime", T_UINT), TOUT(TP, "AverageResponseTimeDetailed", T_UINT),
+	TOUT(TP, "MinimumResponseTimeDetailed", T_UINT), TOUT(TP, "MaximumResponseTimeDetailed", T_UINT),
+#define TT TD "TraceRoute."
+	TIN(TT, "DiagnosticsState", T_STR), TIN(TT, "Interface", T_STR), TIN(TT, "ProtocolVersion", T_STR),
+	TIN(TT, "Host", T_STR), TIN(TT, "NumberOfTries", T_UINT), TIN(TT, "Timeout", T_UINT),
+	TIN(TT, "DataBlockSize", T_UINT), TIN(TT, "DSCP", T_UINT), TIN(TT, "MaxHopCount", T_UINT),
+	TOUT(TT, "IPAddressUsed", T_STR), TOUT(TT, "ResponseTime", T_UINT), TOUT(TT, "RouteHopsNumberOfEntries", T_UINT),
+	{ TT "RouteHops.{i}.Host", T_STR, 0, TB_HOP, g_tr143, NULL },
+	{ TT "RouteHops.{i}.HostAddress", T_STR, 0, TB_HOP, g_tr143, NULL },
+	{ TT "RouteHops.{i}.ErrorCode", T_UINT, 0, TB_HOP, g_tr143, NULL },
+	{ TT "RouteHops.{i}.RTTimes", T_STR, 0, TB_HOP, g_tr143, NULL },
+#define TDL TD "DownloadDiagnostics."
+#define TUL TD "UploadDiagnostics."
+#define THTTP(O) \
+	TIN(O, "DiagnosticsState", T_STR), TIN(O, "Interface", T_STR), TIN(O, "DSCP", T_UINT), \
+	TIN(O, "EthernetPriority", T_UINT), TIN(O, "ProtocolVersion", T_STR), TIN(O, "NumberOfConnections", T_UINT), \
+	TIN(O, "EnablePerConnectionResults", T_BOOL), TIN(O, "TimeBasedTestDuration", T_UINT), \
+	TOUT(O, "IPAddressUsed", T_STR), TOUT(O, "ROMTime", T_TIME), TOUT(O, "BOMTime", T_TIME), \
+	TOUT(O, "EOMTime", T_TIME), TOUT(O, "TotalBytesReceived", T_UINT), TOUT(O, "TotalBytesSent", T_UINT), \
+	TOUT(O, "TotalBytesReceivedUnderFullLoading", T_UINT), TOUT(O, "TotalBytesSentUnderFullLoading", T_UINT), \
+	TOUT(O, "PeriodOfFullLoading", T_UINT), TOUT(O, "TCPOpenRequestTime", T_TIME), \
+	TOUT(O, "TCPOpenResponseTime", T_TIME)
+	THTTP(TDL), TIN(TDL, "DownloadURL", T_STR), TOUT(TDL, "TestBytesReceived", T_UINT),
+	TOUT(TDL, "TestBytesReceivedUnderFullLoading", T_UINT),
+	THTTP(TUL), TIN(TUL, "UploadURL", T_STR), TIN(TUL, "TestFileLength", T_UINT), TOUT(TUL, "TestBytesSent", T_UINT),
+	TOUT(TUL, "TestBytesSentUnderFullLoading", T_UINT),
+#define TNS "Device.DNS.Diagnostics.NSLookupDiagnostics."
+	TIN(TNS, "DiagnosticsState", T_STR), TIN(TNS, "Interface", T_STR), TIN(TNS, "HostName", T_STR),
+	TIN(TNS, "DNSServer", T_STR), TIN(TNS, "Timeout", T_UINT), TIN(TNS, "NumberOfRepetitions", T_UINT),
+	TOUT(TNS, "SuccessCount", T_UINT), TOUT(TNS, "ResultNumberOfEntries", T_UINT),
+	{ TNS "Result.{i}.Status", T_STR, 0, TB_NSRES, g_tr143, NULL },
+	{ TNS "Result.{i}.AnswerType", T_STR, 0, TB_NSRES, g_tr143, NULL },
+	{ TNS "Result.{i}.HostNameReturned", T_STR, 0, TB_NSRES, g_tr143, NULL },
+	{ TNS "Result.{i}.IPAddresses", T_STR, 0, TB_NSRES, g_tr143, NULL },
+	{ TNS "Result.{i}.DNSServerIP", T_STR, 0, TB_NSRES, g_tr143, NULL },
+	{ TNS "Result.{i}.ResponseTime", T_UINT, 0, TB_NSRES, g_tr143, NULL },
+#undef THTTP
+#undef TIN
+#undef TOUT
+#undef TCAP
 };
 #define N_PARAMS ((int)(sizeof(params) / sizeof(params[0])))
 
@@ -1244,6 +1434,42 @@ static int r_diagnose(const struct ictx *c, struct blob_attr *a, struct blob_buf
 	return diag_start(h, diag_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
 }
 
+/* ---------- TR-143 (asynchronous: seconds to minutes) ---------- */
+
+static void tr_done(void *ctx, int kind, const struct tr143_out *o)
+{
+	struct dm_async *a = ctx;
+	struct blob_buf rb = { 0 };
+	void *t;
+
+	blob_buf_init(&rb, 0);
+	t = blobmsg_open_table(&rb, "out");
+	tr143_out_blob(&rb, kind, o);
+	blobmsg_close_table(&rb, t);
+	blobmsg_add_u8(&rb, "ok", 1);           /* the test ran: its Status says how it went */
+	ubus_send_reply(a->ctx, &a->req, rb.head);
+	ubus_complete_deferred_request(a->ctx, &a->req, 0);
+	blob_buf_free(&rb);
+	AG_INFO("dm: %s by %s: %s", a->cmd, a->who, tr143_status_name(o->status));
+	free(a);
+}
+
+static int r_tr143(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
+{
+	int kind = tr_kind(cur_async->cmd);
+	struct tr143_in in;
+
+	(void)c;
+	(void)o;
+	if (tr143_args(kind, a, &in, e, n) < 0) {
+		/* TR-069 reads DiagnosticsState after "8 DIAGNOSTICS COMPLETE": an error, not "Requested" */
+		tr143_failed(kind, strstr(e, "required") && (kind == TK_PING || kind == TK_TRACE) ? TS_CANNOT_RESOLVE :
+				   TS_OTHER, e);
+		return E_INVALID_ARGS;
+	}
+	return tr143_start(kind, &in, req_origin, tr_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
+}
+
 static struct dm_cmd {
 	const char *path;
 	int table;
@@ -1263,6 +1489,28 @@ static struct dm_cmd {
 	{ "Device.X_AIGW_.Diagnose()", TB_NONE, "Host",
 	  "Code,Area,Severity,Summary,Advice,Findings,InternetLossPercent,InternetLatencyMs,NextHopLatencyMs,DNSLatencyMs",
 	  r_diagnose, 0, 1 },
+	{ "Device.IP.Diagnostics.IPPing()", TB_NONE, "Interface,ProtocolVersion,Host,NumberOfRepetitions,Timeout,DataBlockSize,DSCP",
+	  "Status,IPAddressUsed,SuccessCount,FailureCount,AverageResponseTime,MinimumResponseTime,MaximumResponseTime,"
+	  "AverageResponseTimeDetailed,MinimumResponseTimeDetailed,MaximumResponseTimeDetailed", r_tr143, 0, 1 },
+	{ "Device.IP.Diagnostics.TraceRoute()", TB_NONE,
+	  "Interface,ProtocolVersion,Host,NumberOfTries,Timeout,DataBlockSize,DSCP,MaxHopCount",
+	  "Status,IPAddressUsed,ResponseTime,RouteHops.{i}.Host,RouteHops.{i}.HostAddress,RouteHops.{i}.ErrorCode,"
+	  "RouteHops.{i}.RTTimes", r_tr143, 0, 1 },
+	{ "Device.IP.Diagnostics.DownloadDiagnostics()", TB_NONE,
+	  "Interface,DownloadURL,DSCP,EthernetPriority,ProtocolVersion,NumberOfConnections,EnablePerConnectionResults,"
+	  "TimeBasedTestDuration",
+	  "Status,IPAddressUsed,ROMTime,BOMTime,EOMTime,TestBytesReceived,TotalBytesReceived,TotalBytesSent,"
+	  "TestBytesReceivedUnderFullLoading,TotalBytesReceivedUnderFullLoading,TotalBytesSentUnderFullLoading,"
+	  "PeriodOfFullLoading,TCPOpenRequestTime,TCPOpenResponseTime", r_tr143, 0, 1 },
+	{ "Device.IP.Diagnostics.UploadDiagnostics()", TB_NONE,
+	  "Interface,UploadURL,DSCP,EthernetPriority,TestFileLength,ProtocolVersion,NumberOfConnections,"
+	  "EnablePerConnectionResults,TimeBasedTestDuration",
+	  "Status,IPAddressUsed,ROMTime,BOMTime,EOMTime,TestBytesSent,TotalBytesReceived,TotalBytesSent,"
+	  "TestBytesSentUnderFullLoading,TotalBytesReceivedUnderFullLoading,TotalBytesSentUnderFullLoading,"
+	  "PeriodOfFullLoading,TCPOpenRequestTime,TCPOpenResponseTime", r_tr143, 0, 1 },
+	{ "Device.DNS.Diagnostics.NSLookupDiagnostics()", TB_NONE, "Interface,HostName,DNSServer,Timeout,NumberOfRepetitions",
+	  "Status,SuccessCount,Result.{i}.Status,Result.{i}.AnswerType,Result.{i}.HostNameReturned,Result.{i}.IPAddresses,"
+	  "Result.{i}.DNSServerIP,Result.{i}.ResponseTime", r_tr143, 0, 1 },
 };
 #define N_CMDS ((int)(sizeof(cmds) / sizeof(cmds[0])))
 
@@ -1276,6 +1524,8 @@ static struct {
 	{ "Device.X_AIGW_.DiagnosisDone!", "Host,Code,Severity,Summary" },
 	{ "Device.X_AIGW_.ProblemDetected!", "Code,Area,Severity,Summary,Advice,Since" },
 	{ "Device.X_AIGW_.ProblemCleared!", "Code,Area,Since,DurationSeconds" },
+	{ "Device.X_AIGW_.EarlyWarning!", "Metric,Area,Kind,Summary,Advice,Normal,Current,PredictedFaultDays,Since" },
+	{ "Device.X_AIGW_.EarlyWarningCleared!", "Metric,Area,Since,DurationSeconds,BecameProblem" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -1358,7 +1608,7 @@ static int m_schema(struct ubus_context *ctx, struct ubus_object *obj, struct ub
 		    const char *method, struct blob_attr *msg)
 {
 	void *a, *t, *l;
-	char tmp[128], *s, *save;
+	char tmp[1024], *s, *save;
 	int i;
 
 	blob_buf_init(&b, 0);
@@ -1464,6 +1714,7 @@ static void get_one(struct blob_buf *bb, int pi, uint32_t inst, int *found)
 
 	if (resolve(params[pi].table, inst, &c) < 0)
 		return;
+	c.ppath = params[pi].path;
 	val[0] = '\0';
 	if (params[pi].get(&c, val, sizeof(val)) < 0)
 		return;
@@ -1585,8 +1836,10 @@ static int m_set(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_
 				rc = E_READ_ONLY;
 			else if (!v)
 				rc = E_INVALID_VALUE;
-			else
+			else {
+				c.ppath = params[pi].path;
 				rc = params[pi].set(&c, v, pass, err, sizeof(err));
+			}
 			if (rc != E_OK) {
 				err_add(&b, q, rc, err[0] ? err : NULL);
 				bad++;
@@ -1805,9 +2058,8 @@ void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const 
 }
 
 /* care.c: a problem the ISP must hear of (ProblemDetected!), and its end (ProblemCleared!) */
-void dm_on_care(int detected)
+void dm_on_care(const struct care_state *s, int detected)
 {
-	const struct care_state *s = care_now();
 	char since[40], dur[24];
 
 	fmt_time(s->since, since, sizeof(since));
@@ -1821,6 +2073,37 @@ void dm_on_care(int detected)
 		const char *kv[] = { "Code", s->code, "Area", s->area, "Since", since, "DurationSeconds", dur, NULL };
 
 		emit(events[5].path, kv);   /* ProblemCleared! */
+	}
+}
+
+/* care.c: an early warning (EarlyWarning!), and its end (EarlyWarningCleared!) */
+void dm_on_warning(int opened)
+{
+	const struct care_warning *w = care_warning_now();
+	char since[40], dur[24], normal[24], cur[24], pred[16], text[400];
+
+	fmt_time(w->since, since, sizeof(since));
+	if (opened) {
+		snprintf(normal, sizeof(normal), "%.1f", w->normal);
+		snprintf(cur, sizeof(cur), "%.1f", w->current);
+		snprintf(pred, sizeof(pred), "%d", w->predict);
+		care_warning_words(text, sizeof(text));
+		{
+			const char *kv[] = { "Metric", care_metric_name(w->metric),
+					     "Area", care_area_name(care_metric_area(w->metric)),
+					     "Kind", w->kind == CW_TREND ? "Trend" : "Shift", "Summary", text,
+					     "Advice", care_warning_advice(w->metric), "Normal", normal, "Current", cur,
+					     "PredictedFaultDays", pred, "Since", since, NULL };
+
+			emit(events[6].path, kv);   /* EarlyWarning! */
+		}
+	} else {
+		const char *kv[] = { "Metric", care_metric_name(w->metric), "Area", care_area_name(care_metric_area(w->metric)),
+				     "Since", since, "DurationSeconds", dur, "BecameProblem", care_warning_became() ? "true" : "false",
+				     NULL };
+
+		snprintf(dur, sizeof(dur), "%ld", w->duration);
+		emit(events[7].path, kv);   /* EarlyWarningCleared! */
 	}
 }
 

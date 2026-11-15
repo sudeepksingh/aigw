@@ -307,6 +307,13 @@ static struct blob_attr *schema_cmd(const char *path)
 	return NULL;
 }
 
+/* TR-143's commands: TR-069 runs them its own way (DiagnosticsState, then icwmp's
+   bbfdm operate), not through Request. */
+static int tr143_cmd(const char *p)
+{
+	return !strncmp(p, "Device.IP.Diagnostics.", 22) || !strncmp(p, "Device.DNS.Diagnostics.", 23);
+}
+
 /* "Quarantine", "Device.X_AIGW_.Quarantine" or "...Decision.3.Approve()" -> the command path */
 static int resolve_cmd(const char *v, char *path, size_t n)
 {
@@ -322,13 +329,13 @@ static int resolve_cmd(const char *v, char *path, size_t n)
 		return -1;
 	if (strchr(name, '.')) {
 		snprintf(path, n, "%s()", name);
-		return schema_cmd(path) ? 0 : -1;
+		return schema_cmd(path) && !tr143_cmd(path) ? 0 : -1;
 	}
 	if (top(schema, "commands"))
 		blobmsg_for_each_attr(cur, top(schema, "commands"), rem) {
 			const char *p = str(field(cur, "path")), *dot = strrchr(p, '.');
 
-			if (!strstr(p, "{i}") && dot && !strncmp(dot + 1, name, strlen(name)) &&
+			if (!strstr(p, "{i}") && !tr143_cmd(p) && dot && !strncmp(dot + 1, name, strlen(name)) &&
 			    !strcmp(dot + 1 + strlen(name), "()")) {
 				snprintf(path, n, "%s", p);
 				return 0;
@@ -452,6 +459,8 @@ static void lp_init(void)
 	lp_add(REQ("Command"), "string", 1, K_REQ_CMD);
 	if (top(schema, "commands"))
 		blobmsg_for_each_attr(cur, top(schema, "commands"), rem) {
+			if (tr143_cmd(str(field(cur, "path"))))
+				continue;
 			if ((n = field(cur, "in")))
 				blobmsg_for_each_attr(n, field(cur, "in"), r2)
 					lp_add(REQ(str(n)), "string", 1, K_REQ_IN);
@@ -461,6 +470,8 @@ static void lp_init(void)
 	lp_add(REQ("Message"), "string", 0, K_REQ_MSG);
 	if (top(schema, "commands"))
 		blobmsg_for_each_attr(cur, top(schema, "commands"), rem) {
+			if (tr143_cmd(str(field(cur, "path"))))
+				continue;
 			if ((n = field(cur, "out")))
 				blobmsg_for_each_attr(n, field(cur, "out"), r2)
 					lp_add(REQ(str(n)), "string", 0, K_REQ_OUT);
@@ -1201,39 +1212,115 @@ static void op_result(const char *path, int fault, const char *msg)
 	blobmsg_close_array(&rb, a);
 }
 
-/* FirmwareImage.N.Download() / Activate(): agd's answer, or a fault message */
-static int fw_operate(const char *path, struct blob_attr *input, char *err, size_t en)
+/* an operate's input, as agd's string arguments */
+static void op_args(struct blob_buf *b, const char *path, struct blob_attr *input)
 {
-	struct blob_buf b = { 0 };
-	struct blob_attr *r, *cur;
+	struct blob_attr *cur;
 	size_t rem;
 	void *t;
-	int ok;
 
-	blob_buf_init(&b, 0);
-	blobmsg_add_string(&b, "origin", ORIGIN);
-	blobmsg_add_string(&b, "command", path);
-	t = blobmsg_open_table(&b, "args");
+	blobmsg_add_string(b, "origin", ORIGIN);
+	blobmsg_add_string(b, "command", path);
+	t = blobmsg_open_table(b, "args");
 	if (input)
 		blobmsg_for_each_attr(cur, input, rem) {
 			char v[32];
 
 			if (blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
-				blobmsg_add_string(&b, blobmsg_name(cur), blobmsg_get_string(cur));
+				blobmsg_add_string(b, blobmsg_name(cur), blobmsg_get_string(cur));
 			else if (blobmsg_type(cur) == BLOBMSG_TYPE_BOOL) {
-				blobmsg_add_string(&b, blobmsg_name(cur), blobmsg_get_bool(cur) ? "true" : "false");
+				blobmsg_add_string(b, blobmsg_name(cur), blobmsg_get_bool(cur) ? "true" : "false");
 			} else if (blobmsg_type(cur) == BLOBMSG_TYPE_INT32) {
 				snprintf(v, sizeof(v), "%u", blobmsg_get_u32(cur));
-				blobmsg_add_string(&b, blobmsg_name(cur), v);
+				blobmsg_add_string(b, blobmsg_name(cur), v);
 			}
 		}
-	blobmsg_close_table(&b, t);
+	blobmsg_close_table(b, t);
+}
+
+/* FirmwareImage.N.Download() / Activate(): agd's answer, or a fault message */
+static int fw_operate(const char *path, struct blob_attr *input, char *err, size_t en)
+{
+	struct blob_buf b = { 0 };
+	struct blob_attr *r;
+	int ok;
+
+	blob_buf_init(&b, 0);
+	op_args(&b, path, input);
 	r = call_t("ag.dm", "operate", b.head, FW_TIMEOUT);
 	blob_buf_free(&b);
 	ok = r && top(r, "ok") && blobmsg_get_u8(top(r, "ok"));
 	snprintf(err, en, "%s", !r ? "AIGW OS (agd) is not answering" : str(top(r, "message")));
 	free(r);
 	return ok ? 0 : -1;
+}
+
+/*
+ * TR-143 (IPPing(), DownloadDiagnostics(), ...): icwmp runs one when a session
+ * that set DiagnosticsState = Requested ends, and sends "8 DIAGNOSTICS
+ * COMPLETE" when this answers; the ACS then reads the results from the object,
+ * which agd keeps. A test may take minutes: agd is asked without waiting, and
+ * the answer goes back when it comes (icwmp keeps serving the ACS meanwhile).
+ */
+struct diag_op {
+	struct ubus_request_data req;   /* icwmp's, deferred */
+	struct ubus_request ureq;       /* ours, to agd */
+	struct ubus_context *c;
+	char path[PATH_MAX_];
+	int ok;
+	char msg[256];
+};
+
+static void diag_reply(struct ubus_request *r, int type, struct blob_attr *msg)
+{
+	struct diag_op *d = container_of(r, struct diag_op, ureq);
+
+	(void)type;
+	d->ok = msg && top(msg, "ok") && blobmsg_get_u8(top(msg, "ok"));
+	snprintf(d->msg, sizeof(d->msg), "%s", msg ? str(top(msg, "message")) : "");
+}
+
+static void diag_complete(struct ubus_request *r, int ret)
+{
+	struct diag_op *d = container_of(r, struct diag_op, ureq);
+
+	if (ret && !d->msg[0])
+		snprintf(d->msg, sizeof(d->msg), "AIGW OS (agd) did not answer: %s", ubus_strerror(ret));
+	AG_INFO("%s: %s%s%s", d->path, d->ok ? "done" : "failed", d->msg[0] ? " -- " : "", d->msg);
+	blob_buf_init(&rb, 0);
+	op_result(d->path, d->ok ? 0 : F_INTERNAL, d->msg);
+	ubus_send_reply(d->c, &d->req, rb.head);
+	ubus_complete_deferred_request(d->c, &d->req, 0);
+	free(d);
+}
+
+static int diag_operate(struct ubus_context *c, struct ubus_request_data *req, const char *p, struct blob_attr *input)
+{
+	struct blob_buf b = { 0 };
+	struct diag_op *d = calloc(1, sizeof(*d));
+	uint32_t id;
+	int rc;
+
+	if (!d || ubus_lookup_id(c, "ag.dm", &id)) {
+		free(d);
+		return -1;
+	}
+	snprintf(d->path, sizeof(d->path), "%s", p);
+	d->c = c;
+	blob_buf_init(&b, 0);
+	op_args(&b, p, input);
+	rc = ubus_invoke_async(c, id, "operate", b.head, &d->ureq);
+	blob_buf_free(&b);
+	if (rc) {
+		free(d);
+		return -1;
+	}
+	d->ureq.data_cb = diag_reply;
+	d->ureq.complete_cb = diag_complete;
+	ubus_defer_request(c, req, &d->req);
+	ubus_complete_request_async(c, &d->ureq);
+	AG_INFO("%s asked by the ACS", p);
+	return 0;
 }
 
 static int m_operate(struct ubus_context *c, struct ubus_object *obj, struct ubus_request_data *req,
@@ -1247,6 +1334,8 @@ static int m_operate(struct ubus_context *c, struct ubus_object *obj, struct ubu
 	blobmsg_parse(o_policy, __O_MAX, tb, blob_data(msg), blob_len(msg));
 	p = tb[O_PATH] ? blobmsg_get_string(tb[O_PATH]) : "";
 	l = strlen(p);
+	if (tr143_cmd(p) && schema_cmd(p) && diag_operate(c, req, p, tb[O_INPUT]) == 0)
+		return 0;
 	blob_buf_init(&rb, 0);
 	if (!strncmp(p, FW_PREFIX, strlen(FW_PREFIX)) &&
 	    ((l > 11 && !strcmp(p + l - 11, ".Download()")) || (l > 11 && !strcmp(p + l - 11, ".Activate()")))) {

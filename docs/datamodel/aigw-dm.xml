@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.6. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.7. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-6" file="aigw-dm-1-6.xml">
+             spec="urn:aigw-os:aigw-dm-1-7" file="aigw-dm-1-7.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.6">
+  <model name="AIGW-OS:1.7">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DeviceInfo." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Manufacturer" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -23,6 +25,8 @@
     </object>
     <object name="Device.Hosts." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="HostNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.IP." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.WiFi." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="RadioNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
@@ -112,10 +116,166 @@
         <parameter name="Since"><syntax><string/></syntax></parameter>
         <parameter name="DurationSeconds"><syntax><string/></syntax></parameter>
       </event>
+      <event name="EarlyWarning!">
+        <parameter name="Metric"><syntax><string/></syntax></parameter>
+        <parameter name="Area"><syntax><string/></syntax></parameter>
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+        <parameter name="Advice"><syntax><string/></syntax></parameter>
+        <parameter name="Normal"><syntax><string/></syntax></parameter>
+        <parameter name="Current"><syntax><string/></syntax></parameter>
+        <parameter name="PredictedFaultDays"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="EarlyWarningCleared!">
+        <parameter name="Metric"><syntax><string/></syntax></parameter>
+        <parameter name="Area"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+        <parameter name="DurationSeconds"><syntax><string/></syntax></parameter>
+        <parameter name="BecameProblem"><syntax><string/></syntax></parameter>
+      </event>
+    </object>
+    <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
+      <command name="NSLookupDiagnostics()" async="true">
+        <input>
+          <parameter name="Interface"><syntax><string/></syntax></parameter>
+          <parameter name="HostName"><syntax><string/></syntax></parameter>
+          <parameter name="DNSServer"><syntax><string/></syntax></parameter>
+          <parameter name="Timeout"><syntax><string/></syntax></parameter>
+          <parameter name="NumberOfRepetitions"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Status"><syntax><string/></syntax></parameter>
+          <parameter name="SuccessCount"><syntax><string/></syntax></parameter>
+          <parameter name="Result.{i}.Status"><syntax><string/></syntax></parameter>
+          <parameter name="Result.{i}.AnswerType"><syntax><string/></syntax></parameter>
+          <parameter name="Result.{i}.HostNameReturned"><syntax><string/></syntax></parameter>
+          <parameter name="Result.{i}.IPAddresses"><syntax><string/></syntax></parameter>
+          <parameter name="Result.{i}.DNSServerIP"><syntax><string/></syntax></parameter>
+          <parameter name="Result.{i}.ResponseTime"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
     </object>
     <object name="Device.DeviceInfo.FirmwareImage." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.Hosts.Host." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.IP.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="IPv4PingSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="IPv6PingSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="IPv4TraceRouteSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="IPv6TraceRouteSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="IPv4DownloadDiagnosticsSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="IPv6DownloadDiagnosticsSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="IPv4UploadDiagnosticsSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="IPv6UploadDiagnosticsSupported" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="DownloadTransports" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="DownloadDiagnosticMaxConnections" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DownloadDiagnosticsMaxIncrementalResult" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="UploadTransports" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="UploadDiagnosticsMaxConnections" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="UploadDiagnosticsMaxIncrementalResult" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <command name="IPPing()" async="true">
+        <input>
+          <parameter name="Interface"><syntax><string/></syntax></parameter>
+          <parameter name="ProtocolVersion"><syntax><string/></syntax></parameter>
+          <parameter name="Host"><syntax><string/></syntax></parameter>
+          <parameter name="NumberOfRepetitions"><syntax><string/></syntax></parameter>
+          <parameter name="Timeout"><syntax><string/></syntax></parameter>
+          <parameter name="DataBlockSize"><syntax><string/></syntax></parameter>
+          <parameter name="DSCP"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Status"><syntax><string/></syntax></parameter>
+          <parameter name="IPAddressUsed"><syntax><string/></syntax></parameter>
+          <parameter name="SuccessCount"><syntax><string/></syntax></parameter>
+          <parameter name="FailureCount"><syntax><string/></syntax></parameter>
+          <parameter name="AverageResponseTime"><syntax><string/></syntax></parameter>
+          <parameter name="MinimumResponseTime"><syntax><string/></syntax></parameter>
+          <parameter name="MaximumResponseTime"><syntax><string/></syntax></parameter>
+          <parameter name="AverageResponseTimeDetailed"><syntax><string/></syntax></parameter>
+          <parameter name="MinimumResponseTimeDetailed"><syntax><string/></syntax></parameter>
+          <parameter name="MaximumResponseTimeDetailed"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <command name="TraceRoute()" async="true">
+        <input>
+          <parameter name="Interface"><syntax><string/></syntax></parameter>
+          <parameter name="ProtocolVersion"><syntax><string/></syntax></parameter>
+          <parameter name="Host"><syntax><string/></syntax></parameter>
+          <parameter name="NumberOfTries"><syntax><string/></syntax></parameter>
+          <parameter name="Timeout"><syntax><string/></syntax></parameter>
+          <parameter name="DataBlockSize"><syntax><string/></syntax></parameter>
+          <parameter name="DSCP"><syntax><string/></syntax></parameter>
+          <parameter name="MaxHopCount"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Status"><syntax><string/></syntax></parameter>
+          <parameter name="IPAddressUsed"><syntax><string/></syntax></parameter>
+          <parameter name="ResponseTime"><syntax><string/></syntax></parameter>
+          <parameter name="RouteHops.{i}.Host"><syntax><string/></syntax></parameter>
+          <parameter name="RouteHops.{i}.HostAddress"><syntax><string/></syntax></parameter>
+          <parameter name="RouteHops.{i}.ErrorCode"><syntax><string/></syntax></parameter>
+          <parameter name="RouteHops.{i}.RTTimes"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <command name="DownloadDiagnostics()" async="true">
+        <input>
+          <parameter name="Interface"><syntax><string/></syntax></parameter>
+          <parameter name="DownloadURL"><syntax><string/></syntax></parameter>
+          <parameter name="DSCP"><syntax><string/></syntax></parameter>
+          <parameter name="EthernetPriority"><syntax><string/></syntax></parameter>
+          <parameter name="ProtocolVersion"><syntax><string/></syntax></parameter>
+          <parameter name="NumberOfConnections"><syntax><string/></syntax></parameter>
+          <parameter name="EnablePerConnectionResults"><syntax><string/></syntax></parameter>
+          <parameter name="TimeBasedTestDuration"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Status"><syntax><string/></syntax></parameter>
+          <parameter name="IPAddressUsed"><syntax><string/></syntax></parameter>
+          <parameter name="ROMTime"><syntax><string/></syntax></parameter>
+          <parameter name="BOMTime"><syntax><string/></syntax></parameter>
+          <parameter name="EOMTime"><syntax><string/></syntax></parameter>
+          <parameter name="TestBytesReceived"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesReceived"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesSent"><syntax><string/></syntax></parameter>
+          <parameter name="TestBytesReceivedUnderFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesReceivedUnderFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesSentUnderFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="PeriodOfFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="TCPOpenRequestTime"><syntax><string/></syntax></parameter>
+          <parameter name="TCPOpenResponseTime"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <command name="UploadDiagnostics()" async="true">
+        <input>
+          <parameter name="Interface"><syntax><string/></syntax></parameter>
+          <parameter name="UploadURL"><syntax><string/></syntax></parameter>
+          <parameter name="DSCP"><syntax><string/></syntax></parameter>
+          <parameter name="EthernetPriority"><syntax><string/></syntax></parameter>
+          <parameter name="TestFileLength"><syntax><string/></syntax></parameter>
+          <parameter name="ProtocolVersion"><syntax><string/></syntax></parameter>
+          <parameter name="NumberOfConnections"><syntax><string/></syntax></parameter>
+          <parameter name="EnablePerConnectionResults"><syntax><string/></syntax></parameter>
+          <parameter name="TimeBasedTestDuration"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Status"><syntax><string/></syntax></parameter>
+          <parameter name="IPAddressUsed"><syntax><string/></syntax></parameter>
+          <parameter name="ROMTime"><syntax><string/></syntax></parameter>
+          <parameter name="BOMTime"><syntax><string/></syntax></parameter>
+          <parameter name="EOMTime"><syntax><string/></syntax></parameter>
+          <parameter name="TestBytesSent"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesReceived"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesSent"><syntax><string/></syntax></parameter>
+          <parameter name="TestBytesSentUnderFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesReceivedUnderFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="TotalBytesSentUnderFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="PeriodOfFullLoading"><syntax><string/></syntax></parameter>
+          <parameter name="TCPOpenRequestTime"><syntax><string/></syntax></parameter>
+          <parameter name="TCPOpenResponseTime"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
     </object>
     <object name="Device.WiFi.AccessPoint." access="readOnly" minEntries="1" maxEntries="1">
     </object>
@@ -142,6 +302,16 @@
       <parameter name="Findings" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.DNS.Diagnostics.NSLookupDiagnostics." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="DiagnosticsState" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Interface" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="HostName" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="DNSServer" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Timeout" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="NumberOfRepetitions" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SuccessCount" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ResultNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.DeviceInfo.FirmwareImage.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="FirmwareImageNumberOfEntries">
       <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -178,6 +348,88 @@
       <parameter name="X_AIGW_WiFiBand" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="X_AIGW_WiFiSignal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
     </object>
+    <object name="Device.IP.Diagnostics.DownloadDiagnostics." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="DiagnosticsState" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Interface" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="DSCP" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="EthernetPriority" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProtocolVersion" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="NumberOfConnections" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="EnablePerConnectionResults" access="readWrite" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="TimeBasedTestDuration" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="IPAddressUsed" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ROMTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="BOMTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="EOMTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="TotalBytesReceived" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TotalBytesSent" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TotalBytesReceivedUnderFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TotalBytesSentUnderFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="PeriodOfFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TCPOpenRequestTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="TCPOpenResponseTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="DownloadURL" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="TestBytesReceived" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TestBytesReceivedUnderFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.IP.Diagnostics.IPPing." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="DiagnosticsState" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Interface" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ProtocolVersion" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Host" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="NumberOfRepetitions" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Timeout" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DataBlockSize" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DSCP" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="IPAddressUsed" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="SuccessCount" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="FailureCount" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="AverageResponseTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MinimumResponseTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MaximumResponseTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="AverageResponseTimeDetailed" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MinimumResponseTimeDetailed" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MaximumResponseTimeDetailed" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.IP.Diagnostics.TraceRoute." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="DiagnosticsState" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Interface" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ProtocolVersion" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Host" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="NumberOfTries" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Timeout" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DataBlockSize" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DSCP" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MaxHopCount" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="IPAddressUsed" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ResponseTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="RouteHopsNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.IP.Diagnostics.UploadDiagnostics." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="DiagnosticsState" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Interface" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="DSCP" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="EthernetPriority" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProtocolVersion" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="NumberOfConnections" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="EnablePerConnectionResults" access="readWrite" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="TimeBasedTestDuration" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="IPAddressUsed" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ROMTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="BOMTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="EOMTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="TotalBytesReceived" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TotalBytesSent" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TotalBytesReceivedUnderFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TotalBytesSentUnderFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="PeriodOfFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TCPOpenRequestTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="TCPOpenResponseTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="UploadURL" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="TestFileLength" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TestBytesSent" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="TestBytesSentUnderFullLoading" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
     <object name="Device.WiFi.AccessPoint.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="AccessPointNumberOfEntries">
       <parameter name="SSIDReference" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="AssociatedDeviceNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
@@ -213,6 +465,26 @@
       <parameter name="LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="Count" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
+    <object name="Device.X_AIGW_.Care.EarlyWarning." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Metric" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Area" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Kind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Normal" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="Current" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="PredictedFaultDays" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Care.Normal." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="LearnedDays" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="NextHopLatency" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="InternetLatency" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="InternetLoss" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="DNSLatency" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="DownloadSpeed" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+    </object>
     <object name="Device.X_AIGW_.Care.Problem." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Code" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
       <parameter name="Area" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -221,6 +493,13 @@
       <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="ReportedToISP" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Care.Speed." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="LastTest" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="LastMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="ExpectedMbps" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Care.Stats." access="readOnly" minEntries="1" maxEntries="1">
     </object>
@@ -263,6 +542,10 @@
       <parameter name="AffectedHosts" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
     </object>
+    <object name="Device.DNS.Diagnostics.NSLookupDiagnostics.Result." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.IP.Diagnostics.TraceRoute.RouteHops." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
     <object name="Device.WiFi.AccessPoint.{i}.Security." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="ModesSupported" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="ModeEnabled" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -276,6 +559,13 @@
       <parameter name="FixedByAIGW" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="ProblemSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="MainCause" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="EarlyWarnings" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProblemsWarnedOf" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MeanWarningLeadSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SpeedTests" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SpeedTestsLow" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MeanSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="MinSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Care.Stats.Month." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="ExperienceScore" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
@@ -285,6 +575,13 @@
       <parameter name="FixedByAIGW" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="ProblemSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="MainCause" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="EarlyWarnings" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProblemsWarnedOf" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MeanWarningLeadSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SpeedTests" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SpeedTestsLow" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MeanSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="MinSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Care.Stats.Week." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="ExperienceScore" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
@@ -294,8 +591,29 @@
       <parameter name="FixedByAIGW" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="ProblemSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="MainCause" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="EarlyWarnings" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ProblemsWarnedOf" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MeanWarningLeadSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SpeedTests" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SpeedTestsLow" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MeanSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="MinSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}.Stats." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.DNS.Diagnostics.NSLookupDiagnostics.Result.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="ResultNumberOfEntries">
+      <parameter name="Status" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="AnswerType" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="HostNameReturned" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="IPAddresses" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="DNSServerIP" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ResponseTime" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.IP.Diagnostics.TraceRoute.RouteHops.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="RouteHopsNumberOfEntries">
+      <parameter name="Host" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="HostAddress" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ErrorCode" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="RTTimes" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}.Stats.Day." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="GoodSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>

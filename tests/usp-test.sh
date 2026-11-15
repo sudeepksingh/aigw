@@ -286,6 +286,17 @@ uspc get "$FW.2.Version" "$FW.2.Status" | js "sys.exit(0 if d['$FW.2.Version'] =
 	fail "the new image over USP"
 echo "   a wrong checksum refused; downloaded over HTTP, checked, activated, rebooted into 3.1"
 
+echo "== TR-143 over USP: IPPing() and TraceRoute(), asynchronous commands with TR-181's outputs"
+uspc supported Device.IP.Diagnostics. | js "sys.exit(0 if 'Device.IP.Diagnostics.IPPing()' in d['commands'] and 'Device.IP.Diagnostics.TraceRoute()' in d['commands'] else 'got %s' % d)" ||
+	fail "TR-143 commands not listed"
+uspc operate-async "Device.IP.Diagnostics.IPPing()" 30 "Host=127.0.0.1" "NumberOfRepetitions=3" > "$T/ping.json"
+js "o = d['out']; sys.exit(0 if d['ok'] and o['Status'] == 'Complete' and o['SuccessCount'] == '3' and o['IPAddressUsed'] == '127.0.0.1' else 'got %s' % d)" \
+	< "$T/ping.json" || fail "IPPing() over USP: $(cat "$T/ping.json")"
+uspc operate-async "Device.IP.Diagnostics.TraceRoute()" 60 "Host=127.0.0.1" "NumberOfTries=1" > "$T/trace.json"
+js "o = d['out']; sys.exit(0 if d['ok'] and o['Status'] == 'Complete' and o['RouteHops.1.HostAddress'] == '127.0.0.1' else 'got %s' % d)" \
+	< "$T/trace.json" || fail "TraceRoute() over USP: $(cat "$T/trace.json")"
+echo "   IPPing 3 of 3, TraceRoute 1 hop (RouteHops.1.HostAddress)"
+
 echo "== TLS with a client certificate; Device.Reboot() reboots (through agd and the handler)"
 grep -Eq "New client connected .* on port 18832" "$T/mosquitto.log" ||
 	grep -Eq "18832" "$T/mosquitto.log" || fail "the agent should be on the TLS listener: $(tail -n 5 "$T/mosquitto.log")"

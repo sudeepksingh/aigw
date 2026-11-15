@@ -39,6 +39,12 @@ TOOLS = [
     tool("list_decisions", "Actions on a gateway: waiting for approval, active, and past ones, with who asked."),
     tool("list_proposals", "Suggestions sent from here to a gateway, and how each was taken."),
     tool("model_status", "Signed models published here, and which version each gateway runs."),
+    tool("fleet_report",
+         "The ISP's fleet report from every home's proactive care: experience scores (good, fair, poor), problems "
+         "found, fixed by AIGW and reported to the ISP, their causes, early warnings and the problems they saw "
+         "coming, nightly speeds, outages across many homes of one group, and the homes needing attention first.",
+         {"days": {"type": "integer", "description": "The period, in days (default 7)"},
+          "group": {"type": "string", "description": "Only the gateways of this group (area)"}}),
     tool("propose_action",
          "Suggest an action on a gateway. It is never applied directly: it waits on the gateway until a "
          "person approves it. Actions: quarantine, priority, deprioritize, throttle, disconnect (target: a "
@@ -77,8 +83,11 @@ class Server:
     def call(self, name, args):
         s = self.store
         if name == "list_gateways":
-            return [{"name": g["name"], "id": g["id"], "aigw": g["aigw"], "host": g["host"],
+            return [{"name": g["name"], "id": g["id"], "aigw": g["aigw"], "host": g["host"], "group": g["grp"],
                      "last_seen": ago(g["last_seen"])} for g in s.gateways()]
+        if name == "fleet_report":
+            from . import fleet
+            return fleet.report(s, max(1, min(31, int(args.get("days") or 7))), args.get("group") or None)
         if name == "model_status":
             gws = []
             for g in s.gateways():

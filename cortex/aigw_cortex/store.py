@@ -43,7 +43,23 @@ CREATE TABLE IF NOT EXISTS fed_rounds (
 CREATE TABLE IF NOT EXISTS fed_updates (
     round INTEGER, gateway TEXT, delta TEXT, n INTEGER, noise REAL, clip REAL, ts INTEGER,
     PRIMARY KEY (round, gateway));
+CREATE TABLE IF NOT EXISTS care_days (
+    gateway TEXT, day INTEGER, checks INTEGER, good INTEGER, internet INTEGER, dns INTEGER, wifi INTEGER,
+    device INTEGER, aigw INTEGER, problems INTEGER, reported INTEGER, fixed INTEGER, problem_s INTEGER,
+    warnings INTEGER, warned INTEGER, lead_s INTEGER, speed_tests INTEGER, speed_kbps_sum INTEGER,
+    speed_kbps_min INTEGER, speed_low INTEGER, PRIMARY KEY (gateway, day));
+CREATE TABLE IF NOT EXISTS care_events (
+    gateway TEXT, kind TEXT, code TEXT, area TEXT, since INTEGER, until INTEGER DEFAULT 0,
+    reported INTEGER DEFAULT 0, summary TEXT DEFAULT '', predict INTEGER DEFAULT -1,
+    PRIMARY KEY (gateway, kind, code, since));
 """
+
+# a day's row from a gateway (agd's care_days_blob) -> care_days' columns
+CARE_COLUMNS = (("checks", "checks"), ("good", "good"), ("Internet", "internet"), ("DNS", "dns"), ("WiFi", "wifi"),
+                ("Device", "device"), ("AIGW", "aigw"), ("problems", "problems"), ("reported", "reported"),
+                ("fixed_by_aigw", "fixed"), ("problem_s", "problem_s"), ("early_warnings", "warnings"),
+                ("warned_of", "warned"), ("warning_lead_s", "lead_s"), ("speed_tests", "speed_tests"),
+                ("speed_kbps_sum", "speed_kbps_sum"), ("speed_kbps_min", "speed_kbps_min"), ("speed_low", "speed_low"))
 
 # what a person's answer to a decision says about the alert behind it
 APPROVED = 1      # the alert was right
@@ -63,6 +79,11 @@ class Store:
         self.lock = threading.Lock()
         with self.lock:
             self.db.executescript(SCHEMA)
+            # v0.29: a gateway's group (an area, an exchange: outages are looked for within one)
+            cols = {r[1] for r in self.db.execute("PRAGMA table_info(gateways)").fetchall()}
+            if "grp" not in cols:
+                self.db.execute("ALTER TABLE gateways ADD COLUMN grp TEXT DEFAULT ''")
+                self.db.commit()
 
     def q(self, sql, args=()):
         with self.lock:
@@ -74,12 +95,18 @@ class Store:
 
     # ---------- gateways ----------
 
-    def enroll(self, name):
+    def enroll(self, name, group=""):
         token = secrets.token_urlsafe(32)
         gid = secrets.token_hex(6)
-        self.x("INSERT INTO gateways (id, name, token_hash, created) VALUES (?, ?, ?, ?)",
-               (gid, name, token_hash(token), int(time.time())))
+        self.x("INSERT INTO gateways (id, name, token_hash, created, grp) VALUES (?, ?, ?, ?, ?)",
+               (gid, name, token_hash(token), int(time.time()), group or ""))
         return gid, token
+
+    def set_group(self, ref, group):
+        g = self.gateway(ref)
+        if g:
+            self.x("UPDATE gateways SET grp = ? WHERE id = ?", (group or "", g["id"]))
+        return g
 
     def gateway_by_token(self, token):
         r = self.q("SELECT * FROM gateways WHERE token_hash = ?", (token_hash(token),))
@@ -94,7 +121,7 @@ class Store:
         return r[0] if r else None
 
     def gateways(self):
-        return self.q("SELECT id, name, created, last_seen, aigw, host FROM gateways ORDER BY name")
+        return self.q("SELECT id, name, created, last_seen, aigw, host, grp FROM gateways ORDER BY name")
 
     def remove(self, ref):
         g = self.gateway(ref)
@@ -138,7 +165,56 @@ class Store:
             self.x("INSERT OR REPLACE INTO labels VALUES (?, ?, ?, 'decision', ?, ?)",
                    (str(a["subject"]).lower(), str(a.get("kind", "")), label, gw, now))
             learned += 1
+        self.care(gw, rep.get("care"), now)
         return learned
+
+    # ---------- proactive care (the fleet report) ----------
+
+    def care(self, gw, c, now=None):
+        """A gateway's care: its days (replaced as they fill), and its open problem and
+        early warning as events, closed when a report no longer has them."""
+        if not isinstance(c, dict):
+            return
+        now = int(now or time.time())
+        for d in c.get("days") or []:
+            try:
+                vals = [int(d.get(k, 0) or 0) for k, _ in CARE_COLUMNS]
+                self.x("INSERT OR REPLACE INTO care_days VALUES (?, ?" + ", ?" * len(vals) + ")",
+                       [gw, int(d["day"])] + vals)
+            except (KeyError, TypeError, ValueError):
+                continue
+        open_now = set()
+        p = c.get("problem")
+        if isinstance(p, dict) and p.get("code") and p.get("since"):
+            key = ("problem", str(p["code"]), int(p["since"]))
+            open_now.add(key)
+            self.x("INSERT OR IGNORE INTO care_events (gateway, kind, code, area, since) VALUES (?, ?, ?, ?, ?)",
+                   (gw, key[0], key[1], str(p.get("area", "")), key[2]))
+            self.x("UPDATE care_events SET reported = ?, summary = ?, until = 0 WHERE gateway = ? AND kind = ? "
+                   "AND code = ? AND since = ?", (int(bool(p.get("reported"))), str(p.get("summary", ""))[:400],
+                                                gw, *key))
+        w = c.get("early_warning")
+        if isinstance(w, dict) and w.get("status") == "warning" and w.get("metric") and w.get("since"):
+            key = ("warning", str(w["metric"]), int(w["since"]))
+            open_now.add(key)
+            self.x("INSERT OR IGNORE INTO care_events (gateway, kind, code, area, since) VALUES (?, ?, ?, ?, ?)",
+                   (gw, key[0], key[1], str(w.get("area", "")), key[2]))
+            self.x("UPDATE care_events SET summary = ?, predict = ?, until = 0 WHERE gateway = ? AND kind = ? "
+                   "AND code = ? AND since = ?",
+                   (str(w.get("summary", ""))[:400],
+                    int(w.get("predicted_fault_days", 0)) if w.get("predicted") else -1, gw, *key))
+        for r in self.q("SELECT kind, code, since FROM care_events WHERE gateway = ? AND until = 0", (gw,)):
+            if (r["kind"], r["code"], r["since"]) not in open_now:
+                self.x("UPDATE care_events SET until = ? WHERE gateway = ? AND kind = ? AND code = ? AND since = ?",
+                       (now, gw, r["kind"], r["code"], r["since"]))
+
+    def care_days(self, first_day, last_day, gws=None):
+        rows = self.q("SELECT * FROM care_days WHERE day >= ? AND day <= ?", (first_day, last_day))
+        return [r for r in rows if gws is None or r["gateway"] in gws]
+
+    def care_events(self, since, gws=None):
+        rows = self.q("SELECT * FROM care_events WHERE until = 0 OR until >= ? ORDER BY since", (since,))
+        return [r for r in rows if gws is None or r["gateway"] in gws]
 
     def snapshot(self, gw):
         g = self.gateway(gw)
