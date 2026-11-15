@@ -76,7 +76,7 @@ illustrated version.
 > reported to the ISP at once (`Device.X_AIGW_.ProblemDetected!`, then
 > `ProblemCleared!`). A Wi-Fi problem is Self-Healing Wi-Fi's to fix, and is
 > reported only if it lasts 30 minutes. Each home keeps a daily experience
-> score (the share of checks with nothing wrong) with the main cause, and
+> score (the share of the time with nothing wrong) with the main cause, and
 > counts what was fixed by AIGW and what was reported: `agctl care`, and
 > `Device.X_AIGW_.Care.` for the ISP. See
 > [docs/proactive-care.md](docs/proactive-care.md).

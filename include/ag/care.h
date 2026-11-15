@@ -49,6 +49,7 @@ struct care_state {
 	long since;             /* the problem's first bad check (wall s) */
 	long last_check;        /* wall s; 0 none yet */
 	long duration;          /* set on CARE_CLEARED: since -> the check that ended it */
+	long pending;           /* s since the first bad check of a run not yet a problem */
 };
 
 struct care_day {
@@ -65,6 +66,9 @@ struct care_day {
 	unsigned speed_tests;   /* nightly speed tests that ran */
 	unsigned speed_kbps_sum, speed_kbps_min;
 	unsigned speed_low;     /* ... below what the line must reach */
+	/* v0.29.1: the time watched (between two checks, gaps while agd was down
+	   left out), and of that the time without a problem: the score */
+	unsigned watched_secs, ok_secs;
 };
 
 struct care_report {
@@ -89,7 +93,11 @@ int care_isp_owned(const char *area);
 
 struct care_day *care_report_day(struct care_report *r, long wall_s);
 void care_report_sum(const struct care_report *r, long wall_s, int days, struct care_day *out);
-/* % of checks without a problem; -1 no checks */
+/* the experience score: % of the time watched without a problem (checks are
+   every care.interval when all is well, every care.recheck while something is
+   wrong, so counting checks would weigh a bad minute like ten good ones); for
+   days saved before v0.29.1, which have no times: % of checks without one.
+   -1 nothing watched */
 int care_score(const struct care_day *d);
 /* the area with most bad checks; -1 none */
 int care_main_cause(const struct care_day *d);

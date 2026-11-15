@@ -59,8 +59,9 @@ int main(void)
 	      "two fine checks: over, after %ld s", s.duration);
 	care_report_sum(&r, t, 1, &d);
 	CHECK(d.problems == 1 && d.reported == 1 && d.fixed == 0 && d.bad[CA_INTERNET] == 4 &&
-	      care_main_cause(&d) == CA_INTERNET && d.problem_secs == 180,
-	      "today: 1 problem, reported, mostly Internet, 180 s with the problem open (got %u s)", d.problem_secs);
+	      care_main_cause(&d) == CA_INTERNET && d.problem_secs == 240 && d.problem_secs == s.duration,
+	      "today: 1 problem, reported, mostly Internet, 240 s with the problem open, from its first bad check, "
+	      "as long as it lasted (got %u s)", d.problem_secs);
 
 	/* DNS is the ISP's too */
 	memset(&s, 0, sizeof(s));
@@ -113,9 +114,10 @@ int main(void)
 	care_step(&s, &r, &ISP_V, t += 60, &p);
 	care_step(&s, &r, &ISP_V, t += 7200, &p);
 	care_report_sum(&r, t, 1, &d);
-	CHECK(d.problem_secs == 0, "2 hours without checks: not counted as problem time (got %u)", d.problem_secs);
+	CHECK(d.problem_secs == 60 && d.watched_secs == 60,
+	      "2 hours without checks: neither watched nor problem time (got %u s of problem)", d.problem_secs);
 
-	/* the score */
+	/* the score: of the time, not of the checks */
 	memset(&s, 0, sizeof(s));
 	memset(&r, 0, sizeof(r));
 	t = DAY0;
@@ -125,9 +127,40 @@ int main(void)
 		for (i = 0; i < 9; i++)
 			care_step(&s, &r, &OK_V, t += 600, &p);
 		care_step(&s, &r, &WIFI_V, t += 600, &p);
+		care_step(&s, &r, &OK_V, t += 60, &p);
 	}
 	care_report_sum(&r, t, 1, &d);
-	CHECK(care_score(&d) == 90 && d.checks == 10, "9 of 10 checks fine: score 90%% (got %d)", care_score(&d));
+	CHECK(care_score(&d) == 100 && d.checks == 11 && d.good == 10,
+	      "one bad check among fine ones is a blip, not a problem: score 100%% (got %d)", care_score(&d));
+
+	/* a day like a real one: fine checks every 10 min, then a 20-minute Wi-Fi
+	   problem rechecked every minute; counting checks said 71%% */
+	memset(&s, 0, sizeof(s));
+	memset(&r, 0, sizeof(r));
+	t = DAY0;
+	{
+		int i;
+
+		for (i = 0; i < 36; i++)
+			care_step(&s, &r, &OK_V, t += 600, &p);         /* 6 h fine */
+		for (i = 0; i < 20; i++)
+			care_step(&s, &r, &WIFI_V, t += i ? 60 : 600, &p);
+		care_step(&s, &r, &OK_V, t += 60, &p);
+		care_step(&s, &r, &OK_V, t += 60, &p);
+		for (i = 0; i < 12; i++)
+			care_step(&s, &r, &OK_V, t += 600, &p);         /* 2 h fine */
+	}
+	care_report_sum(&r, t, 1, &d);
+	CHECK(d.checks == 70 && d.good == 50 && d.problems == 1, "70 checks, 20 of them bad, 1 problem");
+	CHECK(d.watched_secs == 30060 && d.problem_secs == 1260 && d.ok_secs == 28800,
+	      "8 h 21 m watched, 21 min of it with the problem (got %u s, %u s)", d.watched_secs, d.problem_secs);
+	CHECK(care_score(&d) == 95, "the score is of the time: 95%% (got %d)", care_score(&d));
+
+	/* days saved before v0.29.1 have no times: the score by checks */
+	memset(&d, 0, sizeof(d));
+	d.checks = 10;
+	d.good = 9;
+	CHECK(care_score(&d) == 90, "an old day: 9 of 10 checks fine, 90%% (got %d)", care_score(&d));
 	memset(&d, 0, sizeof(d));
 	CHECK(care_score(&d) == -1 && care_main_cause(&d) == -1, "no checks: no score, no cause");
 

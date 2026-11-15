@@ -272,6 +272,30 @@ class Fleet(unittest.TestCase):
             out = Server(s).call("fleet_report", {"days": 7, "group": "north"})
             self.assertEqual(out["homes"]["total"], 10)
 
+    def test_score_of_time(self):
+        """v0.29.1: the score is of the time watched, not of the checks (bad
+        minutes are rechecked every minute, fine ones every ten)."""
+        from aigw_cortex import fleet
+        now = 20000 * 86400 + 12 * 3600
+        today = now // 86400
+        with tempfile.TemporaryDirectory() as d:
+            # a database from v0.29.0: care_days without the times
+            s = Store(d)
+            s.db.executescript("DROP TABLE care_days; CREATE TABLE care_days (gateway TEXT, day INTEGER, "
+                               "checks INTEGER, good INTEGER, internet INTEGER, dns INTEGER, wifi INTEGER, "
+                               "device INTEGER, aigw INTEGER, problems INTEGER, reported INTEGER, fixed INTEGER, "
+                               "problem_s INTEGER, warnings INTEGER, warned INTEGER, lead_s INTEGER, "
+                               "speed_tests INTEGER, speed_kbps_sum INTEGER, speed_kbps_min INTEGER, "
+                               "speed_low INTEGER, PRIMARY KEY (gateway, day));")
+            s = Store(d)
+            gid, _ = s.enroll("home")
+            # the PC access point's day: 147 checks, 97 of them bad, 7 h 30 m watched, 1 h 39 m of problems
+            s.care(gid, {"days": [care_day(today, 147, 50, WiFi=97, problems=7, problem_s=5951,
+                                           watched_s=27000, ok_s=27000 - 5951)]}, now)
+            h = fleet.report(s, 1, now=now)["per_home"][0]
+            self.assertEqual(h["score"], 78.0)
+            self.assertEqual(h["watched_h"], 7.5)
+
     def test_old_reports(self):
         from aigw_cortex import fleet
         with tempfile.TemporaryDirectory() as d:

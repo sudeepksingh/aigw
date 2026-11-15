@@ -8,7 +8,7 @@
  *     (ProblemCleared!)
  *   - a Wi-Fi problem: Self-Healing Wi-Fi's to fix; reported only if it
  *     lasts care.wifi_grace
- * and keeps a daily experience score: the share of checks without a problem,
+ * and keeps a daily experience score: the share of the time without a problem,
  * with the main cause on bad days (agctl care, Device.X_AIGW_.Care.).
  *
  * Early warning (core/libag/care_learn.c): every check's delays, loss and DNS
@@ -655,6 +655,7 @@ void care_blob(struct blob_buf *b)
 		blobmsg_add_u32(b, "reported", s.reported);
 		blobmsg_add_u32(b, "fixed_by_aigw", s.fixed);
 		blobmsg_add_u32(b, "problem_s", s.problem_secs);
+		blobmsg_add_u32(b, "watched_s", s.watched_secs);
 		if ((a = care_main_cause(&s)) >= 0)
 			blobmsg_add_string(b, "main_cause", care_area_name(a));
 		for (a = 0; a < CARE_AREAS; a++)
@@ -705,6 +706,8 @@ void care_days_blob(struct blob_buf *b, int days)
 		blobmsg_add_u32(b, "speed_kbps_sum", d->speed_kbps_sum);
 		blobmsg_add_u32(b, "speed_kbps_min", d->speed_kbps_min);
 		blobmsg_add_u32(b, "speed_low", d->speed_low);
+		blobmsg_add_u32(b, "watched_s", d->watched_secs);
+		blobmsg_add_u32(b, "ok_s", d->ok_secs);
 		blobmsg_close_table(b, t);
 	}
 	blobmsg_close_array(b, arr);
@@ -833,6 +836,9 @@ void care_save(struct blob_buf *b)
 		blobmsg_add_u32(b, NULL, d->speed_kbps_sum);
 		blobmsg_add_u32(b, NULL, d->speed_kbps_min);
 		blobmsg_add_u32(b, NULL, d->speed_low);
+		/* v0.29.1 */
+		blobmsg_add_u32(b, NULL, d->watched_secs);
+		blobmsg_add_u32(b, NULL, d->ok_secs);
 		blobmsg_close_array(b, row);
 	}
 	blobmsg_close_array(b, arr);
@@ -1017,7 +1023,7 @@ void care_load(struct blob_attr *t)
 		if (strcmp(name, "days") || blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
 			continue;
 		blobmsg_for_each_attr(row, cur, r2) {
-			unsigned long long x[3 + CARE_AREAS + 4 + 7];
+			unsigned long long x[3 + CARE_AREAS + 4 + 7 + 2];
 			struct care_day *d;
 			int k = 0, a;
 
@@ -1049,6 +1055,9 @@ void care_load(struct blob_attr *t)
 			d->speed_kbps_sum = (unsigned)x[k++];
 			d->speed_kbps_min = (unsigned)x[k++];
 			d->speed_low = (unsigned)x[k++];
+			/* v0.29.1 (0 in older states: that day keeps the score by checks) */
+			d->watched_secs = (unsigned)x[k++];
+			d->ok_secs = (unsigned)x[k++];
 			n++;
 		}
 	}

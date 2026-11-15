@@ -446,8 +446,11 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 			printf("no checks yet\n");
 			continue;
 		}
-		printf("experience score %llu%% (%llu check%s)", (unsigned long long)fnum(s, "score"),
-		       (unsigned long long)fnum(s, "checks"), fnum(s, "checks") == 1 ? "" : "s");
+		printf("experience score %llu%% (", (unsigned long long)fnum(s, "score"));
+		/* the share of the time watched without a problem (older days: of the checks) */
+		if (fnum(s, "watched_s"))
+			printf("%s watched, ", dur_short(fnum(s, "watched_s"), t1, sizeof(t1)));
+		printf("%llu check%s)", (unsigned long long)fnum(s, "checks"), fnum(s, "checks") == 1 ? "" : "s");
 		if (fnum(s, "problems") || fstr(s, "main_cause")[0]) {
 			printf("; %llu problem%s", (unsigned long long)fnum(s, "problems"), fnum(s, "problems") == 1 ? "" : "s");
 			if (fstr(s, "main_cause")[0])
