@@ -45,6 +45,9 @@ static void usage(void)
 		"                      warnings, the experience score and the nightly speed (--speed: test now)\n"
 		"  upgrade [--forget]  the last firmware upgrade: the home before and after it, kept or rolled\n"
 		"                      back, and why (--forget: a version rolled back may be installed again)\n"
+		"  why [device] [--at 20:00 | --from 19:30 --to 21:00 | --last 2h] [--raw]\n"
+		"                      \"why was it slow?\" afterwards: the home's timeline (the last hour by\n"
+		"                      default) explained, with what happened in order\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
 		"  test trace <host>                 echo requests, the route,\n"
 		"  test download <url> [seconds]     an HTTP download (seconds: time based),\n"
@@ -1864,6 +1867,97 @@ static void show_upgrade(struct ubus_request *req, int type, struct blob_attr *m
 		printf("  confirmed %s\n", fstr(msg, "confirmed"));
 }
 
+/* "20:00" -> the last time it was 20:00 (today, else yesterday); "yesterday 20:00"; seconds since 1970.
+   -1 when unreadable */
+static long parse_clock(const char *s)
+{
+	time_t now = time(NULL), t;
+	struct tm tm;
+	int h, m, back = 0;
+	char *end;
+	long v;
+
+	v = strtol(s, &end, 10);
+	if (!*end && v > 1000000000L)
+		return v;
+	if (!strncmp(s, "yesterday ", 10))
+		s += 10, back = 1;
+	if (sscanf(s, "%d:%d", &h, &m) != 2 || h < 0 || h > 23 || m < 0 || m > 59)
+		return -1;
+	localtime_r(&now, &tm);
+	tm.tm_hour = h;
+	tm.tm_min = m;
+	tm.tm_sec = 0;
+	tm.tm_isdst = -1;
+	t = mktime(&tm);
+	if (t > now || back)                    /* later today: yesterday's; "yesterday": the day before today */
+		t -= 86400;
+	return (long)t;
+}
+
+static void clock_of(unsigned long long t, char *buf, size_t n)
+{
+	time_t tt = (time_t)t, now = time(NULL);
+	struct tm a, b;
+
+	localtime_r(&tt, &a);
+	localtime_r(&now, &b);
+	strftime(buf, n, a.tm_yday == b.tm_yday && a.tm_year == b.tm_year ? "%H:%M" : "%a %H:%M", &a);
+}
+
+static int why_failed;
+
+/* agctl why [device] [--at HH:MM | --from HH:MM --to HH:MM | --last 2h] [--raw]: a stretch of the
+   home's timeline explained */
+static void show_why(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *f, *nm = field(msg, "normal");
+	char a[32], b[32], c[32];
+	size_t rem;
+	int k = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (*fstr(msg, "error")) {
+		printf("%s\n", fstr(msg, "error"));
+		why_failed = 1;
+		return;
+	}
+	clock_of(fnum(msg, "from"), a, sizeof(a));
+	clock_of(fnum(msg, "to"), b, sizeof(b));
+	printf("%s to %s%s%s: %s\n", a, b, *fstr(msg, "host") ? ", " : "", fstr(msg, "host"), fstr(msg, "summary"));
+	printf("  code      %s (%s, %s)\n", fstr(msg, "code"), fstr(msg, "area"), fstr(msg, "severity"));
+	if (*fstr(msg, "advice"))
+		printf("  advice    %s\n", fstr(msg, "advice"));
+	clock_of(fnum(msg, "recorded_since"), c, sizeof(c));
+	printf("  recorded  %llu of %llu samples (one every %llu s; the timeline goes back to %s)\n",
+	       (unsigned long long)fnum(msg, "recorded"), (unsigned long long)fnum(msg, "expected"),
+	       (unsigned long long)fnum(msg, "interval"), fnum(msg, "recorded_since") ? c : "-");
+	if (nm && (field(nm, "internet_ms") || field(nm, "line_mbps"))) {
+		printf("  normal   ");
+		if (field(nm, "internet_ms"))
+			printf(" internet %llu ms%s", (unsigned long long)fnum(nm, "internet_ms"), field(nm, "next_hop_ms") ? "," : "");
+		if (field(nm, "next_hop_ms"))
+			printf(" next router %llu ms", (unsigned long long)fnum(nm, "next_hop_ms"));
+		if (field(nm, "dns_ms"))
+			printf(", DNS %llu ms", (unsigned long long)fnum(nm, "dns_ms"));
+		if (field(nm, "line_mbps"))
+			printf("%sthe line %llu Mbit/s", field(nm, "internet_ms") ? "; " : " ",
+			       (unsigned long long)fnum(nm, "line_mbps"));
+		printf("\n");
+	}
+	blobmsg_for_each_attr(f, field(msg, "story"), rem) {
+		if (!k++)
+			printf("  what happened\n");
+		printf("    %-9s %s\n", fstr(f, "clock"), fstr(f, "text"));
+	}
+	printf("  findings\n");
+	blobmsg_for_each_attr(f, field(msg, "findings"), rem)
+		printf("    %-8s %-16s %s\n", fstr(f, "severity"), fstr(f, "code"), fstr(f, "text"));
+}
+
 /* ---------- calls ---------- */
 
 static int call(const char *path, const char *method, struct blob_attr *args, ubus_data_handler_t cb)
@@ -2110,6 +2204,58 @@ int main(int argc, char **argv)
 			blobmsg_add_u8(&args, "forget", 1);
 		rc = call("ag", "upgrade", args.head, show_upgrade);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "why")) {
+		long from = 0, to = 0, at = 0, last = 0, now = (long)time(NULL);
+		const char *host = NULL;
+		int raw = 0;
+
+		for (; i < argc; i++) {
+			const char *o = argv[i], *v = i + 1 < argc ? argv[i + 1] : NULL;
+
+			if (!strcmp(o, "--raw")) {
+				raw = 1;
+				continue;
+			}
+			if (!strcmp(o, "--at") || !strcmp(o, "--from") || !strcmp(o, "--to") || !strcmp(o, "--last")) {
+				long t = !v ? -1 : !strcmp(o, "--last") ? parse_time(v) : parse_clock(v);
+
+				if (t < 0) {
+					fprintf(stderr, "agctl why: %s %s: a time (20:00, \"yesterday 20:00\") or, for --last, "
+						"a length (30m, 2h)\n", o, v ? v : "");
+					return 1;
+				}
+				*(!strcmp(o, "--at") ? &at : !strcmp(o, "--from") ? &from : !strcmp(o, "--to") ? &to : &last) = t;
+				i++;
+				continue;
+			}
+			if (o[0] == '-' || host) {
+				usage();
+				return 1;
+			}
+			host = o;
+		}
+		if (at) {                       /* half an hour either side */
+			from = at - 1800;
+			to = at + 1800 > now ? now : at + 1800;
+		} else if (last) {
+			to = now;
+			from = now - last;
+		} else {
+			if (!to)
+				to = from && from + 3600 < now ? from + 3600 : now;
+			if (!from)
+				from = to - 3600;
+		}
+		blob_buf_init(&args, 0);
+		blobmsg_add_u64(&args, "from", (uint64_t)from);
+		blobmsg_add_u64(&args, "to", (uint64_t)to);
+		if (host)
+			blobmsg_add_string(&args, "host", host);
+		if (raw)
+			blobmsg_add_u8(&args, "raw", 1);
+		rc = call("ag", "why", args.head, show_why);
+		blob_buf_free(&args);
+		rc = rc || why_failed;
 	} else if (!strcmp(cmd, "test") && i + 1 < argc) {
 		static const struct { const char *what, *cmd, *arg, *extra; } T[] = {
 			{ "ping", "Device.IP.Diagnostics.IPPing()", "Host", "NumberOfRepetitions" },
