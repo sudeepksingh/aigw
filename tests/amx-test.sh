@@ -107,7 +107,7 @@ done
 ub -v list X_AIGW_ | grep -q '"Quarantine"' || fail "the commands should be methods"
 ub -v list X_AIGW_.Decision | grep -q '"Approve"' || fail "the decisions' commands"
 ub -v list X_AIGW_ | grep -q '"Diagnose"' || fail "Diagnose() should be a method"
-grep -q "X_AIGW_ with [0-9]* parameters, 7 commands, [0-9]* events" "$T/amxrt.log" || fail "what was published: $(cat "$T/amxrt.log")"
+grep -q "X_AIGW_ with [0-9]* parameters, 8 commands, [0-9]* events" "$T/amxrt.log" || fail "what was published: $(cat "$T/amxrt.log")"
 echo "   $(grep -o 'X_AIGW_ with.*' "$T/amxrt.log")"
 
 echo "== reads are agd's values, typed"

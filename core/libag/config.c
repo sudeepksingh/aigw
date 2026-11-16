@@ -189,6 +189,12 @@ void ag_config_load(struct ag_config *c)
 	c->upgrade_reconnect = 1800;
 	c->upgrade_hold_days = 7;
 	c->upgrade_report_delay = 60;
+	c->why = 1;
+	c->why_hours = 72;
+	c->why_interval = 60;
+	c->why_probe = 1;
+	/* in memory on a router (a reboot is itself in the story: the gap); on a PC, on disk */
+	copy(c->why_file, sizeof(c->why_file), owrt ? "/tmp/aigw/agd-why.bin" : "/var/lib/aigw/agd-why.bin");
 	c->mgmt_reset = 1;
 	c->burst_window = 600;
 	c->burst_min = 8;
@@ -438,6 +444,21 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "upgrade", "file");
 		if (v)
 			copy(c->upgrade_file, sizeof(c->upgrade_file), v);
+		v = opt(ctx, p, "why", "enabled");
+		if (v)
+			c->why = atoi(v) != 0;
+		v = opt(ctx, p, "why", "hours");
+		if (v && atoi(v) >= 1 && atoi(v) <= 168)
+			c->why_hours = atoi(v);
+		v = opt(ctx, p, "why", "interval");
+		if (v && atoi(v) >= 2 && atoi(v) <= 600)
+			c->why_interval = atoi(v);
+		v = opt(ctx, p, "why", "probe");
+		if (v)
+			c->why_probe = atoi(v) != 0;
+		v = opt(ctx, p, "why", "file");
+		if (v)
+			copy(c->why_file, sizeof(c->why_file), v);
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

@@ -40,9 +40,10 @@
 #include "ag/diag.h"
 #include "ag/heal.h"
 #include "ag/tr143.h"
+#include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.10"
+#define DM_VERSION "1.11"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -877,6 +878,14 @@ UPF(g_up_conf, "RollbackConfirmed")
 UPF(g_up_held, "HeldVersion")
 UPT(g_up_until, "HeldUntil")
 
+/* "why was it slow?": the home's timeline (Device.X_AIGW_.Timeline.) */
+#define WYF(fn, f) GET(fn) { (void)c; return why_field(f, buf, n); }
+WYF(g_wy_en, "Enable")
+WYF(g_wy_hours, "Hours")
+WYF(g_wy_samples, "Samples")
+WYF(g_wy_events, "Events")
+GET(g_wy_since) { char v[24] = "0"; (void)c; why_field("RecordedSince", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1129,7 +1138,11 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Upgrade.RollbackConfirmed", T_STR, N, TB_NONE, g_up_conf, NULL },
 	{ "Device.X_AIGW_.Upgrade.HeldVersion", T_STR, 0, TB_NONE, g_up_held, NULL },
 	{ "Device.X_AIGW_.Upgrade.HeldUntil", T_TIME, 0, TB_NONE, g_up_until, NULL },
-
+	{ "Device.X_AIGW_.Timeline.Enable", T_BOOL, 0, TB_NONE, g_wy_en, NULL },
+	{ "Device.X_AIGW_.Timeline.Hours", T_UINT, 0, TB_NONE, g_wy_hours, NULL },
+	{ "Device.X_AIGW_.Timeline.RecordedSince", T_TIME, 0, TB_NONE, g_wy_since, NULL },
+	{ "Device.X_AIGW_.Timeline.Samples", T_UINT, 0, TB_NONE, g_wy_samples, NULL },
+	{ "Device.X_AIGW_.Timeline.Events", T_UINT, 0, TB_NONE, g_wy_events, NULL },
 	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
 #define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
@@ -1487,6 +1500,106 @@ static int r_diagnose(const struct ictx *c, struct blob_attr *a, struct blob_buf
 	return diag_start(h, diag_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
 }
 
+/* ---------- WhySlow(): a stretch of the home's timeline explained (synchronous: it is all in memory) ---------- */
+
+/* days since 1970-01-01 of a civil date (H. Hinnant's algorithm) */
+static long civil_days(long y, unsigned m, unsigned d)
+{
+	long era;
+	unsigned yoe, doy, doe;
+
+	y -= m <= 2;
+	era = (y >= 0 ? y : y - 399) / 400;
+	yoe = (unsigned)(y - era * 400);
+	doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+	doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+	return era * 146097 + (long)doe - 719468;
+}
+
+/* a dateTime ("2026-11-16T20:00:00Z", or with +01:00) or seconds since 1970; -1 not one */
+static long parse_time(const char *v)
+{
+	int y, mo, d, h, mi, s, oh = 0, om = 0, k = 0;
+	const char *p;
+	char *end;
+	long t;
+
+	if (!v || !*v)
+		return 0;
+	t = strtol(v, &end, 10);
+	if (!*end)
+		return t > 0 ? t : -1;
+	if (sscanf(v, "%d-%d-%dT%d:%d:%d%n", &y, &mo, &d, &h, &mi, &s, &k) != 6 || mo < 1 || mo > 12 || d < 1 || d > 31 ||
+	    h > 23 || mi > 59 || s > 60)
+		return -1;
+	p = v + k;
+	if (*p == '.')
+		for (p++; isdigit((unsigned char)*p); p++)
+			;
+	t = civil_days(y, (unsigned)mo, (unsigned)d) * 86400 + h * 3600 + mi * 60 + s;
+	if (*p == 'Z' && !p[1])
+		return t;
+	if ((*p == '+' || *p == '-') && sscanf(p + 1, "%d:%d", &oh, &om) == 2)
+		return *p == '+' ? t - oh * 3600 - om * 60 : t + oh * 3600 + om * 60;
+	return *p ? -1 : t;                     /* no zone: taken as UTC */
+}
+
+static int r_whyslow(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
+{
+	static struct why_result r;
+	struct why_in in;
+	const char *hv = arg(a, "Host"), *h = hv && *hv ? host_arg(hv) : "";
+	long now = (long)ag_wall_s(), to = parse_time(arg(a, "End")), from = parse_time(arg(a, "Start"));
+	char codes[VAL_MAX] = "", story[VAL_MAX] = "", tm[32], cl[16], num[16];
+	size_t len = 0, sl = 0;
+	int i;
+
+	(void)c;
+	if (!h) {
+		snprintf(e, n, "Host is a Device.Hosts.Host. path, or a MAC, IP or name");
+		return E_INVALID_ARGS;
+	}
+	if (to < 0 || from < 0) {
+		snprintf(e, n, "Start and End are dateTime values (2026-11-16T20:00:00Z)");
+		return E_INVALID_ARGS;
+	}
+	if (!to)
+		to = now;
+	if (!from)
+		from = to - 3600;
+	if (why_ask(from, to, h, &r, &in, e, n) < 0)
+		return E_INVALID_ARGS;
+	for (i = 0; i < r.n && len < sizeof(codes); i++)
+		len += (size_t)snprintf(codes + len, sizeof(codes) - len, "%s%s", i ? "," : "", r.f[i].code);
+	/* the story, line by line while it fits */
+	for (i = 0; i < r.nstory; i++) {
+		char line[WHY_TEXT + 96];
+		int l;
+
+		why_clock(r.story[i].t, to, cl, sizeof(cl));
+		l = snprintf(line, sizeof(line), "%s%s %s", sl ? "\n" : "", cl, r.story[i].text);
+		if (l < 0 || sl + (size_t)l >= sizeof(story))
+			break;
+		memcpy(story + sl, line, (size_t)l + 1);
+		sl += (size_t)l;
+	}
+	blobmsg_add_string(o, "Code", r.f[0].code);
+	blobmsg_add_string(o, "Area", r.f[0].area);
+	blobmsg_add_string(o, "Severity", diag_sev_name(r.f[0].sev));
+	blobmsg_add_string(o, "Summary", r.f[0].text);
+	blobmsg_add_string(o, "Advice", why_advice(r.f[0].code));
+	blobmsg_add_string(o, "Findings", codes);
+	blobmsg_add_string(o, "Story", story);
+	fmt_time(from, tm, sizeof(tm));
+	blobmsg_add_string(o, "Start", tm);
+	fmt_time(to, tm, sizeof(tm));
+	blobmsg_add_string(o, "End", tm);
+	snprintf(num, sizeof(num), "%d", !r.expected ? 0 : r.recorded && r.recorded * 100 < r.expected ? 1 :
+					     r.recorded * 100 / r.expected);
+	blobmsg_add_string(o, "RecordedPercent", num);
+	return E_OK;
+}
+
 /* ---------- TR-143 (asynchronous: seconds to minutes) ---------- */
 
 static void tr_done(void *ctx, int kind, const struct tr143_out *o)
@@ -1543,7 +1656,8 @@ static struct dm_cmd {
 	{ "Device.X_AIGW_.Diagnose()", TB_NONE, "Host",
 	  "Code,Area,Severity,Summary,Advice,Findings,InternetLossPercent,InternetLatencyMs,NextHopLatencyMs,DNSLatencyMs",
 	  r_diagnose, 0, 1 },
-	{ "Device.IP.Diagnostics.IPPing()", TB_NONE, "Interface,ProtocolVersion,Host,NumberOfRepetitions,Timeout,DataBlockSize,DSCP",
+	{ "Device.X_AIGW_.WhySlow()", TB_NONE, "Start,End,Host",
+	  "Code,Area,Severity,Summary,Advice,Findings,Story,Start,End,RecordedPercent", r_whyslow, 0, 0 },	{ "Device.IP.Diagnostics.IPPing()", TB_NONE, "Interface,ProtocolVersion,Host,NumberOfRepetitions,Timeout,DataBlockSize,DSCP",
 	  "Status,IPAddressUsed,SuccessCount,FailureCount,AverageResponseTime,MinimumResponseTime,MaximumResponseTime,"
 	  "AverageResponseTimeDetailed,MinimumResponseTimeDetailed,MaximumResponseTimeDetailed", r_tr143, 0, 1 },
 	{ "Device.IP.Diagnostics.TraceRoute()", TB_NONE,

@@ -66,6 +66,7 @@ void agd_emit_from(const char *type, struct blob_buf *msg, const void *from)
 {
 	if (conn.ctx.sock.fd >= 0)
 		ubus_send_event(&conn.ctx, type, msg->head);
+	why_on_emit(type, msg->head);           /* the home's timeline */
 	plugin_dispatch(type, msg->head, from);
 }
 
@@ -116,6 +117,8 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 
 	dns_total++;
 	last_dns_event = ag_wall_s();
+	if (!(tb[EV_BLOCKED] && blobmsg_get_u8(tb[EV_BLOCKED])))
+		why_on_dns((int)rcode, tb[EV_LAT] ? blobmsg_get_u32(tb[EV_LAT]) : 0);
 
 	/* what the answer says about the name: it doesn't exist, or it works. Not
 	 * counted: names AIGW blocked, 0.0.0.0 from a filtering resolver, empty answers */
@@ -1007,11 +1010,53 @@ static int m_upgrade(struct ubus_context *ctx, struct ubus_object *obj, struct u
 	return 0;
 }
 
+/* ag why {from, to, minutes, host, raw}: a stretch of the home's timeline explained.
+   from/to: wall s (to: now); or minutes: the last so many (60) */
+enum { WY_FROM, WY_TO, WY_MINUTES, WY_HOST, WY_RAW, __WY_MAX };
+static const struct blobmsg_policy why_policy[__WY_MAX] = {
+	[WY_FROM] = { "from", BLOBMSG_TYPE_UNSPEC },
+	[WY_TO] = { "to", BLOBMSG_TYPE_UNSPEC },
+	[WY_MINUTES] = { "minutes", BLOBMSG_TYPE_INT32 },
+	[WY_HOST] = { "host", BLOBMSG_TYPE_STRING },
+	[WY_RAW] = { "raw", BLOBMSG_TYPE_BOOL },
+};
+
+static long num_of(struct blob_attr *a, long dflt)
+{
+	if (!a)
+		return dflt;
+	switch (blobmsg_type(a)) {
+	case BLOBMSG_TYPE_INT64: return (long)blobmsg_get_u64(a);
+	case BLOBMSG_TYPE_INT32: return (long)(int32_t)blobmsg_get_u32(a);
+	case BLOBMSG_TYPE_STRING: return strtol(blobmsg_get_string(a), NULL, 10);
+	}
+	return dflt;
+}
+
+static int m_why(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		 const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__WY_MAX];
+	long now = (long)ag_wall_s(), to, from;
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(why_policy, __WY_MAX, tb, blob_data(msg), blob_len(msg));
+	to = num_of(tb[WY_TO], now);
+	from = num_of(tb[WY_FROM], to - 60L * (tb[WY_MINUTES] ? (long)blobmsg_get_u32(tb[WY_MINUTES]) : 60));
+	blob_buf_init(&b, 0);
+	why_blob(&b, from, to, tb[WY_HOST] ? blobmsg_get_string(tb[WY_HOST]) : "",
+		 tb[WY_RAW] && blobmsg_get_bool(tb[WY_RAW]));
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 	UBUS_METHOD("care", m_care, care_policy),
 	UBUS_METHOD("upgrade", m_upgrade, upgrade_policy),
+	UBUS_METHOD("why", m_why, why_policy),
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1118,6 +1163,7 @@ int main(int argc, char **argv)
 	tr143_init();
 	care_init();
 	upgrade_init();                 /* after the state and proactive care: a watch may go on */
+	why_init();                     /* the home's timeline: after proactive care (its speed test) */
 	keys_init();
 	plugin_init();
 
@@ -1133,6 +1179,7 @@ int main(int argc, char **argv)
 
 	AG_INFO("agd %s started (host %s)", AG_VERSION, cfg.host);
 	uloop_run();     /* returns on SIGTERM / SIGINT */
+	why_save();
 	plugin_stop_all();
 	dev_state_save();
 	AG_INFO("stopped, state saved");

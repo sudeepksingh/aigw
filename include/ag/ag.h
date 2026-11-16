@@ -154,6 +154,12 @@ struct ag_config {
 	int upgrade_hold_days;    /* a version rolled back isn't installed again for this long */
 	int upgrade_report_delay; /* s: a verdict found at start is told this much later (protocol clients starting) */
 	char upgrade_file[256];   /* the record (kept over the upgrade); empty: beside state_file */
+	/* "why was it slow?": the home's timeline (agd/why.c) */
+	int why;                  /* keep a sample of the home every why_interval, and what happened */
+	int why_hours;            /* how far back it goes */
+	int why_interval;         /* s between samples (60; less only for tests) */
+	int why_probe;            /* each sample sends 3 echo requests to the next router and the internet */
+	char why_file[256];       /* where it is kept over a restart of agd; "" not kept */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

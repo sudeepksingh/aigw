@@ -60,6 +60,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/warn-test.sh build
       - name: Firmware upgrade check test (a bad upgrade rolled back by itself and confirmed, held off; a good one kept)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/upgrade-test.sh build
+      - name: Why-was-it-slow test (the home's timeline kept, a weak device and the internet down explained, WhySlow())
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/why-test.sh build
       - name: USP test (a USP controller over MQTT, OB-USP-Agent, the aigw-usp plug-in)
         run: sudo AIGW_REQUIRE_USP=1 AIGW_OBUSPA="$OBUSPA_SRC/obuspa" PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/usp-test.sh build
       - name: TR-069 test (an ACS over HTTP, icwmp, the aigw-cwmp-dm data model daemon)
