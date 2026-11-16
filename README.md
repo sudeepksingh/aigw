@@ -46,6 +46,17 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.30:** **Firmware upgrades that check themselves.** A firmware handler
+> only knows whether a new image booted. AIGW knows whether the home works as
+> well on it. It records the home when an image is activated (USP, TR-069 or
+> agctl) and compares it after the boot. Are the devices that were connected
+> back? Does the internet answer? Are delays, loss, DNS, the speed and the
+> experience score as usual for those hours? If the home is worse, AIGW boots
+> the previous image again by itself (A/B flash), confirms the cause, refuses
+> the version for a week, and tells the ISP: `Device.X_AIGW_.UpgradeChecked!`,
+> so a rollout can stop after the first homes. Otherwise the upgrade is kept.
+> `agctl upgrade`; see [docs/upgrade-check.md](docs/upgrade-check.md).
+>
 > **v0.29:** **TR-143 diagnostics, early warning, and the ISP's fleet report.**
 >
 > - **TR-143:** the standard tests every ISP's management system runs, the

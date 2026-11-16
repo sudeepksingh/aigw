@@ -170,6 +170,30 @@ config mgmt 'mgmt'
 	# names its own (docs/device-management.md, "The firmware handler")
 	# option firmware_handler ''
 
+config upgrade 'upgrade'
+	# firmware upgrades that check themselves (agctl upgrade,
+	# docs/upgrade-check.md): the home is recorded when a new image is
+	# activated and compared after the boot. Devices that don't come back,
+	# no internet, or restarts make it worse at once; slower delays, a lower
+	# speed or score at the end of the watch. The ISP is told either way
+	# (Device.X_AIGW_.UpgradeChecked!)
+	option check '1'
+	# worse: boot the previous image again by itself, when the firmware
+	# handler still has it (A/B flash), and hold the version off
+	option rollback '1'
+	# seconds the new image is watched; devices have reconnect seconds
+	# to come back
+	# option watch '86400'
+	# option reconnect '1800'
+	# days a version rolled back isn't installed again (agctl upgrade
+	# --forget, or Device.X_AIGW_.Upgrade.Forget(), lifts it)
+	# option hold_days '7'
+	# seconds after agd starts before a verdict found then is sent (the
+	# USP and TR-069 clients start beside it at boot)
+	# option report_delay '60'
+	# the record, kept over the upgrade; default beside main.state_file
+	# option file ''
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

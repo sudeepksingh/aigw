@@ -43,6 +43,8 @@ static void usage(void)
 		"                      in a few seconds; what is wrong, most likely first, and what to do\n"
 		"  care [--check|--speed]  proactive care: problems found by the gateway itself, early\n"
 		"                      warnings, the experience score and the nightly speed (--speed: test now)\n"
+		"  upgrade [--forget]  the last firmware upgrade: the home before and after it, kept or rolled\n"
+		"                      back, and why (--forget: a version rolled back may be installed again)\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
 		"  test trace <host>                 echo requests, the route,\n"
 		"  test download <url> [seconds]     an HTTP download (seconds: time based),\n"
@@ -51,7 +53,8 @@ static void usage(void)
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
-		"  watch [dns|flows|wifi|home|alerts|decisions|plugins|models|all]   follow activity live (Ctrl+C to stop)\n"
+		"  watch [dns|flows|wifi|home|alerts|decisions|plugins|models|upgrade|all]   follow activity live\n"
+		"                      (Ctrl+C to stop)\n"
 		"\n"
 		"  decisions [N]       actions waiting for you, in effect, and past ones\n"
 		"  approve <id> [time] carry out a proposed action (optionally for another time limit)\n"
@@ -1779,6 +1782,88 @@ static int parse_rate(const char *s)
 	return -1;
 }
 
+/* agctl upgrade [--forget]: the last firmware upgrade, as AIGW checked it */
+static void show_upgrade(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	unsigned long long now = (unsigned long long)time(NULL);
+	struct blob_attr *d, *ch = field(msg, "checks"), *bf = field(msg, "before"), *m;
+	const char *st = fstr(msg, "state");
+	char t1[32], t2[32];
+	size_t rem;
+	int missing = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (field(msg, "forgot"))
+		printf("%s\n", fnum(msg, "forgot") ? "The hold is lifted: that version may be installed again." :
+		       "No version was held off.");
+	if (!fnum(msg, "check")) {
+		printf("Firmware upgrades are not checked (upgrade.check in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Firmware upgrades are checked for %s after the boot%s.\n", dur_short(fnum(msg, "watch_s"), t1, sizeof(t1)),
+	       fnum(msg, "rollback") ? ", and rolled back when the home is worse on them" : " (not rolled back: upgrade.rollback 0)");
+	if (*fstr(msg, "held"))
+		printf("  held off  %s, rolled back: %s\n", fstr(msg, "held"), fstr(msg, "held_why"));
+	if (!strcmp(st, "None")) {
+		printf("  no upgrade checked yet\n");
+		return;
+	}
+	printf("  upgrade   %s -> %s, activated %s ago: %s\n", fstr(msg, "from"), fstr(msg, "to"),
+	       dur_short(now > fnum(msg, "activated") ? now - fnum(msg, "activated") : 0, t1, sizeof(t1)),
+	       !strcmp(st, "Activated") ? "boots next" : !strcmp(st, "Watching") ? "watching" : !strcmp(st, "Kept") ? "kept" :
+	       !strcmp(st, "Worse") ? "WORSE, not rolled back" : !strcmp(st, "RollingBack") ? "worse: rolling back" :
+	       !strcmp(st, "RolledBack") ? "worse: rolled back" : !strcmp(st, "NotBooted") ? "never started" : st);
+	if (!strcmp(st, "Watching"))
+		printf("            %s watched, %s to go\n", dur_short(fnum(msg, "watched_for_s"), t1, sizeof(t1)),
+		       dur_short(fnum(msg, "left_s"), t2, sizeof(t2)));
+	if (fnum(msg, "starts") > 1)
+		printf("            agd started %llu times on it\n", (unsigned long long)fnum(msg, "starts"));
+	printf("  devices   %llu of the %llu connected before came back on %s", (unsigned long long)fnum(msg, "devices_back"),
+	       (unsigned long long)(fnum(msg, "devices_back") + fnum(msg, "devices_missing")), fstr(msg, "to"));
+	blobmsg_for_each_attr(d, field(msg, "devices"), rem)
+		if (!fnum(d, "back"))
+			missing++;
+	if (missing) {
+		int k = 0;
+
+		printf("; stayed away:");
+		blobmsg_for_each_attr(d, field(msg, "devices"), rem)
+			if (!fnum(d, "back"))
+				printf("%s %s (%s%s)", k++ ? "," : "", orb(fstr(d, "name"), fstr(d, "mac")),
+				       fnum(d, "wifi") ? "Wi-Fi" : "wired",
+				       !field(d, "back_after_rollback") ? "" :
+				       fnum(d, "back_after_rollback") ? ", back after the rollback" : ", not back after the rollback");
+	}
+	printf("\n");
+	if (ch && fnum(ch, "n")) {
+		printf("  checks    %llu, %llu without the internet", (unsigned long long)fnum(ch, "n"),
+		       (unsigned long long)fnum(ch, "without_internet"));
+		blobmsg_for_each_attr(m, ch, rem) {
+			if (blobmsg_type(m) != BLOBMSG_TYPE_TABLE)
+				continue;
+			printf("; %s %.1f (normal %.1f)", blobmsg_name(m), fdbl(m, "measured"), fdbl(m, "normal"));
+		}
+		if (field(ch, "speed_mbps"))
+			printf("; speed %.0f Mbit/s", fdbl(ch, "speed_mbps"));
+		printf("\n");
+	}
+	if (field(msg, "score_after") || field(msg, "score_before")) {
+		snprintf(t1, sizeof(t1), "%llu%%", (unsigned long long)fnum(msg, "score_after"));
+		snprintf(t2, sizeof(t2), "%llu%%", (unsigned long long)fnum(msg, "score_before"));
+		printf("  score     %s of the time without a problem (%s the week before)\n",
+		       field(msg, "score_after") ? t1 : "-", field(msg, "score_before") ? t2 : "-");
+	}
+	if (bf && strcmp(fstr(bf, "internet"), "unknown") && *fstr(bf, "internet"))
+		printf("  before    the internet answered: %s\n", fstr(bf, "internet"));
+	if (*fstr(msg, "summary"))
+		printf("  verdict   %s\n", fstr(msg, "summary"));
+	if (*fstr(msg, "confirmed"))
+		printf("  confirmed %s\n", fstr(msg, "confirmed"));
+}
+
 /* ---------- calls ---------- */
 
 static int call(const char *path, const char *method, struct blob_attr *args, ubus_data_handler_t cb)
@@ -1888,6 +1973,9 @@ static void watch_cb(struct ubus_context *c, struct ubus_event_handler *ev,
 	} else if (!strcmp(type, AG_EV_PLUGIN)) {
 		printf("PLUG-IN %s (%s): %s%s%s\n", fstr(msg, "plugin"), fstr(msg, "kind"), fstr(msg, "state"),
 		       *fstr(msg, "why") ? " -- " : "", fstr(msg, "why"));
+	} else if (!strcmp(type, AG_EV_UPGRADE)) {
+		printf("UPGRADE %s -> %s: %s%s%s\n", fstr(msg, "from"), fstr(msg, "to"), fstr(msg, "event"),
+		       *fstr(msg, "summary") ? " -- " : "", fstr(msg, "summary"));
 	} else {
 		char *body = blobmsg_format_json(msg, true);
 
@@ -1923,6 +2011,8 @@ static int watch(const char *what)
 	    (ubus_register_event_handler(ctx, &ev, AG_EV_PLUGIN) || ubus_register_event_handler(ctx, &ev, "iot.*")))
 		rc = 1;
 	if ((all || !strcmp(what, "models")) && ubus_register_event_handler(ctx, &ev, AG_EV_MODEL))
+		rc = 1;
+	if ((all || !strcmp(what, "upgrade")) && ubus_register_event_handler(ctx, &ev, AG_EV_UPGRADE))
 		rc = 1;
 	if (rc) {
 		fprintf(stderr, "agctl: cannot subscribe to events (permission?)\n");
@@ -2014,6 +2104,12 @@ int main(int argc, char **argv)
 		rc = call("ag", "care", args.head, show_care);
 		blob_buf_free(&args);
 		rc = rc || diag_failed;
+	} else if (!strcmp(cmd, "upgrade")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && (!strcmp(argv[i], "--forget") || !strcmp(argv[i], "forget")))
+			blobmsg_add_u8(&args, "forget", 1);
+		rc = call("ag", "upgrade", args.head, show_upgrade);
+		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "test") && i + 1 < argc) {
 		static const struct { const char *what, *cmd, *arg, *extra; } T[] = {
 			{ "ping", "Device.IP.Diagnostics.IPPing()", "Host", "NumberOfRepetitions" },

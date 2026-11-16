@@ -129,6 +129,7 @@ extern int64_t started;
 void agd_emit(const char *type, struct blob_buf *b);
 /* also to plug-ins subscribed to it, except `from` (the plug-in that sent it) */
 void agd_emit_from(const char *type, struct blob_buf *b, const void *from);
+int agd_connected(void);                /* on ubus (events reach anyone) */
 
 /* devices.c */
 extern struct device devs[DEV_MAX];
@@ -539,6 +540,28 @@ int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_don
 int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *ctx, char *err, size_t en);
 /* "reboot" or "factory_reset", through the firmware handler, 2 s from now */
 int fw_system(const char *action, const char *who, char *err, size_t en);
+
+/* upgrade.c: firmware upgrades that check themselves (ag/upgrade.h) */
+#define UPGRADE_WHO "upgrade check"     /* the rollback's own activation: not watched */
+struct care_sample;
+void upgrade_init(void);                /* after the state and proactive care */
+void upgrade_tick(void);
+/* manage.c: an image was activated (boots next) */
+void upgrade_on_activated(uint32_t to_id, const char *to_ver, uint32_t from_id, const char *from_ver, const char *who);
+void upgrade_on_activate_failed(const char *who);       /* ... the handler refused it after all */
+/* manage.c: 1 (with err) when this version was rolled back and is held off */
+int upgrade_refused(const char *version, char *err, size_t n);
+int upgrade_forget(void);               /* lift the hold; 1 when there was one */
+/* care.c: a check (the normal at this hour; have[m] 0 not known), a speed test, how often to check now (0: as usual) */
+void upgrade_on_check(const struct care_sample *s, const struct care_sample *normal, int online, int problem, long max_gap);
+void upgrade_on_speed(float mbps);
+int upgrade_quick(void);
+void upgrade_blob(struct blob_buf *b);
+int upgrade_field(const char *f, char *buf, size_t n);  /* the data model's Upgrade. values; -1 unknown */
+/* dm.c: UpgradeChecked! (Kept, RolledBack, Worse, NotBooted, RollbackConfirmed, RollbackNotConfirmed) */
+void dm_on_upgrade(const char *result, const char *from, const char *to, const char *reasons, const char *summary);
+/* care.c: did the internet answer on the last check: 1, 0, -1 not checked yet */
+int care_online(void);
 
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
 typedef void (*handler_done_t)(void *ctx, int code, const char *msg);

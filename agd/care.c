@@ -57,6 +57,7 @@ static struct care_learn L;
 static struct care_learn_params lp;
 static int warn_became;                 /* a problem started while the open warning was on */
 static long last_sample;
+static int last_online = -1;            /* the internet answered on the last check */
 
 static struct care_state sp;            /* the nightly speed test's problem */
 static struct care_params sp_par;
@@ -78,7 +79,15 @@ static void schedule(int secs)
 /* the next check: soon while something is wrong (to confirm it, then to see it clear) */
 static int next_secs(void)
 {
-	return st.active || st.bad_run ? cfg.care_recheck : cfg.care_interval;
+	int s = st.active || st.bad_run ? cfg.care_recheck : cfg.care_interval;
+	int q = upgrade_quick();        /* early in a firmware upgrade's watch: more often */
+
+	return q && q < s ? q : s;
+}
+
+int care_online(void)
+{
+	return last_online;
 }
 
 static void local_now(long now, int *hour, long *day)
@@ -275,6 +284,25 @@ int care_learned_days(void)
 
 /* ---------- the checks ---------- */
 
+/* a check, for the firmware upgrade's watch: with the home's normal at this hour */
+static void to_upgrade(const struct diag_input *in, long now)
+{
+	struct care_sample s, nm;
+	float mean, dev;
+	int hour, m;
+	long day;
+
+	sample_of(in, &s);
+	memset(&nm, 0, sizeof(nm));
+	local_now(now, &hour, &day);
+	for (m = 0; m < CARE_METRICS; m++)
+		if (care_normal(&L, m, hour, &mean, &dev) >= 0) {
+			nm.have[m] = 1;
+			nm.v[m] = mean;
+		}
+	upgrade_on_check(&s, &nm, last_online == 1, st.active, par.max_gap);
+}
+
 static void done(void *ctx, const struct diag_result *r, const struct diag_input *in)
 {
 	const struct diag_finding *f = r->n ? &r->f[0] : NULL;
@@ -286,7 +314,9 @@ static void done(void *ctx, const struct diag_result *r, const struct diag_input
 	running = 0;
 	par.wifi_grace = cfg.care_wifi_grace;
 	par.max_gap = 3L * (cfg.care_interval > cfg.care_recheck ? cfg.care_interval : cfg.care_recheck);
+	last_online = in && in->route && in->inet.sent && in->inet.lost < in->inet.sent;
 	ev = care_step(&st, &rep, &v, now, &par);
+	to_upgrade(in, now);
 	if (ev & CARE_STARTED) {
 		AG_INFO("care: problem found: %s (%s) -- %s; %s", st.code, st.area, st.text,
 			care_isp_owned(st.area) ? "reporting it to the ISP" :
@@ -418,6 +448,7 @@ static void speed_done(void *ctx, int kind, const struct tr143_out *o)
 	if (low)
 		d->speed_low++;
 	AG_INFO("care: speed test: %.1f Mbit/s%s", spd.mbps, low ? " (slow)" : "");
+	upgrade_on_speed((float)spd.mbps);
 	memset(&s, 0, sizeof(s));
 	s.have[CM_SPEED] = 1;
 	s.v[CM_SPEED] = (float)spd.mbps;

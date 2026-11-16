@@ -183,6 +183,12 @@ void ag_config_load(struct ag_config *c)
 	c->mgmt_alert_details = 0;
 	c->mgmt_wifi = 1;
 	c->mgmt_firmware = 1;
+	c->upgrade_check = 1;
+	c->upgrade_rollback = 1;
+	c->upgrade_watch = 86400;
+	c->upgrade_reconnect = 1800;
+	c->upgrade_hold_days = 7;
+	c->upgrade_report_delay = 60;
 	c->mgmt_reset = 1;
 	c->burst_window = 600;
 	c->burst_min = 8;
@@ -411,6 +417,27 @@ void ag_config_load(struct ag_config *c)
 			c->mgmt_reset = atoi(v) != 0;
 		copy(c->wifi_handler, sizeof(c->wifi_handler), opt(ctx, p, "wifi", "handler"));
 		copy(c->fw_handler, sizeof(c->fw_handler), opt(ctx, p, "mgmt", "firmware_handler"));
+		v = opt(ctx, p, "upgrade", "check");
+		if (v)
+			c->upgrade_check = atoi(v) != 0;
+		v = opt(ctx, p, "upgrade", "rollback");
+		if (v)
+			c->upgrade_rollback = atoi(v) != 0;
+		v = opt(ctx, p, "upgrade", "watch");
+		if (v && atoi(v) >= 10 && atoi(v) <= 30 * 86400)
+			c->upgrade_watch = atoi(v);
+		v = opt(ctx, p, "upgrade", "reconnect");
+		if (v && atoi(v) >= 5 && atoi(v) <= 86400)
+			c->upgrade_reconnect = atoi(v);
+		v = opt(ctx, p, "upgrade", "hold_days");
+		if (v && atoi(v) >= 0 && atoi(v) <= 365)
+			c->upgrade_hold_days = atoi(v);
+		v = opt(ctx, p, "upgrade", "report_delay");
+		if (v && atoi(v) >= 0 && atoi(v) <= 3600)
+			c->upgrade_report_delay = atoi(v);
+		v = opt(ctx, p, "upgrade", "file");
+		if (v)
+			copy(c->upgrade_file, sizeof(c->upgrade_file), v);
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

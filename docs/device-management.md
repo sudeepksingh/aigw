@@ -186,6 +186,14 @@ The standard TR-181 firmware objects:
 Nothing is written to flash before the image has passed its checks. A
 management system may do this only with `mgmt.firmware 1` (the default).
 
+**Checked after the boot (v0.30).** AIGW records the home when an image is
+activated and compares it after the boot. If devices don't come back, the
+internet is gone, agd keeps restarting, or the home is slower than its normal,
+the upgrade is worse. AIGW then boots the previous image again by itself (where
+the handler still has one), confirms the cause, holds the version off and tells
+the ISP (`Device.X_AIGW_.UpgradeChecked!`). Otherwise the upgrade is kept. See
+[upgrade-check.md](upgrade-check.md).
+
 ### The firmware handler: your flash, your rules
 
 What "an image", "check" and "activate" mean differs from one device to the

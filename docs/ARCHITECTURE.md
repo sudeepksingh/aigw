@@ -975,6 +975,17 @@ Verified by:
   - `tests/cwmp-test.sh` (a real ACS through icwmp: Requested, `8 DIAGNOSTICS COMPLETE`, the results);
   - `tests/outside-test.sh` (care through the bridge into the fleet report).
 
+**As built in v0.30: firmware upgrades that check themselves.** The home is recorded when an image is activated and compared after the boot. A worse upgrade is rolled back by AIGW itself, confirmed, held off and reported ([upgrade-check.md](upgrade-check.md)).
+
+| Piece | As built |
+|-------|----------|
+| The verdict (`core/libag/upgrade.c`, `include/ag/upgrade.h`) | Pure: `up_judge(before, after, now, params)`, giving watching, worse (reason bits) or keep, with the text. At once: devices not back (≥ 2 and ≥ 25%) after `reconnect`; no internet on every check (≥ 3) for 15 min, when it worked before; more than 3 starts. At the end of `watch`: delays against the normal at the hours sampled (1.5× and a minimum difference), loss (+2 points), the speed (< 80%), the score (−10 points, both with ≥ 4 h watched). |
+| The watch (`agd/upgrade.c`) | `manage.c` calls `upgrade_on_activated` before the handler's `activate`, because OpenWRT's sysupgrade never returns. The record goes to `agd-upgrade.json` beside the state, fsynced, with the care state saved too. On the first tick on ubus after a start, the running version is compared with the record: on the new one it is watching (and each later start counts), back on the old one after a rollback it is rolled back, and on the old one after a reboot it is NotBooted. A handler that switches images without stopping agd (the test handler) is followed while agd runs. Devices are back once their `last_seen` is after the boot (Wi-Fi, traffic, DNS, DHCP; never ARP or leases). Care feeds every check, with the normal for that hour, and speed test; checks come every 2 min for the first hour. Worse leads, with `upgrade.rollback`, to `fw_activate` of a non-running image with the old version (who: "upgrade check", which is never watched), and the version is held for `hold_days`, refused in `fw_activate` and in download-and-activate. Back on the old image, the missing devices (or the internet) are checked again: confirmed or not. |
+| Data model (1.10) | `Device.X_AIGW_.Upgrade.` (17 values, `Forget()`), event `UpgradeChecked!`. Verdicts found at start wait `report_delay` and are kept in the record, queued in order, until told. |
+| agctl | `agctl upgrade [--forget]`, `agctl watch upgrade` (`ag.upgrade` events). |
+
+Verified by `tests/test_upgrade.c` (the verdict's rules on simulated homes) and `tests/upgrade-test.sh` (CI: the two-bank handler and a fake hostapd; agd stops for each reboot; a bad upgrade rolled back, confirmed, reported and held off; a good one kept over an agd restart). Not yet on a router with A/B flash. OpenWRT's single image has no previous one to go back to, so there it is reported, not rolled back.
+
 ---
 
 ## 17. Status and risks
