@@ -554,6 +554,7 @@ static void on_query(struct plugin *p, const char *what, int id)
 		/* proactive care: scores, problems, warnings, speed (no names but a Wi-Fi problem's summary) */
 		care_blob(&d);
 		care_days_blob(&d, 8);
+		offers_care_blob(&d);           /* signals for the ISP: counts and words, no names */
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :

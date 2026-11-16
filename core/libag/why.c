@@ -221,15 +221,19 @@ void why_baseline(const struct why_min *m, int n, long from, long to, float norm
 }
 
 /* slow from this delay: twice the normal and a real difference; without a normal, Diagnose's lines */
-static int slow_inet(const struct why_in *in)
+int why_slow_ms(float n, int have)
 {
-	float n = in->norm[WN_INET];
 	int t;
 
-	if (!in->have_norm[WN_INET])
+	if (!have)
 		return 150;
 	t = (int)(n * 2 > n + 30 ? n * 2 : n + 30);
 	return t < 40 ? 40 : t;
+}
+
+static int slow_inet(const struct why_in *in)
+{
+	return why_slow_ms(in->norm[WN_INET], in->have_norm[WN_INET]);
 }
 
 static int slow_gw(const struct why_in *in)
@@ -276,14 +280,19 @@ static int runs(struct judge *J, const unsigned char *on, long *since, long *unt
 
 /* ---------- the stretch ---------- */
 
+int why_full(const struct why_min *s, float down_mbps, float peak_down_mbps, float peak_up_mbps)
+{
+	if (down_mbps > 0)
+		return s->down_kbps >= (uint32_t)(down_mbps * 1000.0f * BUSY_PCT / 100.0f);
+	/* the line's speed isn't known: near the most this timeline has seen on it */
+	if (peak_down_mbps >= 5 && s->down_kbps >= (uint32_t)(peak_down_mbps * 1000.0f * BUSY_PCT / 100.0f))
+		return 1;
+	return peak_up_mbps >= 2 && s->up_kbps >= (uint32_t)(peak_up_mbps * 1000.0f * BUSY_PCT / 100.0f);
+}
+
 static int busy(const struct why_in *in, const struct why_min *s)
 {
-	if (in->down_mbps > 0)
-		return s->down_kbps >= (uint32_t)(in->down_mbps * 1000.0f * BUSY_PCT / 100.0f);
-	/* the line's speed isn't known: near the most this timeline has seen on it */
-	if (in->peak_down_mbps >= 5 && s->down_kbps >= (uint32_t)(in->peak_down_mbps * 1000.0f * BUSY_PCT / 100.0f))
-		return 1;
-	return in->peak_up_mbps >= 2 && s->up_kbps >= (uint32_t)(in->peak_up_mbps * 1000.0f * BUSY_PCT / 100.0f);
+	return why_full(s, in->down_mbps, in->peak_down_mbps, in->peak_up_mbps);
 }
 
 static int answered(int sent, int lost)

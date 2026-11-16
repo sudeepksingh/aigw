@@ -277,6 +277,16 @@ int care_normal_now(int metric, float *v)
 	return care_normal(&L, metric, hour, v, &dev);
 }
 
+int care_days_get(struct care_day *out, int max)
+{
+	int i, n = 0;
+
+	for (i = 0; i < CARE_DAYS && n < max; i++)
+		if (rep.d[i].day)
+			out[n++] = rep.d[i];
+	return n;
+}
+
 int care_normal_hour(int metric, int hour, float *v)
 {
 	float dev;

@@ -137,5 +137,9 @@ const char *why_advice(const char *code);
 /* "20:02" (local time); with the day ("Mon 20:02") when it isn't today (as of now) */
 void why_clock(long t, long now, char *buf, size_t n);
 const char *why_kind_name(int kind);
+/* a sample with the line used to its speed (the speed sold or tested, else near the most seen) */
+int why_full(const struct why_min *s, float down_mbps, float peak_down_mbps, float peak_up_mbps);
+/* the internet's delay that is slow, against a normal (have 0: Diagnose's 150 ms) */
+int why_slow_ms(float normal, int have);
 
 #endif

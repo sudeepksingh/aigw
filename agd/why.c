@@ -224,6 +224,8 @@ static void on_wifi(struct blob_attr **tb)
 
 	if (sig)
 		snprintf(sigs, sizeof(sigs), " (%d dBm)", sig);
+	if (!strcmp(ev, "connected") || !strcmp(ev, "disconnected"))
+		offers_on_wifi(mac, !strcmp(ev, "connected"));      /* short drops, for the signals */
 	if (!strcmp(ev, "connected"))
 		note(WE_JOIN, mac, b, 0, "%s joined Wi-Fi%s%s%s", who, b ? " on " : "", b == 5 ? "5 GHz" : b ? "2.4 GHz" : "",
 		     sigs);
@@ -514,6 +516,8 @@ static void devices(struct why_min *m, double secs)
 			note(WE_SIGNAL_OK, d->mac, (int)-d->wifi_sig_avg, 0, "%s's signal was fine again (%.0f dBm)", dev_name(d),
 			     d->wifi_sig_avg);
 		}
+		if (prev[i].weak && m)
+			offers_on_weak(d->mac, (long)(secs + 0.5));    /* the signals for the ISP: time on a weak signal */
 	}
 }
 
@@ -552,6 +556,23 @@ static void radios(struct why_min *m)
 static void store(const struct why_min *m)
 {
 	ring[(m->t / (uint32_t)cfg.why_interval) % (uint32_t)R] = *m;
+}
+
+/* the most the timeline has seen on the line (Mbit/s) */
+static void peaks(float *down, float *up)
+{
+	uint32_t d = 0, u = 0;
+	int i;
+
+	for (i = 0; i < R; i++)
+		if (ring[i].t) {
+			if (ring[i].down_kbps > d)
+				d = ring[i].down_kbps;
+			if (ring[i].up_kbps > u)
+				u = ring[i].up_kbps;
+		}
+	*down = d / 1000.0f;
+	*up = u / 1000.0f;
 }
 
 /* the sample that ends now; then the next one starts */
@@ -597,8 +618,13 @@ static void finish(long now)
 	}
 	devices(&m, secs);
 	radios(&m);
-	if (S.t)
+	if (S.t) {
+		float pd, pu;
+
 		store(&m);
+		peaks(&pd, &pu);
+		offers_on_sample(&m, (long)(secs + 0.5), pd, pu);
+	}
 	/* a speed test that ran since */
 	at = care_speed_last(&mbps);
 	if (at > speed_seen) {
@@ -660,6 +686,7 @@ static void tick(struct uloop_timeout *t)
 		why_save();
 		last_save = now;
 	}
+	offers_tick();
 	uloop_timeout_set(t, next * 1000);
 }
 

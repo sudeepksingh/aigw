@@ -577,6 +577,24 @@ int why_ask(long from, long to, const char *host, struct why_result *r, struct w
 void why_blob(struct blob_buf *b, long from, long to, const char *host, int raw);
 int why_field(const char *f, char *buf, size_t n);      /* Device.X_AIGW_.Timeline.; -1 unknown */
 
+/* offers.c: signals for the ISP (ag/offer.h), counted from the timeline's samples */
+struct why_min;
+void offers_init(void);                 /* after the state */
+void offers_tick(void);
+void offers_on_sample(const struct why_min *m, long secs, float peak_down_mbps, float peak_up_mbps);
+void offers_on_weak(const char *mac, long secs);
+void offers_on_wifi(const char *mac, int joined);
+void offers_blob(struct blob_buf *b, int names);
+void offers_care_blob(struct blob_buf *b);      /* for cortex: active ones, no names; none unless offers.share */
+int offers_field(const char *f, char *buf, size_t n);  /* Device.X_AIGW_.Offers.; -1 unknown */
+void offers_save(struct blob_buf *b);
+void offers_load(struct blob_attr *t);
+/* dm.c: OfferFound! */
+void dm_on_offer(const char *code, const char *kind, const char *product, const char *confidence, const char *evidence);
+/* care.c: proactive care's days (for the signals); how many */
+struct care_day;
+int care_days_get(struct care_day *out, int max);
+
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
 typedef void (*handler_done_t)(void *ctx, int code, const char *msg);
 const char *handler_path(const char *configured, const char *name);

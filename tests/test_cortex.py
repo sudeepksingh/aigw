@@ -301,6 +301,49 @@ class Fleet(unittest.TestCase):
             self.assertEqual((r["problems"]["fixed_by_aigw"], r["problems"]["cleared_by_itself"]), (0, 6))
             self.assertIn("0 fixed by AIGW itself (no call needed), 6 cleared by themselves", fleet.text(r, now))
 
+    def test_signals(self):
+        """v0.32: each gateway's signals for the ISP, in the order a team calls."""
+        from aigw_cortex import fleet
+        now = 20000 * 86400 + 12 * 3600
+        today = now // 86400
+
+        def sig(code, kind, product, conf, days=5):
+            return {"code": code, "kind": kind, "product": product, "confidence": conf, "days": days, "of_days": 7,
+                    "since": (today - days + 1) * 86400, "evidence": f"{code} evidence"}
+
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            gids = [s.enroll("home%d" % i, "east")[0] for i in range(4)]
+            days = [care_day(today - k, 144, 144) for k in range(7)]
+            s.care(gids[0], {"days": days, "offers": [sig("PLAN_UPGRADE", "upsell", "faster plan", "medium", 3),
+                                                      sig("MESH_WIFI", "upsell", "mesh Wi-Fi", "high")]}, now)
+            s.care(gids[1], {"days": days, "offers": [sig("PLAN_UPGRADE", "upsell", "faster plan", "high")]}, now)
+            s.care(gids[2], {"days": days, "offers": [sig("LINE_REPAIR", "repair", "a line repair", "high", 2),
+                                                      sig("RETENTION_RISK", "retention", "a call from the ISP",
+                                                          "medium", 7)]}, now)
+            s.care(gids[3], {"days": days}, now)        # an older gateway, or offers.share 0: nothing
+            r = fleet.report(s, 7, now=now)["signals"]
+            self.assertEqual(r["homes"], 3)
+            self.assertEqual(r["by_product"]["faster plan"], 2)
+            self.assertEqual(r["high"]["faster plan"], 1)
+            # repairs first, then who may leave, then sales by confidence
+            self.assertEqual([(o["home"], o["code"]) for o in r["list"]],
+                             [("home2", "LINE_REPAIR"), ("home2", "RETENTION_RISK"), ("home0", "MESH_WIFI"),
+                              ("home1", "PLAN_UPGRADE"), ("home0", "PLAN_UPGRADE")])
+            t = fleet.text(fleet.report(s, 7, now=now), now)
+            self.assertIn("signals      3 homes: faster plan 2 (1 high)", t)
+            self.assertIn("home2 (east): LINE_REPAIR, a line repair (high, 2 of 7 days): LINE_REPAIR evidence", t)
+            # a signal that is gone from the next report is closed; a report without the key changes nothing
+            s.care(gids[0], {"days": days, "offers": [sig("MESH_WIFI", "upsell", "mesh Wi-Fi", "high")]}, now + 3600)
+            s.care(gids[1], {"days": days}, now + 3600)
+            r = fleet.report(s, 7, now=now + 3600)["signals"]
+            self.assertEqual(r["by_product"].get("faster plan"), 1)
+            self.assertEqual(r["codes"]["MESH_WIFI"], 1)
+            # the bridge's report carries them inside care
+            s.report(gids[3], {"status": {"version": "0.32.0"}, "care": {"days": days, "offers": [
+                sig("SMART_QUEUE", "upsell", "smart queueing", "medium", 4)]}})
+            self.assertEqual(fleet.report(s, 7)["signals"]["codes"].get("SMART_QUEUE"), 1)
+
     def test_old_reports(self):
         from aigw_cortex import fleet
         with tempfile.TemporaryDirectory() as d:

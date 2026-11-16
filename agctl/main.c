@@ -48,6 +48,8 @@ static void usage(void)
 		"  why [device] [--at 20:00 | --from 19:30 --to 21:00 | --last 2h] [--raw]\n"
 		"                      \"why was it slow?\" afterwards: the home's timeline (the last hour by\n"
 		"                      default) explained, with what happened in order\n"
+		"  offers              signals for the ISP from the last week: a faster plan, smart queueing,\n"
+		"                      mesh Wi-Fi, a customer at risk, a line to repair; with the evidence\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
 		"  test trace <host>                 echo requests, the route,\n"
 		"  test download <url> [seconds]     an HTTP download (seconds: time based),\n"
@@ -1958,6 +1960,47 @@ static void show_why(struct ubus_request *req, int type, struct blob_attr *msg)
 		printf("    %-8s %-16s %s\n", fstr(f, "severity"), fstr(f, "code"), fstr(f, "text"));
 }
 
+/* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */
+static void show_offers(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s;
+	char none[160] = "", since[32];
+	size_t rem, l = 0;
+	int n = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "enabled")) {
+		printf("Signals for the ISP are off (offers.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	blobmsg_for_each_attr(s, field(msg, "signals"), rem)
+		n += fnum(s, "active") != 0;
+	printf("Signals for the ISP, from the last 7 days (%llu watched): %d found%s\n",
+	       (unsigned long long)fnum(msg, "days_watched"), n,
+	       fnum(msg, "learning") ? "; still learning: the home's own signals need 3 days" : "");
+	blobmsg_for_each_attr(s, field(msg, "signals"), rem) {
+		if (!fnum(s, "active")) {
+			if (l < sizeof(none))
+				l += (size_t)snprintf(none + l, sizeof(none) - l, "%s%s", l ? ", " : "", fstr(s, "product"));
+			continue;
+		}
+		clock_of(fnum(s, "since"), since, sizeof(since));
+		printf("  %-20s %s (%s, %s confidence, %llu of %llu days)\n", fstr(s, "product"), fstr(s, "code"),
+		       fstr(s, "kind"), fstr(s, "confidence"), (unsigned long long)fnum(s, "days"),
+		       (unsigned long long)fnum(s, "of_days"));
+		printf("  %-20s %s\n", "", fstr(s, "evidence"));
+		if (*fstr(s, "devices"))
+			printf("  %-20s devices: %s (stays home)\n", "", fstr(s, "devices"));
+	}
+	if (none[0])
+		printf("  %-20s %s\n", "not found", none);
+	printf("  %-20s %s\n", "the ISP", fnum(msg, "shared") ? "sees them as counts and words, without names (offers.share)" :
+	       "doesn't see them (offers.share 0)");
+}
+
 /* ---------- calls ---------- */
 
 static int call(const char *path, const char *method, struct blob_attr *args, ubus_data_handler_t cb)
@@ -2204,6 +2247,8 @@ int main(int argc, char **argv)
 			blobmsg_add_u8(&args, "forget", 1);
 		rc = call("ag", "upgrade", args.head, show_upgrade);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "offers")) {
+		rc = call("ag", "offers", NULL, show_offers);
 	} else if (!strcmp(cmd, "why")) {
 		long from = 0, to = 0, at = 0, last = 0, now = (long)time(NULL);
 		const char *host = NULL;

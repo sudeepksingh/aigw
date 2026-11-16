@@ -997,6 +997,18 @@ Verified by `tests/test_upgrade.c` (the verdict's rules on simulated homes) and 
 
 Verified by `tests/test_why.c` (18 evenings: a full line, a slow ISP, the line slow, a blip, an outage against a longer slowdown, a power cut against an agd restart, DNS, a poor access point, a laptop on a weak 2.4 GHz signal, a device kept off, a channel change just before a problem, the home's own normal, an unknown line speed, no timeline, loss) and `tests/why-test.sh` (CI: a fake hostapd, a sample every 2 s, the line sampled, a weak laptop's story, kept over an agd restart, the internet down, `WhySlow()`). Not yet run on a router for days. The per-minute echo requests are 9 packets a minute.
 
+**As built in v0.32: signals for the ISP.** What a home would buy (a faster plan, smart queueing, mesh Wi-Fi), why it may leave, and a line to repair first, from the last week, with the evidence and a confidence ([isp-signals.md](isp-signals.md)).
+
+| Piece | As built |
+|-------|----------|
+| The rules (`core/libag/offer.c`, `include/ag/offer.h`) | Pure: `offer_judge(days, care days, line speed)`. Each signal needs the same thing on 3 of the last 7 days that were watched (6 h of samples or more), so a busy evening isn't a sale. `PLAN_UPGRADE`: full 30 min a day. `SMART_QUEUE`: full and slow 15 min, and half the full time. `MESH_WIFI`: 2 devices weak 30 min, or one and 10 short drops. `RETENTION_RISK`: score < 90, −5 points on the week before, or 4 problems (care's days). `LINE_REPAIR`: 2 slow speed tests, and then no `PLAN_UPGRADE`. Confidence from what is known (the sold speed) and how many days. The evidence has no names; the weakest devices by name go in a separate field. |
+| The counts (`agd/offers.c`) | Fed by the timeline (`agd/why.c`): each sample adds its time; full time (`why_full`: 80% of the sold or tested speed, else of the most seen), and of it the evening and the slow part (`why_slow_ms` against care's normal for the hour); the peak; a weak device's time (the day's 16 weakest kept); a leave and rejoin within 2 min is a drop. 31 days in agd's state (`offers`). Judged hourly, and when someone asks. A signal that starts is told once (`OfferFound!`, held until agd is on ubus); what was told is saved, so a restart doesn't repeat it. `offers.share 0`: nothing in the data model, no event, nothing in the bridge's report. |
+| Data model (1.12) | `Device.X_AIGW_.Offers.` (3 values, then 5 for each signal), event `OfferFound!`. |
+| cortex | The bridge carries the active signals inside proactive care (`care.offers`). `store.offers` keeps one row per signal while it lasts, and closes it when a report no longer has it. The fleet report's `signals` section counts the homes by product and lists them: repairs, then homes at risk, then sales by confidence. |
+| agctl | `agctl offers` (with the devices by name), `ubus call ag offers` (and `today`: the day so far). |
+
+Verified by `tests/test_offer.c` (weeks of homes: every signal, its confidence, no pattern from two days, the repair holding back the sale, learning, the window), `tests/offers-test.sh` (CI: a week in agd's state; both signals, named only at home; the event once over a restart; the data model; today counted from samples; share 0) and `tests/test_cortex.py` (the fleet report's signals). Not yet on real homes for a week.
+
 ---
 
 ## 17. Status and risks
