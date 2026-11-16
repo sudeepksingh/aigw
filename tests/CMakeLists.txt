@@ -25,6 +25,10 @@ add_executable(test_warn test_warn.c)
 target_link_libraries(test_warn ag)
 add_test(NAME early_warning COMMAND test_warn)
 
+add_executable(test_upgrade test_upgrade.c)
+target_link_libraries(test_upgrade ag)
+add_test(NAME upgrade_check COMMAND test_upgrade)
+
 add_executable(test_tr143 test_tr143.c)
 target_link_libraries(test_tr143 ag)
 add_test(NAME tr143_diagnostics COMMAND test_tr143)

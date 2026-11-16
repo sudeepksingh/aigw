@@ -74,6 +74,11 @@ void agd_emit(const char *type, struct blob_buf *msg)
 	agd_emit_from(type, msg, NULL);
 }
 
+int agd_connected(void)
+{
+	return conn.ctx.sock.fd >= 0;
+}
+
 /* ---------- sensor events ---------- */
 
 enum { EV_CLIENT, EV_QNAME, EV_QTYPE, EV_RCODE, EV_LAT, EV_ANSWERS, EV_TTL, EV_BLOCKED, __EV_MAX };
@@ -980,10 +985,33 @@ static int m_care(struct ubus_context *ctx, struct ubus_object *obj, struct ubus
 	return 0;
 }
 
+/* ag upgrade {forget}: the last firmware upgrade's check; forget: lift the hold on a version rolled back */
+enum { UG_FORGET, __UG_MAX };
+static const struct blobmsg_policy upgrade_policy[__UG_MAX] = {
+	[UG_FORGET] = { "forget", BLOBMSG_TYPE_BOOL },
+};
+
+static int m_upgrade(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		     const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__UG_MAX];
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(upgrade_policy, __UG_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (tb[UG_FORGET] && blobmsg_get_bool(tb[UG_FORGET]))
+		blobmsg_add_u8(&b, "forgot", (uint8_t)upgrade_forget());
+	upgrade_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 	UBUS_METHOD("care", m_care, care_policy),
+	UBUS_METHOD("upgrade", m_upgrade, upgrade_policy),
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1049,6 +1077,7 @@ static void poll_cb(struct uloop_timeout *t)
 	fastpath_tick();
 	baseline_tick();
 	act_tick();
+	upgrade_tick();
 	keys_tick();
 	remote_tick();
 	plugin_tick();
@@ -1088,6 +1117,7 @@ int main(int argc, char **argv)
 	heal_init();
 	tr143_init();
 	care_init();
+	upgrade_init();                 /* after the state and proactive care: a watch may go on */
 	keys_init();
 	plugin_init();
 

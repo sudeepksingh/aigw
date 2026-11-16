@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.9. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.10. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-9" file="aigw-dm-1-9.xml">
+             spec="urn:aigw-os:aigw-dm-1-10" file="aigw-dm-1-10.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.9">
+  <model name="AIGW-OS:1.10">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -133,6 +133,13 @@
         <parameter name="Since"><syntax><string/></syntax></parameter>
         <parameter name="DurationSeconds"><syntax><string/></syntax></parameter>
         <parameter name="BecameProblem"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="UpgradeChecked!">
+        <parameter name="Result"><syntax><string/></syntax></parameter>
+        <parameter name="FromVersion"><syntax><string/></syntax></parameter>
+        <parameter name="ToVersion"><syntax><string/></syntax></parameter>
+        <parameter name="Reasons"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
       </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
@@ -300,6 +307,30 @@
       <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Findings" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Upgrade." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="AutoRollback" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="WatchSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="FromVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ToVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Activated" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Ended" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="DevicesBefore" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DevicesBack" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Reasons" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ScoreBefore" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="ScoreAfter" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="RollbackConfirmed" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="HeldVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="HeldUntil" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <command name="Forget()">
+        <output>
+          <parameter name="Forgotten"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth." access="readOnly" minEntries="1" maxEntries="1">
     </object>

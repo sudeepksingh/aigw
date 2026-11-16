@@ -42,7 +42,7 @@
 #include "ag/tr143.h"
 #include "agd.h"
 
-#define DM_VERSION "1.9"
+#define DM_VERSION "1.10"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -856,6 +856,27 @@ GET(g_sp_last) { (void)c; fmt_time(care_speed_last(NULL), buf, n); return 0; }
 GET(g_sp_mbps) { double v = 0; (void)c; care_speed_last(&v); snprintf(buf, n, "%.1f", v); return 0; }
 GET(g_sp_expect) { (void)c; snprintf(buf, n, "%d", cfg.care_speed_mbps); return 0; }
 
+/* firmware upgrades that check themselves (Device.X_AIGW_.Upgrade.) */
+GET(g_up_en) { (void)c; snprintf(buf, n, "%s", cfg.upgrade_check ? "true" : "false"); return 0; }
+GET(g_up_rb) { (void)c; snprintf(buf, n, "%s", cfg.upgrade_rollback ? "true" : "false"); return 0; }
+GET(g_up_watch) { (void)c; snprintf(buf, n, "%d", cfg.upgrade_watch); return 0; }
+#define UPF(fn, f) GET(fn) { (void)c; return upgrade_field(f, buf, n); }
+#define UPT(fn, f) GET(fn) { char v[24] = "0"; (void)c; upgrade_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+UPF(g_up_status, "Status")
+UPF(g_up_from, "FromVersion")
+UPF(g_up_to, "ToVersion")
+UPT(g_up_act, "Activated")
+UPT(g_up_end, "Ended")
+UPF(g_up_dbefore, "DevicesBefore")
+UPF(g_up_dback, "DevicesBack")
+UPF(g_up_reasons, "Reasons")
+UPF(g_up_summary, "Summary")
+UPF(g_up_sbefore, "ScoreBefore")
+UPF(g_up_safter, "ScoreAfter")
+UPF(g_up_conf, "RollbackConfirmed")
+UPF(g_up_held, "HeldVersion")
+UPT(g_up_until, "HeldUntil")
+
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1091,6 +1112,23 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Care.Speed.LastTest", T_TIME, 0, TB_NONE, g_sp_last, NULL },
 	{ "Device.X_AIGW_.Care.Speed.LastMbps", T_DEC, 0, TB_NONE, g_sp_mbps, NULL },
 	{ "Device.X_AIGW_.Care.Speed.ExpectedMbps", T_UINT, 0, TB_NONE, g_sp_expect, NULL },
+	{ "Device.X_AIGW_.Upgrade.Enable", T_BOOL, 0, TB_NONE, g_up_en, NULL },
+	{ "Device.X_AIGW_.Upgrade.AutoRollback", T_BOOL, 0, TB_NONE, g_up_rb, NULL },
+	{ "Device.X_AIGW_.Upgrade.WatchSeconds", T_UINT, 0, TB_NONE, g_up_watch, NULL },
+	{ "Device.X_AIGW_.Upgrade.Status", T_STR, N, TB_NONE, g_up_status, NULL },
+	{ "Device.X_AIGW_.Upgrade.FromVersion", T_STR, 0, TB_NONE, g_up_from, NULL },
+	{ "Device.X_AIGW_.Upgrade.ToVersion", T_STR, 0, TB_NONE, g_up_to, NULL },
+	{ "Device.X_AIGW_.Upgrade.Activated", T_TIME, 0, TB_NONE, g_up_act, NULL },
+	{ "Device.X_AIGW_.Upgrade.Ended", T_TIME, 0, TB_NONE, g_up_end, NULL },
+	{ "Device.X_AIGW_.Upgrade.DevicesBefore", T_UINT, 0, TB_NONE, g_up_dbefore, NULL },
+	{ "Device.X_AIGW_.Upgrade.DevicesBack", T_UINT, 0, TB_NONE, g_up_dback, NULL },
+	{ "Device.X_AIGW_.Upgrade.Reasons", T_STR, 0, TB_NONE, g_up_reasons, NULL },
+	{ "Device.X_AIGW_.Upgrade.Summary", T_STR, 0, TB_NONE, g_up_summary, NULL },
+	{ "Device.X_AIGW_.Upgrade.ScoreBefore", T_INT, 0, TB_NONE, g_up_sbefore, NULL },
+	{ "Device.X_AIGW_.Upgrade.ScoreAfter", T_INT, 0, TB_NONE, g_up_safter, NULL },
+	{ "Device.X_AIGW_.Upgrade.RollbackConfirmed", T_STR, N, TB_NONE, g_up_conf, NULL },
+	{ "Device.X_AIGW_.Upgrade.HeldVersion", T_STR, 0, TB_NONE, g_up_held, NULL },
+	{ "Device.X_AIGW_.Upgrade.HeldUntil", T_TIME, 0, TB_NONE, g_up_until, NULL },
 
 	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
@@ -1379,6 +1417,17 @@ static int r_fw_activate(const struct ictx *c, struct blob_attr *a, struct blob_
 		E_REFUSED : E_PENDING;
 }
 
+/* Upgrade.Forget(): a version AIGW rolled back may be installed again */
+static int r_up_forget(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
+{
+	(void)c;
+	(void)a;
+	if (!fw_allowed(e, n))
+		return E_REFUSED;
+	blobmsg_add_string(o, "Forgotten", upgrade_forget() ? "true" : "false");
+	return E_OK;
+}
+
 /* ---------- Diagnose (asynchronous: about 3 s of measuring) ---------- */
 
 /* the verdict as the command's outputs: flat values, the same for USP and TR-069 */
@@ -1490,6 +1539,7 @@ static struct dm_cmd {
 	{ "Device.DeviceInfo.FirmwareImage.{i}.Download()", TB_FW,
 	  "URL,AutoActivate,Username,Password,FileSize,CheckSumAlgorithm,CheckSum", "", r_fw_download, 0, 1 },
 	{ "Device.DeviceInfo.FirmwareImage.{i}.Activate()", TB_FW, "", "", r_fw_activate, 0, 1 },
+	{ "Device.X_AIGW_.Upgrade.Forget()", TB_NONE, "", "Forgotten", r_up_forget, 0, 0 },
 	{ "Device.X_AIGW_.Diagnose()", TB_NONE, "Host",
 	  "Code,Area,Severity,Summary,Advice,Findings,InternetLossPercent,InternetLatencyMs,NextHopLatencyMs,DNSLatencyMs",
 	  r_diagnose, 0, 1 },
@@ -1530,6 +1580,7 @@ static struct {
 	{ "Device.X_AIGW_.ProblemCleared!", "Code,Area,Since,DurationSeconds" },
 	{ "Device.X_AIGW_.EarlyWarning!", "Metric,Area,Kind,Summary,Advice,Normal,Current,PredictedFaultDays,Since" },
 	{ "Device.X_AIGW_.EarlyWarningCleared!", "Metric,Area,Since,DurationSeconds,BecameProblem" },
+	{ "Device.X_AIGW_.UpgradeChecked!", "Result,FromVersion,ToVersion,Reasons,Summary" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -2109,6 +2160,15 @@ void dm_on_warning(int opened)
 		snprintf(dur, sizeof(dur), "%ld", w->duration);
 		emit(events[7].path, kv);   /* EarlyWarningCleared! */
 	}
+}
+
+/* upgrade.c: a firmware upgrade's verdict, and whether going back put it right (UpgradeChecked!) */
+void dm_on_upgrade(const char *result, const char *from, const char *to, const char *reasons, const char *summary)
+{
+	const char *kv[] = { "Result", result, "FromVersion", from, "ToVersion", to, "Reasons", reasons,
+			     "Summary", summary, NULL };
+
+	emit(events[8].path, kv);           /* UpgradeChecked! */
 }
 
 /* ---------- state ---------- */

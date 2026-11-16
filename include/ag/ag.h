@@ -21,6 +21,7 @@
 #define AG_EV_PLUGIN "ag.plugin"   /* plug-in lifecycle; plug-ins' own events use their types (iot.*) */
 #define AG_EV_MODEL "ag.model"     /* a model update loaded, refused or rolled back */
 #define AG_EV_CARE "ag.care"       /* proactive care: a problem found, reported, over */
+#define AG_EV_UPGRADE "ag.upgrade" /* a firmware upgrade: watched, kept, worse, rolled back */
 #define AG_EV_DM "ag.dm.event"     /* a data model event (TR-181 path ending in '!'), for USP / TR-069 */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
@@ -145,6 +146,14 @@ struct ag_config {
 	int mgmt_reset;           /* may it reboot the gateway or reset it to factory settings */
 	char wifi_handler[128];   /* program that saves and applies Wi-Fi settings; empty: the platform's */
 	char fw_handler[128];     /* program that downloads, checks and activates firmware; empty: the platform's */
+	/* firmware upgrades that check themselves (agd/upgrade.c) */
+	int upgrade_check;        /* compare the home before and after an upgrade */
+	int upgrade_rollback;     /* worse: boot the previous image again, by itself */
+	int upgrade_watch;        /* s the new image is watched */
+	int upgrade_reconnect;    /* s devices have to come back */
+	int upgrade_hold_days;    /* a version rolled back isn't installed again for this long */
+	int upgrade_report_delay; /* s: a verdict found at start is told this much later (protocol clients starting) */
+	char upgrade_file[256];   /* the record (kept over the upgrade); empty: beside state_file */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

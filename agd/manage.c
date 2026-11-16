@@ -389,7 +389,22 @@ struct fw_job {
 	char who[48];
 	fw_done_t done;
 	void *ctx;
+	uint32_t from_id;               /* the image running when it was asked for (the upgrade check) */
+	char from_ver[64];
 };
+
+/* the image running now */
+static void fw_running(struct fw_job *j)
+{
+	struct fw_image all[FW_MAX];
+	int i, n = fw_list(all, FW_MAX);
+
+	for (i = 0; i < n; i++)
+		if (all[i].active) {
+			j->from_id = all[i].id;
+			snprintf(j->from_ver, sizeof(j->from_ver), "%s", all[i].version);
+		}
+}
 
 static struct uloop_timeout reboot_timer;
 
@@ -430,10 +445,12 @@ static void fw_activated(void *ctx, int code, const char *msg)
 {
 	struct fw_job *j = ctx;
 
-	if (code == 0)
+	if (code == 0) {
 		AG_INFO("firmware: image %u activated (asked by %s)", j->id, j->who);
-	else
+	} else {
 		AG_WARN("firmware: image %u not activated (exit %d): %s", j->id, code, msg);
+		upgrade_on_activate_failed(j->who);
+	}
 	fw_finish(j, code == 0, code == 0 ? "" : msg[0] ? msg : "activation failed");
 }
 
@@ -441,7 +458,12 @@ static int fw_start_activate(struct fw_job *j)
 {
 	const char *prog = fw_handler();
 	char id[16], *argv[] = { (char *)prog, "activate", id, NULL };
+	struct fw_image to;
 
+	/* the home as it is now, to compare after the reboot: before the handler runs, as
+	   it may not return (OpenWRT's sysupgrade reboots) */
+	if (prog && fw_find(j->id, &to) == 0)
+		upgrade_on_activated(j->id, to.version, j->from_id, j->from_ver, j->who);
 	snprintf(id, sizeof(id), "%u", j->id);
 	fw_busy = j->id;
 	snprintf(fw_busy_state, sizeof(fw_busy_state), "Available");
@@ -459,6 +481,15 @@ static void fw_downloaded(void *ctx, int code, const char *msg)
 	}
 	AG_INFO("firmware: image %u downloaded and checked (asked by %s)", j->id, j->who);
 	if (j->activate) {
+		struct fw_image f;
+		char err[600];
+
+		fw_forget();
+		if (fw_find(j->id, &f) == 0 && upgrade_refused(f.version, err, sizeof(err))) {
+			AG_WARN("firmware: image %u not activated: %s", j->id, err);
+			fw_finish(j, 0, err);
+			return;
+		}
 		if (fw_start_activate(j) == 0)
 			return;
 		fw_finish(j, 0, "cannot run the firmware handler");
@@ -505,6 +536,7 @@ int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_don
 	j->done = done;
 	j->ctx = ctx;
 	snprintf(j->who, sizeof(j->who), "%s", who);
+	fw_running(j);
 	snprintf(sid, sizeof(sid), "%u", id);
 	snprintf(e_user, sizeof(e_user), "AIGW_FW_USER=%s", r->user ? r->user : "");
 	snprintf(e_pass, sizeof(e_pass), "AIGW_FW_PASSWORD=%s", r->password ? r->password : "");
@@ -578,6 +610,8 @@ int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *
 		snprintf(err, en, "image %u is %s: nothing to activate", id, f.status);
 		return -1;
 	}
+	if (!f.active && upgrade_refused(f.version, err, en))
+		return -1;
 	if (!(j = calloc(1, sizeof(*j))))
 		return -1;
 	j->id = id;
@@ -586,6 +620,7 @@ int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *
 	j->done = done;
 	j->ctx = ctx;
 	snprintf(j->who, sizeof(j->who), "%s", who);
+	fw_running(j);
 	AG_INFO("firmware: activating image %u (asked by %s)", id, who);
 	if (fw_start_activate(j) < 0) {
 		fw_busy = 0;
