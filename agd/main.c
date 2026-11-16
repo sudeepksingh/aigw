@@ -1051,12 +1051,26 @@ static int m_why(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_
 	return 0;
 }
 
+/* ag offers: signals for the ISP, with the devices by name (this is the home's own view) */
+static int m_offers(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		    const char *method, struct blob_attr *msg)
+{
+	(void)obj;
+	(void)method;
+	(void)msg;
+	blob_buf_init(&b, 0);
+	offers_blob(&b, 1);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 	UBUS_METHOD("care", m_care, care_policy),
 	UBUS_METHOD("upgrade", m_upgrade, upgrade_policy),
 	UBUS_METHOD("why", m_why, why_policy),
+	UBUS_METHOD_NOARG("offers", m_offers),
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1164,6 +1178,7 @@ int main(int argc, char **argv)
 	care_init();
 	upgrade_init();                 /* after the state and proactive care: a watch may go on */
 	why_init();                     /* the home's timeline: after proactive care (its speed test) */
+	offers_init();                  /* signals for the ISP, counted from the timeline */
 	keys_init();
 	plugin_init();
 

@@ -43,7 +43,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.11"
+#define DM_VERSION "1.12"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -886,6 +886,20 @@ WYF(g_wy_samples, "Samples")
 WYF(g_wy_events, "Events")
 GET(g_wy_since) { char v[24] = "0"; (void)c; why_field("RecordedSince", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
 
+/* signals for the ISP (Device.X_AIGW_.Offers.) */
+#define OFF(fn, f) GET(fn) { (void)c; return offers_field(f, buf, n); }
+#define OFT(fn, f) GET(fn) { char v[24] = "0"; (void)c; offers_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+#define OFFERS(P, N) OFF(g_of_##N##_a, P ".Active") OFF(g_of_##N##_c, P ".Confidence") OFF(g_of_##N##_d, P ".Days") \
+	OFT(g_of_##N##_s, P ".Since") OFF(g_of_##N##_e, P ".Evidence")
+OFF(g_of_en, "Enable")
+OFF(g_of_sh, "Shared")
+OFF(g_of_sig, "Signals")
+OFFERS("PlanUpgrade", plan)
+OFFERS("SmartQueue", sqm)
+OFFERS("MeshWiFi", mesh)
+OFFERS("Retention", ret)
+OFFERS("LineRepair", rep)
+
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1143,7 +1157,17 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Timeline.RecordedSince", T_TIME, 0, TB_NONE, g_wy_since, NULL },
 	{ "Device.X_AIGW_.Timeline.Samples", T_UINT, 0, TB_NONE, g_wy_samples, NULL },
 	{ "Device.X_AIGW_.Timeline.Events", T_UINT, 0, TB_NONE, g_wy_events, NULL },
-	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
+	{ "Device.X_AIGW_.Offers.Enable", T_BOOL, 0, TB_NONE, g_of_en, NULL },
+	{ "Device.X_AIGW_.Offers.Shared", T_BOOL, 0, TB_NONE, g_of_sh, NULL },
+	{ "Device.X_AIGW_.Offers.Signals", T_STR, N, TB_NONE, g_of_sig, NULL },
+#define OFP(P, N) \
+	{ "Device.X_AIGW_.Offers." P ".Active", T_BOOL, 0, TB_NONE, g_of_##N##_a, NULL }, \
+	{ "Device.X_AIGW_.Offers." P ".Confidence", T_STR, 0, TB_NONE, g_of_##N##_c, NULL }, \
+	{ "Device.X_AIGW_.Offers." P ".Days", T_UINT, 0, TB_NONE, g_of_##N##_d, NULL }, \
+	{ "Device.X_AIGW_.Offers." P ".Since", T_TIME, 0, TB_NONE, g_of_##N##_s, NULL }, \
+	{ "Device.X_AIGW_.Offers." P ".Evidence", T_STR, 0, TB_NONE, g_of_##N##_e, NULL }
+	OFP("PlanUpgrade", plan), OFP("SmartQueue", sqm), OFP("MeshWiFi", mesh), OFP("Retention", ret),
+	OFP("LineRepair", rep),	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
 #define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
 #define TIN(O, P, T) { O P, T, W, TB_NONE, g_tr143, s_tr143 }
@@ -1695,7 +1719,7 @@ static struct {
 	{ "Device.X_AIGW_.EarlyWarning!", "Metric,Area,Kind,Summary,Advice,Normal,Current,PredictedFaultDays,Since" },
 	{ "Device.X_AIGW_.EarlyWarningCleared!", "Metric,Area,Since,DurationSeconds,BecameProblem" },
 	{ "Device.X_AIGW_.UpgradeChecked!", "Result,FromVersion,ToVersion,Reasons,Summary" },
-};
+	{ "Device.X_AIGW_.OfferFound!", "Code,Kind,Product,Confidence,Evidence" },};
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
 /* ---------- paths ---------- */
@@ -2283,6 +2307,15 @@ void dm_on_upgrade(const char *result, const char *from, const char *to, const c
 			     "Summary", summary, NULL };
 
 	emit(events[8].path, kv);           /* UpgradeChecked! */
+}
+
+/* offers.c: a signal for the ISP that started (OfferFound!) */
+void dm_on_offer(const char *code, const char *kind, const char *product, const char *confidence, const char *evidence)
+{
+	const char *kv[] = { "Code", code, "Kind", kind, "Product", product, "Confidence", confidence, "Evidence", evidence,
+			     NULL };
+
+	emit(events[9].path, kv);           /* OfferFound! */
 }
 
 /* ---------- state ---------- */

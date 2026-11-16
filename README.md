@@ -46,6 +46,18 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.32:** **Signals for the ISP: what a home would buy, or why it may
+> leave.** The gateway sees which homes fill their line most evenings, whose
+> devices spend hours on a weak signal, whose calls stutter while someone
+> downloads, and which homes are having a bad week. From the last 7 days it
+> gives signals with their evidence and a confidence: a faster plan, smart
+> queueing, mesh Wi-Fi, a customer at risk, and a line to repair first, when
+> the line itself underdelivers (then nothing is sold on it). The ISP gets
+> them over USP and TR-069 (`Device.X_AIGW_.Offers.`, `OfferFound!`) and in
+> cortex's fleet report, in the order a team would call: counts and words,
+> never a device's name (`offers.share 0` keeps them home). `agctl offers`;
+> see [docs/isp-signals.md](docs/isp-signals.md).
+>
 > **v0.31:** **"Why was it slow at 8?", answered afterwards.** The call a
 > help desk gets is about last night, and by then Diagnose can only look at
 > now. AIGW keeps a timeline of the home: a sample every minute (the line's

@@ -210,6 +210,17 @@ config why 'why'
 	# on OpenWRT (memory: no flash writes), /var/lib/aigw/agd-why.bin else
 	# option file ''
 
+config offers 'offers'
+	# signals for the ISP from the last week (agctl offers,
+	# Device.X_AIGW_.Offers., docs/isp-signals.md): a faster plan (the line
+	# full most evenings), smart queueing (the rest slows while it is full),
+	# mesh Wi-Fi (devices on a weak signal for hours), a customer at risk (a
+	# bad week), a line to repair (it delivers less than its speed)
+	option enabled '1'
+	# the ISP may see them (the data model, OfferFound!, cortex's fleet
+	# report): counts and words, never a device's name. 0: they stay home
+	option share '1'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

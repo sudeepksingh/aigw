@@ -19,6 +19,9 @@ never names), for the last --days days against the days before:
                within minutes of each other: the ISP's network, not the homes
   attention    the homes a help desk should look at first: an open problem, a
                warning that says a fault is near, a poor score, a gateway gone quiet
+  signals      (v0.32) what homes would buy, or why they may leave, as each gateway saw
+               it over its last week, with the evidence: a faster plan, smart queueing,
+               mesh Wi-Fi, a customer at risk, a line to repair first
 """
 import statistics
 import time
@@ -29,6 +32,9 @@ OUTAGE_WINDOW = 900             # s: problems this close together belong to one 
 OUTAGE_MIN_HOMES = 3
 OUTAGE_SHARE = 0.1              # ... and at least this share of the group's homes
 SILENT_S = 86400
+# the order a sales or care team works through the signals: what the ISP owes first, then who may leave
+OFFER_ORDER = {"repair": 0, "retention": 1, "upsell": 2}
+CONFIDENCE = {"high": 0, "medium": 1, "low": 2}
 AREAS = (("internet", "Internet"), ("dns", "DNS"), ("wifi", "WiFi"), ("device", "Device"), ("aigw", "AIGW"))
 
 
@@ -88,6 +94,23 @@ def outages(events, groups, window=OUTAGE_WINDOW, min_homes=OUTAGE_MIN_HOMES, sh
         if cluster:
             close(cluster)
     return sorted(found, key=lambda o: -o["start"])
+
+
+def signals(store, ids, names, groups, limit=30):
+    """Each home's open signals for the ISP (v0.32): how many homes, by product, and
+    the list in the order a team would call: repairs, homes at risk, then sales by
+    confidence."""
+    rows = store.offers_open(ids)
+    by = Counter(r["product"] or r["code"] for r in rows)
+    high = Counter(r["product"] or r["code"] for r in rows if r["confidence"] == "high")
+    homes = {r["gateway"] for r in rows}
+    rows.sort(key=lambda r: (OFFER_ORDER.get(r["kind"], 3), CONFIDENCE.get(r["confidence"], 3), -r["days"], r["since"],
+                         names.get(r["gateway"], ""), r["code"]))
+    return {"homes": len(homes), "by_product": dict(by.most_common()), "high": dict(high),
+            "codes": dict(Counter(r["code"] for r in rows).most_common()),
+            "list": [{"home": names[r["gateway"]], "group": groups[r["gateway"]], "code": r["code"], "kind": r["kind"],
+                      "product": r["product"], "confidence": r["confidence"], "days": r["days"],
+                      "of_days": r["of_days"], "since": r["since"], "evidence": r["evidence"]} for r in rows[:limit]]}
 
 
 def report(store, days=7, group=None, now=None):
@@ -166,6 +189,7 @@ def report(store, days=7, group=None, now=None):
                   "tests": fleet["speed_tests"], "tests_below_line_speed": fleet["speed_low"],
                   "homes_below_line_speed": sum(1 for h in homes.values() if h["speed_low"])},
         "outages": outages(events, groups),
+        "signals": signals(store, ids, names, groups),
         "attention": attention[:30],
         "per_home": sorted(homes.values(), key=lambda h: (h["score"] is None, h["score"] or 0)),
     }
@@ -218,6 +242,15 @@ def text(r, now=None):
                    (f" in {o['group']}" if o["group"] else "") +
                    f" from {_when(o['start'])} (within {max(1, o['spread_s'] // 60)} min: {codes}): the ISP's "
                    f"network, not the homes; {state}")
+    sg = r.get("signals") or {}
+    if sg.get("homes"):
+        prods = ", ".join(f"{k} {v}" + (f" ({sg['high'][k]} high)" if sg["high"].get(k) else "")
+                          for k, v in sg["by_product"].items())
+        out.append(f"  signals      {sg['homes']} home{'' if sg['homes'] == 1 else 's'}: {prods}")
+        for o in sg["list"]:
+            where = f" ({o['group']})" if o.get("group") else ""
+            out.append(f"    {o['home']}{where}: {o['code']}, {o['product']} ({o['confidence']}, {o['days']} of "
+                       f"{o['of_days']} days): {o['evidence']}")
     if r["attention"]:
         out.append("  attention")
     for a in r["attention"]:

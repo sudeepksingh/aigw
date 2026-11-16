@@ -193,6 +193,8 @@ void ag_config_load(struct ag_config *c)
 	c->why_hours = 72;
 	c->why_interval = 60;
 	c->why_probe = 1;
+	c->offers = 1;
+	c->offers_share = 1;
 	/* in memory on a router (a reboot is itself in the story: the gap); on a PC, on disk */
 	copy(c->why_file, sizeof(c->why_file), owrt ? "/tmp/aigw/agd-why.bin" : "/var/lib/aigw/agd-why.bin");
 	c->mgmt_reset = 1;
@@ -459,6 +461,12 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "why", "file");
 		if (v)
 			copy(c->why_file, sizeof(c->why_file), v);
+		v = opt(ctx, p, "offers", "enabled");
+		if (v)
+			c->offers = atoi(v) != 0;
+		v = opt(ctx, p, "offers", "share");
+		if (v)
+			c->offers_share = atoi(v) != 0;
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

@@ -53,6 +53,11 @@ CREATE TABLE IF NOT EXISTS care_events (
     gateway TEXT, kind TEXT, code TEXT, area TEXT, since INTEGER, until INTEGER DEFAULT 0,
     reported INTEGER DEFAULT 0, summary TEXT DEFAULT '', predict INTEGER DEFAULT -1,
     PRIMARY KEY (gateway, kind, code, since));
+-- v0.32: signals for the ISP (a faster plan, mesh Wi-Fi, a customer at risk...), one row per signal while it lasts
+CREATE TABLE IF NOT EXISTS offers (
+    gateway TEXT, code TEXT, since INTEGER, kind TEXT DEFAULT '', product TEXT DEFAULT '', confidence TEXT DEFAULT '',
+    days INTEGER DEFAULT 0, of_days INTEGER DEFAULT 0, evidence TEXT DEFAULT '', seen INTEGER DEFAULT 0,
+    until INTEGER DEFAULT 0, PRIMARY KEY (gateway, code, since));
 """
 
 # a day's row from a gateway (agd's care_days_blob) -> care_days' columns
@@ -219,7 +224,36 @@ class Store:
             if (r["kind"], r["code"], r["since"]) not in open_now:
                 self.x("UPDATE care_events SET until = ? WHERE gateway = ? AND kind = ? AND code = ? AND since = ?",
                        (now, gw, r["kind"], r["code"], r["since"]))
+        self.offers(gw, c.get("offers"), now)
 
+    def offers(self, gw, offers, now=None):
+        """A gateway's signals for the ISP (v0.32): one row per signal while it lasts,
+        closed when a report no longer has it. Reports without the key (older
+        gateways, offers.share 0) leave what is there alone."""
+        if not isinstance(offers, list):
+            return
+        now = int(now or time.time())
+        open_now = set()
+        for o in offers:
+            try:
+                key = (str(o["code"]), int(o.get("since") or 0))
+            except (KeyError, TypeError, ValueError):
+                continue
+            open_now.add(key)
+            self.x("INSERT OR IGNORE INTO offers (gateway, code, since) VALUES (?, ?, ?)", (gw, *key))
+            self.x("UPDATE offers SET kind = ?, product = ?, confidence = ?, days = ?, of_days = ?, evidence = ?, "
+                   "seen = ?, until = 0 WHERE gateway = ? AND code = ? AND since = ?",
+                   (str(o.get("kind", "")), str(o.get("product", "")), str(o.get("confidence", "")),
+                    int(o.get("days", 0) or 0), int(o.get("of_days", 0) or 0), str(o.get("evidence", ""))[:400],
+                    now, gw, *key))
+        for r in self.q("SELECT code, since FROM offers WHERE gateway = ? AND until = 0", (gw,)):
+            if (r["code"], r["since"]) not in open_now:
+                self.x("UPDATE offers SET until = ? WHERE gateway = ? AND code = ? AND since = ?",
+                       (now, gw, r["code"], r["since"]))
+
+    def offers_open(self, gws=None):
+        rows = self.q("SELECT * FROM offers WHERE until = 0 ORDER BY since")
+        return [r for r in rows if gws is None or r["gateway"] in gws]
     def care_days(self, first_day, last_day, gws=None):
         rows = self.q("SELECT * FROM care_days WHERE day >= ? AND day <= ?", (first_day, last_day))
         return [r for r in rows if gws is None or r["gateway"] in gws]

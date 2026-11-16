@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.11. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.12. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-11" file="aigw-dm-1-11.xml">
+             spec="urn:aigw-os:aigw-dm-1-12" file="aigw-dm-1-12.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.11">
+  <model name="AIGW-OS:1.12">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -159,6 +159,13 @@
         <parameter name="ToVersion"><syntax><string/></syntax></parameter>
         <parameter name="Reasons"><syntax><string/></syntax></parameter>
         <parameter name="Summary"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="OfferFound!">
+        <parameter name="Code"><syntax><string/></syntax></parameter>
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="Product"><syntax><string/></syntax></parameter>
+        <parameter name="Confidence"><syntax><string/></syntax></parameter>
+        <parameter name="Evidence"><syntax><string/></syntax></parameter>
       </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
@@ -326,6 +333,11 @@
       <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Findings" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Offers." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Shared" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Signals" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Timeline." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
@@ -587,6 +599,41 @@
           <parameter name="State"><syntax><string/></syntax></parameter>
         </output>
       </command>
+    </object>
+    <object name="Device.X_AIGW_.Offers.LineRepair." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Active" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Days" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Offers.MeshWiFi." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Active" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Days" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Offers.PlanUpgrade." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Active" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Days" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Offers.Retention." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Active" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Days" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Offers.SmartQueue." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Active" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Days" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="WiFiHealthNumberOfEntries">
       <parameter name="Radio" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>

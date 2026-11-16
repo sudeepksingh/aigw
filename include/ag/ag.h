@@ -160,6 +160,9 @@ struct ag_config {
 	int why_interval;         /* s between samples (60; less only for tests) */
 	int why_probe;            /* each sample sends 3 echo requests to the next router and the internet */
 	char why_file[256];       /* where it is kept over a restart of agd; "" not kept */
+	/* signals for the ISP (agd/offers.c) */
+	int offers;               /* a faster plan, mesh Wi-Fi, smart queueing, a customer at risk, a line to repair */
+	int offers_share;         /* the ISP may see them (data model, cortex): counts and words, never names */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

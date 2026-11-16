@@ -34,6 +34,10 @@ target_link_libraries(test_why ag)
 add_test(NAME why_slow COMMAND test_why)
 set_tests_properties(why_slow PROPERTIES ENVIRONMENT "TZ=UTC")
 
+add_executable(test_offer test_offer.c)
+target_link_libraries(test_offer ag)
+add_test(NAME isp_signals COMMAND test_offer)
+
 add_executable(test_tr143 test_tr143.c)
 target_link_libraries(test_tr143 ag)
 add_test(NAME tr143_diagnostics COMMAND test_tr143)
