@@ -46,6 +46,19 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.31:** **"Why was it slow at 8?", answered afterwards.** The call a
+> help desk gets is about last night, and by then Diagnose can only look at
+> now. AIGW keeps a timeline of the home: a sample every minute (the line's
+> delay and loss, how full the WAN was, DNS, each access point's Wi-Fi health,
+> the devices downloading most) and what happened (devices joining, leaving,
+> changing band or losing signal, channel changes, AIGW's own decisions,
+> problems, speed tests, upgrades, restarts). Asked about a stretch, it gives
+> a verdict with Diagnose's codes, against the home's normal at those hours,
+> and what happened in order. For example: "The line was used to its speed
+> for 24 min: 47 of 50 Mbit/s, most of it by the TV. Nothing was broken." That
+> is a call answered, not a truck sent. `agctl why --at 20:00`,
+> `Device.X_AIGW_.WhySlow()`; see [docs/why-slow.md](docs/why-slow.md).
+>
 > **v0.30:** **Firmware upgrades that check themselves.** A firmware handler
 > only knows whether a new image booted. AIGW knows whether the home works as
 > well on it. It records the home when an image is activated (USP, TR-069 or

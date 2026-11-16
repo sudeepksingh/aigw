@@ -194,6 +194,22 @@ config upgrade 'upgrade'
 	# the record, kept over the upgrade; default beside main.state_file
 	# option file ''
 
+config why 'why'
+	# "why was it slow?" afterwards (agctl why, Device.X_AIGW_.WhySlow(),
+	# docs/why-slow.md): a sample of the home every minute (the line, the
+	# WAN's use, DNS, Wi-Fi health, the busiest devices) and what happened
+	# (devices joining, leaving, changing band; channels; AIGW's decisions;
+	# care's problems; speed tests; upgrades; restarts)
+	option enabled '1'
+	# how far back it goes (1 to 168); about 90 KB an hour of memory
+	# option hours '72'
+	# each sample sends 3 echo requests to the next router and to the
+	# internet (diag.targets): about 9 packets a minute
+	# option probe '1'
+	# where it is kept over a restart of agd; default /tmp/aigw/agd-why.bin
+	# on OpenWRT (memory: no flash writes), /var/lib/aigw/agd-why.bin else
+	# option file ''
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

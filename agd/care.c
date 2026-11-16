@@ -277,6 +277,13 @@ int care_normal_now(int metric, float *v)
 	return care_normal(&L, metric, hour, v, &dev);
 }
 
+int care_normal_hour(int metric, int hour, float *v)
+{
+	float dev;
+
+	return care_normal(&L, metric, hour, v, &dev);
+}
+
 int care_learned_days(void)
 {
 	return L.started ? (int)(((long)ag_wall_s() - L.started) / 86400) : 0;

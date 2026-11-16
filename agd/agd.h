@@ -562,6 +562,20 @@ int upgrade_field(const char *f, char *buf, size_t n);  /* the data model's Upgr
 void dm_on_upgrade(const char *result, const char *from, const char *to, const char *reasons, const char *summary);
 /* care.c: did the internet answer on the last check: 1, 0, -1 not checked yet */
 int care_online(void);
+/* care.c: the normal of a metric (enum care_metric) at a local hour; -1 not known */
+int care_normal_hour(int metric, int hour, float *v);
+
+/* why.c: "why was it slow?": the home's timeline (ag/why.h) */
+struct why_result;
+struct why_in;
+void why_init(void);                    /* after proactive care */
+void why_save(void);
+void why_on_emit(const char *type, struct blob_attr *msg);     /* every event agd sends */
+void why_on_dns(int rcode, uint32_t latency_us);
+/* a stretch explained (host: a name, MAC or IP; "" the home); -1 with err */
+int why_ask(long from, long to, const char *host, struct why_result *r, struct why_in *in, char *err, size_t en);
+void why_blob(struct blob_buf *b, long from, long to, const char *host, int raw);
+int why_field(const char *f, char *buf, size_t n);      /* Device.X_AIGW_.Timeline.; -1 unknown */
 
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
 typedef void (*handler_done_t)(void *ctx, int code, const char *msg);
