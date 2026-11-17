@@ -46,6 +46,19 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.35:** **Calls and games first, and the proof.** AIGW notices video
+> and voice calls (Zoom, Teams, Meet, WhatsApp, FaceTime) and online games
+> by their traffic: steady, small UDP packets in both directions, known
+> STUN/RTP and game ports, and the names the device looked up. It doesn't
+> read the packets. While AIGW's smart queueing is on, the call's packets go
+> ahead of the TV's download (cake's voice tin, or an htb priority class).
+> AIGW never shapes anything when smart queueing is off. When the call ends,
+> the timeline proves how it went, for example: "A call stayed smooth for
+> 12 min while the line was full (45.0 Mbit/s): the internet answered in 24
+> ms, jitter 8 ms, no loss." The ISP gets this without device or app names.
+> `agctl calls`, `Device.X_AIGW_.CallsFirst.`, `CallReport!`; see
+> [docs/calls-first.md](docs/calls-first.md).
+>
 > **v0.34:** **A staged firmware rollout that stops itself.** Cortex gives
 > new firmware to a fleet in waves (1% of the homes, then 10%, 50%, all). Each
 > home checks its own upgrade (v0.30) and reports the verdict. A wave passes

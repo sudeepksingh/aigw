@@ -50,6 +50,8 @@ static void usage(void)
 		"                      default) explained, with what happened in order\n"
 		"  sqm [--on|--off]    smart queueing on the line: AIGW turns it on when the line is full and\n"
 		"                      everything else slows (bufferbloat), and keeps it only if it helped\n"
+		"  calls               calls and games first: the ones now (first in smart queueing), how\n"
+		"                      the last one went while the line was full, the counts\n"
 		"  offers              signals for the ISP from the last week: a faster plan, smart queueing,\n"
 		"                      mesh Wi-Fi, a customer at risk, a line to repair; with the evidence\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
@@ -2008,6 +2010,61 @@ static void show_sqm(struct ubus_request *req, int type, struct blob_attr *msg)
 	}
 }
 
+/* agctl calls: calls and games now, first in the queue or not; the last one's report; the counts */
+static void show_calls(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s, *e, *st = field(msg, "stats"), *l = field(msg, "last");
+	char since[32];
+	size_t rem, r2;
+	int n = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "enabled")) {
+		printf("Calls and games first is off (calls.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	if (!fnum(msg, "flows")) {
+		printf("Calls and games first needs the flow sensor (flow.enabled), which is off.\n");
+		return;
+	}
+	printf("Calls and games first: ");
+	if (!fnum(msg, "priority"))
+		printf("reports only (calls.priority 0)\n");
+	else if (*fstr(msg, "sqm"))
+		printf("they go first inside smart queueing on %s\n", fstr(msg, "sqm"));
+	else
+		printf("smart queueing is off, so nothing is shaped for them (agctl sqm)\n");
+	if (*fstr(msg, "priority_error"))
+		printf("  no priority: %s\n", fstr(msg, "priority_error"));
+	blobmsg_for_each_attr(s, field(msg, "live"), rem) {
+		clock_of(fnum(s, "since"), since, sizeof(since));
+		printf("  now       %s on %s%s%s%s since %s%s; far end", !strcmp(fstr(s, "kind"), "Game") ? "a game" :
+		       !strcmp(fstr(s, "kind"), "Call") ? "a call" : "a call or game", fstr(s, "device"),
+		       *fstr(s, "app") ? " (" : "", fstr(s, "app"), *fstr(s, "app") ? ")" : "", since,
+		       fnum(s, "first") ? ", going first" : "");
+		blobmsg_for_each_attr(e, field(s, "far_ends"), r2)
+			printf(" %s", blobmsg_get_string(e));
+		printf("\n");
+		n++;
+	}
+	if (!n)
+		printf("  now       no call or game\n");
+	if (l) {
+		clock_of(fnum(l, "end"), since, sizeof(since));
+		printf("  last      %s (ended %s)\n", fstr(l, "summary"), since);
+	}
+	if (st)
+		printf("  so far    %llu calls, %llu games; %llu met a full line, %llu of them smooth; %llu went first\n",
+		       (unsigned long long)fnum(st, "calls"), (unsigned long long)fnum(st, "games"),
+		       (unsigned long long)fnum(st, "on_full_line"), (unsigned long long)fnum(st, "smooth_on_full_line"),
+		       (unsigned long long)fnum(st, "prioritized"));
+	printf("  the ISP   %s\n", fnum(msg, "shared") ? "sees the reports, without device or app names" :
+	       "sees nothing (calls.share 0)");
+}
+
 /* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */
 static void show_offers(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2304,6 +2361,8 @@ int main(int argc, char **argv)
 		rc = call("ag", "sqm", args.head, show_sqm);
 		blob_buf_free(&args);
 		rc = rc || sqm_failed;
+	} else if (!strcmp(cmd, "calls")) {
+		rc = call("ag", "calls", NULL, show_calls);
 	} else if (!strcmp(cmd, "offers")) {
 		rc = call("ag", "offers", NULL, show_offers);
 	} else if (!strcmp(cmd, "why")) {

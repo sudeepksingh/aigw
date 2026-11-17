@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.34.0
+PKG_VERSION:=0.35.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -34,8 +34,9 @@ define Package/aigw
   TITLE:=AIGW OS core: the AI-powered home gateway (agd, agdns, agctl)
   # nft and its kernel modules come with firewall4, the default firewall
   # since OpenWRT 22.03. The flow sensor needs conntrack netlink. Smart
-  # queueing (aigw-sqm): tc, cake, and ifb for the download.
-  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libnetfilter-conntrack +kmod-nf-conntrack-netlink +kmod-nft-bridge +kmod-nfnetlink-log +kmod-nft-offload +tc-tiny +kmod-sched-core +kmod-sched-cake +kmod-ifb
+  # queueing (aigw-sqm): tc, cake, and ifb for the download; calls and games
+  # first: flower filters (skbedit comes with kmod-sched-core).
+  DEPENDS:=+libubox +libubus +libuci +libblobmsg-json +libnetfilter-conntrack +kmod-nf-conntrack-netlink +kmod-nft-bridge +kmod-nfnetlink-log +kmod-nft-offload +tc-tiny +kmod-sched-core +kmod-sched-cake +kmod-ifb +kmod-sched-flower
 endef
 
 define Package/aigw/description

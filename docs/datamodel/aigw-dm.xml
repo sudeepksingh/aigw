@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.13. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.14. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-13" file="aigw-dm-1-13.xml">
+             spec="urn:aigw-os:aigw-dm-1-14" file="aigw-dm-1-14.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.13">
+  <model name="AIGW-OS:1.14">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -167,6 +167,18 @@
         <parameter name="Confidence"><syntax><string/></syntax></parameter>
         <parameter name="Evidence"><syntax><string/></syntax></parameter>
       </event>
+      <event name="CallReport!">
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="Verdict"><syntax><string/></syntax></parameter>
+        <parameter name="DurationSeconds"><syntax><string/></syntax></parameter>
+        <parameter name="FullLineSeconds"><syntax><string/></syntax></parameter>
+        <parameter name="LineKbps"><syntax><string/></syntax></parameter>
+        <parameter name="LatencyMs"><syntax><string/></syntax></parameter>
+        <parameter name="JitterMs"><syntax><string/></syntax></parameter>
+        <parameter name="LossPercent"><syntax><string/></syntax></parameter>
+        <parameter name="Prioritized"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
       <command name="NSLookupDiagnostics()" async="true">
@@ -317,6 +329,17 @@
     <object name="Device.WiFi.SSID." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.CallsFirst." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Shared" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Priority" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="ActiveCalls" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Total" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="OnFullLine" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SmoothOnFullLine" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Prioritized" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Care." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
@@ -544,6 +567,19 @@
       <parameter name="FirstSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="Count" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.CallsFirst.Last." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Kind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Start" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="DurationSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="FullLineSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LineKbps" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LatencyMs" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="JitterMs" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LossPercent" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="Prioritized" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Verdict" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Care.EarlyWarning." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>

@@ -293,7 +293,7 @@ The Wi-Fi handler (`wifi.handler`) is replaceable the same way:
 `wifi-config set <iface>`, with the new values in `AIGW_WIFI_SSID`,
 `AIGW_WIFI_KEY`, `AIGW_WIFI_MODE`, `AIGW_WIFI_CHANNEL` and `AIGW_WIFI_WIDTH`.
 
-## The data model (version 1.13)
+## The data model (version 1.14)
 
 The full definition, as ISPs load it into their controllers, is
 [`datamodel/aigw-dm.xml`](datamodel/aigw-dm.xml). It is made from what `agd`
@@ -317,6 +317,7 @@ the two differ.
 | `Device.X_AIGW_.Timeline.` | v0.31: the home's timeline, kept for "why was it slow?": `Enable`, `Hours`, `RecordedSince`, `Samples`, `Events` ([why-slow.md](why-slow.md)) | no |
 | `Device.X_AIGW_.Offers.` | v0.32: signals for the ISP: `Enable`, `Shared`, `Signals`; `PlanUpgrade.`, `SmartQueue.`, `MeshWiFi.`, `Retention.`, `LineRepair.` (`Active`, `Confidence`, `Days`, `Since`, `Evidence`, never a device's name); event `OfferFound!` (Code, Kind, Product, Confidence, Evidence) ([isp-signals.md](isp-signals.md)) | no |
 | `Device.X_AIGW_.SQM.` | v0.33: self-tuning smart queueing: `Enable`, `Status` (Off / Proposed / Trial / On / Tried / Unavailable), `Interface`, `DownloadKbps`, `UploadKbps`, `Since`, `LatencyBeforeMs`, `LatencyAfterMs`, `Summary`; the decision is a `Decision.{i}.` with action `sqm` ([smart-queueing.md](smart-queueing.md)) | no |
+| `Device.X_AIGW_.CallsFirst.` | v0.35: calls and games first: `Enable`, `Shared`, `Priority`, `Status` (Disabled / Idle / Active / Prioritized / NotShared), `ActiveCalls`, `Total`, `OnFullLine`, `SmoothOnFullLine`, `Prioritized`; the last one `Last.` (`Kind`, `Start`, `DurationSeconds`, `FullLineSeconds`, `LineKbps`, `LatencyMs`, `JitterMs`, `LossPercent`, `Prioritized`, `Verdict`, `Summary`), never a device's or an app's name; event `CallReport!` (Kind, Verdict, DurationSeconds, FullLineSeconds, LineKbps, LatencyMs, JitterMs, LossPercent, Prioritized, Summary) for calls that met a full line or were rough; nothing but `Enable` and `Shared` with `calls.share 0` ([calls-first.md](calls-first.md)) | no |
 | `Device.IP.Diagnostics.` | TR-143 (v0.29): `IPPing.`, `TraceRoute.` (with `RouteHops.{i}.`), `DownloadDiagnostics.`, `UploadDiagnostics.`: `DiagnosticsState`, the inputs and the results, as TR-069 uses them; the capabilities (`IPv4PingSupported`, ..., `DownloadTransports`) ([tr143.md](tr143.md)) | `DiagnosticsState` and the inputs |
 | `Device.DNS.Diagnostics.NSLookupDiagnostics.` | TR-143's lookup: `DiagnosticsState`, `HostName`, `DNSServer`, `Timeout`, `NumberOfRepetitions`; `SuccessCount`, `Result.{i}.` | `DiagnosticsState` and the inputs |
 | Commands | `Decision.{i}.Approve()`, `Reject()`, `Undo()` → `State`; `Quarantine(Host, Duration)`, `Block(Domain, Duration)` → `Decision`; `Diagnose(Host)` (async, read-only: no `mgmt.actions` needed) → `Code`, `Area`, `Severity`, `Summary`, `Advice`, `Findings`, `InternetLossPercent`, `InternetLatencyMs`, `NextHopLatencyMs`, `DNSLatencyMs`; v0.31: `WhySlow(Start, End, Host)` (read-only: a stretch of the timeline explained afterwards) → `Code`, `Area`, `Severity`, `Summary`, `Advice`, `Findings`, `Story`, `Start`, `End`, `RecordedPercent`; TR-143 (async, read-only): `Device.IP.Diagnostics.IPPing()`, `TraceRoute()`, `DownloadDiagnostics()`, `UploadDiagnostics()`, `Device.DNS.Diagnostics.NSLookupDiagnostics()`, with TR-181's inputs and outputs | |

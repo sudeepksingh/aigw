@@ -62,7 +62,13 @@ way.
 | `detect` | `10` | full-and-slow samples in the last hour before it is bloat |
 | `trial` | `30` | full samples after it went on before it is judged |
 | `hold` | `86400` | seconds after a trial (or a "no") before it is proposed again |
-| `handler` | `aigw-sqm` | the program that shapes the line (an OEM's own: `apply <iface> <down> <up>`, `remove <iface>`, `status <iface>`, `check`) |
+| `handler` | `aigw-sqm` | the program that shapes the line (an OEM's own: `apply <iface> <down> <up>`, `remove <iface>`, `status <iface>`, `check`; since v0.35 also `prio <iface> [udp,<ip>,<port> ...]` for [calls and games first](calls-first.md)) |
+
+Since v0.35, htb shapes in three classes: `1:1` is the line, `1:5` is for
+calls and games (30% of the line guaranteed, all of it when free) and `1:10`
+is for everything else (the default). cake gets the handle `1:`. While there
+is a call, cake switches from one tin (`besteffort`) to `diffserv4`, so the
+call can use the voice tin ([calls-first.md](calls-first.md)).
 
 On OpenWRT the package brings `tc-tiny`, `kmod-sched-core`,
 `kmod-sched-cake` and `kmod-ifb`. On a PC, the kernel's htb, fq_codel and

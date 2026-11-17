@@ -42,6 +42,10 @@ add_executable(test_sqm test_sqm.c)
 target_link_libraries(test_sqm ag)
 add_test(NAME smart_queueing COMMAND test_sqm)
 
+add_executable(test_calls test_calls.c)
+target_link_libraries(test_calls ag)
+add_test(NAME calls_first COMMAND test_calls)
+
 add_executable(test_tr143 test_tr143.c)
 target_link_libraries(test_tr143 ag)
 add_test(NAME tr143_diagnostics COMMAND test_tr143)

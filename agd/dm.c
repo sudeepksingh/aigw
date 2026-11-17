@@ -43,7 +43,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.13"
+#define DM_VERSION "1.14"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -912,6 +912,29 @@ SQF(g_sq_aft, "LatencyAfterMs")
 SQF(g_sq_sum, "Summary")
 GET(g_sq_since) { char v[24] = "0"; (void)c; sqm_field("Since", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
 
+/* calls and games first (Device.X_AIGW_.CallsFirst.) */
+#define CFF(fn, f) GET(fn) { (void)c; return calls_field(f, buf, n); }
+CFF(g_cf_en, "Enable")
+CFF(g_cf_sh, "Shared")
+CFF(g_cf_prio, "Priority")
+CFF(g_cf_st, "Status")
+CFF(g_cf_act, "ActiveCalls")
+CFF(g_cf_tot, "Total")
+CFF(g_cf_full, "OnFullLine")
+CFF(g_cf_smooth, "SmoothOnFullLine")
+CFF(g_cf_first, "Prioritized")
+CFF(g_cf_l_kind, "Last.Kind")
+CFF(g_cf_l_dur, "Last.DurationSeconds")
+CFF(g_cf_l_full, "Last.FullLineSeconds")
+CFF(g_cf_l_kbps, "Last.LineKbps")
+CFF(g_cf_l_ms, "Last.LatencyMs")
+CFF(g_cf_l_jit, "Last.JitterMs")
+CFF(g_cf_l_loss, "Last.LossPercent")
+CFF(g_cf_l_first, "Last.Prioritized")
+CFF(g_cf_l_verdict, "Last.Verdict")
+CFF(g_cf_l_sum, "Last.Summary")
+GET(g_cf_l_start) { char v[24] = "0"; (void)c; calls_field("Last.Start", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1189,6 +1212,28 @@ static struct dm_param {
 	{ "Device.X_AIGW_.SQM.LatencyBeforeMs", T_UINT, 0, TB_NONE, g_sq_bef, NULL },
 	{ "Device.X_AIGW_.SQM.LatencyAfterMs", T_UINT, 0, TB_NONE, g_sq_aft, NULL },
 	{ "Device.X_AIGW_.SQM.Summary", T_STR, 0, TB_NONE, g_sq_sum, NULL },
+#define CF "Device.X_AIGW_.CallsFirst."
+	{ CF "Enable", T_BOOL, 0, TB_NONE, g_cf_en, NULL },
+	{ CF "Shared", T_BOOL, 0, TB_NONE, g_cf_sh, NULL },
+	{ CF "Priority", T_BOOL, 0, TB_NONE, g_cf_prio, NULL },
+	{ CF "Status", T_STR, N, TB_NONE, g_cf_st, NULL },
+	{ CF "ActiveCalls", T_UINT, 0, TB_NONE, g_cf_act, NULL },
+	{ CF "Total", T_UINT, 0, TB_NONE, g_cf_tot, NULL },
+	{ CF "OnFullLine", T_UINT, 0, TB_NONE, g_cf_full, NULL },
+	{ CF "SmoothOnFullLine", T_UINT, 0, TB_NONE, g_cf_smooth, NULL },
+	{ CF "Prioritized", T_UINT, 0, TB_NONE, g_cf_first, NULL },
+	{ CF "Last.Kind", T_STR, 0, TB_NONE, g_cf_l_kind, NULL },
+	{ CF "Last.Start", T_TIME, 0, TB_NONE, g_cf_l_start, NULL },
+	{ CF "Last.DurationSeconds", T_UINT, 0, TB_NONE, g_cf_l_dur, NULL },
+	{ CF "Last.FullLineSeconds", T_UINT, 0, TB_NONE, g_cf_l_full, NULL },
+	{ CF "Last.LineKbps", T_UINT, 0, TB_NONE, g_cf_l_kbps, NULL },
+	{ CF "Last.LatencyMs", T_UINT, 0, TB_NONE, g_cf_l_ms, NULL },
+	{ CF "Last.JitterMs", T_UINT, 0, TB_NONE, g_cf_l_jit, NULL },
+	{ CF "Last.LossPercent", T_DEC, 0, TB_NONE, g_cf_l_loss, NULL },
+	{ CF "Last.Prioritized", T_BOOL, 0, TB_NONE, g_cf_l_first, NULL },
+	{ CF "Last.Verdict", T_STR, 0, TB_NONE, g_cf_l_verdict, NULL },
+	{ CF "Last.Summary", T_STR, 0, TB_NONE, g_cf_l_sum, NULL },
+#undef CF
 	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
 #define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
@@ -1613,7 +1658,10 @@ static int r_whyslow(const struct ictx *c, struct blob_attr *a, struct blob_buf 
 		to = now;
 	if (!from)
 		from = to - 3600;
-	if (why_ask(from, to, h, &r, &in, e, n) < 0)
+	why_hide_calls(req_remote && !cfg.calls_share);    /* calls.share 0: no calls in the ISP's story */
+	i = why_ask(from, to, h, &r, &in, e, n);
+	why_hide_calls(0);
+	if (i < 0)
 		return E_INVALID_ARGS;
 	for (i = 0; i < r.n && len < sizeof(codes); i++)
 		len += (size_t)snprintf(codes + len, sizeof(codes) - len, "%s%s", i ? "," : "", r.f[i].code);
@@ -1741,7 +1789,10 @@ static struct {
 	{ "Device.X_AIGW_.EarlyWarning!", "Metric,Area,Kind,Summary,Advice,Normal,Current,PredictedFaultDays,Since" },
 	{ "Device.X_AIGW_.EarlyWarningCleared!", "Metric,Area,Since,DurationSeconds,BecameProblem" },
 	{ "Device.X_AIGW_.UpgradeChecked!", "Result,FromVersion,ToVersion,Reasons,Summary" },
-	{ "Device.X_AIGW_.OfferFound!", "Code,Kind,Product,Confidence,Evidence" },};
+	{ "Device.X_AIGW_.OfferFound!", "Code,Kind,Product,Confidence,Evidence" },
+	{ "Device.X_AIGW_.CallReport!",
+	  "Kind,Verdict,DurationSeconds,FullLineSeconds,LineKbps,LatencyMs,JitterMs,LossPercent,Prioritized,Summary" },
+};
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
 /* ---------- paths ---------- */
@@ -2338,6 +2389,27 @@ void dm_on_offer(const char *code, const char *kind, const char *product, const 
 			     NULL };
 
 	emit(events[9].path, kv);           /* OfferFound! */
+}
+
+/* calls.c: how a call or game went (CallReport!), without names */
+void dm_on_call(const char *kind, const char *verdict, long duration, long full_s, uint32_t line_kbps, int ms,
+		int jitter, int loss10, int prioritized, const char *summary)
+{
+	char d[24], f[24], k[16], m[16], j[16], l[16];
+
+	snprintf(d, sizeof(d), "%ld", duration);
+	snprintf(f, sizeof(f), "%ld", full_s);
+	snprintf(k, sizeof(k), "%u", line_kbps);
+	snprintf(m, sizeof(m), "%d", ms < 0 ? 0 : ms);
+	snprintf(j, sizeof(j), "%d", jitter < 0 ? 0 : jitter);
+	snprintf(l, sizeof(l), "%d.%d", loss10 / 10, loss10 % 10);
+	{
+		const char *kv[] = { "Kind", kind, "Verdict", verdict, "DurationSeconds", d, "FullLineSeconds", f,
+				     "LineKbps", k, "LatencyMs", m, "JitterMs", j, "LossPercent", l,
+				     "Prioritized", prioritized ? "true" : "false", "Summary", summary, NULL };
+
+		emit(events[10].path, kv);  /* CallReport! */
+	}
 }
 
 /* ---------- state ---------- */

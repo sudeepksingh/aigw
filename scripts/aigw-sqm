@@ -5,11 +5,19 @@
 #   aigw-sqm remove <iface>                         back to the kernel's default
 #   aigw-sqm status <iface>                         "on <kind> <down> <up>" or "off"
 #   aigw-sqm check                                  what this kernel can do: cake, htb, none
+#   aigw-sqm prio <iface> [udp,<ip>,<port> ...]     calls and games first: these far ends go
+#                                                   first in the shaped queues (none: no one)
 #
 # Uploads are shaped on the interface itself, downloads on an ifb device the
 # interface's ingress is redirected to. cake when the kernel has it (one
 # qdisc that does both the shaping and the fairness), else htb with fq_codel.
 # An SQM AIGW didn't set up (sqm-scripts, a person's own tc) is left alone.
+#
+# Priority (prio) needs AIGW's own shaping on the interface: a flower filter
+# for each far end (the upload by its destination, the download by its
+# source, so NAT doesn't matter) sends its packets to cake's voice tin
+# (diffserv4, while any are listed) or to htb's priority class 1:5. When
+# smart queueing is removed, the filters go with it.
 # Exit 0 on success; the last line says what happened or why not.
 set -u
 
@@ -48,12 +56,62 @@ kind() {   # what the kernel offers, tried on a throwaway device
 
 shape() {   # shape <dev> <kbps> <kind> [ingress]
 	if [ "$3" = cake ]; then
-		$TC qdisc replace dev "$1" root cake bandwidth "${2}kbit" besteffort ${4:+ingress}
+		$TC qdisc replace dev "$1" root handle 1: cake bandwidth "${2}kbit" besteffort ${4:+ingress}
 	else
+		# 1:1 the line; 1:5 calls and games first (30% sure, all of it when free), 1:10 the rest
+		p=$(($2 * 3 / 10)); [ "$p" -ge 1 ] || p=1
+		r=$(($2 - p)); [ "$r" -ge 1 ] || r=1
 		$TC qdisc replace dev "$1" root handle 1: htb default 10 &&
-		$TC class replace dev "$1" parent 1: classid 1:10 htb rate "${2}kbit" ceil "${2}kbit" &&
-		$TC qdisc replace dev "$1" parent 1:10 fq_codel
+		$TC class replace dev "$1" parent 1: classid 1:1 htb rate "${2}kbit" ceil "${2}kbit" &&
+		$TC class replace dev "$1" parent 1:1 classid 1:5 htb rate "${p}kbit" ceil "${2}kbit" prio 0 &&
+		$TC qdisc replace dev "$1" parent 1:5 handle 5: fq_codel &&
+		$TC class replace dev "$1" parent 1:1 classid 1:10 htb rate "${r}kbit" ceil "${2}kbit" prio 1 &&
+		$TC qdisc replace dev "$1" parent 1:10 handle 10: fq_codel
 	fi
+}
+
+ok_ep() {   # udp,<ip>,<port>
+	case $1 in udp,*,*|tcp,*,*) ;; *) return 1 ;; esac
+	a=${1#*,}; a=${a%,*}; b=${1##*,}
+	case $a in ''|*[!0-9a-fA-F.:]*) return 1 ;; esac
+	case $b in ''|*[!0-9]*) return 1 ;; esac
+	[ "$b" -ge 1 ] && [ "$b" -le 65535 ]
+}
+
+root_handle() { $TC qdisc show dev "$1" root 2>/dev/null | awk '$2 == "cake" || $2 == "htb" { print $3; exit }'; }
+
+prio_dev() {   # prio_dev <dev> <src|dst> <kind> <kbps> [ep ...]: the far ends' packets first on dev
+	dev=$1 dir=$2 k=$3 rate=$4
+	shift 4
+	h=$(root_handle "$dev")
+	[ -n "$h" ] || return 1
+	$TC filter del dev "$dev" parent "$h" prio 7 2>/dev/null
+	if [ "$k" = cake ]; then
+		# the voice tin needs tins; without calls, one (as before)
+		if [ $# -gt 0 ]; then
+			$TC qdisc change dev "$dev" root cake diffserv4 || return 1
+		else
+			$TC qdisc change dev "$dev" root cake besteffort || return 1
+		fi
+	elif ! $TC class show dev "$dev" classid 1:5 2>/dev/null | grep -q .; then
+		# shaped by AIGW 0.33 (no priority class): shaped again, with one
+		[ $# -gt 0 ] || return 0
+		$TC qdisc del dev "$dev" root 2>/dev/null
+		shape "$dev" "$rate" htb || return 1
+		h=1:
+	fi
+	for ep in "$@"; do
+		pr=${ep%%,*}; a=${ep#*,}; a=${a%,*}; po=${ep##*,}
+		case $a in *:*) fam=ipv6 ;; *) fam=ip ;; esac
+		if [ "$k" = cake ]; then
+			# skb priority <cake's handle>:4 picks diffserv4's fourth tin, voice
+			set -- action skbedit priority "${h%:}:4"
+		else
+			set -- classid 1:5
+		fi
+		$TC filter add dev "$dev" parent "$h" protocol "$fam" prio 7 flower ip_proto "$pr" \
+			"${dir}_ip" "$a" "${dir}_port" "$po" "$@" || return 1
+	done
 }
 
 remove() {
@@ -106,6 +164,27 @@ apply)
 	echo "$k $3 $4" > "$STATE.$2"
 	say "on $k $3 $4: $2 shaped (download ${3} kbit/s, upload ${4} kbit/s)"
 	;;
+prio)
+	[ $# -ge 2 ] || die "usage: aigw-sqm prio <iface> [udp,<ip>,<port> ...]"
+	ok_iface "$2" || die "no such interface: $2"
+	ours "$2" || die "AIGW isn't shaping $2: no priority without its smart queueing"
+	ifc=$2
+	shift 2
+	[ $# -le 32 ] || die "at most 32 far ends"
+	for ep in "$@"; do ok_ep "$ep" || die "not a far end (udp,<ip>,<port>): $ep"; done
+	read -r k d u < "$STATE.$ifc" || die "no state for $ifc"
+	if [ "$u" -gt 0 ]; then
+		prio_dev "$ifc" dst "$k" "$u" "$@" || die "could not give priority on $ifc's upload (flower, skbedit?)"
+	fi
+	if [ "$d" -gt 0 ]; then
+		prio_dev "$(ifb_of "$ifc")" src "$k" "$d" "$@" || die "could not give priority on $ifc's download (flower, skbedit?)"
+	fi
+	if [ $# -gt 0 ]; then
+		say "first on $ifc ($k): $*"
+	else
+		say "nothing first on $ifc ($k)"
+	fi
+	;;
 remove)
 	ok_iface "${2:-}" || die "no such interface: ${2:-}"
 	if ours "$2"; then
@@ -116,6 +195,6 @@ remove)
 	fi
 	;;
 *)
-	die "usage: aigw-sqm apply <iface> <down_kbps> <up_kbps> | remove <iface> | status <iface> | check"
+	die "usage: aigw-sqm apply <iface> <down_kbps> <up_kbps> | remove <iface> | status <iface> | check | prio <iface> [udp,<ip>,<port> ...]"
 	;;
 esac

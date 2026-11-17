@@ -609,6 +609,27 @@ void sqm_blob(struct blob_buf *b);
 int sqm_field(const char *f, char *buf, size_t n);     /* Device.X_AIGW_.SQM.; -1 unknown */
 void sqm_save(struct blob_buf *b);
 void sqm_load(struct blob_attr *t);
+int sqm_shaping(char *ifc, size_t n);   /* the WAN AIGW's smart queueing shapes now; -1 none */
+int sqm_prio(const char *ifc, const char *const *eps, int n, char *out, size_t on);
+
+/* calls.c: calls and games first (ag/calls.h) */
+void calls_init(void);
+void calls_counters(uint32_t id, const char *client, const char *dst, const char *domain, uint8_t proto,
+		    uint16_t dport, uint64_t up_b, uint64_t down_b, uint64_t up_pk, uint64_t down_pk);
+void calls_flow_end(uint32_t id);
+void calls_dump_done(void);             /* after each look at all connections' counters */
+void calls_sqm_changed(void);           /* smart queueing applied or removed: priority to be set again */
+void calls_blob(struct blob_buf *b);
+int calls_field(const char *f, char *buf, size_t n);    /* Device.X_AIGW_.CallsFirst.; -1 unknown */
+void calls_save(struct blob_buf *b);
+void calls_load(struct blob_attr *t);
+/* why.c: a call or game on the timeline (mac: the device) */
+void why_note_call(const char *mac, int verdict, const char *text);
+void why_hide_calls(int on);            /* dm.c: WhySlow() from the ISP with calls.share 0 */
+/* dm.c: CallReport! */
+void dm_on_call(const char *kind, const char *verdict, long duration, long full_s, uint32_t line_kbps, int ms,
+		int jitter, int loss10, int prioritized, const char *summary);
+
 /* act.c: the live decision of an action (state 0 proposed, 1 active, 2 kept); -1 none */
 int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,
 		    char *origin, size_t on);
