@@ -94,18 +94,18 @@ int main(void)
 	sqm_stats_of(m, N, T0 + 60 * 60, now, &line, &after);
 	CHECK(before.n == 40 && before.ms == 180 && before.kbps == 47000, "before: 40 full, 180 ms, 47 Mbit/s");
 	CHECK(after.n == 40 && after.ms == 35, "after: 40 full, 35 ms");
-	CHECK(sqm_judge(&before, &after, &line, &p, why, sizeof(why)) == SQ_KEEP && strstr(why, "35 ms (before 180 ms)"),
+	CHECK(sqm_judge(&before, &after, &line, &p, 0, why, sizeof(why)) == SQ_KEEP && strstr(why, "35 ms (before 180 ms)"),
 	      "kept: %s", why);
 	/* ... too few full minutes yet: wait */
 	sqm_stats_of(m, N, T0 + 60 * 60, T0 + 80 * 60, &line, &after);
-	CHECK(after.n == 20 && sqm_judge(&before, &after, &line, &p, why, sizeof(why)) == SQ_WAIT, "20 full minutes: wait");
+	CHECK(after.n == 20 && sqm_judge(&before, &after, &line, &p, 0, why, sizeof(why)) == SQ_WAIT, "20 full minutes: wait");
 	/* ... no better: undone */
 	quiet();
 	full(0, 40, 180, 47000);
 	full(60, 100, 150, 47000);
 	sqm_stats_of(m, N, T0, T0 + 60 * 60, &line, &before);
 	sqm_stats_of(m, N, T0 + 60 * 60, now, &line, &after);
-	CHECK(sqm_judge(&before, &after, &line, &p, why, sizeof(why)) == SQ_UNDO && strstr(why, "still answered in 150 ms"),
+	CHECK(sqm_judge(&before, &after, &line, &p, 0, why, sizeof(why)) == SQ_UNDO && strstr(why, "still answered in 150 ms"),
 	      "150 ms after 180: undone (%s)", why);
 	/* ... better, but downloads far slower: undone */
 	quiet();
@@ -117,18 +117,29 @@ int main(void)
 	line.down_mbps = 33;
 	sqm_stats_of(m, N, T0 + 60 * 60, now, &line, &after);
 	line.down_mbps = 50;
-	CHECK(after.n == 40 && sqm_judge(&before, &after, &line, &p, why, sizeof(why)) == SQ_UNDO &&
+	CHECK(after.n == 40 && sqm_judge(&before, &after, &line, &p, 0, why, sizeof(why)) == SQ_UNDO &&
 	      strstr(why, "slowed to 30.0 Mbit/s"), "30 ms but 30 of 47 Mbit/s: undone (%s)", why);
 	/* ... before not measured: kept only when plainly fine */
 	before.n = 0, before.ms = -1, before.kbps = 0;
 	quiet();
 	full(60, 100, 35, 43000);
 	sqm_stats_of(m, N, T0 + 60 * 60, now, &line, &after);
-	CHECK(sqm_judge(&before, &after, &line, &p, why, sizeof(why)) == SQ_KEEP && strstr(why, "not measured"),
+	CHECK(sqm_judge(&before, &after, &line, &p, 0, why, sizeof(why)) == SQ_KEEP && strstr(why, "not measured"),
 	      "before unknown, 35 ms after: kept");
 	full(60, 100, 90, 43000);
 	sqm_stats_of(m, N, T0 + 60 * 60, now, &line, &after);
-	CHECK(sqm_judge(&before, &after, &line, &p, why, sizeof(why)) == SQ_UNDO, "before unknown, 90 ms after: undone");
+	CHECK(sqm_judge(&before, &after, &line, &p, 0, why, sizeof(why)) == SQ_UNDO, "before unknown, 90 ms after: undone");
+
+	/* ... shaped from an earlier, lower peak: the speed given up on purpose isn't "too slow" (CI, v0.33.0) */
+	before.n = 40, before.ms = 200, before.kbps = 10400;
+	after.n = 40, after.ms = 1, after.kbps = 7700;
+	CHECK(sqm_judge(&before, &after, &line, &p, 0, why, sizeof(why)) == SQ_UNDO, "7.7 of 10.4 Mbit/s, rate not known: undone");
+	CHECK(sqm_judge(&before, &after, &line, &p, 7200, why, sizeof(why)) == SQ_KEEP,
+	      "7.7 of 10.4 Mbit/s, shaped at 7.2: kept (%s)", why);
+	/* ... but a rate far too low is still no excuse */
+	after.kbps = 3900;
+	CHECK(sqm_judge(&before, &after, &line, &p, 4000, why, sizeof(why)) == SQ_UNDO && strstr(why, "slowed to 3.9"),
+	      "3.9 of 10.4 Mbit/s, shaped at 4.0: undone (%s)", why);
 
 	printf(failed ? "%d FAILED\n" : "all passed\n", failed);
 	return failed != 0;

@@ -226,7 +226,13 @@ static void trial(uint32_t id, long on_at, const char *target)
 	n = why_samples(start, now + 1, m, max);
 	sqm_stats_of(m, n, start, now + 1, &l, &Q.after);
 	free(m);
-	Q.verdict = sqm_judge(&Q.before, &Q.after, &l, &p, why, sizeof(why));
+	{
+		unsigned dk = 0;
+
+		if (sscanf(target, "%*[^:]:%u", &dk) != 1)
+			dk = 0;
+		Q.verdict = sqm_judge(&Q.before, &Q.after, &l, &p, dk, why, sizeof(why));
+	}
 	if (Q.verdict == SQ_WAIT)
 		return;
 	Q.judged_at = now;

@@ -64,8 +64,9 @@ int sqm_bloated(const struct why_min *m, int n, long now, int step, const struct
 int sqm_rates(const struct sqm_line *l, const struct sqm_params *p, uint32_t *down_kbps, uint32_t *up_kbps);
 
 enum { SQ_WAIT, SQ_KEEP, SQ_UNDO };
-/* before (the day before it went on) and after (since): wait, keep or undo, in words */
+/* before (the day before it went on) and after (since), shaped at shaped_kbps down (0 not known):
+ * wait, keep or undo, in words */
 int sqm_judge(const struct sqm_stats *before, const struct sqm_stats *after, const struct sqm_line *l,
-	      const struct sqm_params *p, char *why, size_t wn);
+	      const struct sqm_params *p, uint32_t shaped_kbps, char *why, size_t wn);
 
 #endif

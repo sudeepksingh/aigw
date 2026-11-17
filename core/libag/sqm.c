@@ -129,10 +129,11 @@ int sqm_rates(const struct sqm_line *l, const struct sqm_params *p, uint32_t *do
 }
 
 int sqm_judge(const struct sqm_stats *before, const struct sqm_stats *after, const struct sqm_line *l,
-	      const struct sqm_params *p, char *why, size_t wn)
+	      const struct sqm_params *p, uint32_t shaped_kbps, char *why, size_t wn)
 {
 	int fine = l->have_normal ? (int)l->normal_ms + p->keep_ms : 40 + p->keep_ms;
 	int lower, speed_ok;
+	uint64_t base = before->kbps;
 
 	if (why && wn)
 		why[0] = '\0';
@@ -141,7 +142,17 @@ int sqm_judge(const struct sqm_stats *before, const struct sqm_stats *after, con
 	lower = before->ms > 0 ? after->ms * 100 <= before->ms * p->keep_pct || after->ms <= fine : after->ms <= fine;
 	if (before->ms > 0 && after->ms >= before->ms)
 		lower = 0;                      /* never "better" when it isn't lower at all */
-	speed_ok = !before->kbps || (uint64_t)after->kbps * 100 >= (uint64_t)before->kbps * (uint64_t)p->speed_pct;
+	/* shaping just below the line gives up a little speed on purpose: downloads are compared with the line
+	 * speed the shaped rate was chosen from, when that is lower than before (it was measured earlier, on
+	 * fewer samples) -- but never below what speed_pct already allows */
+	if (shaped_kbps && p->line_pct > 0) {
+		uint64_t line = (uint64_t)shaped_kbps * 100 / (uint64_t)p->line_pct;
+		uint64_t floor = (uint64_t)before->kbps * (uint64_t)p->speed_pct / 100;
+
+		if (line < base)
+			base = line > floor ? line : floor;
+	}
+	speed_ok = !before->kbps || (uint64_t)after->kbps * 100 >= base * (uint64_t)p->speed_pct;
 	if (lower && speed_ok) {
 		if (before->ms > 0)
 			snprintf(why, wn, "kept: while the line was full the internet answered in %d ms (before %d ms), downloads "
