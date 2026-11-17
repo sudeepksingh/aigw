@@ -298,6 +298,49 @@ def main():
                      f"after the upgrade: {tc['events'] if tc else 'no TRANSFER COMPLETE Inform'}")
         t = acs.wait(lambda: next((x for x in acs.transfers() if x["key"] == "qemu-up"), None), 120)
         bad += check(bool(t) and t["fault"] == 0, "upgrade-transfer-complete", f"TransferComplete {t}")
+        return bad + kept_copy_checks(f"http://10.0.2.2:{acs_port}/{upgrade}")
+
+    def reboot_and_back(what):
+        """The flash is written and the VM reboots: wait for it, then AIGW again (the packages are not kept)."""
+        try:
+            vm.expect(r"Please press Enter to activate this console", 900)
+        except TimeoutError:
+            return False
+        say(f"rebooted ({what}); AIGW again")
+        vm.buf = b"Please press Enter to activate this console"
+        bring_up(False)
+        return True
+
+    def kept_copy_checks(url):
+        """One firmware image: a copy of the running image kept on the flash over a real sysupgrade, then
+        written back with the settings it had."""
+        fw = "/usr/libexec/aigw/firmware"
+        say("one firmware image: a copy of the running image kept, carried over a sysupgrade, written back")
+        rc, out = vm.run(f"{fw} keep {url} 2>&1 | tail -n 1", 300)
+        bad = check("is kept on the flash" in out, "keep-copy", " ".join(out.split())[-200:])
+        rc, out = vm.run(f"{fw} rollback", 60)
+        bad += check("copy no copy is kept now" in out and "becomes image 3" in out, "rollback-kind",
+                     " ".join(out.split())[-240:])
+        # an upgrade through agd (USP's Download(AutoActivate) does the same): the copy rides over the flash
+        vm.run("uci set aigw.mgmt.x_qemu_mark=before; uci commit aigw", 30)
+        op = ('{"command":"Device.DeviceInfo.FirmwareImage.2.Download()",'
+              f'"args":{{"URL":"{url}","AutoActivate":"true"}}}}')
+        vm.send(f"ubus -t 600 call ag.dm operate '{op}'\n")
+        if not reboot_and_back("an upgrade with a copy kept"):
+            return bad + check(False, "copy-over-sysupgrade", "the VM did not reboot into the new image")
+        rc, out = vm.run(f"{fw} list; ls /etc/aigw-rollback/; cat /etc/aigw/firmware/last-keep", 60)
+        bad += check(re.search(r"^3 Available 0 0 \S+ kept", out, re.M) is not None and "kept.img" in out and
+                     "kept-config.tgz" in out, "copy-over-sysupgrade", " ".join(out.split())[:240])
+        rc, out = vm.run("agctl dm get Device.X_AIGW_.Upgrade.RollbackMethod", 60)
+        bad += check("KeptCopy" in out, "rollback-method", " ".join(out.split())[:120])
+        # write the copy back, as a failed upgrade check does: the settings it had come back
+        vm.run("uci set aigw.mgmt.x_qemu_mark=after; uci commit aigw", 30)
+        vm.send("ubus -t 600 call ag.dm operate '{\"command\":\"Device.DeviceInfo.FirmwareImage.3.Activate()\"}'\n")
+        if not reboot_and_back("the kept copy written back"):
+            return bad + check(False, "rollback-written-back", "the VM did not reboot into the kept copy")
+        rc, out = vm.run(f"uci -q get aigw.mgmt.x_qemu_mark; {fw} list", 60)
+        bad += check("before" in out and "after" not in out and re.search(r"^3 NoImage", out, re.M) is not None,
+                     "rollback-written-back", " ".join(out.split())[:200])
         return bad
 
     try:

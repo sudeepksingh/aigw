@@ -984,7 +984,7 @@ Verified by:
 | Data model (1.10) | `Device.X_AIGW_.Upgrade.` (17 values, `Forget()`), event `UpgradeChecked!`. Verdicts found at start wait `report_delay` and are kept in the record, queued in order, until told. |
 | agctl | `agctl upgrade [--forget]`, `agctl watch upgrade` (`ag.upgrade` events). |
 
-Verified by `tests/test_upgrade.c` (the verdict's rules on simulated homes) and `tests/upgrade-test.sh` (CI: the two-bank handler and a fake hostapd; agd stops for each reboot; a bad upgrade rolled back, confirmed, reported and held off; a good one kept over an agd restart). Not yet on a router with A/B flash. OpenWRT's single image has no previous one to go back to, so there it is reported, not rolled back.
+Verified by `tests/test_upgrade.c` (the verdict's rules on simulated homes) and `tests/upgrade-test.sh` (CI: the two-bank handler and a fake hostapd; agd stops for each reboot; a bad upgrade rolled back, confirmed, reported and held off; a good one kept over an agd restart). Not yet on a router with A/B flash. OpenWRT's single image had no previous one to go back to, so there it was reported, not rolled back; since v0.36 a kept copy is (below).
 
 **As built in v0.31: "why was it slow?" afterwards.** The home's timeline is a sample every minute and a log of what happened, and any stretch of it is explained with Diagnose's codes ([why-slow.md](why-slow.md)).
 
@@ -1045,6 +1045,18 @@ Verified by `tests/test_rollout.py` (the waves; pass; stop on rollbacks, early a
 | agctl | `agctl calls`; `ubus call ag calls`. |
 
 Verified by `tests/test_calls.c` (calls and games by port, name and traits; not calls: one look, QUIC, a VPN, TCP, keep-alives, one way, a transfer, big packets, bursts; smooth, rough, unknown; the words with and without names) and `tests/calls-test.sh` (CI: home, gateway and internet namespaces. A 10 Mbit/s stream on a line sold at 8 Mbit/s, and a 50-packets-a-second call to port 3478. With SQM, the call is noticed and goes first, its packets are counted in htb's 1:5 or cake's voice tin, and it is reported smooth, with names at home and none for the ISP, on the timeline, in the data model and in `CallReport!`. The filters go when the call ends. Without SQM and with netem bufferbloat, nothing is shaped and the call is reported rough. With `share 0` the ISP sees nothing). Not yet on a real call.
+
+**As built in v0.36: firmware rollback on routers with one firmware image.** The v0.30 upgrade check rolls back through the firmware handler. On a single-image OpenWRT router, OpenWRT's handler now keeps a copy of the running image before `sysupgrade`, so there is something to go back to ([upgrade-check.md](upgrade-check.md#routers-with-one-firmware-image)).
+
+| Piece | As built |
+|-------|----------|
+| The handler (`platform/openwrt/aigw/files/firmware`) | Image 3 is the kept copy (`Available` with its version, or `NoImage`). `activate 2`: room checked (USB storage: the copy; overlay: the copy after a bigger image is written, and RAM for `sysupgrade`'s archive), the copy taken from an earlier copy of the running version or fetched again from the URL it came from (`/etc/aigw/firmware/source.*`, checked with `sysupgrade -T` and its version), the settings saved (`sysupgrade -b`), the new image kept too when both fit; on the overlay, a `keep.d` entry made for this one `sysupgrade` carries the copy. `activate 3`: the copy into RAM, `sysupgrade -f` with the settings it had plus `AIGW_FW_CARRY` (agd's record) and `/etc/icwmpd`. A failed `sysupgrade` undoes the keep. `rollback` says `banks`, `copy` or `none` and why; `keep [url]` keeps one by hand. Never tmpfs: RAM is empty after the reboot. |
+| Settings | `mgmt.firmware_keep` (`auto`: without room, upgrade and say so; `require`: refuse; `off`), `mgmt.firmware_keep_dir` (default: USB storage under `/mnt` or `/media`, else `/etc/aigw-rollback`). Read by the handler with `uci`. |
+| agd | `fw_rollback()` asks the handler's `rollback` (cached a minute, forgotten after an activation): `TwoBanks`, `KeptCopy`, `None`, `Unknown`. `activate` gets `AIGW_FW_CARRY` (the upgrade record's path). A worse upgrade with nothing to go back to says why in the handler's words. The rollback itself is v0.30's: the image that isn't running, with the old version, `Available`. |
+| Data model (1.15) | `Device.X_AIGW_.Upgrade.RollbackMethod`, `RollbackNote`; `FirmwareImage.3.` on single-image OpenWRT. |
+| Elsewhere | `agctl upgrade` ("way back"), `aigw-selftest` (`INFO rollback`), `tests/fw/firmware` answers `banks`. |
+
+Verified by `tests/single-image-test.sh` (CI: the handler on a fake flash with shims for `sysupgrade`, `df`, `fwtool`, `uclient-fetch`, `uci` and `reboot`: kept on the overlay and carried once, written back with its settings and agd's record, refused or not without room, USB before overlay and never tmpfs, fetched again from its URL, a failed `sysupgrade` undone, RAM checked before going back; and, as root, agd rolling back through image 3 by itself and confirming it) and the QEMU job on x86-64 (a copy carried over a real `sysupgrade`, then written back with its settings). Not yet on a real single-image router.
 
 ---
 

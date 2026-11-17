@@ -43,7 +43,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.14"
+#define DM_VERSION "1.15"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -877,6 +877,8 @@ UPF(g_up_safter, "ScoreAfter")
 UPF(g_up_conf, "RollbackConfirmed")
 UPF(g_up_held, "HeldVersion")
 UPT(g_up_until, "HeldUntil")
+UPF(g_up_rbm, "RollbackMethod")
+UPF(g_up_rbn, "RollbackNote")
 
 /* "why was it slow?": the home's timeline (Device.X_AIGW_.Timeline.) */
 #define WYF(fn, f) GET(fn) { (void)c; return why_field(f, buf, n); }
@@ -1187,6 +1189,8 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Upgrade.RollbackConfirmed", T_STR, N, TB_NONE, g_up_conf, NULL },
 	{ "Device.X_AIGW_.Upgrade.HeldVersion", T_STR, 0, TB_NONE, g_up_held, NULL },
 	{ "Device.X_AIGW_.Upgrade.HeldUntil", T_TIME, 0, TB_NONE, g_up_until, NULL },
+	{ "Device.X_AIGW_.Upgrade.RollbackMethod", T_STR, 0, TB_NONE, g_up_rbm, NULL },
+	{ "Device.X_AIGW_.Upgrade.RollbackNote", T_STR, 0, TB_NONE, g_up_rbn, NULL },
 	{ "Device.X_AIGW_.Timeline.Enable", T_BOOL, 0, TB_NONE, g_wy_en, NULL },
 	{ "Device.X_AIGW_.Timeline.Hours", T_UINT, 0, TB_NONE, g_wy_hours, NULL },
 	{ "Device.X_AIGW_.Timeline.RecordedSince", T_TIME, 0, TB_NONE, g_wy_since, NULL },

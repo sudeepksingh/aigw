@@ -15,7 +15,9 @@
 # Then management by an ISP (MGMT=0 skips): OB-USP-Agent with the plug-in
 # answers on the device, icwmp informs an ACS on the host and answers it; on
 # x86-64 the ACS upgrades the firmware for real (sysupgrade, reboot, the
-# configuration kept, TransferComplete).
+# configuration kept, TransferComplete); then, as on a router with one
+# firmware image, a copy of the running image is kept, carried over a second
+# real sysupgrade, and written back with the settings it had (two more boots).
 # x86-64 uses KVM when /dev/kvm is usable; the others are emulated (slower).
 # Needs qemu-system-x86_64 / -mipsel / -aarch64, python3, curl, gzip.
 set -eu

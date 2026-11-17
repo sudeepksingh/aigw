@@ -398,6 +398,8 @@
       <parameter name="RollbackConfirmed" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
       <parameter name="HeldVersion" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="HeldUntil" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="RollbackMethod" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="RollbackNote" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <command name="Forget()">
         <output>
           <parameter name="Forgotten"><syntax><string/></syntax></parameter>

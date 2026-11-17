@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # firmware: AIGW OS's firmware handler for OpenWRT (one flash image, upgraded
 # with sysupgrade). Image 1 is the one running; image 2 is a slot in RAM for
-# the next one, downloaded and checked before anything is written to flash.
+# the next one, downloaded and checked before anything is written to flash;
+# image 3 is a copy of the image it came from, kept for a rollback.
 #
 #   firmware version              the running firmware's version
 #   firmware list                 <id> <status> <active> <boot> <version> <name>
@@ -11,20 +12,299 @@
 #                                 AIGW_FW_SIZE, AIGW_FW_CHECKSUM_ALGORITHM
 #                                 (SHA-1, SHA-256, SHA-512), AIGW_FW_CHECKSUM.
 #                                 Exit 2: not downloaded; 3: failed its checks
-#   firmware activate <id>        write it to flash and boot it (sysupgrade,
-#                                 keeping the configuration; does not return)
+#   firmware activate <id>        write it to flash and boot it (sysupgrade;
+#                                 does not return). 2: the new image, keeping
+#                                 the settings, after keeping a copy of the
+#                                 running one; 3: the kept copy, with the
+#                                 settings it had then (a rollback).
+#                                 AIGW_FW_CARRY: files carried back over a
+#                                 rollback (agd's record of the upgrade)
+#   firmware rollback             how this router goes back, one line:
+#                                 "banks|copy|none <in words>"
+#   firmware keep [file|url]      keep a copy of the running image now (from
+#                                 the file or URL, else from where it came)
 #   firmware reboot
 #   firmware factory-reset        back to the image's own settings, and reboot
+#
+# A router with one firmware partition has no second bank to go back to. So,
+# before sysupgrade writes a new image, a copy of the running image and its
+# settings (sysupgrade -b) is kept where there is room: USB storage (mounted
+# under /mnt or /media), else the flash's overlay, where it rides over the
+# upgrade in sysupgrade's archive of the settings (RAM holds that meanwhile).
+# Never in RAM (tmpfs) alone: RAM is empty after the reboot. The copy comes
+# from an earlier copy of the version running, else from the URL that version
+# was downloaded from. Settings (uci aigw.mgmt):
+#   firmware_keep      auto (default): keep a copy when there is room, else
+#                      upgrade without one, saying so; require: refuse to
+#                      upgrade without one; off
+#   firmware_keep_dir  where; default: chosen as above
 #
 # An OEM with dual-bank flash or signed images points mgmt.firmware_handler at
 # its own program with the same interface.
 set -u
 
-DIR=${AIGW_FW_DIR:-/tmp/aigw-firmware}
+R=${AIGW_FW_ROOT:-}                      # tests: a directory standing in for /
+DIR=${AIGW_FW_DIR:-/tmp/aigw-firmware}   # RAM
+REC=$R/etc/aigw/firmware                 # small records, kept over sysupgrade (/etc/aigw/)
+MOUNTS=${AIGW_FW_MOUNTS:-/proc/mounts}
+KEEPD=$R/lib/upgrade/keep.d/aigw-rollback
+MARGIN=512                               # KB left free beyond what is needed
+
+setting() {
+	v=$(uci -q get "aigw.mgmt.$1" 2>/dev/null) || v=
+	printf '%s\n' "$v"
+}
+POLICY=${AIGW_FW_KEEP:-$(setting firmware_keep)}
+case $POLICY in auto|require|off) ;; *) POLICY=auto ;; esac
 
 running() {
-	. /etc/openwrt_release 2>/dev/null || true
+	DISTRIB_RELEASE= DISTRIB_REVISION=
+	. "$R/etc/openwrt_release" 2>/dev/null || true
 	printf '%s\n' "${DISTRIB_RELEASE:-unknown}-${DISTRIB_REVISION:-unknown}" | tr ' ' '_'
+}
+size_kb() { s=$(wc -c < "$1" 2>/dev/null) || s=0; echo $(( (${s:-0} + 1023) / 1024 )); }
+mb() { awk -v k="$1" 'BEGIN { printf "%.1f MB", k / 1024 }'; }
+
+# "<free KB> <mount point>" of the file system that holds $1 (df -Pk)
+df_of() {
+	d=$1
+	while [ ! -e "$d" ] && [ "$d" != / ] && [ -n "$d" ]; do d=$(dirname "$d"); done
+	df -Pk "$d" 2>/dev/null | awk 'NR == 2 { print $4, $6 }'
+}
+free_kb() { set -- $(df_of "$1"); echo "${1:-0}"; }
+fstype() { awk -v m="$1" '$2 == m { t = $3 } END { print t }' "$MOUNTS" 2>/dev/null; }
+
+# what kind of place $1 is: flash (rewritten by sysupgrade: a copy is carried
+# in its archive), external (survives it), or no (RAM, or nothing that lasts)
+place() {
+	set -- $(df_of "$1")
+	mp=${2:-}
+	case $(fstype "$mp") in tmpfs|ramfs|rootfs|devtmpfs|squashfs|"") echo no; return ;; esac
+	case $mp in
+	"$R"|"$R/"|"$R/overlay"|/|/overlay) echo flash ;;
+	"$R"/mnt/*|"$R"/media/*) echo external ;;
+	*) echo no ;;
+	esac
+}
+place_words() {
+	case $(place "$1") in
+	flash) echo "the flash (overlay)" ;;
+	external) echo "USB storage (${1#$R})" ;;
+	*) echo "${1#$R}" ;;
+	esac
+}
+
+# where copies are kept: the setting, else the external storage with the most
+# room, else the overlay. Empty when nothing here survives a sysupgrade
+keep_dir() {
+	k=${AIGW_FW_KEEP_DIR:-$(setting firmware_keep_dir)}
+	if [ -n "$k" ]; then
+		case $k in /*) ;; *) k=/$k ;; esac
+		echo "$R${k#$R}"; return
+	fi
+	best= bestfree=-1
+	while read -r _ mp t opts _; do
+		case $mp in "$R"/mnt/*|"$R"/media/*) ;; *) continue ;; esac
+		case $t in tmpfs|ramfs|devtmpfs|squashfs|iso9660) continue ;; esac
+		case $opts in rw*) ;; *) continue ;; esac
+		f=$(free_kb "$mp")
+		[ "$f" -gt "$bestfree" ] && best=$mp bestfree=$f
+	done < "$MOUNTS"
+	if [ -n "$best" ]; then echo "$best/aigw-rollback"; return; fi
+	[ "$(place "$R/etc")" = flash ] && echo "$R/etc/aigw-rollback"
+}
+
+# after the boot: the copy of the new image (current.img) and the URL it came
+# from now name the version it calls itself, unless it never ran
+reconcile() {
+	K=$1 now=$(running)
+	if [ -n "$K" ] && [ -f "$K/current.pending" ]; then
+		if [ "$now" = "$(cat "$K/current.from" 2>/dev/null)" ]; then
+			rm -f "$K/current.img" "$K/current.version"
+		else
+			echo "$now" > "$K/current.version"
+		fi
+		rm -f "$K/current.pending" "$K/current.from"
+	fi
+	if [ -f "$REC/source.pending" ]; then
+		if [ "$now" = "$(cat "$REC/source.from" 2>/dev/null)" ]; then
+			rm -f "$REC/source.url" "$REC/source.version"
+		else
+			echo "$now" > "$REC/source.version"
+		fi
+		rm -f "$REC/source.pending" "$REC/source.from"
+	fi
+}
+
+kept_version() { [ -f "$1/kept.img" ] && cat "$1/kept.version" 2>/dev/null; }
+
+# check image $1: sysupgrade -T, and its version (fwtool metadata) into file $2
+check_image() {
+	sysupgrade -T "$1" >/dev/null 2>&1 || return 1
+	ver=unknown
+	mkdir -p "$DIR"
+	if fwtool -q -i "$DIR/meta.json" "$1" 2>/dev/null; then
+		v=$(jsonfilter -i "$DIR/meta.json" -e '@.version.version' 2>/dev/null || true)
+		r=$(jsonfilter -i "$DIR/meta.json" -e '@.version.revision' 2>/dev/null || true)
+		[ -n "$v" ] && ver="$v-${r:-unknown}"
+	fi
+	rm -f "$DIR/meta.json"
+	printf '%s\n' "$ver" | tr ' ' '_' > "$2"
+}
+
+# fetch URL $1 (http(s):// or file://) into $2; "move": a file in RAM is moved
+fetch() {
+	url=$1 out=$2
+	case $url in
+	file://*)
+		src=${url#file://}
+		[ -f "$src" ] || { echo "no file $src" >&2; return 1; }
+		# a file already in RAM is moved, not copied (RAM is what a router lacks)
+		case $src in /tmp/*) if [ "${3:-}" = move ]; then mv "$src" "$out"; return; fi ;; esac
+		cp "$src" "$out" ;;
+	http://*|https://*)
+		if [ -n "${AIGW_FW_USER:-}" ]; then
+			uclient-fetch -q -O "$out" --user="$AIGW_FW_USER" --password="${AIGW_FW_PASSWORD:-}" "$url"
+		else
+			uclient-fetch -q -O "$out" "$url"
+		fi || { rm -f "$out"; return 1; } ;;
+	*) echo "URL is http://, https:// or file://" >&2; return 1 ;;
+	esac
+}
+
+# room in keep dir $1 for $2 KB more, with $3 KB already freed there; on the
+# flash also after an image $4 KB bigger is written, and in RAM for $5 KB of
+# copies in sysupgrade's archive meanwhile. Prints why not; nothing: room
+room_for() {
+	K=$1 need=$2 freed=$3 grow=$4 ram=$5
+	[ "$grow" -gt 0 ] || grow=0
+	mkdir -p "$K" 2>/dev/null || { echo "cannot write to ${K#$R}"; return; }
+	f=$(( $(free_kb "$K") + freed ))
+	case $(place "$K") in
+	flash)
+		if [ $((f - grow)) -lt $((need + MARGIN)) ]; then
+			echo "no room on the flash: $(mb "$f") free, $(mb $((need + grow + MARGIN))) needed$([ "$grow" -gt 0 ] && echo " (the new image is $(mb "$grow") bigger)"); USB storage would do"
+			return
+		fi
+		t=$(free_kb "$DIR")
+		[ "$t" -ge $((ram + MARGIN)) ] ||
+			echo "no room in RAM to carry the copy over the flash: $(mb "$t") free, $(mb $((ram + MARGIN))) needed" ;;
+	external)
+		[ "$f" -ge $((need + MARGIN)) ] || echo "no room on ${K#$R}: $(mb "$f") free, $(mb $((need + MARGIN))) needed" ;;
+	*) echo "${K#$R} does not survive a reboot (RAM)" ;;
+	esac
+}
+
+# the source of a copy of version $2 for keep dir $1, given $3 (a file or
+# URL) or else the URL it came from; prints it, or why there is none
+source_of() {
+	if [ -n "${3:-}" ]; then echo "$3"; return; fi
+	if [ "$(cat "$REC/source.version" 2>/dev/null)" = "$2" ] && [ -s "$REC/source.url" ]; then
+		cat "$REC/source.url"; return
+	fi
+	echo "nothing to copy $2 from: AIGW did not install it from a URL it can fetch again (firmware keep <url> gives one)"
+	return 1
+}
+
+# a copy of the running version $2 into $1/current.img, from $3 (or where it
+# came from), with room for $4 KB; prints why not
+keep_current() {
+	K=$1 want=$2
+	if [ -f "$K/current.img" ] && [ "$(cat "$K/current.version" 2>/dev/null)" = "$want" ]; then
+		return 0
+	fi
+	src=$(source_of "$K" "$want" "${3:-}") || { echo "$src"; return 1; }
+	rm -f "$K/current.img" "$K/current.version" "$K/fetch.img" "$K/fetch.version"
+	if ! fetch "$src" "$K/fetch.img" 2>/dev/null; then
+		rm -f "$K/fetch.img"; echo "cannot fetch $want again from $src"; return 1
+	fi
+	if ! check_image "$K/fetch.img" "$K/fetch.version" || [ "$(cat "$K/fetch.version")" != "$want" ]; then
+		got=$(cat "$K/fetch.version" 2>/dev/null)
+		rm -f "$K/fetch.img" "$K/fetch.version"
+		echo "the image from $src is not $want (${got:-not an image this device can run})"; return 1
+	fi
+	mv "$K/fetch.img" "$K/current.img"; mv "$K/fetch.version" "$K/current.version"
+	sync
+}
+
+# image 2 is about to be written: keep the running one, as image 3. Prints
+# what was done, in words; exit 1: no copy (the words say why)
+keep_for_upgrade() {
+	K=$(keep_dir)
+	from=$(running)
+	[ -n "$K" ] || { echo "no copy of $from was kept: nothing on this router survives a sysupgrade"; return 1; }
+	mkdir -p "$K" "$REC" 2>/dev/null
+	reconcile "$K"
+	new_kb=$(size_kb "$DIR/image")
+	have=0
+	[ -f "$K/current.img" ] && [ "$(cat "$K/current.version" 2>/dev/null)" = "$from" ] && have=$(size_kb "$K/current.img")
+	copy_kb=$have; [ "$copy_kb" -gt 0 ] || copy_kb=$new_kb   # not fetched yet: about the new one's size
+	need=0; [ "$have" -gt 0 ] || need=$copy_kb
+	old=0; [ -f "$K/kept.img" ] && old=$(size_kb "$K/kept.img")   # an older copy makes way
+	why=$(room_for "$K" "$need" "$old" $((new_kb - copy_kb)) "$copy_kb")
+	if [ -n "$why" ]; then echo "no copy of $from was kept: $why"; return 1; fi
+	rm -f "$K/kept.img" "$K/kept.version" "$K/kept-config.tgz"
+	if ! why=$(keep_current "$K" "$from"); then echo "no copy of $from was kept: $why"; return 1; fi
+	mv "$K/current.img" "$K/kept.img"; mv "$K/current.version" "$K/kept.version"
+	note=
+	sysupgrade -b "$K/kept-config.tgz" >/dev/null 2>&1 || { rm -f "$K/kept-config.tgz"; note=", but not its settings (sysupgrade -b failed)"; }
+	# the new image too, for the upgrade after this one, when both fit
+	if [ -z "$(room_for "$K" "$new_kb" 0 $((new_kb - copy_kb)) $((copy_kb + new_kb)))" ] && cp "$DIR/image" "$K/current.img" 2>/dev/null; then
+		cp "$DIR/version" "$K/current.version"; echo "$from" > "$K/current.from"; : > "$K/current.pending"
+	else
+		rm -f "$K/current.img" "$K/current.version"
+	fi
+	sync
+	echo "kept a copy of $from on $(place_words "$K") (image 3)$note"
+}
+
+# the URL of the image being installed, to fetch it again before the upgrade
+# after it (written after the settings to go back to were saved: those keep
+# the old one's)
+record_source() {
+	mkdir -p "$REC"
+	rm -f "$REC/source.url" "$REC/source.version" "$REC/source.pending" "$REC/source.from"
+	case $1 in
+	http://*|https://*)
+		printf '%s\n' "$1" > "$REC/source.url"; cp "$DIR/version" "$REC/source.version"
+		running > "$REC/source.from"; : > "$REC/source.pending" ;;
+	esac
+}
+
+# sysupgrade rewrites the overlay: a copy there rides in its archive, this once
+carry() {
+	[ -n "$1" ] && [ "$(place "$1")" = flash ] || return 0
+	mkdir -p "$(dirname "$KEEPD")"
+	printf '%s/\n' "${1#$R}" > "$KEEPD"
+}
+
+flash() {   # sysupgrade "$@"; back here only when it failed
+	sysupgrade "$@"
+	rc=$?
+	rm -f "$KEEPD"
+	return $rc
+}
+
+rollback_words() {
+	if [ "$POLICY" = off ]; then echo "none copies are not kept (aigw.mgmt.firmware_keep off): there is only the running image"; return; fi
+	K=$(keep_dir)
+	if [ -z "$K" ]; then echo "none there is only the running image, and nothing on this router survives a sysupgrade to keep a copy on"; return; fi
+	reconcile "$K"
+	kv=$(kept_version "$K")
+	if [ -n "$kv" ]; then
+		echo "copy a copy of $kv is kept on $(place_words "$K") (image 3): a failed upgrade check writes it back with its settings"
+		return
+	fi
+	cur=$(running)
+	last=$(cat "$REC/last-keep" 2>/dev/null)
+	if [ -f "$K/current.img" ] && [ "$(cat "$K/current.version" 2>/dev/null)" = "$cur" ]; then
+		next="at the next upgrade, the copy of $cur on $(place_words "$K") becomes image 3"
+	elif src=$(source_of "$K" "$cur"); then
+		next="at the next upgrade, a copy of $cur is fetched again and kept on $(place_words "$K") ($(mb "$(free_kb "$K")") free) when it fits"
+	else
+		next="at the next upgrade, none can be kept on $(place_words "$K"): $src"
+	fi
+	echo "copy no copy is kept now; $next${last:+. Last upgrade: $last}"
 }
 
 case "${1:-}" in
@@ -35,28 +315,27 @@ list)
 	[ -f "$DIR/status" ] && st=$(cat "$DIR/status")
 	[ -f "$DIR/version" ] && ver=$(cat "$DIR/version")
 	printf '1 Active 1 1 %s running\n' "$(running)"
-	printf '2 %s 0 0 %s next\n' "$st" "$ver" ;;
+	printf '2 %s 0 0 %s next\n' "$st" "$ver"
+	if [ "$POLICY" != off ]; then
+		K=$(keep_dir) kv=
+		reconcile "$K"
+		[ -n "$K" ] && kv=$(kept_version "$K")
+		if [ -n "$kv" ]; then printf '3 Available 0 0 %s kept\n' "$kv"; else printf '3 NoImage 0 0 - kept\n'; fi
+	fi ;;
 download)
-	[ "${2:-}" = 2 ] || { echo "download into image 2 (image 1 is running)" >&2; exit 2; }
+	case "${2:-}" in
+	2) ;;
+	3) echo "image 3 is the copy kept for a rollback: download into image 2" >&2; exit 2 ;;
+	*) echo "download into image 2 (image 1 is running)" >&2; exit 2 ;;
+	esac
 	url=${3:-}
 	mkdir -p "$DIR"
-	rm -f "$DIR/image" "$DIR/version"
+	rm -f "$DIR/image" "$DIR/version" "$DIR/url"
 	echo Downloading > "$DIR/status"
-	case $url in
-	file://*)
-		src=${url#file://}
-		[ -f "$src" ] || { echo DownloadFailed > "$DIR/status"; echo "no file $src" >&2; exit 2; }
-		# a file already in RAM is moved, not copied (RAM is what a router lacks)
-		case $src in /tmp/*) mv "$src" "$DIR/image" ;; *) cp "$src" "$DIR/image" ;; esac ;;
-	http://*|https://*)
-		set -- -q -O "$DIR/image"
-		[ -n "${AIGW_FW_USER:-}" ] && set -- "$@" --user="$AIGW_FW_USER" --password="${AIGW_FW_PASSWORD:-}"
-		if ! uclient-fetch "$@" "$url"; then
-			rm -f "$DIR/image"; echo DownloadFailed > "$DIR/status"
-			echo "download from $url failed" >&2; exit 2
-		fi ;;
-	*) echo DownloadFailed > "$DIR/status"; echo "URL is http://, https:// or file://" >&2; exit 2 ;;
-	esac
+	if ! fetch "$url" "$DIR/image" move; then
+		rm -f "$DIR/image"; echo DownloadFailed > "$DIR/status"
+		echo "download from $url failed" >&2; exit 2
+	fi
 	if [ -n "${AIGW_FW_SIZE:-}" ] && [ "${AIGW_FW_SIZE}" != 0 ] && [ "$(wc -c < "$DIR/image")" != "$AIGW_FW_SIZE" ]; then
 		rm -f "$DIR/image"; echo ValidationFailed > "$DIR/status"; echo "the file is not $AIGW_FW_SIZE bytes" >&2; exit 3
 	fi
@@ -69,32 +348,104 @@ download)
 		want=$(printf '%s' "$AIGW_FW_CHECKSUM" | tr 'A-F' 'a-f')
 		[ "$got" = "$want" ] || { rm -f "$DIR/image"; echo ValidationFailed > "$DIR/status"; echo "checksum mismatch" >&2; exit 3; }
 	fi
-	if ! sysupgrade -T "$DIR/image" >/dev/null 2>&1; then
-		rm -f "$DIR/image"; echo ValidationFailed > "$DIR/status"
+	if ! check_image "$DIR/image" "$DIR/version"; then
+		rm -f "$DIR/image" "$DIR/version"; echo ValidationFailed > "$DIR/status"
 		echo "not an image this device can run (sysupgrade -T)" >&2; exit 3
 	fi
-	ver=unknown
-	if fwtool -q -i "$DIR/meta.json" "$DIR/image" 2>/dev/null; then
-		v=$(jsonfilter -i "$DIR/meta.json" -e '@.version.version' 2>/dev/null || true)
-		r=$(jsonfilter -i "$DIR/meta.json" -e '@.version.revision' 2>/dev/null || true)
-		[ -n "$v" ] && ver="$v-${r:-unknown}"
-	fi
-	printf '%s\n' "$ver" | tr ' ' '_' > "$DIR/version"
+	printf '%s\n' "$url" > "$DIR/url"
 	echo Available > "$DIR/status"
-	echo "image 2: $ver" ;;
+	echo "image 2: $(cat "$DIR/version")" ;;
 activate)
 	case "${2:-}" in
 	1) exit 0 ;;                         # it runs already
-	2) ;;
+	2)
+		[ "$(cat "$DIR/status" 2>/dev/null)" = Available ] && [ -f "$DIR/image" ] || { echo "image 2 is not available" >&2; exit 1; }
+		mkdir -p "$REC"
+		K=
+		if [ "$POLICY" = off ]; then
+			words="no copy was kept (aigw.mgmt.firmware_keep off)"
+		elif words=$(keep_for_upgrade); then
+			K=$(keep_dir)
+		elif [ "$POLICY" = require ]; then
+			echo "not upgraded: $words (aigw.mgmt.firmware_keep require)" >&2; exit 1
+		else
+			words="$words: upgrading without a way back"
+		fi
+		echo "$words" > "$REC/last-keep"
+		echo "$words"
+		record_source "$(cat "$DIR/url" 2>/dev/null)"
+		carry "$K"
+		sync
+		if ! flash "$DIR/image"; then
+			# still on the old one: its copy is the running image's again
+			if [ -n "$K" ] && [ -f "$K/kept.img" ]; then
+				mv "$K/kept.img" "$K/current.img"; mv "$K/kept.version" "$K/current.version"
+				rm -f "$K/current.pending" "$K/current.from"
+			fi
+			rm -f "$REC/source.pending" "$REC/source.from"
+			echo "sysupgrade did not write $(cat "$DIR/version" 2>/dev/null)" >&2; exit 1
+		fi ;;
+	3)
+		K=$(keep_dir) kv=
+		[ -n "$K" ] && kv=$(kept_version "$K")
+		[ -n "$kv" ] || { echo "image 3 has no image: no copy is kept" >&2; exit 1; }
+		sysupgrade -T "$K/kept.img" >/dev/null 2>&1 || { echo "the kept copy of $kv is not an image this device can run (sysupgrade -T)" >&2; exit 1; }
+		mkdir -p "$DIR"
+		# sysupgrade's last stage runs from RAM, with the flash and USB let go: the image goes to RAM first
+		need=$(size_kb "$K/kept.img") t=$(free_kb "$DIR")
+		if [ "$t" -lt $((need + MARGIN)) ]; then
+			echo "cannot go back to $kv: no room in RAM for it ($(mb "$t") free, $(mb $((need + MARGIN))) needed)" >&2; exit 1
+		fi
+		cp "$K/kept.img" "$DIR/rollback.img" || { rm -f "$DIR/rollback.img"; echo "cannot copy $kv to RAM" >&2; exit 1; }
+		# its own settings, and what must carry over: agd's record of the rollback, and
+		# icwmp's session (the upgrade's TransferComplete was sent: not again)
+		set --
+		if [ -f "$K/kept-config.tgz" ]; then
+			rm -rf "$DIR/cfg"; mkdir -p "$DIR/cfg"
+			if tar -xzf "$K/kept-config.tgz" -C "$DIR/cfg" 2>/dev/null; then
+				for f in ${AIGW_FW_CARRY:-$R/etc/aigw/agd-upgrade.json} "$R/etc/icwmpd"; do
+					[ -e "$f" ] || continue
+					rel=${f#$R}; rel=${rel#/}
+					rm -rf "$DIR/cfg/$rel"
+					mkdir -p "$DIR/cfg/$(dirname "$rel")" && cp -pR "$f" "$DIR/cfg/$rel"
+				done
+				tar -czf "$DIR/rollback-config.tgz" -C "$DIR/cfg" . && set -- -f "$DIR/rollback-config.tgz"
+			fi
+			rm -rf "$DIR/cfg"
+		fi
+		[ $# -gt 0 ] || echo "no settings of $kv were kept: going back with the current ones"
+		# back on it, the copy is the running image's (USB keeps it; the flash is rewritten)
+		mv "$K/kept.img" "$K/current.img"; mv "$K/kept.version" "$K/current.version"
+		rm -f "$K/kept-config.tgz"
+		echo "going back to $kv"
+		sync
+		if ! flash "$@" "$DIR/rollback.img"; then
+			mv "$K/current.img" "$K/kept.img"; mv "$K/current.version" "$K/kept.version"
+			rm -f "$DIR/rollback.img" "$DIR/rollback-config.tgz"
+			echo "sysupgrade did not go back to $kv" >&2; exit 1
+		fi ;;
 	*) echo "no image ${2:-}" >&2; exit 1 ;;
-	esac
-	[ "$(cat "$DIR/status" 2>/dev/null)" = Available ] && [ -f "$DIR/image" ] || { echo "image 2 is not available" >&2; exit 1; }
-	exec sysupgrade "$DIR/image" ;;
+	esac ;;
+rollback)
+	rollback_words ;;
+keep)
+	[ "$POLICY" != off ] || { echo "copies are not kept (aigw.mgmt.firmware_keep off)" >&2; exit 1; }
+	K=$(keep_dir)
+	[ -n "$K" ] || { echo "nothing on this router survives a sysupgrade to keep a copy on" >&2; exit 1; }
+	mkdir -p "$K" "$DIR" "$REC" 2>/dev/null
+	reconcile "$K"
+	cur=$(running) from=${2:-} est=0
+	case $from in /*) from=file://$from ;; esac
+	case $from in file://*) est=$(size_kb "${from#file://}") ;; esac
+	why=$(room_for "$K" "$est" 0 0 "$est")
+	[ -z "$why" ] || { echo "$why" >&2; exit 1; }
+	if ! why=$(keep_current "$K" "$cur" "$from"); then echo "$why" >&2; exit 1; fi
+	echo "a copy of $cur is kept on $(place_words "$K"): the next upgrade can go back to it" ;;
 reboot)
 	exec reboot ;;
 factory-reset)
 	# OpenWRT's own: wipe the overlay (settings, installed packages), reboot
 	firstboot -y && exec reboot ;;
 *)
-	echo "usage: firmware version|list|download <id> <url>|activate <id>|reboot|factory-reset" >&2; exit 2 ;;
+	echo "usage: firmware version|list|download <id> <url>|activate <id>|rollback|keep [url]|reboot|factory-reset" >&2; exit 2 ;;
 esac

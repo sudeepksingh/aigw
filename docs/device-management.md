@@ -205,13 +205,17 @@ next, so agd leaves it to a small program, `mgmt.firmware_handler`
 | `firmware version` | the running firmware's version, one line |
 | `firmware list` | one line per image: `<id> <status> <active 0/1> <boot 0/1> <version or -> <name>`; status as TR-181 (`NoImage`, `Active`, `Available`, `DownloadFailed`, `ValidationFailed`, ...) |
 | `firmware download <id> <url>` | fetch and check; exit 0 when it is in slot `<id>`, 2 when it could not be fetched, 3 when it failed its checks. Credentials and checksum come in the environment (`AIGW_FW_USER`, `AIGW_FW_PASSWORD`, `AIGW_FW_SIZE`, `AIGW_FW_CHECKSUM_ALGORITHM`, `AIGW_FW_CHECKSUM`) |
-| `firmware activate <id>` | exit 0 when that image boots next (it may also write it and reboot itself) |
+| `firmware activate <id>` | exit 0 when that image boots next (it may also write it and reboot itself). `AIGW_FW_CARRY` names files a handler that writes back an old image with its old settings must carry over (agd's upgrade record) |
+| `firmware rollback` | optional: how this gateway goes back after a bad upgrade, one line: `banks`, `copy` or `none`, then the words (`Device.X_AIGW_.Upgrade.RollbackMethod` and `RollbackNote`; `Unknown` without it) |
 | `firmware reboot` | reboot |
 
 - **OpenWRT** (the default handler): image 1 is the running one, and image 2 is
   a slot in RAM. A download is checked with `sysupgrade -T`, and its version
   is read from the image's metadata. Activating it runs `sysupgrade`, keeping
-  the configuration.
+  the configuration. Since v0.36, image 3 is a copy of the image it came from,
+  kept before the upgrade where there is room, so that a bad upgrade can be
+  undone on a router with one firmware partition (see
+  [upgrade-check.md](upgrade-check.md#routers-with-one-firmware-image)).
 - **A/B flash, signed images, an OEM's own update agent:** point
   `mgmt.firmware_handler` at a program with the interface above.
   `tests/fw/firmware` is a two-bank example.
@@ -293,7 +297,7 @@ The Wi-Fi handler (`wifi.handler`) is replaceable the same way:
 `wifi-config set <iface>`, with the new values in `AIGW_WIFI_SSID`,
 `AIGW_WIFI_KEY`, `AIGW_WIFI_MODE`, `AIGW_WIFI_CHANNEL` and `AIGW_WIFI_WIDTH`.
 
-## The data model (version 1.14)
+## The data model (version 1.15)
 
 The full definition, as ISPs load it into their controllers, is
 [`datamodel/aigw-dm.xml`](datamodel/aigw-dm.xml). It is made from what `agd`
