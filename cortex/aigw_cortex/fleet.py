@@ -22,10 +22,14 @@ never names), for the last --days days against the days before:
   signals      (v0.32) what homes would buy, or why they may leave, as each gateway saw
                it over its last week, with the evidence: a faster plan, smart queueing,
                mesh Wi-Fi, a customer at risk, a line to repair first
+  rollouts     (v0.34) staged firmware rollouts going on or changed in the period: the
+               wave, how many homes kept it or got worse, and why one stopped (rollout.py)
 """
 import statistics
 import time
 from collections import Counter
+
+from . import rollout
 
 GOOD, FAIR = 95, 80
 OUTAGE_WINDOW = 900             # s: problems this close together belong to one outage
@@ -190,6 +194,8 @@ def report(store, days=7, group=None, now=None):
                   "homes_below_line_speed": sum(1 for h in homes.values() if h["speed_low"])},
         "outages": outages(events, groups),
         "signals": signals(store, ids, names, groups),
+        "rollouts": [r for r in rollout.summaries(store, since=first * 86400, now=now)
+                     if group is None or r["group"] == group],
         "attention": attention[:30],
         "per_home": sorted(homes.values(), key=lambda h: (h["score"] is None, h["score"] or 0)),
     }
@@ -204,6 +210,17 @@ def _ago(ts, now):
     return f"{s // 60} min" if s < 7200 else f"{s // 3600} h" if s < 172800 else f"{s // 86400} days"
 
 
+def _rollouts(r):
+    out = []
+    for ro in r.get("rollouts") or []:
+        st = ", ".join(f"{v} {rollout.WORDS[k]}" for k, v in ro["states"].items())
+        out.append(f"  rollout      {ro['name']} ({ro['version']}, {ro['homes']} homes): {ro['state']}, wave "
+                   f"{ro['wave']} of {ro['waves']}; {st}")
+        if ro["reason"]:
+            out.append(f"               {ro['reason']}")
+    return out
+
+
 def text(r, now=None):
     """The report in words, for a person."""
     now = now or time.time()
@@ -212,7 +229,7 @@ def text(r, now=None):
            f": {h['reporting']} of {h['total']} homes reporting" + (f", {h['silent']} silent" if h["silent"] else "")]
     if e["mean"] is None:
         out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
-        return "\n".join(out)
+        return "\n".join(out + _rollouts(r))
     change = ""
     if e["mean_before"] is not None:
         d = e["mean"] - e["mean_before"]
@@ -251,6 +268,7 @@ def text(r, now=None):
             where = f" ({o['group']})" if o.get("group") else ""
             out.append(f"    {o['home']}{where}: {o['code']}, {o['product']} ({o['confidence']}, {o['days']} of "
                        f"{o['of_days']} days): {o['evidence']}")
+    out += _rollouts(r)
     if r["attention"]:
         out.append("  attention")
     for a in r["attention"]:

@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Fleet history in SQLite: gateways, their reports, labels for training,
-proposals on their way to a gateway, published models, and federated
-learning rounds (only noisy changes of the shared layer, never names).
+proposals on their way to a gateway, published models, federated
+learning rounds (only noisy changes of the shared layer, never names), and
+staged firmware rollouts (rollout.py: waves, each home's result).
 
 One file (cortex.db) in the cortex data directory. Gateways send features
 and decisions, never packets or DNS logs; the only names that arrive are
@@ -58,6 +59,16 @@ CREATE TABLE IF NOT EXISTS offers (
     gateway TEXT, code TEXT, since INTEGER, kind TEXT DEFAULT '', product TEXT DEFAULT '', confidence TEXT DEFAULT '',
     days INTEGER DEFAULT 0, of_days INTEGER DEFAULT 0, evidence TEXT DEFAULT '', seen INTEGER DEFAULT 0,
     until INTEGER DEFAULT 0, PRIMARY KEY (gateway, code, since));
+-- v0.34: staged firmware rollouts (rollout.py): waves of homes, each home's result, what happened in words
+CREATE TABLE IF NOT EXISTS rollouts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, version TEXT, url TEXT DEFAULT '',
+    sha256 TEXT DEFAULT '', size TEXT DEFAULT '', via TEXT DEFAULT 'acs', grp TEXT DEFAULT '', waves TEXT,
+    rules TEXT, state TEXT, wave INTEGER DEFAULT 1, opened TEXT DEFAULT '[]', reason TEXT DEFAULT '',
+    created INTEGER, updated INTEGER);
+CREATE TABLE IF NOT EXISTS rollout_homes (
+    rollout INTEGER, gateway TEXT, wave INTEGER, state TEXT, score_before INTEGER, score_after INTEGER,
+    error TEXT DEFAULT '', updated INTEGER, PRIMARY KEY (rollout, gateway));
+CREATE TABLE IF NOT EXISTS rollout_log (rollout INTEGER, ts INTEGER, text TEXT);
 """
 
 # a day's row from a gateway (agd's care_days_blob) -> care_days' columns
@@ -147,8 +158,8 @@ class Store:
 
     # ---------- reports ----------
 
-    def report(self, gw, rep):
-        now = int(time.time())
+    def report(self, gw, rep, now=None):
+        now = int(now or time.time())
         st = rep.get("status") or {}
         self.x("UPDATE gateways SET last_seen = ?, aigw = ?, host = ?, snapshot = ? WHERE id = ?",
                (now, str(st.get("version", "")), str(st.get("host", "")), json.dumps(rep), gw))
@@ -182,6 +193,9 @@ class Store:
                    (str(a["subject"]).lower(), str(a.get("kind", "")), label, gw, now))
             learned += 1
         self.care(gw, rep.get("care"), now)
+        if rep.get("upgrade") is not None:
+            from . import rollout             # a staged rollout's wave may wait for this home's verdict
+            rollout.on_report(self, gw, rep.get("upgrade"), now)
         return learned
 
     # ---------- proactive care (the fleet report) ----------

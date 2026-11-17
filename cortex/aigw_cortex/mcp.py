@@ -7,7 +7,8 @@ Read tools answer from the fleet history the gateways report. There is one
 write tool, propose_action, and it only proposes: the suggestion travels to
 the gateway through its bridge and waits there, like any plug-in's proposal,
 until a person approves it (agctl approve, Home Assistant, ...). An AI
-assistant can never change the network on its own.
+assistant can never change the network on its own. rollout_hold can pause or
+abort a staged firmware rollout, which only holds firmware back.
 """
 import json
 import sys
@@ -45,6 +46,17 @@ TOOLS = [
          "coming, nightly speeds, outages across many homes of one group, and the homes needing attention first.",
          {"days": {"type": "integer", "description": "The period, in days (default 7)"},
           "group": {"type": "string", "description": "Only the gateways of this group (area)"}}),
+    tool("rollout_status",
+         "Staged firmware rollouts: each one's state (running, paused, stopped by itself, aborted, done), its "
+         "waves, how many homes kept the firmware or got worse (rolled back, didn't boot), the experience score "
+         "before and after, and why it stopped or waits, in words with counts (no homes' names).",
+         {"name": {"type": "string", "description": "One rollout; omit for all of them"}}),
+    tool("rollout_hold",
+         "Pause or abort a staged firmware rollout: no more homes get the firmware (homes already upgrading "
+         "still report). It can only hold a rollout back; resuming or starting one is for a person.",
+         {"name": {"type": "string"}, "action": {"type": "string", "enum": ["pause", "abort"]},
+          "reason": {"type": "string", "description": "Why, in plain words, kept in the rollout's log"}},
+         required=("name", "action", "reason"), read_only=False),
     tool("propose_action",
          "Suggest an action on a gateway. It is never applied directly: it waits on the gateway until a "
          "person approves it. Actions: quarantine, priority, deprioritize, throttle, disconnect (target: a "
@@ -88,6 +100,21 @@ class Server:
         if name == "fleet_report":
             from . import fleet
             return fleet.report(s, max(1, min(31, int(args.get("days") or 7))), args.get("group") or None)
+        if name == "rollout_status":
+            from . import rollout
+            if args.get("name"):
+                rollout.step(s, args["name"])
+                return rollout.status(s, args["name"])
+            rollout.step_all(s)
+            return rollout.summaries(s)
+        if name == "rollout_hold":
+            from . import rollout
+            action, reason = str(args.get("action", "")), str(args.get("reason", "")).strip()
+            if action not in ("pause", "abort"):
+                raise ValueError("action is pause or abort (resuming is for a person)")
+            if not reason:
+                raise ValueError("needs a reason")
+            return rollout.control(s, str(args.get("name", "")), action, reason[:200], "an AI assistant")
         if name == "model_status":
             gws = []
             for g in s.gateways():

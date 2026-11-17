@@ -46,6 +46,16 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.34:** **A staged firmware rollout that stops itself.** Cortex gives
+> new firmware to a fleet in waves (1% of the homes, then 10%, 50%, all). Each
+> home checks its own upgrade (v0.30) and reports the verdict. A wave passes
+> only when enough homes reported and few got worse, and only then does the
+> next wave get it. Too many rollbacks, or an experience score that falls,
+> and the rollout stops by itself, saying why with counts and no names. The
+> ISP can pause, resume or abort. The image goes through agd's own Download
+> path, pushed by the ISP's ACS as usual, or by the bridge.
+> `aigw_cortex rollout`; see [docs/staged-rollout.md](docs/staged-rollout.md).
+>
 > **v0.33:** **Bufferbloat found, fixed and proved, by the gateway.** When
 > the line is full, a router's queues make everything else wait: calls
 > stutter and games lag, though nothing is broken. Smart queueing (cake) is

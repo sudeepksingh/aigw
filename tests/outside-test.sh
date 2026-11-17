@@ -175,7 +175,7 @@ echo "== the gateway checks in: state, not traffic"
 cx_wait 15 "s.gateway('home')['last_seen'] > 0" "no report reached cortex"
 cx_wait 10 "any(d.get('hostname') == 'smoke-host' for d in s.snapshot('home').get('devices', []))" \
 	"report lacks the device list"
-cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care'}" \
+cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care', 'upgrade'}" \
 	"report carries more than state"
 cx_wait 5 "s.snapshot('home')['models'][0]['source'] == 'package'" "report lacks the model in use"
 
@@ -279,7 +279,7 @@ assert set(r) == {1, 2, 3, 4, 5, 6}, "one answer per request, none for the notif
 assert r[1]["result"]["serverInfo"]["name"] == "aigw-cortex"
 tools = {t["name"]: t for t in r[2]["result"]["tools"]}
 assert {"list_devices", "propose_action", "gateway_status"} <= set(tools)
-assert [n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]] == ["propose_action"]
+assert sorted(n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]) == ["propose_action", "rollout_hold"]
 assert "smoke-host" in r[3]["result"]["content"][0]["text"]
 assert not r[4]["result"]["isError"] and "approve" in r[4]["result"]["content"][0]["text"]
 assert r[5]["result"]["isError"], "unknown action must be refused"

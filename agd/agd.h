@@ -556,7 +556,7 @@ int upgrade_forget(void);               /* lift the hold; 1 when there was one *
 void upgrade_on_check(const struct care_sample *s, const struct care_sample *normal, int online, int problem, long max_gap);
 void upgrade_on_speed(float mbps);
 int upgrade_quick(void);
-void upgrade_blob(struct blob_buf *b);
+void upgrade_blob(struct blob_buf *b, int devices);     /* devices 0: no addresses or names */
 int upgrade_field(const char *f, char *buf, size_t n);  /* the data model's Upgrade. values; -1 unknown */
 /* dm.c: UpgradeChecked! (Kept, RolledBack, Worse, NotBooted, RollbackConfirmed, RollbackNotConfirmed) */
 void dm_on_upgrade(const char *result, const char *from, const char *to, const char *reasons, const char *summary);

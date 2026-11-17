@@ -53,6 +53,7 @@ add_test(NAME server_names COMMAND test_sni ${PROJECT_SOURCE_DIR}/tests/data)
 find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME cortex COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_cortex.py)
+  add_test(NAME staged_rollout COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_rollout.py)
 endif()
 
 # example model back-ends (plugins/examples/backend): one that agrees with the reference, one that doesn't

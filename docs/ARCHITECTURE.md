@@ -1021,6 +1021,18 @@ Verified by `tests/test_offer.c` (weeks of homes: every signal, its confidence, 
 
 Verified by `tests/test_sqm.c` (bloat and not; the rates; kept, waiting, undone for no gain or for lost speed; no before) and `tests/sqm-test.sh` (CI: a veth WAN to a namespace, a real 10 Mbit/s sender, netem bufferbloat. In advise mode it is proposed, approved and really shaped; kept when the delay goes; restored over a restart; `--off`. In enforce mode it is tried by itself and undone when no better). The PC access point's WSL kernel has no cake, so there it uses htb + fq_codel. Not yet on a real line.
 
+**As built in v0.34: staged firmware rollouts that stop themselves.** Cortex gives a version to the fleet in waves and opens the next wave only when the last one passed on the homes' own upgrade verdicts (v0.30). It stops by itself on rollbacks or a score drop ([staged-rollout.md](staged-rollout.md)).
+
+| Piece | As built |
+|-------|----------|
+| The rules (`cortex/aigw_cortex/rollout.py`) | Pure. `plan`: cumulative percentages to wave sizes, at least one home each. `judge` (one wave): stop when more than `max_bad`% of the wave got worse (rolled back, worse, not booted, couldn't install), counted as results come in. Wait while fewer than `min_reports`% reported; stop after `timeout_s`. Stop when the homes that kept it lost more than `max_score_drop` points on average. Otherwise pass. `advance`: any opened wave's stop stops it (also while paused); a running rollout whose open wave passed goes to the next wave, or done. Reasons hold counts, never names. |
+| The store | `rollouts` (version, image, via, wave sizes, rules, state, wave, when each opened, reason), `rollout_homes` (wave, state, scores, error), `rollout_log`. A bridge report's `upgrade` updates the home's state, when it is for the rollout's version (or was delivered by the bridge) and activated after its wave opened. Then the rollout steps. `serve` also steps every minute, so a quiet wave times out. |
+| Delivery | Always agd's own Download path (`fw_download`, as TR-069 `Download` and USP `Download()` with `AutoActivate`). `acs` (default): the ACS asks `rollout homes` and pushes; results come through the bridges, or `rollout result` for homes without one. `bridge`: `GET /v1/firmware` gives a cleared home its offer (once), and the bridge hands it to agd as `{"firmware": {url, version, checksum, size}}` (capability `firmware.install`, privileged; bridge setting `firmware`, default 0; `mgmt.firmware`). agd downloads into the image not running, activates and reboots. "Already running" counts as fine; a held version, or a failed download, as worse. |
+| agd | Plug-in query `upgrade`: the last upgrade's check without the devices' addresses or names (`upgrade_blob(b, 0)`). |
+| CLI, MCP, report | `aigw_cortex rollout new\|list\|status\|step\|pause\|resume\|abort\|homes\|result`. MCP `rollout_status`, and `rollout_hold` (pause or abort only). Fleet report section `rollouts`. |
+
+Verified by `tests/test_rollout.py` (the waves; pass; stop on rollbacks, early and with a canary of one; stop on a score drop; wait, then stop on silence; a rollout fed by bridge reports to done; pause, resume, abort; the bridge offer once; ACS results; fleet report and MCP) and `tests/rollout-test.sh` (CI: four homes with agd, bridge and the two-bank handler; planned paused, then resumed. Wave 1 is downloaded through the bridge, kept and passes. In wave 2, one home rolls back by itself, so the rollout stops without names, and wave 3's home never gets the image). Not yet with a real ACS pushing against `rollout homes`.
+
 ---
 
 ## 17. Status and risks
