@@ -181,6 +181,8 @@ def main():
     acs_arg = next((a.split("=", 1)[1] for a in args[4:sep] if a.startswith("--acs=")), "")
     # --upgrade=FILE: a sysupgrade image the ACS serves (DIR/files/FILE) for a real firmware upgrade
     upgrade = next((a.split("=", 1)[1] for a in args[4:sep] if a.startswith("--upgrade=")), "")
+    # --usb=DEV: a disk (ext4) to mount as USB storage, for the copy kept for a rollback
+    usb = next((a.split("=", 1)[1] for a in args[4:sep] if a.startswith("--usb=")), "")
     # --add-arch replaces opkg's list: repeat the device's own architectures, then add ours
     opkg_arch = (" $(opkg print-architecture | awk '{print \"--add-arch \" $2 \":\" $3}')"
                  f" --add-arch {add_arch}:200") if add_arch else ""
@@ -298,6 +300,8 @@ def main():
                      f"after the upgrade: {tc['events'] if tc else 'no TRANSFER COMPLETE Inform'}")
         t = acs.wait(lambda: next((x for x in acs.transfers() if x["key"] == "qemu-up"), None), 120)
         bad += check(bool(t) and t["fault"] == 0, "upgrade-transfer-complete", f"TransferComplete {t}")
+        if not usb:
+            return bad + check(False, "keep-copy", "no disk for USB storage (mkfs.ext4 on the host?)")
         return bad + kept_copy_checks(f"http://10.0.2.2:{acs_port}/{upgrade}")
 
     def reboot_and_back(what):
@@ -315,9 +319,14 @@ def main():
         """One firmware image: a copy of the running image kept on the flash over a real sysupgrade, then
         written back with the settings it had."""
         fw = "/usr/libexec/aigw/firmware"
-        say("one firmware image: a copy of the running image kept, carried over a sysupgrade, written back")
+        mount = f"mkdir -p /mnt/usb && (grep -q ' /mnt/usb ' /proc/mounts || mount -t ext4 {usb} /mnt/usb)"
+        say("one firmware image: a copy of the running image kept on USB storage, over a sysupgrade, written back")
+        # x86 keeps sysupgrade's archive on its small boot partition: the handler must say so, not try
+        rc, out = vm.run("grep -E ' /boot | / ' /proc/mounts; df -k /boot / | tail -n 2", 30)
+        print("    " + " | ".join(ln.strip() for ln in out.splitlines()[1:] if ln.strip()), flush=True)
+        must(mount, "mount the USB storage disk", 60)
         rc, out = vm.run(f"{fw} keep {url} 2>&1 | tail -n 1", 300)
-        bad = check("is kept on the flash" in out, "keep-copy", " ".join(out.split())[-200:])
+        bad = check("is kept on USB storage (/mnt/usb/aigw-rollback)" in out, "keep-copy", " ".join(out.split())[-200:])
         rc, out = vm.run(f"{fw} rollback", 60)
         bad += check("copy no copy is kept now" in out and "becomes image 3" in out, "rollback-kind",
                      " ".join(out.split())[-240:])
@@ -328,9 +337,12 @@ def main():
         vm.send(f"ubus -t 600 call ag.dm operate '{op}'\n")
         if not reboot_and_back("an upgrade with a copy kept"):
             return bad + check(False, "copy-over-sysupgrade", "the VM did not reboot into the new image")
-        rc, out = vm.run(f"{fw} list; ls /etc/aigw-rollback/; cat /etc/aigw/firmware/last-keep", 60)
+        must(mount, "mount the USB storage disk again", 60)
+        rc, out = vm.run(f"{fw} list; ls /mnt/usb/aigw-rollback/; cat /etc/aigw/firmware/last-keep", 60)
+        out = out.split("last-keep", 1)[-1]          # what came back, not the command line
         bad += check(re.search(r"^3 Available 0 0 \S+ kept", out, re.M) is not None and "kept.img" in out and
-                     "kept-config.tgz" in out, "copy-over-sysupgrade", " ".join(out.split())[:240])
+                     "kept-config.tgz" in out and "kept a copy of" in out, "copy-over-sysupgrade",
+                     " ".join(out.split())[:400])
         rc, out = vm.run("agctl dm get Device.X_AIGW_.Upgrade.RollbackMethod", 60)
         bad += check("KeptCopy" in out, "rollback-method", " ".join(out.split())[:120])
         # write the copy back, as a failed upgrade check does: the settings it had come back
@@ -338,9 +350,12 @@ def main():
         vm.send("ubus -t 600 call ag.dm operate '{\"command\":\"Device.DeviceInfo.FirmwareImage.3.Activate()\"}'\n")
         if not reboot_and_back("the kept copy written back"):
             return bad + check(False, "rollback-written-back", "the VM did not reboot into the kept copy")
-        rc, out = vm.run(f"uci -q get aigw.mgmt.x_qemu_mark; {fw} list", 60)
-        bad += check("before" in out and "after" not in out and re.search(r"^3 NoImage", out, re.M) is not None,
-                     "rollback-written-back", " ".join(out.split())[:200])
+        must(mount, "mount the USB storage disk again", 60)
+        rc, out = vm.run(f"echo MARK=$(uci -q get aigw.mgmt.x_qemu_mark); {fw} list; {fw} rollback", 60)
+        out = out.split("rollback;", 1)[-1]
+        bad += check("MARK=before" in out and re.search(r"^3 NoImage", out, re.M) is not None and
+                     "on USB storage (/mnt/usb/aigw-rollback) becomes image 3" in out,
+                     "rollback-written-back", " ".join(out.split())[:400])
         return bad
 
     try:

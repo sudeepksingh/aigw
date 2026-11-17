@@ -100,6 +100,9 @@ alone never holds it, because RAM is empty after the reboot.
 - on USB storage, room for the copy;
 - on the overlay, room for the copy after the new image is written (a bigger
   image leaves a smaller overlay), and room in RAM for the archive;
+- on x86 and EFI targets, `sysupgrade` leaves the archive on the boot
+  partition until the first boot. It is small (16 MB on x86, with the kernel
+  on it), so there the copy needs USB storage, and the handler says so;
 - always 512 KB to spare.
 
 When there is no room, it says so in words, for example "no copy of 1.0 was
@@ -116,9 +119,10 @@ kept: no room on the flash: 3.1 MB free, 8.4 MB needed; USB storage would do".
 (what is on a partition is not always an image `sysupgrade` accepts). It is,
 in order:
 
-1. a copy of the running version already kept: the new image from the last
-   upgrade, kept beside the old one when both fit, or a copy left on USB
-   storage after a rollback;
+1. a copy of the running version already kept: on USB storage, the new image
+   from the last upgrade, kept beside the old one when both fit, or the copy
+   left there after a rollback (on the overlay only the old image is carried,
+   so that the archive isn't twice as big);
 2. the URL the running version was downloaded from (`http://` or `https://`),
    remembered in `/etc/aigw/firmware/` and fetched again, then checked: it must
    pass `sysupgrade -T`, and when its metadata names a version, that must be
@@ -127,8 +131,8 @@ in order:
 3. `firmware keep <url or file>`, run by hand or by an installer once.
 
 A version installed by TR-069 comes through icwmp as a file in `/tmp`, so it
-has no URL to fetch again. Its copy is the one kept beside the old image when
-both fit. If they don't fit, there is no copy for the upgrade after it, and the
+has no URL to fetch again. Its copy is the one kept beside the old image on USB
+storage. Without one, there is no copy for the upgrade after it, and the
 handler says so.
 
 **Going back.** When an upgrade check finds the home worse, agd activates image
@@ -218,8 +222,9 @@ The delays, loss, DNS and score need [proactive care](proactive-care.md) on
   - a copy kept by hand (not a bad image, not another version); image 3 is no
     download slot;
   - a `sysupgrade` that fails: the keep undone, nothing left to carry;
-  - 1.0 to 2.0: 1.0 kept on the overlay, carried over the flash once, listed
-    as image 3, and 2.0 kept too for next time;
+  - 1.0 to 2.0: 1.0 kept on the overlay, carried over the flash once (and
+    only 1.0), listed as image 3;
+  - x86 and EFI: no room on the boot partition for the archive, said so;
   - image 3 written back: refused without room in RAM, then 1.0 with its own
     settings and agd's record;
   - no room on the flash: `require` refuses in words, `auto` upgrades and says
@@ -230,9 +235,11 @@ The delays, loss, DNS and score need [proactive care](proactive-care.md) on
     image 3 by itself, the record carried over, confirmed; `RollbackMethod`
     `KeptCopy`.
 - The QEMU job on x86-64 (CI): after the real upgrade from the ACS, a copy of
-  the running image is kept, carried over a second real `sysupgrade` (image 3
-  `Available`), then written back by `FirmwareImage.3.Activate()`, with the
-  settings it had.
+  the running image (x86's `.img.gz`, without metadata) is kept on a second
+  disk mounted as USB storage, survives a second real `sysupgrade` (image 3
+  `Available`), and is written back by `FirmwareImage.3.Activate()`, with the
+  settings it had. (A first try on the overlay found x86's small boot
+  partition, where `sysupgrade` leaves the archive: the handler now checks it.)
 
 Not tested yet: a real router with one firmware partition (flash sizes, USB
 storage, the time a write takes), a real image on a router with A/B flash, and

@@ -40,6 +40,7 @@ fail() {
 R=$T/root F=$T/flash W=$T/www
 mkdir -p "$T/bin" "$F" "$W" "$T/tmp"
 export AIGW_FW_ROOT=$R AIGW_FW_DIR=$T/tmp/aigw-firmware AIGW_FW_MOUNTS=$T/mounts FAKE=$T FAKE_FLASH=$F FAKE_WWW=$W
+export AIGW_FW_BOOT_ID=$T/boot_id     # a new one at every (fake) reboot
 export PATH="$T/bin:$PATH"
 
 # ---- the shims: never the real sysupgrade or reboot
@@ -74,6 +75,7 @@ printf "DISTRIB_RELEASE='%s'\nDISTRIB_REVISION='%s'\n" "$2" "$3" > "$R/etc/openw
 echo /etc/aigw/ > "$R/lib/upgrade/keep.d/aigw"
 tar -xzf "$cfg" -C "$R"
 echo "flashed $2-$3 settings $how" >> "$F/log"
+date +%s%N > "$AIGW_FW_BOOT_ID"        # and it reboots
 EOF
 cat > "$T/bin/df" <<'EOF'
 #!/bin/sh
@@ -131,6 +133,7 @@ echo "not an image" > "$W/bad.img"
 # a router on 1.0, settings marked, with the overlay $1 KB free, RAM $2 KB, and the mounts given after
 router() {
 	rm -rf "$R" "$F"/* "$T/tmp"; mkdir -p "$R/etc/config" "$R/etc/aigw" "$R/lib/upgrade/keep.d" "$T/tmp"
+	date +%s%N > "$AIGW_FW_BOOT_ID"
 	printf "DISTRIB_RELEASE='1.0'\nDISTRIB_REVISION='r1'\n" > "$R/etc/openwrt_release"
 	echo /etc/aigw/ > "$R/lib/upgrade/keep.d/aigw"
 	echo "option marker 'on 1.0'" > "$R/etc/config/aigw"
@@ -190,9 +193,9 @@ grep -q "flashed 2.0-r2 settings kept" "$F/log" || fail "flashed with the settin
 [ "$(img3)" = "Available 1.0-r1" ] || fail "image 3 should be the kept 1.0: $(fw list)"
 [ ! -e "$R/lib/upgrade/keep.d/aigw-rollback" ] || fail "the copy is carried once, not on every sysupgrade"
 grep -q "on 1.0" "$R/etc/config/aigw" || fail "the settings survived the upgrade"
-[ "$(cat "$R/etc/aigw-rollback/current.version")" = 2.0-r2 ] || fail "2.0 kept too, for the next upgrade (room for both)"
+[ ! -e "$R/etc/aigw-rollback/current.img" ] || fail "on the flash only the old copy is carried (not 2.0 too: the archive would double)"
 fw rollback | grep -q '^copy a copy of 1.0-r1 is kept on the flash (overlay) (image 3)' || fail "rollback: $(fw rollback)"
-echo "   on 2.0; image 3 = 1.0 (kept on the overlay), and a copy of 2.0 for the next time"
+echo "   on 2.0; image 3 = 1.0 (kept on the overlay, carried over the flash)"
 
 echo "== the check fails: image 3 written back, with 1.0's settings and agd's record"
 echo "option marker 'changed on 2.0'" > "$R/etc/config/aigw"
@@ -227,6 +230,17 @@ AIGW_FW_KEEP=off fw list | grep -q '^3 ' && fail "firmware_keep off: no image 3"
 AIGW_FW_KEEP=off fw rollback | grep -q '^none copies are not kept' || fail "off: $(AIGW_FW_KEEP=off fw rollback)"
 echo "   refused in words (require), or upgraded without a way back (auto), and said so"
 
+echo "== x86 and EFI: sysupgrade leaves its archive on the small boot partition"
+router 40000 80000
+mkdir -p "$R/boot"
+echo "$R/boot 6000" >> "$T/free"; echo "/dev/fake1 $R/boot ext4 rw 0 0" >> "$T/mounts"
+fw keep "file://$W/fw-1.0.img" > /dev/null || fail "keep with room on the boot partition"
+sed -i "s|^$R/boot .*|$R/boot 300|" "$T/free"
+fetch2 "file://$W/fw-2.0.img"
+AIGW_FW_KEEP=require fw activate 2 > "$T/out" 2>&1 && fail "require: the copy can't ride over the flash"
+grep -q "no room on the boot partition" "$T/out" && [ "$(flashes)" = 0 ] || fail "the boot partition: $(cat "$T/out")"
+echo "   no room on the boot partition: said so, nothing written"
+
 echo "== USB storage: kept there, not on the full flash, never in RAM; fetched again from where it came"
 router 400 8000 usb ext4 6000 ram tmpfs 99999
 fw rollback | grep -q "USB storage (/mnt/usb/aigw-rollback)" || fail "USB storage chosen, not tmpfs: $(fw rollback)"
@@ -240,6 +254,8 @@ grep -q "kept a copy of 2.0-r2 on USB storage" "$T/out" || fail "2.0 -> 3.0: $(c
 grep -q "fetch http://fake/fw-2.0.img" "$F/log" || fail "2.0 fetched again from its URL"
 [ "$(running)" = 3.0-r3 ] && [ "$(img3)" = "Available 2.0-r2" ] && [ -f "$R/mnt/usb/aigw-rollback/kept.img" ] &&
 	[ ! -e "$R/mnt/ram/aigw-rollback" ] && [ ! -e "$R/etc/aigw-rollback" ] || fail "kept on USB: $(fw list); $(ls -R "$R/mnt")"
+[ "$(cat "$R/mnt/usb/aigw-rollback/current.version")" = 3.0-r3 ] && [ ! -e "$R/mnt/usb/aigw-rollback/current.pending" ] ||
+	fail "on USB, 3.0 is kept too, named after the boot"
 fw activate 3 > "$T/out" 2>&1 || fail "back to 2.0: $(cat "$T/out")"
 [ "$(running)" = 2.0-r2 ] && [ "$(img3)" = "NoImage -" ] || fail "back on 2.0: $(running); $(fw list)"
 fw rollback | grep -q "the copy of 2.0-r2 on USB storage (/mnt/usb/aigw-rollback) becomes image 3" ||

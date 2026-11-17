@@ -114,11 +114,14 @@ keep_dir() {
 	[ "$(place "$R/etc")" = flash ] && echo "$R/etc/aigw-rollback"
 }
 
+boot_id() { cat "${AIGW_FW_BOOT_ID:-/proc/sys/kernel/random/boot_id}" 2>/dev/null; }
+
 # after the boot: the copy of the new image (current.img) and the URL it came
-# from now name the version it calls itself, unless it never ran
+# from now name the version it calls itself, unless it never ran. Before the
+# reboot (agd lists the images meanwhile) nothing is decided
 reconcile() {
-	K=$1 now=$(running)
-	if [ -n "$K" ] && [ -f "$K/current.pending" ]; then
+	K=$1 now=$(running) boot=$(boot_id)
+	if [ -n "$K" ] && [ -f "$K/current.pending" ] && [ "$(cat "$K/current.pending")" != "$boot" ]; then
 		if [ "$now" = "$(cat "$K/current.from" 2>/dev/null)" ]; then
 			rm -f "$K/current.img" "$K/current.version"
 		else
@@ -126,7 +129,7 @@ reconcile() {
 		fi
 		rm -f "$K/current.pending" "$K/current.from"
 	fi
-	if [ -f "$REC/source.pending" ]; then
+	if [ -f "$REC/source.pending" ] && [ "$(cat "$REC/source.pending")" != "$boot" ]; then
 		if [ "$now" = "$(cat "$REC/source.from" 2>/dev/null)" ]; then
 			rm -f "$REC/source.url" "$REC/source.version"
 		else
@@ -187,8 +190,16 @@ room_for() {
 			return
 		fi
 		t=$(free_kb "$DIR")
-		[ "$t" -ge $((ram + MARGIN)) ] ||
-			echo "no room in RAM to carry the copy over the flash: $(mb "$t") free, $(mb $((ram + MARGIN))) needed" ;;
+		if [ "$t" -lt $((ram + MARGIN)) ]; then
+			echo "no room in RAM to carry the copy over the flash: $(mb "$t") free, $(mb $((ram + MARGIN))) needed"
+			return
+		fi
+		# x86 and EFI targets: sysupgrade leaves the archive on the boot partition until the first boot
+		if [ -n "$(fstype "$R/boot")" ]; then
+			b=$(free_kb "$R/boot")
+			[ "$b" -ge $((ram + MARGIN)) ] ||
+				echo "no room on the boot partition, where sysupgrade keeps the settings over the flash on this router: $(mb "$b") free, $(mb $((ram + MARGIN))) needed; USB storage would do"
+		fi ;;
 	external)
 		[ "$f" -ge $((need + MARGIN)) ] || echo "no room on ${K#$R}: $(mb "$f") free, $(mb $((need + MARGIN))) needed" ;;
 	*) echo "${K#$R} does not survive a reboot (RAM)" ;;
@@ -252,9 +263,11 @@ keep_for_upgrade() {
 	mv "$K/current.img" "$K/kept.img"; mv "$K/current.version" "$K/kept.version"
 	note=
 	sysupgrade -b "$K/kept-config.tgz" >/dev/null 2>&1 || { rm -f "$K/kept-config.tgz"; note=", but not its settings (sysupgrade -b failed)"; }
-	# the new image too, for the upgrade after this one, when both fit
-	if [ -z "$(room_for "$K" "$new_kb" 0 $((new_kb - copy_kb)) $((copy_kb + new_kb)))" ] && cp "$DIR/image" "$K/current.img" 2>/dev/null; then
-		cp "$DIR/version" "$K/current.version"; echo "$from" > "$K/current.from"; : > "$K/current.pending"
+	# the new image too, for the upgrade after this one, when it fits: on storage that
+	# survives the flash only (on the flash it would double sysupgrade's archive)
+	if [ "$(place "$K")" = external ] && [ -z "$(room_for "$K" "$new_kb" 0 0 0)" ] &&
+	   cp "$DIR/image" "$K/current.img" 2>/dev/null; then
+		cp "$DIR/version" "$K/current.version"; echo "$from" > "$K/current.from"; boot_id > "$K/current.pending"
 	else
 		rm -f "$K/current.img" "$K/current.version"
 	fi
@@ -271,7 +284,7 @@ record_source() {
 	case $1 in
 	http://*|https://*)
 		printf '%s\n' "$1" > "$REC/source.url"; cp "$DIR/version" "$REC/source.version"
-		running > "$REC/source.from"; : > "$REC/source.pending" ;;
+		running > "$REC/source.from"; boot_id > "$REC/source.pending" ;;
 	esac
 }
 

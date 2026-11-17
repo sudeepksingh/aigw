@@ -123,6 +123,12 @@ if [ "$MGMT" = 1 ]; then
 		cp "$CACHE/$FILE" "$W/acs/files/$FILE"
 		ISP="$ISP --upgrade=$FILE"
 		NOREBOOT=""     # the upgrade reboots: QEMU goes on
+		# a second disk, as USB storage, for the copy of the running image kept for a
+		# rollback (x86's boot partition is too small to carry one over the flash)
+		if command -v mkfs.ext4 >/dev/null && truncate -s 96M "$W/usb.img" && mkfs.ext4 -q -F "$W/usb.img"; then
+			BOOT="$BOOT -drive file=$W/usb.img,format=raw"
+			ISP="$ISP --usb=/dev/sdb"
+		fi
 	fi
 fi
 trap 'kill $HTTP ${ACS:-} 2>/dev/null; rm -rf "$W"' EXIT INT TERM
