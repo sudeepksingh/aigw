@@ -295,7 +295,7 @@ void sqm_on_sample(void)
 
 		/* each time it is seen is its own alert (a repeat of one alert would not be decided on again) */
 		localtime_r(&tt, &tm);
-		snprintf(subject, sizeof(subject), "%.31s, %02d:%02d", why_wan(), tm.tm_hour, tm.tm_min);
+		snprintf(subject, sizeof(subject), "%.31s, %02d:%02d:%02d", why_wan(), tm.tm_hour, tm.tm_min, tm.tm_sec);
 		AG_INFO("sqm: %s", why);
 		alerts_raise("bufferbloat", "info", target, subject, 1.0, reason);
 	}
