@@ -12,6 +12,13 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
+# small on a router's flash (the 1 MB budget, aigw-selftest): unused functions
+# dropped at link time, and no unwind tables (C, no exceptions; large on
+# aarch64). About 11% smaller. Debug builds keep everything
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_options(-ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables -fno-unwind-tables)
+  add_link_options(-Wl,--gc-sections)
+endif()
 add_compile_definitions(AG_VERSION="${PROJECT_VERSION}"
   AG_DATADIR="${CMAKE_INSTALL_PREFIX}/share/aigw")
 
