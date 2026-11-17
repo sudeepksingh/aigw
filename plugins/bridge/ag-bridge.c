@@ -13,6 +13,9 @@
  *   learning round: agd trains ◄───── fed ◄──── GET /v1/fed      the shared layer (14 numbers)
  *   on your answers, returns          update ─► POST /v1/fed/update   averaged with other homes',
  *   only a clipped, noisy change                                   published as a signed layer
+ *   firmware, agd's Download path ◄── firmware ◄ GET /v1/firmware   a staged rollout's wave
+ *   (checked like any upgrade:        result ─► POST /v1/firmware/<id>   (only with firmware 1;
+ *   the verdict goes in the report)                                 an ACS may push instead)
  *
  * Everything outward goes through curl (TLS, certificate checks), run as the
  * unprivileged plug-in user. What leaves the home: the gateway's counters,
@@ -30,6 +33,8 @@
  *   alert_names 0 = alerts and decisions leave without the names they are about
  *              (subjects, block targets, reasons); cortex then learns only through
  *              federated rounds
+ *   firmware   1 = take firmware from cortex's staged rollouts (default 0: the ISP's
+ *              ACS pushes it); needs capability firmware.install and mgmt.firmware 1
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -55,8 +60,8 @@
 
 static struct {
 	char url[128], token[128], devices[16], state[256], host[16], aigw[16];
-	int interval, models, proposals, fed, alert_names;
-	int can_read, can_propose, can_model, can_fed;
+	int interval, models, proposals, fed, alert_names, firmware;
+	int can_read, can_propose, can_model, can_fed, can_firmware;
 } c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1 };
 
 static char *ibuf;
@@ -201,6 +206,7 @@ static void on_hello(struct blob_attr *h)
 	c.proposals = (int)fnum(conf, "proposals", 1);
 	c.fed = (int)fnum(conf, "fed", 1);
 	c.alert_names = (int)fnum(conf, "alert_names", 1);
+	c.firmware = (int)fnum(conf, "firmware", 0);
 	if ((g = field(h, "granted")))
 		blobmsg_for_each_attr(cur, g, rem) {
 			const char *cap = blobmsg_type(cur) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(cur) : "";
@@ -209,6 +215,7 @@ static void on_hello(struct blob_attr *h)
 			c.can_propose |= !strcmp(cap, "decision.propose");
 			c.can_model |= !strcmp(cap, "model.offer");
 			c.can_fed |= !strcmp(cap, "fed.train");
+			c.can_firmware |= !strcmp(cap, "firmware.install");
 		}
 	configured = 1;
 }
@@ -553,6 +560,9 @@ static void report(void)
 	}
 	if ((d = query("care")))
 		add_care(&r, d);
+	/* the last firmware upgrade's check (a staged rollout's wave waits for it): no devices */
+	if ((d = query("upgrade")))
+		copy_attr(&r, "upgrade", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))
@@ -734,6 +744,50 @@ static void fetch_proposals(void)
 	blob_buf_free(&list);
 }
 
+/* ---------- staged firmware rollouts ---------- */
+
+/* cortex offers an image only to the homes of a wave it has cleared; agd downloads it into
+   the image not running, activates it, and checks the home on it (the verdict: report) */
+static void fetch_firmware(void)
+{
+	struct blob_buf o = { 0 }, b = { 0 };
+	struct blob_attr *f, *d;
+	char out[300], body[300], rout[300], path[64];
+	long rid;
+	int ok, id = next_id++;
+	void *t;
+
+	snprintf(out, sizeof(out), "%s/firmware.json", c.state);
+	if (http("GET", "/v1/firmware", NULL, out) || read_json(out, &o) || !(f = field(o.head, "offer")) ||
+	    blobmsg_type(f) != BLOBMSG_TYPE_TABLE || !(rid = fnum(f, "rollout", 0)) || !fstr(f, "url")) {
+		blob_buf_free(&o);
+		return;
+	}
+	blob_buf_init(&b, 0);
+	t = blobmsg_open_table(&b, "firmware");
+	copy_attr(&b, "url", field(f, "url"));
+	copy_attr(&b, "version", field(f, "version"));
+	copy_attr(&b, "checksum", field(f, "checksum"));
+	copy_attr(&b, "size", field(f, "size"));
+	blobmsg_add_u32(&b, "id", (uint32_t)id);
+	blobmsg_close_table(&b, t);
+	d = ask(&b, id);
+	ok = d && fnum(d, "ok", 0);
+	logf_("rollout %ld: firmware %s %s", rid, fstr(f, "version") ? fstr(f, "version") : "?",
+	      ok ? "handed to agd: downloading" : reply_err);
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "ok", (uint8_t)ok);
+	blobmsg_add_u8(&b, "current", (uint8_t)(d ? fnum(d, "current", 0) : 0));
+	blobmsg_add_string(&b, "error", ok ? "" : reply_err);
+	snprintf(body, sizeof(body), "%s/firmware-result.json", c.state);
+	snprintf(rout, sizeof(rout), "%s/firmware-result.out", c.state);
+	snprintf(path, sizeof(path), "/v1/firmware/%ld", rid);
+	if (write_json(body, &b) == 0)
+		http("POST", path, body, rout);
+	blob_buf_free(&b);
+	blob_buf_free(&o);
+}
+
 /* ---------- federated learning ---------- */
 
 static long fed_done;                /* the last round this gateway sent its change for */
@@ -832,9 +886,10 @@ int main(void)
 		logf_("setting 'token' has odd characters (agctl bridge token)");
 		return 1;
 	}
-	logf_("linking %s to %s every %d s (devices: %s%s%s%s%s)", c.host, c.url, c.interval, c.devices,
+	logf_("linking %s to %s every %d s (devices: %s%s%s%s%s%s)", c.host, c.url, c.interval, c.devices,
 	      c.models && c.can_model ? ", model updates" : "", c.proposals && c.can_propose ? ", proposals" : "",
-	      c.fed && c.can_fed ? ", learning rounds" : "", c.alert_names ? "" : ", no alert names");
+	      c.fed && c.can_fed ? ", learning rounds" : "", c.firmware && c.can_firmware ? ", firmware rollouts" : "",
+	      c.alert_names ? "" : ", no alert names");
 	next = now_ms() + 1000;
 	for (;;) {
 		uint64_t t = now_ms();
@@ -847,6 +902,8 @@ int main(void)
 				fetch_proposals();
 			if (c.fed && c.can_fed)
 				fed_round();
+			if (c.firmware && c.can_firmware)
+				fetch_firmware();
 			next = now_ms() + (uint64_t)c.interval * 1000;
 			continue;
 		}

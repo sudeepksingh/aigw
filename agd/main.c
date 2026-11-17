@@ -1005,7 +1005,7 @@ static int m_upgrade(struct ubus_context *ctx, struct ubus_object *obj, struct u
 	blob_buf_init(&b, 0);
 	if (tb[UG_FORGET] && blobmsg_get_bool(tb[UG_FORGET]))
 		blobmsg_add_u8(&b, "forgot", (uint8_t)upgrade_forget());
-	upgrade_blob(&b);
+	upgrade_blob(&b, 1);
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }

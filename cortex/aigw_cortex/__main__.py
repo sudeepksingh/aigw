@@ -6,6 +6,9 @@
     python3 -m aigw_cortex gateways | remove <name>
     python3 -m aigw_cortex group <gateway> <group>    its area (outages are looked for within one)
     python3 -m aigw_cortex fleet [--days 7] [--group G] [--json]   the ISP's fleet report
+    python3 -m aigw_cortex rollout new|list|status|pause|resume|abort|homes|result ...
+                                                      staged firmware rollouts that stop themselves
+                                                      (rollout.py; --help for each)
     python3 -m aigw_cortex pubkey                     the key gateways trust (agctl trust)
     python3 -m aigw_cortex publish <model.agm> [--notes text]
     python3 -m aigw_cortex retrain [--top N | --benign-file F] [--trees N]
@@ -176,6 +179,76 @@ def fed_settings(a):
                     epochs=a.fed_epochs, clip=a.fed_clip, noise=a.fed_noise)
 
 
+def rollout_args(p):
+    rs = p.add_subparsers(dest="what", required=True)
+    n = rs.add_parser("new", help="plan a rollout; its first wave starts at once")
+    n.add_argument("name")
+    n.add_argument("--version", required=True, help="the firmware version the homes will report")
+    n.add_argument("--url", default="", help="the image (https://, http:// or file://); needed with --via bridge")
+    n.add_argument("--sha256", default="", help="the image's SHA-256, checked by the firmware handler")
+    n.add_argument("--size", default="", help="the image's size in bytes")
+    n.add_argument("--waves", default="1,10,50,100", help="rising percentages of the homes (default 1,10,50,100)")
+    n.add_argument("--wave", action="append", help="a wave as a list of homes: --wave a,b --wave c,d,e")
+    n.add_argument("--group", help="only the homes of this group")
+    n.add_argument("--via", choices=("acs", "bridge"), default="acs",
+                   help="who gives the homes the firmware: the ISP's ACS (default) or the bridge")
+    n.add_argument("--max-bad", type=float, default=5.0, help="%% of a wave that may get worse (default 5)")
+    n.add_argument("--max-score-drop", type=float, default=2.0,
+                   help="points the score may fall on average in a wave (default 2)")
+    n.add_argument("--min-reports", type=float, default=80.0, help="%% of a wave that must report (default 80)")
+    n.add_argument("--timeout-h", type=float, default=72.0, help="hours a wave has to report (default 72)")
+    n.add_argument("--paused", action="store_true", help="planned, not started (rollout resume)")
+    rs.add_parser("list")
+    for what in ("status", "step"):
+        s = rs.add_parser(what)
+        s.add_argument("name")
+        s.add_argument("--homes", action="store_true", help="each home's state (names: for the ISP only)")
+        s.add_argument("--json", action="store_true")
+    for what in ("pause", "resume", "abort"):
+        s = rs.add_parser(what)
+        s.add_argument("name")
+        s.add_argument("why", nargs="*")
+    s = rs.add_parser("homes", help="the homes cleared now, for the ACS to push to")
+    s.add_argument("name")
+    s.add_argument("--json", action="store_true")
+    s = rs.add_parser("result", help="a result the ACS heard (UpgradeChecked!), for homes without a bridge")
+    s.add_argument("name")
+    s.add_argument("home")
+    s.add_argument("result")
+    s.add_argument("--score-before", type=int)
+    s.add_argument("--score-after", type=int)
+
+
+def rollout_cmd(store, a):
+    from . import rollout as ro
+    if a.what == "new":
+        lists = [[x.strip() for x in w.split(",") if x.strip()] for w in a.wave] if a.wave else None
+        waves = [float(x) for x in a.waves.split(",") if x.strip()]
+        rules = ro.Rules(a.max_bad, a.max_score_drop, a.min_reports, int(a.timeout_h * 3600))
+        rid = ro.create(store, a.name, a.version, a.url, a.sha256, a.size, waves, lists, a.group, a.via, rules,
+                        a.paused)
+        print(ro.text(ro.status(store, rid)))
+    elif a.what == "list":
+        show([{k: s[k] for k in ("name", "version", "via", "state", "wave", "waves", "homes", "reason")}
+              for s in ro.summaries(store, since=0)])
+    elif a.what in ("status", "step"):
+        ro.step(store, a.name)
+        s = ro.status(store, a.name, homes=a.homes)
+        show(s) if a.json else print(ro.text(s))
+    elif a.what in ("pause", "resume", "abort"):
+        s = ro.control(store, a.name, a.what, " ".join(a.why), "you (cortex)")
+        print(ro.text(s))
+    elif a.what == "homes":
+        rows = ro.cleared(store, a.name)
+        if a.json:
+            show(rows)
+        else:
+            for r in rows:
+                print(r["name"])
+    elif a.what == "result":
+        print(ro.text(ro.acs_result(store, a.name, a.home, a.result, a.score_before, a.score_after)))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="aigw_cortex", description="AIGW OS cortex")
     ap.add_argument("--data", default=os.environ.get("AIGW_CORTEX_DATA", os.path.expanduser("~/.aigw-cortex")))
@@ -198,6 +271,7 @@ def main(argv=None):
     p.add_argument("--days", type=int, default=7)
     p.add_argument("--group")
     p.add_argument("--json", action="store_true")
+    rollout_args(sub.add_parser("rollout", help="staged firmware rollouts that stop themselves"))
     sub.add_parser("remove").add_argument("name")
     sub.add_parser("pubkey")
     p = sub.add_parser("publish")
@@ -254,6 +328,11 @@ def main(argv=None):
             show(r)
         else:
             print(fleet.text(r))
+    elif a.cmd == "rollout":
+        try:
+            rollout_cmd(store, a)
+        except ValueError as e:
+            sys.exit(str(e))
     elif a.cmd == "group":
         print("set" if store.set_group(a.gateway, a.group) else "no such gateway")
     elif a.cmd == "enroll":

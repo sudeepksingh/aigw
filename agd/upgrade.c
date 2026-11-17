@@ -862,7 +862,8 @@ int upgrade_field(const char *f, char *buf, size_t n)
 	return 0;
 }
 
-void upgrade_blob(struct blob_buf *b)
+/* devices 0: without the devices' addresses and names (for plug-ins: cortex's staged rollouts) */
+void upgrade_blob(struct blob_buf *b, int devices)
 {
 	long now = (long)ag_wall_s();
 	char why[200], text[1600];
@@ -893,8 +894,9 @@ void upgrade_blob(struct blob_buf *b)
 	if (U.ended)
 		blobmsg_add_u64(b, "ended", (uint64_t)U.ended);
 	blobmsg_add_u32(b, "starts", (uint32_t)U.a.starts);
+	blobmsg_add_u32(b, "devices_before", (uint32_t)U.b.ndev);
 	arr = blobmsg_open_array(b, "devices");
-	for (i = 0; i < U.b.ndev; i++) {
+	for (i = 0; devices && i < U.b.ndev; i++) {
 		t = blobmsg_open_table(b, NULL);
 		blobmsg_add_string(b, "mac", U.b.dev[i]);
 		blobmsg_add_string(b, "name", U.b.name[i]);

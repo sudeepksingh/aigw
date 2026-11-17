@@ -35,7 +35,12 @@
  *                    {"request": {action, target, ttl, reason}}     acts, as a person would
  *                    {"request": {"undo": id}}
  *                    {"done": {id, ok, error}}                      actuator result
- *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status" | "care", "id": n}
+ *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status" | "care" |
+ *                              "upgrade", "id": n}      (upgrade: the last one's check, no devices)
+ *                    {"firmware": {url, version, checksum, size, id}}   install a firmware image
+ *                                                   (capability firmware.install): agd's own
+ *                                                   Download path, into the image not running,
+ *                                                   activated, then checked like any upgrade
  *                    {"model": {file, sig, id}}     offer a signed model update (capability
  *                                                   model.offer; files in its own $AIGW_STATE)
  *                    {"fed": {round, center, scale, weights, lr, epochs, clip, noise, id}}
@@ -162,7 +167,7 @@ static int trusted(const struct plugin *p)
 static int priv_cap(const char *cap)
 {
 	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read") || !strcmp(cap, "model.offer") ||
-	       !strcmp(cap, "fed.train");
+	       !strcmp(cap, "fed.train") || !strcmp(cap, "firmware.install");
 }
 
 static void state_dir(const struct plugin *p, char *out, size_t n)
@@ -532,6 +537,59 @@ static void on_fed(struct plugin *p, struct blob_attr *a)
 	blob_buf_free(&d);
 }
 
+static void fw_offer_done(void *ctx, int ok, const char *msg)
+{
+	(void)ctx;
+	if (!ok)
+		AG_WARN("firmware from a plug-in not installed: %s", msg && *msg ? msg : "failed");
+}
+
+/* a firmware image a plug-in (the bridge, for a staged rollout) asks for: the same path as a
+   TR-069 Download or USP Download() with AutoActivate, so the upgrade is checked the same way */
+static void on_firmware(struct plugin *p, struct blob_attr *a)
+{
+	struct blob_buf d = { 0 };
+	struct fw_image all[FW_MAX];
+	struct fw_request r = { 0 };
+	const char *ver = gstr(a, "version");
+	char err[600] = "", who[48], run[96] = "";
+	int i, n, img = -1, rc = -1, current = 0;
+
+	if (!has_cap(p, "firmware.install")) {
+		snprintf(err, sizeof(err), "plug-in %s may not install firmware (capability firmware.install%s)", p->name,
+			 trusted(p) ? " not in its manifest" : " needs: agctl plugin allow");
+	} else if (!cfg.mgmt_firmware) {
+		snprintf(err, sizeof(err), "firmware upgrades are not allowed for management systems (mgmt.firmware 0)");
+	} else if (!fw_handler()) {
+		snprintf(err, sizeof(err), "no firmware handler on this gateway (mgmt.firmware_handler)");
+	} else if (ver && *ver && (fw_version(run, sizeof(run)), !strcmp(run, ver))) {
+		current = 1;
+		snprintf(err, sizeof(err), "already running %s", ver);
+	} else if (!upgrade_refused(ver, err, sizeof(err))) {
+		n = fw_list(all, FW_MAX);
+		for (i = 0; i < n; i++)
+			if (!all[i].active && (img < 0 || !all[i].boot))
+				img = (int)all[i].id;
+		snprintf(who, sizeof(who), "plug-in %s", p->name);
+		r.url = gstr(a, "url");
+		r.size = gstr(a, "size");
+		r.sum = gstr(a, "checksum");
+		r.alg = r.sum && *r.sum ? "SHA-256" : NULL;
+		r.activate = r.reboot = 1;
+		if (img < 0)
+			snprintf(err, sizeof(err), "the firmware handler lists no image besides the running one");
+		else
+			rc = fw_download((uint32_t)img, &r, who, fw_offer_done, NULL, err, sizeof(err));
+	}
+	AG_INFO("plug-in %s: firmware %s: %s", p->name, ver ? ver : "?", rc == 0 ? "downloading" : err);
+	blob_buf_init(&d, 0);
+	blobmsg_add_u8(&d, "ok", rc == 0);
+	blobmsg_add_u8(&d, "current", (uint8_t)current);
+	blobmsg_add_u32(&d, "image", (uint32_t)(img < 0 ? 0 : img));
+	reply(p, (int)gnum(a, "id", 0), &d, rc == 0 ? NULL : err);
+	blob_buf_free(&d);
+}
+
 static void on_query(struct plugin *p, const char *what, int id)
 {
 	struct blob_buf d = { 0 };
@@ -555,6 +613,8 @@ static void on_query(struct plugin *p, const char *what, int id)
 		care_blob(&d);
 		care_days_blob(&d, 8);
 		offers_care_blob(&d);           /* signals for the ISP: counts and words, no names */
+	} else if (!strcmp(what, "upgrade")) {
+		upgrade_blob(&d, 0);            /* the last upgrade's check: counts and words, no devices */
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :
@@ -577,7 +637,7 @@ static void on_query(struct plugin *p, const char *what, int id)
 		alerts_blob(&d, 50, "alerts");
 	} else {
 		blob_buf_free(&d);
-		reply(p, id, NULL, "unknown query (status, care, devices, decisions, alerts, models)");
+		reply(p, id, NULL, "unknown query (status, care, upgrade, devices, decisions, alerts, models)");
 		return;
 	}
 	reply(p, id, &d, NULL);
@@ -617,6 +677,8 @@ static void handle_line(struct plugin *p, char *line)
 			on_model(p, body);
 		else if (!strcmp(key, "fed") && body)
 			on_fed(p, body);
+		else if (!strcmp(key, "firmware") && body)
+			on_firmware(p, body);
 		else if (!strcmp(key, "log") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
 			AG_INFO("plug-in %s: %.300s", p->name, blobmsg_get_string(cur));
 		else
@@ -1158,7 +1220,8 @@ static int load_manifest(struct plugin *p, char *err, size_t n)
 	for (i = 0; i < p->n_caps; i++)
 		if (strcmp(p->caps[i], "decision.request") && strcmp(p->caps[i], "decision.propose") &&
 		    strcmp(p->caps[i], "devices.read") && strcmp(p->caps[i], "alert.raise") &&
-		    strcmp(p->caps[i], "model.offer") && strcmp(p->caps[i], "fed.train")) {
+		    strcmp(p->caps[i], "model.offer") && strcmp(p->caps[i], "fed.train") &&
+		    strcmp(p->caps[i], "firmware.install")) {
 			snprintf(err, n, "unknown capability '%s'", p->caps[i]);
 			goto out;
 		}

@@ -8,6 +8,8 @@
     POST /v1/proposals/<id>      how the gateway took one: {ok, decision, error}
     GET  /v1/fed                 the open federated learning round: shared layer, how to train
     POST /v1/fed/update          a home's clipped, noisy change {round, delta, n, noise, clip}
+    GET  /v1/firmware            a staged rollout's firmware, if this home's wave is cleared (sent once)
+    POST /v1/firmware/<rollout>  how the gateway took it: {ok, current, error}
 
 Every request carries "Authorization: Bearer <token>" from `enroll`. Use
 --cert/--key (or a reverse proxy) for HTTPS anywhere beyond your own LAN.
@@ -17,10 +19,11 @@ import os
 import re
 import ssl
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import fed
+from . import fed, rollout
 
 MAX_BODY = 4 * 1024 * 1024
 FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list|adapter)(\.sig)?$")
@@ -85,6 +88,8 @@ def make_handler(store, log=True, fed_settings=None):
                 return self.send_json(200, {"proposals": store.take_proposals(gw["id"])})
             if path == "/v1/fed":
                 return self.send_json(200, fed.round_for_gateway(store, fs))
+            if path == "/v1/firmware":
+                return self.send_json(200, {"offer": rollout.offer(store, gw["id"])})
             return self.send_json(404, {"error": "unknown path"})
 
         def do_POST(self):  # noqa: N802
@@ -101,6 +106,11 @@ def make_handler(store, log=True, fed_settings=None):
             if path == "/v1/fed/update":
                 code, answer = fed.accept(store, fs, gw["id"], body)
                 return self.send_json(code, answer)
+            m = re.match(r"^/v1/firmware/(\d+)$", path)
+            if m:
+                ok = rollout.offer_result(store, gw["id"], int(m.group(1)), bool(body.get("ok")),
+                                          bool(body.get("current")), str(body.get("error") or ""))
+                return self.send_json(200 if ok else 404, {"ok": ok})
             m = re.match(r"^/v1/proposals/(\d+)$", path)
             if m:
                 n = store.proposal_result(gw["id"], int(m.group(1)), bool(body.get("ok")),
@@ -119,6 +129,15 @@ def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, f
         ctx.load_cert_chain(cert, key)
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
         scheme = "https"
+    def rollouts():                 # a wave whose homes went quiet still times out
+        while True:
+            time.sleep(60)
+            try:
+                rollout.step_all(store)
+            except Exception as e:  # noqa: BLE001 - keep serving
+                sys.stderr.write(f"rollouts: {e}\n")
+
+    threading.Thread(target=rollouts, daemon=True).start()
     print(f"cortex listening on {scheme}://{listen}:{httpd.server_address[1]}", flush=True)
     try:
         httpd.serve_forever()
