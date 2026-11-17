@@ -142,6 +142,7 @@ int sqm_apply(const char *target, char *err, size_t en)
 	}
 	unavailable[0] = '\0';
 	AG_INFO("sqm: %s", out);
+	calls_sqm_changed();            /* shaped anew: calls first again, inside it */
 	return 0;
 }
 
@@ -155,6 +156,51 @@ void sqm_remove(const char *target)
 		AG_WARN("sqm: remove %s: %s", ifc, out);
 	else
 		AG_INFO("sqm: %s", out);
+	calls_sqm_changed();
+}
+
+/* calls and games first: the WAN AIGW's smart queueing shapes now (0), else -1 */
+int sqm_shaping(char *ifc, size_t n)
+{
+	uint32_t id;
+	int st;
+	char target[64];
+
+	if (act_find_action("sqm", &id, &st, target, sizeof(target), NULL, NULL, 0) < 0 || st <= 0 ||
+	    sqm_target_ok(target, NULL, 0) < 0)
+		return -1;
+	snprintf(ifc, n, "%.*s", (int)strcspn(target, ":"), target);
+	return 0;
+}
+
+/* calls and games first: these far ends ("udp,<ip>,<port>") go first in the shaping on ifc; none: no one */
+int sqm_prio(const char *ifc, const char *const *eps, int n, char *out, size_t on)
+{
+	const char *h = handler();
+	char *argv[40];
+	int i, k = 0, rc;
+
+	if (!h) {
+		snprintf(out, on, "no smart queueing program (aigw-sqm; sqm.handler)");
+		return -1;
+	}
+	argv[k++] = (char *)h;
+	argv[k++] = (char *)"prio";
+	argv[k++] = (char *)ifc;
+	for (i = 0; i < n && k < 38; i++)
+		argv[k++] = (char *)eps[i];
+	argv[k] = NULL;
+	rc = handler_run(h, argv, out, on, HANDLER_MS);
+	{
+		size_t l = strlen(out);
+		char *nl;
+
+		while (l && (out[l - 1] == '\n' || out[l - 1] == '\r'))
+			out[--l] = '\0';
+		if ((nl = strrchr(out, '\n')))
+			memmove(out, nl + 1, strlen(nl + 1) + 1);
+	}
+	return rc;
 }
 
 /* in effect now (on trial, kept, or a person's own) */

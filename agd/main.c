@@ -1093,6 +1093,19 @@ static int m_sqm(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_
 	return 0;
 }
 
+/* ag calls: calls and games now (first in the queue or not), the last one's report, the counts */
+static int m_calls(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		   const char *method, struct blob_attr *msg)
+{
+	(void)obj;
+	(void)method;
+	(void)msg;
+	blob_buf_init(&b, 0);
+	calls_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
@@ -1101,6 +1114,7 @@ static struct ubus_method ag_methods[] = {
 	UBUS_METHOD("why", m_why, why_policy),
 	UBUS_METHOD_NOARG("offers", m_offers),
 	UBUS_METHOD("sqm", m_sqm, sqm_policy),
+	UBUS_METHOD_NOARG("calls", m_calls),
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1210,6 +1224,7 @@ int main(int argc, char **argv)
 	why_init();                     /* the home's timeline: after proactive care (its speed test) */
 	offers_init();                  /* signals for the ISP, counted from the timeline */
 	sqm_init();                     /* smart queueing on bufferbloat, judged on the timeline */
+	calls_init();                   /* calls and games first, inside it */
 	keys_init();
 	plugin_init();
 

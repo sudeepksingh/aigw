@@ -185,6 +185,18 @@ static void counters(struct nf_conntrack *ct, uint64_t *up, uint64_t *down)
 	*down = nfct_attr_is_set(ct, ATTR_REPL_COUNTER_BYTES) ? nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_BYTES) : 0;
 }
 
+/* calls and games first: a UDP connection's counters, packets too (calls.c) */
+static void to_calls(struct nf_conntrack *ct, const struct aflow *f, uint64_t up, uint64_t down)
+{
+	uint64_t upk, dpk;
+
+	if (!cfg.calls || f->proto != IPPROTO_UDP)
+		return;
+	upk = nfct_attr_is_set(ct, ATTR_ORIG_COUNTER_PACKETS) ? nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_PACKETS) : 0;
+	dpk = nfct_attr_is_set(ct, ATTR_REPL_COUNTER_PACKETS) ? nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_PACKETS) : 0;
+	calls_counters(f->id, f->client, f->dst, f->domain, f->proto, f->dport, up, down, upk, dpk);
+}
+
 /* Credit traffic since the last look to the device and its destination. */
 static void credit(struct aflow *f, uint64_t up, uint64_t down)
 {
@@ -414,6 +426,8 @@ static void flow_end(struct aflow *f, uint64_t up, uint64_t down)
 	if (recent_count < RECENT_MAX)
 		recent_count++;
 	emit("end", f, up, down);
+	if (cfg.calls && f->proto == IPPROTO_UDP)
+		calls_flow_end(f->id);
 	act_remove(f);
 }
 
@@ -470,6 +484,7 @@ static int dump_cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, voi
 	if (f) {
 		counters(ct, &up, &down);
 		credit(f, up, down);
+		to_calls(ct, f, up, down);
 	}
 	return NFCT_CB_CONTINUE;
 }
@@ -477,10 +492,16 @@ static int dump_cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, voi
 static void dump_cb_timer(struct uloop_timeout *tmo)
 {
 	uint32_t fam = AF_UNSPEC;
+	int every = cfg.flow_poll;
 
 	if (nfct_query(dump_h, NFCT_Q_DUMP, &fam) < 0)
 		AG_DEBUG("conntrack dump failed: %s", strerror(errno));
-	uloop_timeout_set(tmo, cfg.flow_poll * 1000);
+	else if (cfg.calls)
+		calls_dump_done();      /* every connection's counters seen: which are calls or games */
+	/* calls and games are noticed within a few looks: look more often for them */
+	if (cfg.calls && cfg.calls_poll < every)
+		every = cfg.calls_poll;
+	uloop_timeout_set(tmo, every * 1000);
 }
 
 /* ---------- setup / API ---------- */

@@ -199,6 +199,11 @@ void ag_config_load(struct ag_config *c)
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
 	c->sqm_hold = 86400;
+	c->calls = 1;
+	c->calls_prio = 1;
+	c->calls_share = 1;
+	c->calls_poll = 10;
+	c->calls_min_s = 60;
 	/* in memory on a router (a reboot is itself in the story: the gap); on a PC, on disk */
 	copy(c->why_file, sizeof(c->why_file), owrt ? "/tmp/aigw/agd-why.bin" : "/var/lib/aigw/agd-why.bin");
 	c->mgmt_reset = 1;
@@ -483,6 +488,21 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "sqm", "hold");
 		if (v && atoi(v) >= 0 && atoi(v) <= 30 * 86400)
 			c->sqm_hold = atoi(v);
+		v = opt(ctx, p, "calls", "enabled");
+		if (v)
+			c->calls = atoi(v) != 0;
+		v = opt(ctx, p, "calls", "priority");
+		if (v)
+			c->calls_prio = atoi(v) != 0;
+		v = opt(ctx, p, "calls", "share");
+		if (v)
+			c->calls_share = atoi(v) != 0;
+		v = opt(ctx, p, "calls", "poll");
+		if (v && atoi(v) >= 1 && atoi(v) <= 300)
+			c->calls_poll = atoi(v);
+		v = opt(ctx, p, "calls", "min_s");
+		if (v && atoi(v) >= 0 && atoi(v) <= 86400)
+			c->calls_min_s = atoi(v);
 		v = opt(ctx, p, "offers", "enabled");
 		if (v)
 			c->offers = atoi(v) != 0;

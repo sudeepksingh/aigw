@@ -68,6 +68,7 @@ enum why_kind {
 	WE_CARE,                        /* proactive care: a problem found, reported, over; an early warning */
 	WE_SPEED,                       /* the nightly speed test */
 	WE_UPGRADE,                     /* a firmware upgrade */
+	WE_CALL,                        /* a call or game ended, and how it went; flag: enum call_verdict (ag/calls.h) */
 	WE_N
 };
 

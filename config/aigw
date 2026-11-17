@@ -228,6 +228,23 @@ config sqm 'sqm'
 	# the program that shapes the line; default aigw-sqm
 	# option handler ''
 
+config calls 'calls'
+	# calls and games first (agctl calls, Device.X_AIGW_.CallsFirst.,
+	# docs/calls-first.md): video and voice calls and online games are
+	# noticed by their traffic (steady small UDP both ways, known ports, the
+	# names looked up), and how each went is told from the timeline
+	option enabled '1'
+	# let them go first inside AIGW's smart queueing (sqm section). Only
+	# while that is on: calls first never turns it on by itself
+	option priority '1'
+	# the ISP may see the reports (Device.X_AIGW_.CallsFirst., CallReport!):
+	# kinds and numbers, never a device's or an app's name
+	option share '1'
+	# seconds between looks at the connections' counters
+	# option poll '10'
+	# a call or game shorter than this (seconds) isn't reported
+	# option min_s '60'
+
 config offers 'offers'
 	# signals for the ISP from the last week (agctl offers,
 	# Device.X_AIGW_.Offers., docs/isp-signals.md): a faster plan (the line

@@ -22,6 +22,7 @@
 #define AG_EV_MODEL "ag.model"     /* a model update loaded, refused or rolled back */
 #define AG_EV_CARE "ag.care"       /* proactive care: a problem found, reported, over */
 #define AG_EV_UPGRADE "ag.upgrade" /* a firmware upgrade: watched, kept, worse, rolled back */
+#define AG_EV_CALL "ag.call"       /* a call or game noticed, and over (with how it went) */
 #define AG_EV_DM "ag.dm.event"     /* a data model event (TR-181 path ending in '!'), for USP / TR-069 */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
@@ -167,6 +168,12 @@ struct ag_config {
 	int sqm_detect;           /* samples of the last hour full and slow before it is bloat */
 	int sqm_trial;            /* full samples after it is on before it is judged */
 	int sqm_hold;             /* s after a trial (or a person saying no) before it is proposed again */
+	/* calls and games first (agd/calls.c) */
+	int calls;                /* notice calls and games, report how they went */
+	int calls_prio;           /* ... and let them go first inside AIGW's smart queueing (only while it is on) */
+	int calls_share;          /* the ISP may see the reports: kinds and numbers, never device or app names */
+	int calls_poll;           /* s between looks at the connections' counters */
+	int calls_min_s;          /* a call or game shorter than this isn't reported */
 	/* signals for the ISP (agd/offers.c) */
 	int offers;               /* a faster plan, mesh Wi-Fi, smart queueing, a customer at risk, a line to repair */
 	int offers_share;         /* the ISP may see them (data model, cortex): counts and words, never names */
