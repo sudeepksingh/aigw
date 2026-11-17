@@ -82,7 +82,7 @@ int ag_policy_action_ok(const char *action)
 	/* blocking a domain is never automatic: the user names it */
 	if (!strcmp(action, "quarantine") || !strcmp(action, "disconnect") || !strcmp(action, "throttle") ||
 	    !strcmp(action, "deprioritize") || !strcmp(action, "priority") || !strcmp(action, "channel") ||
-	    !strcmp(action, "stay24"))
+	    !strcmp(action, "stay24") || !strcmp(action, "sqm"))
 		return 1;
 	dot = strchr(action, '.');
 	if (!dot || dot == action || (size_t)(dot - action) >= sizeof(plugin) || !dot[1] || strlen(dot + 1) > 23)
@@ -195,6 +195,10 @@ void ag_config_load(struct ag_config *c)
 	c->why_probe = 1;
 	c->offers = 1;
 	c->offers_share = 1;
+	c->sqm = 1;
+	c->sqm_detect = 10;
+	c->sqm_trial = 30;
+	c->sqm_hold = 86400;
 	/* in memory on a router (a reboot is itself in the story: the gap); on a PC, on disk */
 	copy(c->why_file, sizeof(c->why_file), owrt ? "/tmp/aigw/agd-why.bin" : "/var/lib/aigw/agd-why.bin");
 	c->mgmt_reset = 1;
@@ -461,6 +465,24 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "why", "file");
 		if (v)
 			copy(c->why_file, sizeof(c->why_file), v);
+		v = opt(ctx, p, "why", "wan");
+		if (v)
+			copy(c->why_wan, sizeof(c->why_wan), v);
+		v = opt(ctx, p, "sqm", "enabled");
+		if (v)
+			c->sqm = atoi(v) != 0;
+		v = opt(ctx, p, "sqm", "handler");
+		if (v)
+			copy(c->sqm_handler, sizeof(c->sqm_handler), v);
+		v = opt(ctx, p, "sqm", "detect");
+		if (v && atoi(v) >= 2 && atoi(v) <= 60)
+			c->sqm_detect = atoi(v);
+		v = opt(ctx, p, "sqm", "trial");
+		if (v && atoi(v) >= 2 && atoi(v) <= 1440)
+			c->sqm_trial = atoi(v);
+		v = opt(ctx, p, "sqm", "hold");
+		if (v && atoi(v) >= 0 && atoi(v) <= 30 * 86400)
+			c->sqm_hold = atoi(v);
 		v = opt(ctx, p, "offers", "enabled");
 		if (v)
 			c->offers = atoi(v) != 0;
@@ -607,6 +629,9 @@ defaults:
 		   back within the trial), and a device kept on 2.4 GHz for a day */
 		add_policy(c, "wifi_congestion", "wifi-congestion", "channel", NULL, 3600, 0, AG_MODE_ENFORCE);
 		add_policy(c, "wifi_hopping", "wifi-hopping", "stay24", NULL, 86400, 0, AG_MODE_ENFORCE);
+		/* bufferbloat: smart queueing, judged on the timeline (kept when it helps); a configuration
+		   without this policy gets it all the same (act.c), unless sqm.enabled 0 */
+		add_policy(c, "bufferbloat", "bufferbloat", "sqm", NULL, 86400, 0, AG_MODE_ENFORCE);
 	}
 }
 

@@ -591,6 +591,29 @@ void offers_save(struct blob_buf *b);
 void offers_load(struct blob_attr *t);
 /* dm.c: OfferFound! */
 void dm_on_offer(const char *code, const char *kind, const char *product, const char *confidence, const char *evidence);
+/* why.c, for smart queueing: the WAN sampled, the samples [from, to) oldest first, the line now */
+struct sqm_line;
+const char *why_wan(void);
+int why_samples(long from, long to, struct why_min *out, int max);
+void why_line_now(struct sqm_line *l);
+
+/* sqm.c: self-tuning smart queueing (ag/sqm.h) */
+void sqm_init(void);
+void sqm_on_sample(void);               /* every sample of the timeline */
+int sqm_target_ok(const char *target, char *words, size_t wn); /* "eth0:45000:8500": 0, in words */
+int sqm_apply(const char *target, char *err, size_t en);
+void sqm_remove(const char *target);
+int sqm_on(void);                       /* in effect (a trial, kept, or a person's) */
+int sqm_request(int on, uint32_t *id, char *err, size_t en);   /* agctl sqm --on / --off */
+void sqm_blob(struct blob_buf *b);
+int sqm_field(const char *f, char *buf, size_t n);     /* Device.X_AIGW_.SQM.; -1 unknown */
+void sqm_save(struct blob_buf *b);
+void sqm_load(struct blob_attr *t);
+/* act.c: the live decision of an action (state 0 proposed, 1 active, 2 kept); -1 none */
+int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,
+		    char *origin, size_t on);
+int act_recent(const char *action, int64_t since);     /* one made since, in any state */
+
 /* care.c: proactive care's days (for the signals); how many */
 struct care_day;
 int care_days_get(struct care_day *out, int max);

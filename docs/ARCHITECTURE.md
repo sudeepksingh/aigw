@@ -1009,6 +1009,18 @@ Verified by `tests/test_why.c` (18 evenings: a full line, a slow ISP, the line s
 
 Verified by `tests/test_offer.c` (weeks of homes: every signal, its confidence, no pattern from two days, the repair holding back the sale, learning, the window), `tests/offers-test.sh` (CI: a week in agd's state; both signals, named only at home; the event once over a restart; the data model; today counted from samples; share 0) and `tests/test_cortex.py` (the fleet report's signals). Not yet on real homes for a week.
 
+**As built in v0.33: self-tuning smart queueing.** The gateway finds bufferbloat on its timeline, shapes the WAN at the line's measured speed through the guardrails, and keeps it only when the timeline shows that it helped ([smart-queueing.md](smart-queueing.md)).
+
+| Piece | As built |
+|-------|----------|
+| The rules (`core/libag/sqm.c`, `include/ag/sqm.h`) | Pure. `sqm_bloated`: in the last 60 samples, `detect` full-and-slow ones and half the full ones (full: `why_full`; slow: `why_slow_ms` against the normal). `sqm_rates`: 90% of the sold or tested speed, else 85% of the most seen; the upload from the most seen. `sqm_judge` compares before (the day before) and after (`trial` full samples): kept at ≤ 60% of the delay before (or within 30 ms of normal) with downloads ≥ 75%; else undone; never "better" when not lower at all. |
+| The actuator (`scripts/aigw-sqm`) | `apply <iface> <down> <up>`, `remove`, `status`, `check`. cake when the kernel has it (one qdisc: shaping and fairness), else htb + fq_codel. Downloads via ingress → ifb (matchall + mirred). Idempotent; refuses a WAN with a shaping qdisc it didn't set up. A state file per interface says what is AIGW's. |
+| The loop (`agd/sqm.c`) | On every timeline sample: no live `sqm` decision and nothing in `hold` → bloat raises alert `bufferbloat` (each sighting its own alert), and the policy (built in when the configuration lacks it) gives an `sqm` decision (`act.c`: guard, actuate, unactuate, through the handler). An active decision from the policy is the trial (before: the day's full samples before it took effect), judged each sample until kept (`act_keep`) or undone (`act_undo_because`). Kept: restored by `act_init`, checked and put back every 10 min. A person's own (`agctl sqm --on`) is never judged. The trial's numbers are saved with agd's state. |
+| Elsewhere | The timeline's WAN can be set (`why.wan`). An `sqm` decision is an AIGW change for "why was it slow". `SMART_QUEUE` isn't raised while SQM is on. The data model is 1.13: `Device.X_AIGW_.SQM.` (9 values). |
+| agctl | `agctl sqm [--on\|--off]`; `ubus call ag sqm`. |
+
+Verified by `tests/test_sqm.c` (bloat and not; the rates; kept, waiting, undone for no gain or for lost speed; no before) and `tests/sqm-test.sh` (CI: a veth WAN to a namespace, a real 10 Mbit/s sender, netem bufferbloat. In advise mode it is proposed, approved and really shaped; kept when the delay goes; restored over a restart; `--off`. In enforce mode it is tried by itself and undone when no better). The PC access point's WSL kernel has no cake, so there it uses htb + fq_codel. Not yet on a real line.
+
 ---
 
 ## 17. Status and risks

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.32.0 LANGUAGES C)
+project(aigw VERSION 0.33.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -67,7 +67,7 @@ if(AMXD_INCLUDE)
   add_subdirectory(amx)
 endif()
 
-install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
+install(PROGRAMS scripts/aigw-nft scripts/aigw-sqm scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)
 
 if(AIGW_TESTS)

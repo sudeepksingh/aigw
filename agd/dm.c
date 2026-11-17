@@ -43,7 +43,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.12"
+#define DM_VERSION "1.13"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -900,6 +900,18 @@ OFFERS("MeshWiFi", mesh)
 OFFERS("Retention", ret)
 OFFERS("LineRepair", rep)
 
+/* self-tuning smart queueing (Device.X_AIGW_.SQM.) */
+#define SQF(fn, f) GET(fn) { (void)c; return sqm_field(f, buf, n); }
+SQF(g_sq_en, "Enable")
+SQF(g_sq_st, "Status")
+SQF(g_sq_if, "Interface")
+SQF(g_sq_dn, "DownloadKbps")
+SQF(g_sq_up, "UploadKbps")
+SQF(g_sq_bef, "LatencyBeforeMs")
+SQF(g_sq_aft, "LatencyAfterMs")
+SQF(g_sq_sum, "Summary")
+GET(g_sq_since) { char v[24] = "0"; (void)c; sqm_field("Since", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1167,7 +1179,17 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Offers." P ".Since", T_TIME, 0, TB_NONE, g_of_##N##_s, NULL }, \
 	{ "Device.X_AIGW_.Offers." P ".Evidence", T_STR, 0, TB_NONE, g_of_##N##_e, NULL }
 	OFP("PlanUpgrade", plan), OFP("SmartQueue", sqm), OFP("MeshWiFi", mesh), OFP("Retention", ret),
-	OFP("LineRepair", rep),	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
+	OFP("LineRepair", rep),
+	{ "Device.X_AIGW_.SQM.Enable", T_BOOL, 0, TB_NONE, g_sq_en, NULL },
+	{ "Device.X_AIGW_.SQM.Status", T_STR, N, TB_NONE, g_sq_st, NULL },
+	{ "Device.X_AIGW_.SQM.Interface", T_STR, 0, TB_NONE, g_sq_if, NULL },
+	{ "Device.X_AIGW_.SQM.DownloadKbps", T_UINT, 0, TB_NONE, g_sq_dn, NULL },
+	{ "Device.X_AIGW_.SQM.UploadKbps", T_UINT, 0, TB_NONE, g_sq_up, NULL },
+	{ "Device.X_AIGW_.SQM.Since", T_TIME, 0, TB_NONE, g_sq_since, NULL },
+	{ "Device.X_AIGW_.SQM.LatencyBeforeMs", T_UINT, 0, TB_NONE, g_sq_bef, NULL },
+	{ "Device.X_AIGW_.SQM.LatencyAfterMs", T_UINT, 0, TB_NONE, g_sq_aft, NULL },
+	{ "Device.X_AIGW_.SQM.Summary", T_STR, 0, TB_NONE, g_sq_sum, NULL },
+	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
 #define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
 #define TIN(O, P, T) { O P, T, W, TB_NONE, g_tr143, s_tr143 }
