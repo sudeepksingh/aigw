@@ -1064,6 +1064,35 @@ static int m_offers(struct ubus_context *ctx, struct ubus_object *obj, struct ub
 	return 0;
 }
 
+/* ag sqm {on}: smart queueing: what it does; on true: ask for it, false: end it */
+enum { SQ_ON, __SQ_MAX };
+static const struct blobmsg_policy sqm_policy[__SQ_MAX] = {
+	[SQ_ON] = { "on", BLOBMSG_TYPE_BOOL },
+};
+
+static int m_sqm(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		 const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__SQ_MAX];
+	char err[200];
+	uint32_t id = 0;
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(sqm_policy, __SQ_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (tb[SQ_ON]) {
+		if (sqm_request(blobmsg_get_bool(tb[SQ_ON]), &id, err, sizeof(err)) < 0)
+			blobmsg_add_string(&b, "error", err);
+		else
+			blobmsg_add_u32(&b, "asked", id);
+		dev_state_save();
+	}
+	sqm_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
@@ -1071,6 +1100,7 @@ static struct ubus_method ag_methods[] = {
 	UBUS_METHOD("upgrade", m_upgrade, upgrade_policy),
 	UBUS_METHOD("why", m_why, why_policy),
 	UBUS_METHOD_NOARG("offers", m_offers),
+	UBUS_METHOD("sqm", m_sqm, sqm_policy),
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1179,6 +1209,7 @@ int main(int argc, char **argv)
 	upgrade_init();                 /* after the state and proactive care: a watch may go on */
 	why_init();                     /* the home's timeline: after proactive care (its speed test) */
 	offers_init();                  /* signals for the ISP, counted from the timeline */
+	sqm_init();                     /* smart queueing on bufferbloat, judged on the timeline */
 	keys_init();
 	plugin_init();
 

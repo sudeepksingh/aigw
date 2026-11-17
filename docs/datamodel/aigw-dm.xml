@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.12. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.13. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-12" file="aigw-dm-1-12.xml">
+             spec="urn:aigw-os:aigw-dm-1-13" file="aigw-dm-1-13.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.12">
+  <model name="AIGW-OS:1.13">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -338,6 +338,17 @@
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Shared" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Signals" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.SQM." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Interface" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="DownloadKbps" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="UploadKbps" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="LatencyBeforeMs" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LatencyAfterMs" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Timeline." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>

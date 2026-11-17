@@ -38,6 +38,10 @@ add_executable(test_offer test_offer.c)
 target_link_libraries(test_offer ag)
 add_test(NAME isp_signals COMMAND test_offer)
 
+add_executable(test_sqm test_sqm.c)
+target_link_libraries(test_sqm ag)
+add_test(NAME smart_queueing COMMAND test_sqm)
+
 add_executable(test_tr143 test_tr143.c)
 target_link_libraries(test_tr143 ag)
 add_test(NAME tr143_diagnostics COMMAND test_tr143)

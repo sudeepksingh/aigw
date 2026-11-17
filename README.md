@@ -46,6 +46,17 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.33:** **Bufferbloat found, fixed and proved, by the gateway.** When
+> the line is full, a router's queues make everything else wait: calls
+> stutter and games lag, though nothing is broken. Smart queueing (cake) is
+> the known fix, but someone has to turn it on and set the right speed. AIGW
+> sees the bloat on its timeline (the internet slow whenever the line is
+> full). It proposes smart queueing (advise mode) or tries it (enforce) at
+> the line's measured speed. Then it compares the delay and the download
+> speed while the line is full, before and after. It keeps SQM only if it
+> clearly helped, and otherwise undoes it. `agctl sqm`,
+> `Device.X_AIGW_.SQM.`; see [docs/smart-queueing.md](docs/smart-queueing.md).
+>
 > **v0.32:** **Signals for the ISP: what a home would buy, or why it may
 > leave.** The gateway sees which homes fill their line most evenings, whose
 > devices spend hours on a weak signal, whose calls stutter while someone

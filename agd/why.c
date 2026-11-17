@@ -42,6 +42,7 @@
 #include "ag/care.h"
 #include "ag/diag.h"
 #include "ag/heal.h"
+#include "ag/sqm.h"
 #include "ag/why.h"
 #include "agd.h"
 
@@ -262,11 +263,11 @@ static void on_decision(struct blob_attr **tb)
 		flag = WF_BLOCKS;
 	else if (!strcmp(a, "throttle") || !strcmp(a, "deprioritize"))
 		flag = WF_LIMITS;
-	else if (!strcmp(a, "channel") || !strcmp(a, "stay24"))
+	else if (!strcmp(a, "channel") || !strcmp(a, "stay24") || !strcmp(a, "sqm"))
 		flag = WF_WIFI;
 	if (ended)
 		flag |= WF_ENDED;
-	if (strcmp(a, "channel") && strcmp(a, "block"))
+	if (strcmp(a, "channel") && strcmp(a, "block") && strcmp(a, "sqm"))
 		d = act_find_device(target);
 	note(WE_DECISION, d ? d->mac : NULL, flag, 0, "AIGW %s: %s %s%s%s", ended ? "ended" : "acted", a, who,
 	     *s_(tb, P_ORIGIN) ? ", by " : "", s_(tb, P_ORIGIN));
@@ -624,6 +625,7 @@ static void finish(long now)
 		store(&m);
 		peaks(&pd, &pu);
 		offers_on_sample(&m, (long)(secs + 0.5), pd, pu);
+		sqm_on_sample();                /* bufferbloat: smart queueing found, tried, judged */
 	}
 	/* a speed test that ran since */
 	at = care_speed_last(&mbps);
@@ -647,6 +649,8 @@ static void begin(long now)
 	S.mono0 = ag_mono_us();
 	S.icmp = -1;
 	S.route = default_route(&g, S.wan, sizeof(S.wan));
+	if (cfg.why_wan[0])                     /* the WAN set by hand (several WANs, or tests) */
+		snprintf(S.wan, sizeof(S.wan), "%.31s", cfg.why_wan);
 	S.have_wan = wan_bytes(S.wan, &S.rx0, &S.tx0) == 0;
 	S.ident = (uint16_t)(getpid() ^ 0x5759);
 	for (t = 0; t < TARGETS; t++)
@@ -828,6 +832,57 @@ void why_init(void)
 
 /* ---------- asking ---------- */
 
+/* ---------- for smart queueing (sqm.c) ---------- */
+
+static int cmp_min(const void *a, const void *b);
+
+const char *why_wan(void)
+{
+	return S.wan;
+}
+
+/* the samples with from <= t < to, oldest first; how many */
+int why_samples(long from, long to, struct why_min *out, int max)
+{
+	int i, n = 0;
+
+	for (i = 0; ring && i < R && n < max; i++)
+		if (ring[i].t && (long)ring[i].t >= from && (long)ring[i].t < to)
+			out[n++] = ring[i];
+	qsort(out, (size_t)n, sizeof(*out), cmp_min);
+	return n;
+}
+
+/* the line as it is now: its speed (sold, else tested), the most seen, the internet's normal at this hour */
+void why_line_now(struct sqm_line *l)
+{
+	double mbps = 0;
+	float v;
+	time_t now = (time_t)ag_wall_s();
+	struct tm tm;
+
+	memset(l, 0, sizeof(*l));
+	if (cfg.care_speed_mbps > 0)
+		l->down_mbps = (float)cfg.care_speed_mbps;
+	else if (care_speed_last(&mbps) > 0 && mbps > 0)
+		l->down_mbps = (float)mbps;
+	if (ring)
+		peaks(&l->peak_down_mbps, &l->peak_up_mbps);
+	localtime_r(&now, &tm);
+	if (care_normal_hour(CM_INET_MS, tm.tm_hour, &v) == 0) {
+		l->normal_ms = v;
+		l->have_normal = 1;
+	} else if (ring) {
+		float bn[WN_N];
+		int bh[WN_N];
+
+		why_baseline(ring, R, (long)now - 3600, (long)now, bn, bh);
+		if (bh[WN_INET]) {
+			l->normal_ms = bn[WN_INET];
+			l->have_normal = 1;
+		}
+	}
+}
 static long recorded_since(void)
 {
 	long s = 0;

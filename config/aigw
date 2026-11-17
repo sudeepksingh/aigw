@@ -209,6 +209,24 @@ config why 'why'
 	# where it is kept over a restart of agd; default /tmp/aigw/agd-why.bin
 	# on OpenWRT (memory: no flash writes), /var/lib/aigw/agd-why.bin else
 	# option file ''
+	# the WAN interface sampled; default the default route's
+	# option wan ''
+
+config sqm 'sqm'
+	# self-tuning smart queueing (agctl sqm, Device.X_AIGW_.SQM.,
+	# docs/smart-queueing.md): when the line is full and everything else
+	# slows (bufferbloat), propose (advise mode) or try (enforce) cake on the
+	# WAN at the line's speed, and keep it only if the delay while the line is
+	# full clearly falls and downloads keep their speed
+	option enabled '1'
+	# full-and-slow samples in the last hour before it is bloat
+	# option detect '10'
+	# full samples after it is on before it is judged
+	# option trial '30'
+	# seconds after a trial (or a "no") before it is proposed again
+	# option hold '86400'
+	# the program that shapes the line; default aigw-sqm
+	# option handler ''
 
 config offers 'offers'
 	# signals for the ISP from the last week (agctl offers,
@@ -330,6 +348,14 @@ config policy 'wifi_hopping'
 	# for a day (refused on the 5 GHz access points only)
 	option alert 'wifi-hopping'
 	option action 'stay24'
+	option ttl '86400'
+
+config policy 'bufferbloat'
+	# the line full and everything else slow meanwhile: smart queueing on the
+	# WAN, kept if it clearly helps (sqm section), else undone. A trial lasts
+	# until the line has been full long enough to judge, a day at most
+	option alert 'bufferbloat'
+	option action 'sqm'
 	option ttl '86400'
 
 # config policy 'upload_spike'

@@ -177,7 +177,7 @@ static void plan_and_sqm(const struct offer_in *in, const struct offer_params *p
 			 "evening; up to %.0f%s Mbit/s.%s", k, n, d1, full ? eve * 100 / full : 0, peak / 1000.0, d2,
 			 in->line_mbps > 0 ? "" : " (The line's speed isn't known: full is the most seen on it.)");
 	}
-	if (ks >= p->sqm_days) {
+	if (ks >= p->sqm_days && !in->sqm_on) {
 		sq->active = 1;
 		sq->days = ks;
 		sq->of_days = n;

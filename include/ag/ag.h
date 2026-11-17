@@ -160,6 +160,13 @@ struct ag_config {
 	int why_interval;         /* s between samples (60; less only for tests) */
 	int why_probe;            /* each sample sends 3 echo requests to the next router and the internet */
 	char why_file[256];       /* where it is kept over a restart of agd; "" not kept */
+	char why_wan[32];         /* the WAN interface sampled; "" the default route's */
+	/* self-tuning smart queueing (agd/sqm.c) */
+	int sqm;                  /* bufferbloat found: propose (advise) or try (enforce) SQM, kept when it helps */
+	char sqm_handler[128];    /* the program that shapes the line; "" aigw-sqm */
+	int sqm_detect;           /* samples of the last hour full and slow before it is bloat */
+	int sqm_trial;            /* full samples after it is on before it is judged */
+	int sqm_hold;             /* s after a trial (or a person saying no) before it is proposed again */
 	/* signals for the ISP (agd/offers.c) */
 	int offers;               /* a faster plan, mesh Wi-Fi, smart queueing, a customer at risk, a line to repair */
 	int offers_share;         /* the ISP may see them (data model, cortex): counts and words, never names */

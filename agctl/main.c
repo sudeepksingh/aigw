@@ -48,6 +48,8 @@ static void usage(void)
 		"  why [device] [--at 20:00 | --from 19:30 --to 21:00 | --last 2h] [--raw]\n"
 		"                      \"why was it slow?\" afterwards: the home's timeline (the last hour by\n"
 		"                      default) explained, with what happened in order\n"
+		"  sqm [--on|--off]    smart queueing on the line: AIGW turns it on when the line is full and\n"
+		"                      everything else slows (bufferbloat), and keeps it only if it helped\n"
 		"  offers              signals for the ISP from the last week: a faster plan, smart queueing,\n"
 		"                      mesh Wi-Fi, a customer at risk, a line to repair; with the evidence\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
@@ -1960,6 +1962,52 @@ static void show_why(struct ubus_request *req, int type, struct blob_attr *msg)
 		printf("    %-8s %-16s %s\n", fstr(f, "severity"), fstr(f, "code"), fstr(f, "text"));
 }
 
+static int sqm_failed;
+
+/* agctl sqm [--on|--off]: self-tuning smart queueing */
+static void show_sqm(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *t = field(msg, "trial");
+	const char *st = fstr(msg, "status");
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (*fstr(msg, "error")) {
+		printf("%s\n", fstr(msg, "error"));
+		sqm_failed = 1;
+	} else if (field(msg, "asked")) {
+		printf("Asked (decision %llu).\n", (unsigned long long)fnum(msg, "asked"));
+	}
+	if (!fnum(msg, "enabled")) {
+		printf("Smart queueing on bufferbloat is off (sqm.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Smart queueing: %s\n", !strcmp(st, "Off") ? "off: no bufferbloat seen (AIGW proposes it when it sees some)" :
+	       !strcmp(st, "Proposed") ? "proposed, waiting for you (agctl decisions)" :
+	       !strcmp(st, "Trial") ? "on trial: kept if the delay while the line is full clearly falls" :
+	       !strcmp(st, "On") ? "on" : !strcmp(st, "Tried") ? "off: it was tried and didn't help" :
+	       !strcmp(st, "Unavailable") ? "not available here" : st);
+	if (*fstr(msg, "interface"))
+		printf("  line      %s, shaped at %.1f Mbit/s down, %s up\n", fstr(msg, "interface"),
+		       fnum(msg, "down_kbps") / 1000.0, fnum(msg, "up_kbps") ? "" : "not shaped");
+	if (*fstr(msg, "shaping"))
+		printf("  now       %s\n", fstr(msg, "shaping"));
+	if (*fstr(msg, "unavailable"))
+		printf("  why not   %s\n", fstr(msg, "unavailable"));
+	if (t) {
+		printf("  before    while the line was full (%llu samples): the internet in %llu ms, downloads %.1f Mbit/s\n",
+		       (unsigned long long)fnum(t, "before_full"), (unsigned long long)fnum(t, "before_ms"),
+		       fnum(t, "before_kbps") / 1000.0);
+		printf("  after     %llu of %llu full samples: the internet in %llu ms, downloads %.1f Mbit/s (%s)\n",
+		       (unsigned long long)fnum(t, "after_full"), (unsigned long long)fnum(t, "needed"),
+		       (unsigned long long)fnum(t, "after_ms"), fnum(t, "after_kbps") / 1000.0, fstr(t, "verdict"));
+		if (*fstr(t, "summary"))
+			printf("  verdict   %s\n", fstr(t, "summary"));
+	}
+}
+
 /* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */
 static void show_offers(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2247,6 +2295,15 @@ int main(int argc, char **argv)
 			blobmsg_add_u8(&args, "forget", 1);
 		rc = call("ag", "upgrade", args.head, show_upgrade);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "sqm")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && (!strcmp(argv[i], "--on") || !strcmp(argv[i], "on")))
+			blobmsg_add_u8(&args, "on", 1);
+		else if (i < argc && (!strcmp(argv[i], "--off") || !strcmp(argv[i], "off")))
+			blobmsg_add_u8(&args, "on", 0);
+		rc = call("ag", "sqm", args.head, show_sqm);
+		blob_buf_free(&args);
+		rc = rc || sqm_failed;
 	} else if (!strcmp(cmd, "offers")) {
 		rc = call("ag", "offers", NULL, show_offers);
 	} else if (!strcmp(cmd, "why")) {

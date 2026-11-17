@@ -31,7 +31,7 @@ Signals for the ISP, from the last 7 days (7 watched): 2 found
 | Code | Kind | Product | When |
 |---|---|---|---|
 | `PLAN_UPGRADE` | upsell | a faster plan | the line used to its speed for 30 min or more a day, on 3 of the last 7 days. Not while `LINE_REPAIR` holds |
-| `SMART_QUEUE` | upsell | smart queueing | while the line was full, the internet answered slowly (the rest of the home suffered) for 15 min or more a day, and for half the full time, on 3 of 7 days. Calls and games stay responsive with smart queueing (SQM), without a faster plan |
+| `SMART_QUEUE` | upsell | smart queueing | while the line was full, the internet answered slowly (the rest of the home suffered) for 15 min or more a day, and for half the full time, on 3 of 7 days. Calls and games stay responsive with smart queueing (SQM), without a faster plan. Not while AIGW runs smart queueing itself (v0.33, [smart-queueing.md](smart-queueing.md)) |
 | `MESH_WIFI` | upsell | mesh Wi-Fi | 2 or more devices on a weak signal (`wifi.heal_weak`) for 30 min or more a day, or one and 10 short drops off Wi-Fi (back within 2 min), on 3 of 7 days |
 | `RETENTION_RISK` | retention | a call from the ISP | a bad week: the experience score (proactive care) below 90%, 5 points or more below the week before, or 4 problems or more |
 | `LINE_REPAIR` | repair | a line repair | 2 or more nightly speed tests far below the line's speed (`care.speed_mbps`) in the week: the ISP owes a repair, and nothing is sold on that line meanwhile |

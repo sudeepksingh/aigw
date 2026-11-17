@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.32.0 LANGUAGES C)
+project(aigw VERSION 0.33.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -12,6 +12,13 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 add_compile_options(-Wall -Wextra -Wno-unused-parameter)
+# small on a router's flash (the 1 MB budget, aigw-selftest): unused functions
+# dropped at link time, and no unwind tables (C, no exceptions; large on
+# aarch64). About 11% smaller. Debug builds keep everything
+if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_options(-ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables -fno-unwind-tables)
+  add_link_options(-Wl,--gc-sections)
+endif()
 add_compile_definitions(AG_VERSION="${PROJECT_VERSION}"
   AG_DATADIR="${CMAKE_INSTALL_PREFIX}/share/aigw")
 
@@ -67,7 +74,7 @@ if(AMXD_INCLUDE)
   add_subdirectory(amx)
 endif()
 
-install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
+install(PROGRAMS scripts/aigw-nft scripts/aigw-sqm scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)
 
 if(AIGW_TESTS)

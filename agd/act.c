@@ -342,6 +342,8 @@ static struct device *find_device(const char *q);
 
 static int valid_target(const struct decision *d)
 {
+	if (!strcmp(d->action, "sqm"))
+		return sqm_target_ok(d->target, NULL, 0) == 0;
 	if (!strcmp(d->action, "channel")) {
 		const struct wifi_ap *a;
 		int ch;
@@ -445,6 +447,8 @@ static int actuate(struct decision *d, char *err, size_t errlen)
 	}
 	if (!strcmp(d->action, "block"))
 		return dns_policy_write(err, errlen);
+	if (!strcmp(d->action, "sqm"))
+		return sqm_apply(d->target, err, errlen);
 	if (!strcmp(d->action, "disconnect"))
 		return wifi_ban(d->target, 1, err, errlen);
 	if (!strcmp(d->action, "stay24"))
@@ -504,6 +508,10 @@ static void unactuate(struct decision *d)
 	if (!strcmp(d->action, "block")) {
 		if (dns_policy_write(err, sizeof(err)))
 			AG_WARN("undo block %s: %s", d->target, err);
+		return;
+	}
+	if (!strcmp(d->action, "sqm")) {
+		sqm_remove(d->target);
 		return;
 	}
 	if (!strcmp(d->action, "disconnect")) {
@@ -683,6 +691,14 @@ static int guard(const char *action, const char *what, const struct act_opts *o,
 			 a->band == 5 ? "5" : "2.4", a->iface, a->channel, ch);
 		return 0;
 	}
+	if (!strcmp(action, "sqm")) {
+		if (sqm_target_ok(what, out->device, sizeof(out->device)) < 0) {
+			snprintf(err, errlen, "'%.40s' is not <WAN interface>:<download kbit/s>:<upload kbit/s>", what);
+			return -1;
+		}
+		snprintf(out->target, sizeof(out->target), "%s", what);
+		return 0;
+	}
 	if (is_plugin_action(action)) {
 		int device_subject = 1;
 
@@ -859,7 +875,8 @@ int act_revert(uint32_t id, char *err, size_t errlen)
 {
 	struct decision *d = dec_get(id);
 
-	if (!d || d->state != D_ACTIVE) {
+	/* a trial that was kept (a channel, smart queueing) may be undone too */
+	if (!d || (d->state != D_ACTIVE && d->state != D_KEPT)) {
 		snprintf(err, errlen, "decision %u is not active", id);
 		return -1;
 	}
@@ -956,6 +973,44 @@ int act_on_device(const struct device *dv, char *out, size_t n, int *blocked, in
 	return k;
 }
 
+/* ---------- for smart queueing (sqm.c) ---------- */
+
+/* the live decision of this action (proposed, active or kept): 0 with its id, state (0 proposed,
+   1 active, 2 kept), target, when it took effect and who made it; -1 none */
+int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,
+		    char *origin, size_t on)
+{
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++) {
+		const struct decision *d = &decs[i];
+
+		if (!d->used || strcmp(d->action, action) ||
+		    (d->state != D_PROPOSED && d->state != D_ACTIVE && d->state != D_KEPT))
+			continue;
+		*id = d->id;
+		*state = d->state == D_PROPOSED ? 0 : d->state == D_ACTIVE ? 1 : 2;
+		if (target && tn)
+			snprintf(target, tn, "%s", d->target);
+		if (applied)
+			*applied = d->applied;
+		if (origin && on)
+			snprintf(origin, on, "%s", d->origin);
+		return 0;
+	}
+	return -1;
+}
+
+/* a decision of this action made since `since`, in any state (a trial, a "no", ...) */
+int act_recent(const char *action, int64_t since)
+{
+	int i;
+
+	for (i = 0; i < DEC_MAX; i++)
+		if (decs[i].used && !strcmp(decs[i].action, action) && decs[i].created >= since)
+			return 1;
+	return 0;
+}
 /* a trial that worked: it stays (no switching back at its time limit) */
 int act_keep(uint32_t id, const char *note)
 {
@@ -1007,6 +1062,18 @@ static const struct ag_policy *policy_for(const char *kind, const char *ip, char
 			snprintf(origin, n, "policy %s", cfg.policies[i].name);
 			return &cfg.policies[i];
 		}
+	if (!strcmp(kind, "bufferbloat") && cfg.sqm) {
+		/* smart queueing: also for a configuration from before it had this policy */
+		static struct ag_policy bb;
+
+		snprintf(bb.name, sizeof(bb.name), "bufferbloat");
+		snprintf(bb.alert, sizeof(bb.alert), "bufferbloat");
+		snprintf(bb.action, sizeof(bb.action), "sqm");
+		bb.ttl = 86400;
+		bb.mode = AG_MODE_ENFORCE;
+		snprintf(origin, n, "policy bufferbloat");
+		return &bb;
+	}
 	return plugin_policy_for(kind, zone, origin, n, cap);
 }
 
@@ -1080,6 +1147,13 @@ void act_init(void)
 	for (i = 0; i < DEC_MAX; i++) {
 		struct decision *d = &decs[i];
 
+		if (d->used && d->state == D_KEPT && !strcmp(d->action, "sqm")) {
+			if (actuate(d, err, sizeof(err)) < 0)       /* kept: it stays, with no end */
+				AG_WARN("could not restore smart queueing (decision %u, %s): %s", d->id, d->target, err);
+			else
+				n++;
+			continue;
+		}
 		if (!d->used || d->state != D_ACTIVE)
 			continue;
 		if (d->expires <= ag_wall_s()) {
