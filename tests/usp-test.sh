@@ -297,6 +297,25 @@ js "o = d['out']; sys.exit(0 if d['ok'] and o['Status'] == 'Complete' and o['Rou
 	< "$T/trace.json" || fail "TraceRoute() over USP: $(cat "$T/trace.json")"
 echo "   IPPing 3 of 3, TraceRoute 1 hop (RouteHops.1.HostAddress)"
 
+echo "== ubus from three threads at once: events, an asynchronous command, reads"
+# the plug-in's event, operation and data model threads all use libubus, which
+# is not thread-safe: this once crashed the agent at start
+touch "$T/flood"
+( while [ -f "$T/flood" ]; do ubus -s "$AIGW_UBUS" send ag.dm.event '{"event":"Device.X_AIGW_.Alert!","args":{"Kind":"test"}}' 2>/dev/null || true; done ) &
+FLOOD=$!; PIDS="$PIDS $FLOOD"
+uspc operate-async "Device.IP.Diagnostics.IPPing()" 30 "Host=127.0.0.1" "NumberOfRepetitions=4" > "$T/ping2.json" & PING=$!
+for g in 1 2 3 4 5; do
+	uspc get "Device.Hosts.Host.*.PhysAddress" "Device.X_AIGW_.Mode" > "$T/g.json" 2>&1 &&
+		js "sys.exit(0 if d.get('$LAPTOP.PhysAddress') == '02:00:00:00:97:02' else 1)" < "$T/g.json" ||
+		{ rm -f "$T/flood"; fail "read $g with events and a command at the same time: $(cat "$T/g.json")"; }
+done
+wait "$PING" || true
+rm -f "$T/flood"; wait "$FLOOD" 2>/dev/null || true
+js "o = d.get('out', {}); sys.exit(0 if d['ok'] and o.get('SuccessCount') == '4' else 'got %s' % d)" < "$T/ping2.json" ||
+	fail "IPPing() with events and reads at the same time: $(cat "$T/ping2.json")"
+grep -q 'Segmentation' "$T/obuspa.log" && fail "the agent crashed"
+echo "   5 reads and IPPing 4 of 4 while events flowed"
+
 echo "== TLS with a client certificate; Device.Reboot() reboots (through agd and the handler)"
 grep -Eq "New client connected .* on port 18832" "$T/mosquitto.log" ||
 	grep -Eq "18832" "$T/mosquitto.log" || fail "the agent should be on the TLS listener: $(tail -n 5 "$T/mosquitto.log")"
