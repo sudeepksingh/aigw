@@ -6,7 +6,7 @@
 # $AIGW_TEST_FW_DIR, and an image is a text file whose first line is
 # "AIGW-TEST-FIRMWARE <version>".
 #
-#   firmware version | list | download <id> <url> | activate <id> | reboot | factory-reset
+#   firmware version | list | download <id> <url> | activate <id> | rollback | reboot | factory-reset
 #
 # The interface agd expects (mgmt.firmware_handler):
 #   version   the running firmware's version, one line
@@ -17,6 +17,8 @@
 #             downloaded; 3: failed its checks. AIGW_FW_USER, AIGW_FW_PASSWORD,
 #             AIGW_FW_SIZE, AIGW_FW_CHECKSUM_ALGORITHM, AIGW_FW_CHECKSUM
 #   activate  exit 0 when the image boots next
+#   rollback  how this gateway goes back, one line: "banks|copy|none <in words>"
+#             (optional: agd says "Unknown" without it)
 #   reboot    reboot (here: pretend to)
 #   factory-reset   back to factory settings, and reboot (here: pretend to)
 set -u
@@ -70,6 +72,8 @@ activate)
 	[ "$n" = "$active" ] || [ "$(cat "$D/bank$n.status" 2>/dev/null)" = Available ] || { echo "bank $n has no image" >&2; exit 1; }
 	echo "$n" > "$D/boot"
 	echo "bank $n boots next" ;;
+rollback)
+	echo "banks two firmware banks: the image that ran before stays in the other one" ;;
 reboot)
 	b=$(cat "$D/boot")
 	if [ "$b" != "$active" ]; then

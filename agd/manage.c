@@ -281,6 +281,7 @@ static int fw_n = -1;
 static time_t fw_when;
 static uint32_t fw_busy;                /* the image being downloaded or activated */
 static char fw_busy_state[24];
+static time_t fw_rb_when;               /* "rollback" asked (0: ask again) */
 
 const char *fw_handler(void)
 {
@@ -381,6 +382,7 @@ static void fw_forget(void)
 {
 	fw_n = -1;
 	fw_ver[0] = '\0';
+	fw_rb_when = 0;                 /* a copy may have been kept, or used */
 }
 
 struct fw_job {
@@ -457,7 +459,8 @@ static void fw_activated(void *ctx, int code, const char *msg)
 static int fw_start_activate(struct fw_job *j)
 {
 	const char *prog = fw_handler();
-	char id[16], *argv[] = { (char *)prog, "activate", id, NULL };
+	char id[16], carry[340], *argv[] = { (char *)prog, "activate", id, NULL };
+	char *env[] = { carry, NULL };
 	struct fw_image to;
 
 	/* the home as it is now, to compare after the reboot: before the handler runs, as
@@ -465,9 +468,12 @@ static int fw_start_activate(struct fw_job *j)
 	if (prog && fw_find(j->id, &to) == 0)
 		upgrade_on_activated(j->id, to.version, j->from_id, j->from_ver, j->who);
 	snprintf(id, sizeof(id), "%u", j->id);
+	/* a handler that writes back a kept copy with its old settings carries the record
+	   over, so that agd knows it rolled back */
+	snprintf(carry, sizeof(carry), "AIGW_FW_CARRY=%s", upgrade_file());
 	fw_busy = j->id;
 	snprintf(fw_busy_state, sizeof(fw_busy_state), "Available");
-	return prog ? handler_start(prog, argv, NULL, fw_activated, j) : -1;
+	return prog ? handler_start(prog, argv, env, fw_activated, j) : -1;
 }
 
 static void fw_downloaded(void *ctx, int code, const char *msg)
@@ -553,6 +559,48 @@ int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_don
 		return -1;
 	}
 	return 0;
+}
+
+/*
+ * "firmware rollback": how this gateway goes back, one line "<kind> <words>":
+ * banks (A/B flash), copy (one image, and a copy of the previous one kept
+ * beside it), none. Asked again at most every minute.
+ */
+const char *fw_rollback(char *text, size_t n)
+{
+	static char kind[16] = "Unknown", words[400];
+	time_t when = fw_rb_when;
+	const char *prog = fw_handler();
+	char out[512], *argv[] = { (char *)prog, "rollback", NULL }, *sp;
+
+	if (!when || time(NULL) - when >= 60 || time(NULL) < when) {
+		fw_rb_when = time(NULL);
+		snprintf(kind, sizeof(kind), "Unknown");
+		words[0] = '\0';
+		if (!prog) {
+			snprintf(kind, sizeof(kind), "None");
+			snprintf(words, sizeof(words), "no firmware handler on this gateway");
+		} else if (handler_run(prog, argv, out, sizeof(out), 5000) == 0) {
+			out[strcspn(out, "\r\n")] = '\0';
+			sp = strchr(out, ' ');
+			snprintf(words, sizeof(words), "%s", sp ? sp + 1 : "");
+			if (sp)
+				*sp = '\0';
+			if (!strcmp(out, "banks"))
+				snprintf(kind, sizeof(kind), "TwoBanks");
+			else if (!strcmp(out, "copy"))
+				snprintf(kind, sizeof(kind), "KeptCopy");
+			else if (!strcmp(out, "none"))
+				snprintf(kind, sizeof(kind), "None");
+			else
+				words[0] = '\0';
+		}
+		if (!strcmp(kind, "Unknown") && !words[0])
+			snprintf(words, sizeof(words), "the firmware handler does not say (it has no \"rollback\")");
+	}
+	if (text && n)
+		snprintf(text, n, "%s", words);
+	return kind;
 }
 
 /* ---------- reboot, factory reset ---------- */

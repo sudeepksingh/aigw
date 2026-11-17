@@ -1814,6 +1814,13 @@ static void show_upgrade(struct ubus_request *req, int type, struct blob_attr *m
 	}
 	printf("Firmware upgrades are checked for %s after the boot%s.\n", dur_short(fnum(msg, "watch_s"), t1, sizeof(t1)),
 	       fnum(msg, "rollback") ? ", and rolled back when the home is worse on them" : " (not rolled back: upgrade.rollback 0)");
+	if (*fstr(msg, "rollback_method")) {
+		const char *rm = fstr(msg, "rollback_method");
+
+		printf("  way back  %s%s%s\n", !strcmp(rm, "TwoBanks") ? "two firmware banks" :
+		       !strcmp(rm, "KeptCopy") ? "one firmware image, and a kept copy" : !strcmp(rm, "None") ? "none" : "not known",
+		       *fstr(msg, "rollback_note") ? ": " : "", fstr(msg, "rollback_note"));
+	}
 	if (*fstr(msg, "held"))
 		printf("  held off  %s, rolled back: %s\n", fstr(msg, "held"), fstr(msg, "held_why"));
 	if (!strcmp(st, "None")) {

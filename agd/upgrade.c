@@ -94,6 +94,11 @@ static void file_path(void)
 	snprintf(slash ? slash + 1 : path, sizeof(path) - (size_t)(slash ? slash + 1 - path : 0), "agd-upgrade.json");
 }
 
+const char *upgrade_file(void)
+{
+	return path;
+}
+
 static void add_f(struct blob_buf *b, const char *name, double v)
 {
 	blobmsg_add_double(b, name, v);
@@ -558,10 +563,13 @@ static void worse(long now)
 			    (!strcmp(all[i].status, "Available") || !strcmp(all[i].status, "Active")))
 				id = (int)all[i].id;
 		if (id < 0) {
+			char how[400];
+
+			fw_rollback(how, sizeof(how));
 			U.state = UP_WORSE;
-			snprintf(U.note, sizeof(U.note), "There is no copy of %s on this gateway to go back to (its firmware "
-				 "handler lists none): it stays on %s. Better not to roll %s out further.", U.b.from, U.b.to,
-				 U.b.to);
+			snprintf(U.note, sizeof(U.note), "There is no copy of %s on this gateway to go back to (%.300s): it "
+				 "stays on %s. Better not to roll %s out further.", U.b.from,
+				 how[0] ? how : "its firmware handler lists none", U.b.to, U.b.to);
 		} else {
 			U.state = UP_ROLLING_BACK;
 			snprintf(U.held, sizeof(U.held), "%s", U.b.to);
@@ -858,6 +866,8 @@ int upgrade_field(const char *f, char *buf, size_t n)
 		snprintf(buf, n, "%s", U.state != UP_ROLLED_BACK || U.confirmed < 0 ? "Unknown" : U.confirmed ? "Yes" : "No");
 	else if (!strcmp(f, "HeldVersion")) snprintf(buf, n, "%s", U.held_until > (long)ag_wall_s() ? U.held : "");
 	else if (!strcmp(f, "HeldUntil")) snprintf(buf, n, "%ld", U.held_until > (long)ag_wall_s() ? U.held_until : 0);
+	else if (!strcmp(f, "RollbackMethod")) snprintf(buf, n, "%s", fw_rollback(NULL, 0));
+	else if (!strcmp(f, "RollbackNote")) fw_rollback(buf, n);
 	else return -1;
 	return 0;
 }
@@ -866,7 +876,7 @@ int upgrade_field(const char *f, char *buf, size_t n)
 void upgrade_blob(struct blob_buf *b, int devices)
 {
 	long now = (long)ag_wall_s();
-	char why[200], text[1600];
+	char why[200], text[1600], how[400];
 	void *arr, *t;
 	int i, m;
 
@@ -875,6 +885,8 @@ void upgrade_blob(struct blob_buf *b, int devices)
 	blobmsg_add_u32(b, "watch_s", (uint32_t)cfg.upgrade_watch);
 	blobmsg_add_u32(b, "reconnect_s", (uint32_t)cfg.upgrade_reconnect);
 	blobmsg_add_string(b, "state", up_state_name(U.state));
+	blobmsg_add_string(b, "rollback_method", fw_rollback(how, sizeof(how)));
+	blobmsg_add_string(b, "rollback_note", how);
 	if (U.held[0] && U.held_until > now) {
 		blobmsg_add_string(b, "held", U.held);
 		blobmsg_add_u64(b, "held_until", (uint64_t)U.held_until);

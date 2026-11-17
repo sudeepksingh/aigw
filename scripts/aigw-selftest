@@ -113,6 +113,17 @@ elif grep -q '^PASS dns:' /tmp/aigw-selftest.$$; then
 fi
 rm -f /tmp/aigw-selftest.$$
 
+# ---- firmware: how this router goes back after an upgrade that made the home worse
+UP=$(agctl -j upgrade 2>/dev/null)
+RBM=$(echo "$UP" | json rollback_method)
+RBN=$(echo "$UP" | sed -n 's/^[[:space:]]*"rollback_note": *"\(.*\)",*[[:space:]]*$/\1/p' | head -1 | sed 's/\\"/"/g')
+case $RBM in
+TwoBanks) info rollback "two firmware banks${RBN:+: $RBN}" ;;
+KeptCopy) info rollback "one firmware image, and a kept copy${RBN:+: $RBN}" ;;
+None) info rollback "none${RBN:+: $RBN}" ;;
+*) info rollback "not known${RBN:+: $RBN}" ;;
+esac
+
 # ---- footprint
 if [ -n "$AGD" ] && [ -n "$AGDNS" ]; then
 	a=$(rss "$AGD") d=$(rss "$AGDNS") p=0 np=0

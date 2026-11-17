@@ -169,6 +169,15 @@ config mgmt 'mgmt'
 	# platform's (OpenWRT: sysupgrade). An OEM with A/B flash or signed images
 	# names its own (docs/device-management.md, "The firmware handler")
 	# option firmware_handler ''
+	# OpenWRT's handler, on a router with one firmware image: before an
+	# upgrade, keep a copy of the running image and its settings, so that an
+	# upgrade that makes the home worse can be undone (docs/upgrade-check.md,
+	# "Routers with one firmware image"). auto: when there is room, else
+	# upgrade without one, saying so; require: refuse to upgrade without one;
+	# off
+	# option firmware_keep 'auto'
+	# where; default: USB storage under /mnt or /media, else the overlay
+	# option firmware_keep_dir ''
 
 config upgrade 'upgrade'
 	# firmware upgrades that check themselves (agctl upgrade,

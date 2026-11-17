@@ -46,6 +46,21 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.36:** **A bad upgrade undone, even on a router with one firmware
+> image.** Since v0.30 AIGW rolls back an upgrade that makes the home worse,
+> but only where the flash has two banks. Most OpenWRT routers have one:
+> `sysupgrade` writes over the running image. Now, before the upgrade, AIGW's
+> OpenWRT handler keeps a copy of the running image and its settings: on USB
+> storage, or on the flash when there is room (it rides over the upgrade in
+> `sysupgrade`'s settings archive). It checks the free space first and says
+> in words when there is none (`mgmt.firmware_keep require` then refuses the
+> upgrade). The copy is `FirmwareImage.3`. When the home is worse on the new
+> version, AIGW writes the copy back with its old settings, and confirms and
+> reports it as before. `agctl upgrade`, `aigw-selftest` and
+> `Device.X_AIGW_.Upgrade.RollbackMethod` say which way back a router has:
+> two banks, a kept copy, or none. See
+> [docs/upgrade-check.md](docs/upgrade-check.md#routers-with-one-firmware-image).
+>
 > **v0.35:** **Calls and games first, and the proof.** AIGW notices video
 > and voice calls (Zoom, Teams, Meet, WhatsApp, FaceTime) and online games
 > by their traffic: steady, small UDP packets in both directions, known

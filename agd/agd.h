@@ -540,6 +540,9 @@ int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_don
 int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *ctx, char *err, size_t en);
 /* "reboot" or "factory_reset", through the firmware handler, 2 s from now */
 int fw_system(const char *action, const char *who, char *err, size_t en);
+/* how this gateway goes back to the previous image (the handler's "rollback"):
+   "TwoBanks", "KeptCopy", "None" or "Unknown", and in words into text */
+const char *fw_rollback(char *text, size_t n);
 
 /* upgrade.c: firmware upgrades that check themselves (ag/upgrade.h) */
 #define UPGRADE_WHO "upgrade check"     /* the rollback's own activation: not watched */
@@ -552,6 +555,7 @@ void upgrade_on_activate_failed(const char *who);       /* ... the handler refus
 /* manage.c: 1 (with err) when this version was rolled back and is held off */
 int upgrade_refused(const char *version, char *err, size_t n);
 int upgrade_forget(void);               /* lift the hold; 1 when there was one */
+const char *upgrade_file(void);         /* the record's path ("" none): carried over a rollback */
 /* care.c: a check (the normal at this hour; have[m] 0 not known), a speed test, how often to check now (0: as usual) */
 void upgrade_on_check(const struct care_sample *s, const struct care_sample *normal, int online, int problem, long max_gap);
 void upgrade_on_speed(float mbps);
