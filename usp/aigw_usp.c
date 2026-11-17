@@ -10,21 +10,31 @@
  * /etc/config/aigw), whatever this plug-in asks.
  *
  *   DM thread (obuspa's)   synchronous ubus calls on one connection
- *   event thread (ours)    its own ubus connection and uloop; USP_SIGNAL_* is
- *                          the agent's thread-safe way in
+ *   event thread (ours)    its own ubus connection; USP_SIGNAL_* is the
+ *                          agent's thread-safe way in
+ *   operation threads      one per asynchronous command, each its own connection
+ *
+ * libubus is not thread-safe even with a context per thread: every request is
+ * built in one process-wide blob_buf, replies are parsed into one static
+ * table, and uloop is process-wide. So every libubus call is made holding
+ * ubus_lock, and nothing here runs a uloop: threads that wait for ubus traffic
+ * poll() their own socket without the lock and take it to handle what came.
+ * (Without this, the event thread's registration racing a DM thread call
+ * crashed the agent at start.)
  *
  * Built against the same obuspa source tree as the agent (its headers must
  * match the binary): cmake -DAIGW_OBUSPA_SRC=<obuspa checkout>.
  */
 #define _GNU_SOURCE
+#include <poll.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <libubox/blobmsg.h>
-#include <libubox/uloop.h>
 #include <libubus.h>
 
 #include "usp_api.h"
@@ -42,11 +52,31 @@ void *USP_MEM_Strdup(const char *func, int line, void *ptr);
 
 static struct ubus_context *dm_ctx;             /* used only from the agent's data model thread */
 static const char *ubus_path;
+static pthread_mutex_t ubus_lock = PTHREAD_MUTEX_INITIALIZER;  /* held for every libubus call */
+
+/*
+ * Waits up to ms for traffic on c (without the lock), then lets libubus handle
+ * it (with the lock): its callbacks run here. -1 when the connection is gone.
+ * Only the thread that owns c calls this.
+ */
+static int pump(struct ubus_context *c, int ms)
+{
+	struct pollfd p = { .fd = c->sock.fd, .events = POLLIN };
+	int r = poll(&p, 1, ms);
+
+	if (r > 0) {
+		pthread_mutex_lock(&ubus_lock);
+		ubus_handle_event(c);
+		pthread_mutex_unlock(&ubus_lock);
+	}
+	return c->sock.eof || (r > 0 && (p.revents & (POLLERR | POLLHUP | POLLNVAL))) ? -1 : 0;
+}
 
 /* ---------- calls to agd ---------- */
 
 struct reply {
 	struct blob_attr *msg;
+	int done, status;       /* asynchronous requests: answered, and how */
 };
 
 static void reply_cb(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -60,7 +90,7 @@ static void reply_cb(struct ubus_request *req, int type, struct blob_attr *msg)
 }
 
 /* one call to ag.dm; the reply (malloc'd, the caller frees) or NULL */
-static struct blob_attr *dm_call(const char *method, struct blob_attr *args)
+static struct blob_attr *dm_call_locked(const char *method, struct blob_attr *args)
 {
 	struct reply r = { NULL };
 	uint32_t id;
@@ -80,6 +110,16 @@ static struct blob_attr *dm_call(const char *method, struct blob_attr *args)
 		return NULL;
 	}
 	return r.msg;
+}
+
+static struct blob_attr *dm_call(const char *method, struct blob_attr *args)
+{
+	struct blob_attr *reply;
+
+	pthread_mutex_lock(&ubus_lock);
+	reply = dm_call_locked(method, args);
+	pthread_mutex_unlock(&ubus_lock);
+	return reply;
 }
 
 static struct blob_attr *field(struct blob_attr *tbl, const char *name)
@@ -290,19 +330,37 @@ static void aop_free(struct aop *o)
 	free(o);
 }
 
+static void aop_done(struct ubus_request *req, int ret)
+{
+	struct reply *r = req->priv;
+
+	r->done = 1;
+	r->status = ret;
+}
+
+static long long now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec * 1000LL + ts.tv_nsec / 1000000;
+}
+
 static void *aop_main(void *arg)
 {
 	struct aop *o = arg;
-	struct ubus_context *c = ubus_connect(ubus_path);
+	struct ubus_context *c;
+	struct ubus_request req;
 	struct blob_buf b = { 0 };
 	struct reply r = { NULL };
 	struct blob_attr *ok, *out, *cur;
 	kv_vector_t *outv = USP_ARG_Create();
 	char msg[256] = "AIGW OS (agd) is not answering";
+	long long end = now_ms() + AOP_TIMEOUT;
 	uint32_t id;
 	size_t rem;
 	void *t;
-	int i, err = USP_ERR_COMMAND_FAILURE;
+	int i, started = 0, err = USP_ERR_COMMAND_FAILURE;
 
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "origin", ORIGIN);
@@ -311,8 +369,27 @@ static void *aop_main(void *arg)
 	for (i = 0; i < o->n; i++)
 		blobmsg_add_string(&b, o->key[i], o->val[i]);
 	blobmsg_close_table(&b, t);
-	if (c && !ubus_lookup_id(c, "ag.dm", &id) &&
-	    !ubus_invoke(c, id, "operate", b.head, reply_cb, &r, AOP_TIMEOUT) && r.msg) {
+	/* agd may take minutes: the request is sent, and its answer waited for, without the lock */
+	pthread_mutex_lock(&ubus_lock);
+	c = ubus_connect(ubus_path);
+	if (c && !ubus_lookup_id(c, "ag.dm", &id) && !ubus_invoke_async(c, id, "operate", b.head, &req)) {
+		req.data_cb = reply_cb;
+		req.complete_cb = aop_done;
+		req.priv = &r;
+		ubus_complete_request_async(c, &req);
+		started = 1;
+	}
+	pthread_mutex_unlock(&ubus_lock);
+	while (started && !r.done && now_ms() < end)
+		if (pump(c, 1000) < 0)
+			break;
+	pthread_mutex_lock(&ubus_lock);
+	if (started && !r.done)
+		ubus_abort_request(c, &req);
+	if (c)
+		ubus_free(c);
+	pthread_mutex_unlock(&ubus_lock);
+	if (r.done && !r.status && r.msg) {
 		ok = top(r.msg, "ok");
 		if (ok && blobmsg_get_u8(ok)) {
 			err = USP_ERR_OK;
@@ -327,8 +404,6 @@ static void *aop_main(void *arg)
 	}
 	free(r.msg);
 	blob_buf_free(&b);
-	if (c)
-		ubus_free(c);
 	USP_LOG_Info("aigw-usp: %s: %s%s%s", o->path, err == USP_ERR_OK ? "done" : "failed",
 		     msg[0] ? " -- " : "", msg);
 	USP_SIGNAL_OperationComplete(o->instance, err, err == USP_ERR_OK ? NULL : msg, outv);   /* outv is the agent's now */
@@ -563,45 +638,101 @@ int VENDOR_Init(void)
 
 /* ---------- events: ag.dm.event -> USP ---------- */
 
-static struct ubus_auto_conn ev_conn;
 static struct ubus_event_handler ev_handler;
 static pthread_t ev_thread;
 static int ev_running;
+static volatile int ev_stop;
+
+/* events seen while handling ubus traffic (with the lock), given to the agent after */
+struct ev_item {
+	struct ev_item *next;
+	char *name;
+	kv_vector_t *kv;
+};
+static struct ev_item *ev_queue, **ev_tail = &ev_queue;    /* the event thread's own */
 
 static void on_event(struct ubus_context *ctx, struct ubus_event_handler *ev, const char *type, struct blob_attr *msg)
 {
 	struct blob_attr *name = top(msg, "event"), *args = top(msg, "args"), *cur;
-	kv_vector_t *kv;
+	struct ev_item *e;
 	size_t rem;
 
 	(void)ctx;
 	(void)ev;
 	(void)type;
-	if (!name || !*str(name))
+	if (!name || !*str(name) || !(e = calloc(1, sizeof(*e))))
 		return;
-	kv = USP_ARG_Create();
+	if (!(e->name = strdup(str(name)))) {
+		free(e);
+		return;
+	}
+	e->kv = USP_ARG_Create();
 	if (args)
 		blobmsg_for_each_attr(cur, args, rem)
-			USP_ARG_Add(kv, (char *)blobmsg_name(cur), (char *)str(cur));
-	USP_SIGNAL_DataModelEvent((char *)str(name), kv);      /* kv now belongs to the agent */
+			USP_ARG_Add(e->kv, (char *)blobmsg_name(cur), (char *)str(cur));
+	*ev_tail = e;
+	ev_tail = &e->next;
 }
 
-static void on_connect(struct ubus_context *ctx)
+/* without the lock: the agent's queue may block while its thread waits for the lock */
+static void ev_flush(void)
 {
-	ev_handler.cb = on_event;
-	if (ubus_register_event_handler(ctx, &ev_handler, "ag.dm.event"))
-		USP_LOG_Error("aigw-usp: cannot follow AIGW OS events");
+	struct ev_item *e;
+
+	while ((e = ev_queue)) {
+		if (!(ev_queue = e->next))
+			ev_tail = &ev_queue;
+		if (!ev_stop)
+			USP_SIGNAL_DataModelEvent(e->name, e->kv);     /* kv now belongs to the agent */
+		else
+			USP_ARG_Delete(e->kv);
+		free(e->name);
+		free(e);
+	}
+}
+
+static struct ubus_context *ev_connect(void)
+{
+	struct ubus_context *c;
+
+	pthread_mutex_lock(&ubus_lock);
+	if ((c = ubus_connect(ubus_path))) {
+		memset(&ev_handler, 0, sizeof(ev_handler));     /* a new connection: register anew */
+		ev_handler.cb = on_event;
+		if (ubus_register_event_handler(c, &ev_handler, "ag.dm.event")) {
+			USP_LOG_Error("aigw-usp: cannot follow AIGW OS events");
+			ubus_free(c);
+			c = NULL;
+		}
+	}
+	pthread_mutex_unlock(&ubus_lock);
+	return c;
 }
 
 static void *ev_main(void *arg)
 {
+	struct ubus_context *c = NULL;
+
 	(void)arg;
-	uloop_init();
-	ev_conn.path = ubus_path;
-	ev_conn.cb = on_connect;
-	ubus_auto_connect(&ev_conn);
-	uloop_run();
-	uloop_done();
+	while (!ev_stop) {
+		if (!c && !(c = ev_connect())) {
+			sleep(1);               /* ubusd restarting */
+			continue;
+		}
+		if (pump(c, 1000) < 0) {
+			pthread_mutex_lock(&ubus_lock);
+			ubus_free(c);
+			pthread_mutex_unlock(&ubus_lock);
+			c = NULL;
+		}
+		ev_flush();
+	}
+	if (c) {
+		pthread_mutex_lock(&ubus_lock);
+		ubus_free(c);
+		pthread_mutex_unlock(&ubus_lock);
+	}
+	ev_flush();
 	return NULL;
 }
 
@@ -617,17 +748,19 @@ int VENDOR_Start(void)
 
 int VENDOR_Stop(void)
 {
-	/* the event thread sleeps in its loop until ubus traffic: joining it could
-	   wait forever, and the agent stops just before a Reboot() or
-	   FactoryReset(), which still need agd. It ends with the process. */
+	/* the event thread notices within a second and ends by itself; it is not
+	   waited for: the agent stops just before a Reboot() or FactoryReset(),
+	   which still need agd (dm_call reconnects for them) */
 	if (ev_running) {
-		uloop_end();
+		ev_stop = 1;
 		pthread_detach(ev_thread);
 		ev_running = 0;
 	}
+	pthread_mutex_lock(&ubus_lock);
 	if (dm_ctx) {
 		ubus_free(dm_ctx);
 		dm_ctx = NULL;
 	}
+	pthread_mutex_unlock(&ubus_lock);
 	return USP_ERR_OK;
 }
