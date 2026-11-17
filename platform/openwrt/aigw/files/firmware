@@ -296,8 +296,17 @@ carry() {
 }
 
 flash() {   # sysupgrade "$@"; back here only when it failed
+	# its last stage sends TERM to every process, sysupgrade's own command too: ended by a
+	# signal, it is writing the image, not failing; nothing is undone then
+	trap '' TERM
 	sysupgrade "$@"
 	rc=$?
+	if [ $rc -ge 128 ]; then
+		echo "sysupgrade is writing the image"
+		sleep "${AIGW_FW_WAIT:-120}"
+		exit 0
+	fi
+	trap - TERM
 	rm -f "$KEEPD"
 	return $rc
 }

@@ -76,6 +76,8 @@ echo /etc/aigw/ > "$R/lib/upgrade/keep.d/aigw"
 tar -xzf "$cfg" -C "$R"
 echo "flashed $2-$3 settings $how" >> "$F/log"
 date +%s%N > "$AIGW_FW_BOOT_ID"        # and it reboots
+# a real one is often ended by its own last stage's TERM: FAKE_RC=143
+exit "${FAKE_RC:-0}"
 EOF
 cat > "$T/bin/df" <<'EOF'
 #!/bin/sh
@@ -249,7 +251,8 @@ fw activate 2 > "$T/out" 2>&1 || fail "1.0 -> 2.0: $(cat "$T/out")"
 grep -q "nothing to copy 1.0-r1 from" "$T/out" && [ "$(running)" = 2.0-r2 ] || fail "1.0 -> 2.0: $(cat "$T/out")"
 fw rollback | grep -q "a copy of 2.0-r2 is fetched again" || fail "2.0's URL remembered: $(fw rollback)"
 fetch2 "http://fake/fw-3.0.img"
-fw activate 2 > "$T/out" 2>&1 || fail "2.0 -> 3.0: $(cat "$T/out")"
+# sysupgrade ended by the TERM of its own last stage, as on a real router: not a failure
+FAKE_RC=143 AIGW_FW_WAIT=0 fw activate 2 > "$T/out" 2>&1 || fail "2.0 -> 3.0: $(cat "$T/out")"
 grep -q "kept a copy of 2.0-r2 on USB storage" "$T/out" || fail "2.0 -> 3.0: $(cat "$T/out")"
 grep -q "fetch http://fake/fw-2.0.img" "$F/log" || fail "2.0 fetched again from its URL"
 [ "$(running)" = 3.0-r3 ] && [ "$(img3)" = "Available 2.0-r2" ] && [ -f "$R/mnt/usb/aigw-rollback/kept.img" ] &&
