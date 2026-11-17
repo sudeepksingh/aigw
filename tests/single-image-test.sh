@@ -89,10 +89,10 @@ echo "fake 999999 0 $kb 0% $best"
 EOF
 cat > "$T/bin/fwtool" <<'EOF'
 #!/bin/sh
-# fwtool -q -i META IMAGE: the version from the image's first line
+# fwtool -q -i META IMAGE: the version from the image's first line ("nometa": none, as x86's .img.gz)
 m=$3
 set -- $(head -n 1 "$4")
-[ "$1" = FAKE-OPENWRT ] || exit 1
+[ "$1" = FAKE-OPENWRT ] && [ "${4:-}" != nometa ] || exit 1
 printf '{"version":{"version":"%s","revision":"%s"}}\n' "$2" "$3" > "$m"
 EOF
 cat > "$T/bin/jsonfilter" <<'EOF'
@@ -125,6 +125,7 @@ image() {   # image NAME VERSION REVISION: a fake image of about 300 KB
 	{ echo "FAKE-OPENWRT $2 $3"; head -c 300000 /dev/zero; } > "$W/$1"
 }
 image fw-1.0.img 1.0 r1; image fw-2.0.img 2.0 r2; image fw-3.0.img 3.0 r3
+{ echo "FAKE-OPENWRT 1.0 r1 nometa"; head -c 300000 /dev/zero; } > "$W/fw-1.0-nometa.img"
 echo "not an image" > "$W/bad.img"
 
 # a router on 1.0, settings marked, with the overlay $1 KB free, RAM $2 KB, and the mounts given after
@@ -162,7 +163,10 @@ fw rollback | grep -q '^copy no copy is kept now; at the next upgrade, none can 
 fw keep "$W/bad.img" 2> "$T/err" && fail "keep should refuse what isn't an image"
 grep -q "not 1.0-r1" "$T/err" || fail "keep a bad image: $(cat "$T/err")"
 fw keep "$W/fw-2.0.img" 2> "$T/err" && fail "keep should refuse a copy of another version"
-fw keep "file://$W/fw-1.0.img" | grep -q "a copy of 1.0-r1 is kept on the flash (overlay)" || fail "keep the running image"
+# an image without metadata (as x86's .img.gz) is taken for the version it is given as
+fw keep "file://$W/fw-1.0-nometa.img" | grep -q "a copy of 1.0-r1 is kept on the flash (overlay)" ||
+	fail "keep the running image (no metadata)"
+[ "$(cat "$R/etc/aigw-rollback/current.version")" = 1.0-r1 ] || fail "the copy is 1.0-r1"
 fw rollback | grep -q "the copy of 1.0-r1 on the flash (overlay) becomes image 3" || fail "rollback, a copy ready: $(fw rollback)"
 fw download 3 "file://$W/fw-2.0.img" 2> "$T/err" && fail "download into image 3 should be refused"
 grep -q "kept for a rollback" "$T/err" || fail "download into 3: $(cat "$T/err")"

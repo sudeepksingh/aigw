@@ -218,12 +218,16 @@ keep_current() {
 	if ! fetch "$src" "$K/fetch.img" 2>/dev/null; then
 		rm -f "$K/fetch.img"; echo "cannot fetch $want again from $src"; return 1
 	fi
-	if ! check_image "$K/fetch.img" "$K/fetch.version" || [ "$(cat "$K/fetch.version")" != "$want" ]; then
-		got=$(cat "$K/fetch.version" 2>/dev/null)
+	# an image without metadata (x86's .img.gz has none) says no version: it is taken for
+	# the one it was named as (given, or the URL the running version came from); one that
+	# names another version is not
+	got=
+	check_image "$K/fetch.img" "$K/fetch.version" && got=$(cat "$K/fetch.version")
+	if [ -z "$got" ] || { [ "$got" != "$want" ] && [ "$got" != unknown ]; }; then
 		rm -f "$K/fetch.img" "$K/fetch.version"
 		echo "the image from $src is not $want (${got:-not an image this device can run})"; return 1
 	fi
-	mv "$K/fetch.img" "$K/current.img"; mv "$K/fetch.version" "$K/current.version"
+	mv "$K/fetch.img" "$K/current.img"; echo "$want" > "$K/current.version"; rm -f "$K/fetch.version"
 	sync
 }
 

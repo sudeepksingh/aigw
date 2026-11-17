@@ -121,7 +121,9 @@ in order:
    storage after a rollback;
 2. the URL the running version was downloaded from (`http://` or `https://`),
    remembered in `/etc/aigw/firmware/` and fetched again, then checked: it must
-   pass `sysupgrade -T` and carry the running version;
+   pass `sysupgrade -T`, and when its metadata names a version, that must be
+   the running one (an image without metadata, such as x86's `.img.gz`, is
+   taken for the version it was fetched as);
 3. `firmware keep <url or file>`, run by hand or by an installer once.
 
 A version installed by TR-069 comes through icwmp as a file in `/tmp`, so it
