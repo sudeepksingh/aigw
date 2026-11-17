@@ -370,6 +370,10 @@ cat > "$T/shim/reboot" <<EOF
 #!/bin/sh
 echo "reboot \$*" >> "$T/reboots.log"
 "$REPO/tests/fw/firmware" reboot >> "$T/reboots.log" 2>&1
+# a real reboot restarts agd too; here agd keeps running, so the "boot" lasts
+# longer than agd's firmware listing is reused (FW_CACHE, 3 s), or the first
+# Inform could still report the old image
+sleep 4
 p=\$\$
 while [ "\$p" -gt 1 ]; do
 	p=\$(ps -o ppid= -p "\$p" | tr -d ' ')
