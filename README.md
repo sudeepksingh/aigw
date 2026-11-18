@@ -610,6 +610,23 @@ read devices, alerts, decisions and models; its one write tool,
 proposal that waits for your `agctl approve`, even in enforce mode. See
 [cortex/README.md](cortex/README.md).
 
+### The operator dashboard
+
+```bash
+python3 -m aigw_cortex dashboard          # http://127.0.0.1:8090/
+```
+
+One web page for an ISP: the fleet's experience scores, problems found and
+fixed by AIGW, early warnings and outages; the homes to call first, with the
+reason in words; staged rollouts with Pause and Abort; ISP signals; smart
+queueing across the fleet; and each gateway's alerts and decisions waiting
+for approval. No build step and no CDN: it runs on an ISP's own servers with
+no internet. On localhost reading needs no token; anywhere else every request
+does, and pausing or aborting a rollout always does. Device names appear only
+for homes that share them. See [docs/dashboard.md](docs/dashboard.md).
+
+![The operator dashboard](docs/img/dashboard.jpg)
+
 ## Remote access
 
 ```bash

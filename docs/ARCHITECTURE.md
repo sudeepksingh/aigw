@@ -472,7 +472,7 @@ aigw/
   agdns/                AI DNS
   agctl/                CLI
   plugins/              first-party plug-ins (mqtt and bridge connectors, iot-guard skill), examples
-  cortex/aigw_cortex/   Python: fleet history, labels, retrain/sign/publish, bridge API, MCP server
+  cortex/aigw_cortex/   Python: fleet history, labels, retrain/sign/publish, bridge API, MCP server, operator dashboard
   cortex/training/      Python training pipelines (domain-risk)
   models/               packaged .agm models
   scripts/              aigw-nft (kernel rules), aigw-remote (WireGuard), build-deps.sh (OpenWRT libs for PCs)
@@ -1069,6 +1069,17 @@ Verified by `tests/single-image-test.sh` (CI: the handler on a fake flash with s
 | agctl | `agctl brief [device] [period] [--no-check] [--speed] [--propose]`; `ubus call ag brief`. |
 
 Verified by `tests/test_brief.c` (16 calls: the line down with three sources agreeing, loss that lasted and a blip, the ISP's network, a full line with SQM off, waiting or on, a hopping laptop, a waiting channel, a quarantined device, rough calls on a fine line, all fine, nothing known, disagreeing sources, a rolled-back upgrade, low speeds on 3 nights, the gateway off, a past period; periods in words; kinds and scrubbing), `tests/brief-test.sh` (CI: agd in a gateway namespace with a veth WAN to an ISP namespace and a fake hostapd; all fine after a fresh check; a weak laptop by name at home and as "a laptop" for the ISP; a full line, with SQM proposed and nothing shaped; the internet down: `LINE`, no technician, also for an ACS; the counts kept over a restart), `tests/test_cortex.py` and `tests/outside-test.sh` (the brief through the bridge, found by serial). Not yet used by a real help desk.
+**As built in v0.38: the operator dashboard.** One web page, served by cortex, that shows an ISP the fleet: health, the homes to call first, rollouts with pause and abort, ISP signals, smart queueing, and each gateway ([dashboard.md](dashboard.md)).
+
+| Piece | As built |
+|-------|----------|
+| The server (`cortex/aigw_cortex/dashboard.py`) | `python3 -m aigw_cortex dashboard [--listen 127.0.0.1:8090]`: the stdlib `ThreadingHTTPServer`, apart from `serve` (gateways' tokens never open it). Static `static/dashboard.html`, `.css`, `.js` (no build step, no CDN) and JSON: `/api/overview` (`fleet.report` plus the call-first reasons in words, `queueing`, groups), `/api/rollouts` (`rollout.status` without homes' names), `/api/gateways`, `/api/gateways/<ref>`, and `POST /api/rollouts/<name>/pause\|abort` with a reason (`rollout.control`, who: "a person (dashboard)"). Resume is refused: it stays at the command line. |
+| Access | A token in `<data>/dashboard.token` (0600, made on first use; `--token-file`), compared in constant time, sent as `Authorization: Bearer`. On a loopback address, reads need no token when the `Host` is local (no DNS rebinding); bound elsewhere, every request needs it; writes always do. The start line prints a link with the token after `#`. `--cert/--key` for HTTPS. |
+| Escaping | The page builds every element with `textContent`; it has no `innerHTML`. CSP `default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'`, `nosniff`, no referrer. The JSON escapes `<`, `>` and `&`. |
+| Privacy | `sharing(snapshot)`: names when the last report's devices carry a MAC or hostname (bridge `devices names`), else anonymous or none. Without names, alerts and decisions lose `device`, `reason`, `ip`, `mac`, `note`; a device action's target becomes "a device" (a block's domain and an `sqm` decision's WAN stay); care problem summaries are dropped, also on the call-first list. |
+| Smart queueing, calls first | Counted from each home's last report: `sqm` decisions kept or active (on), proposed (waiting), tried. Calls-first counts from `care.calls.stats` when a bridge sends it; bridges up to 0.38 don't, and the page says so. |
+
+Verified by `tests/test_cortex.py` (the endpoints; reading on localhost without a token, refused for another `Host`, refused elsewhere without one; pause and abort need the token and a reason, resume refused, 409 when not possible; gateway text with HTML in it comes back as JSON with no `<`, and the page's script has no `innerHTML` or `eval`; no device names from a home that doesn't share them; the token file). Looked at in a browser with a seeded fleet, light and dark. Not yet on a real fleet.
 
 ---
 

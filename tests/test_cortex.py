@@ -355,6 +355,181 @@ class Fleet(unittest.TestCase):
             self.assertIn("no care data yet", fleet.text(r))
 
 
+class Dashboard(unittest.TestCase):
+    """v0.38: the operator dashboard's JSON, its token, escaping, and no device
+    names from homes that don't share them."""
+
+    EVIL = "<img src=x onerror=alert(1)>"
+
+    def fleet(self, d):
+        from aigw_cortex import rollout
+        now = 20000 * 86400 + 12 * 3600
+        today = now // 86400
+        s = Store(d)
+        a, _ = s.enroll("named", "north")
+        b, _ = s.enroll("anon<b>", "north")
+        days = [care_day(today - k, 144, 140, WiFi=4, problems=1) for k in range(3)]
+        problem = {"code": "WIFI_WEAK", "area": "WiFi", "since": now - 600, "reported": 0,
+                   "summary": "Kid's tablet is far from the router " + self.EVIL}
+        alert = {"id": 1, "kind": "dga", "subject": "x.example", "device": "Kid's tablet", "reason": self.EVIL,
+                 "first": 1, "count": 2}
+        decs = [{"id": 1, "state": "proposed", "action": "quarantine", "target": "Kid's tablet", "device": "Kid's tablet",
+                 "origin": "agd", "reason": "it looked up " + self.EVIL, "created": now - 60},
+                {"id": 2, "state": "active", "action": "sqm", "target": "wan", "origin": "agd", "created": now - 999},
+                {"id": 3, "state": "proposed", "action": "block", "target": "bad.example", "origin": "agd",
+                 "created": now - 30}]
+        # devices = names: the bridge sends them with hostname and mac
+        s.report(a, {"status": {"version": "0.38.0", "devices": 1, "alerts": 1},
+                     "devices": [{"hostname": "Kid's tablet", "mac": "02:00:00:00:00:01"}],
+                     "alerts": [alert], "decisions": decs, "care": {"days": days, "problem": problem,
+                                                                    "status": "problem"}}, now)
+        # devices = anonymous: ids only. A bridge that let names through anyway is not trusted for them
+        s.report(b, {"status": {"version": "0.38.0", "devices": 1}, "devices": [{"id": "a1b2c3d4e5f6"}],
+                     "alerts": [alert], "decisions": decs, "care": {"days": days, "problem": problem}}, now)
+        s.x("UPDATE gateways SET last_seen = ?", (now - 60,))
+        rollout.create(s, "r1", "0.38.0", "", waves=[50, 100], now=now)
+        return s, a, b, now
+
+    def serve(self, s, local=True):
+        from http.server import ThreadingHTTPServer
+        from aigw_cortex.dashboard import make_handler
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(s, "sekret-token", local, log=False))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        base = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+        def req(path, tok=None, body=None, host=None, raw=None):
+            h = {"Authorization": f"Bearer {tok}"} if tok else {}
+            if host:
+                h["Host"] = host
+            data = raw if raw is not None else json.dumps(body).encode() if body is not None else None
+            r = urllib.request.Request(base + path, data=data, headers=h, method="POST" if data is not None else "GET")
+            try:
+                with urllib.request.urlopen(r) as resp:
+                    return resp.status, resp.read(), resp.headers
+            except urllib.error.HTTPError as e:
+                return e.code, e.read(), e.headers
+        return req
+
+    def test_endpoints(self):
+        with tempfile.TemporaryDirectory() as d:
+            s, a, b, _ = self.fleet(d)
+            req = self.serve(s)
+            code, body, h = req("/")
+            self.assertEqual(code, 200)
+            self.assertIn("default-src 'none'", h["Content-Security-Policy"])
+            self.assertEqual(h["X-Content-Type-Options"], "nosniff")
+            for path in ("/static/dashboard.js", "/static/dashboard.css"):
+                self.assertEqual(req(path)[0], 200)
+            # nothing from outside: no CDN, no build step
+            self.assertNotRegex(body.decode(), r"(src|href)=\"(https?:)?//")
+            code, body, h = req("/api/overview?days=7")
+            r = json.loads(body)
+            self.assertEqual((code, r["homes"]["total"], r["groups"]), (200, 2, ["north"]))
+            self.assertTrue(h["Content-Type"].startswith("application/json"))
+            self.assertTrue(all(x.get("words") for x in r["attention"]))
+            self.assertEqual(r["queueing"]["sqm"]["on"], 2)            # the kept "sqm" decisions
+            self.assertFalse(r["queueing"]["calls"]["reported"])
+            ro = json.loads(req("/api/rollouts")[1])["rollouts"]
+            self.assertEqual((ro[0]["name"], ro[0]["state"], ro[0]["can"]), ("r1", "running",
+                                                                            {"pause": True, "abort": True}))
+            self.assertNotIn("list", ro[0])                             # counts, never homes' names
+            gws = json.loads(req("/api/gateways")[1])["gateways"]
+            self.assertEqual({g["name"]: g["waiting"] for g in gws}, {"named": 2, "anon<b>": 2})
+            g = json.loads(req(f"/api/gateways/{a}")[1])
+            self.assertEqual((g["name"], g["waiting"], g["decisions"][0]["state"]), ("named", 2, "proposed"))
+            self.assertEqual(req("/api/gateways/nobody")[0], 404)
+            self.assertEqual(req("/api/nothing")[0], 404)
+            self.assertEqual(req("/api/overview?days=x")[0], 400)
+
+    def test_access(self):
+        with tempfile.TemporaryDirectory() as d:
+            s, *_ = self.fleet(d)
+            req = self.serve(s, local=True)
+            self.assertEqual(req("/api/rollouts")[0], 200)              # localhost: reading needs no token
+            self.assertEqual(req("/api/rollouts", host="evil.example:8090")[0], 401)   # DNS rebinding
+            self.assertEqual(req("/api/rollouts", tok="sekret-token", host="evil.example")[0], 200)
+            # every change needs the token, even on localhost
+            self.assertEqual(req("/api/rollouts/r1/pause", body={"reason": "x"})[0], 401)
+            self.assertEqual(req("/api/rollouts/r1/pause", tok="wrong", body={"reason": "x"})[0], 401)
+            self.assertEqual(req("/api/rollouts/r1/pause", tok="sekret-token", body={"reason": " "})[0], 400)
+            self.assertEqual(req("/api/rollouts/r1/pause", tok="sekret-token", raw=b"not json")[0], 400)
+            code, body, _ = req("/api/rollouts/r1/pause", tok="sekret-token", body={"reason": "calls from homes"})
+            self.assertEqual(code, 200)
+            r1 = json.loads(body)["rollouts"][0]
+            self.assertEqual(r1["state"], "paused")
+            self.assertIn("Paused by a person (dashboard) (calls from homes)", r1["log"][-1]["text"])
+            # resuming stays at the command line
+            self.assertEqual(req("/api/rollouts/r1/resume", tok="sekret-token", body={"reason": "x"})[0], 403)
+            self.assertEqual(req("/api/rollouts/r1/pause", tok="sekret-token", body={"reason": "again"})[0], 409)
+            self.assertEqual(req("/api/rollouts/r1/abort", tok="sekret-token", body={"reason": "bad"})[0], 200)
+            self.assertEqual(json.loads(req("/api/rollouts")[1])["rollouts"][0]["state"], "aborted")
+            self.assertEqual(req("/api/rollouts/nope/abort", tok="sekret-token", body={"reason": "x"})[0], 409)
+            # bound elsewhere: every request needs the token
+            req = self.serve(s, local=False)
+            self.assertEqual(req("/api/overview")[0], 401)
+            self.assertEqual(req("/api/gateways", tok="sekret-token")[0], 200)
+            self.assertEqual(req("/")[0], 200)                          # the page itself holds no data
+
+    def test_escaping(self):
+        with tempfile.TemporaryDirectory() as d:
+            s, a, b, _ = self.fleet(d)
+            req = self.serve(s)
+            for path in ("/api/overview", "/api/gateways", f"/api/gateways/{a}", f"/api/gateways/{b}"):
+                body = req(path)[1]
+                self.assertNotIn(b"<", body, path)                      # <: JSON, never HTML
+                self.assertNotIn(b">", body, path)
+            g = json.loads(req(f"/api/gateways/{a}")[1])
+            self.assertEqual(g["alerts"][0]["reason"], self.EVIL)       # the text itself arrives intact
+            self.assertIn("anon<b>", [x["name"] for x in json.loads(req("/api/gateways")[1])["gateways"]])
+            # the page puts gateway text on the page as text only
+            with open(os.path.join(HERE, "..", "cortex", "aigw_cortex", "static", "dashboard.js")) as f:
+                js = f.read()
+            for bad in ("innerHTML", "outerHTML", "insertAdjacentHTML", "document.write", "eval(", "new Function"):
+                self.assertNotIn(bad, js)
+
+    def test_privacy(self):
+        from aigw_cortex import dashboard
+        with tempfile.TemporaryDirectory() as d:
+            s, a, b, now = self.fleet(d)
+            self.assertEqual(dashboard.sharing(s.snapshot(a)), "names")
+            self.assertEqual(dashboard.sharing(s.snapshot(b)), "anonymous")
+            self.assertEqual(dashboard.sharing({}), "none")
+            ga, gb = dashboard.gateway(s, a, now), dashboard.gateway(s, b, now)
+            self.assertEqual(ga["alerts"][0]["device"], "Kid's tablet")
+            self.assertIn("Kid's tablet", ga["problem"]["summary"])
+            self.assertNotIn("device", gb["alerts"][0])
+            self.assertNotIn("reason", gb["alerts"][0])
+            self.assertEqual(gb["alerts"][0]["subject"], "x.example")    # what it looked up: alert_names
+            self.assertNotIn("summary", gb["problem"])
+            q = [x for x in gb["decisions"] if x["action"] == "quarantine"][0]
+            self.assertEqual(q["target"], "a device")
+            self.assertNotIn("reason", q)
+            self.assertEqual([x["target"] for x in gb["decisions"] if x["action"] == "block"], ["bad.example"])
+            self.assertNotIn("Kid", json.dumps(gb))
+            o = dashboard.overview(s, 7, now=now)
+            by = {x["home"]: x for x in o["attention"] if x["why"] == "problem"}
+            self.assertIn("Kid's tablet", by["named"]["words"])
+            self.assertNotIn("summary", by["anon<b>"])
+            self.assertNotIn("Kid", by["anon<b>"]["words"])
+
+    def test_listen(self):
+        from aigw_cortex.dashboard import is_loopback, load_token, parse_listen
+        self.assertEqual(parse_listen("127.0.0.1:8090"), ("127.0.0.1", 8090))
+        self.assertEqual(parse_listen("[::1]:9000"), ("::1", 9000))
+        self.assertEqual(parse_listen("0.0.0.0"), ("0.0.0.0", 8090))
+        self.assertEqual(parse_listen(":8091"), ("127.0.0.1", 8091))
+        self.assertTrue(is_loopback("127.0.0.1") and is_loopback("::1") and is_loopback("localhost"))
+        self.assertFalse(is_loopback("0.0.0.0") or is_loopback("192.168.0.11"))
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "dashboard.token")
+            t = load_token(p)
+            self.assertEqual((load_token(p), len(t) >= 40), (t, True))
+            if os.name == "posix":
+                self.assertEqual(os.stat(p).st_mode & 0o777, 0o600)
+
+
 class Mcp(unittest.TestCase):
     def test_guard(self):
         with tempfile.TemporaryDirectory() as d:

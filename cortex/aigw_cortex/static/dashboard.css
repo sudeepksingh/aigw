@@ -1,0 +1,96 @@
+/* SPDX-License-Identifier: Apache-2.0 -- AIGW OS fleet dashboard (no build step, no CDN) */
+:root {
+  --bg: #f4f4f2; --surface: #fcfcfb; --line: #e2e1dc; --text: #0b0b0b; --text-2: #52514e; --muted: #6b6a66;
+  --accent: #2a78d6; --good: #0ca30c; --warn: #b77f00; --warn-fill: #fab219; --bad: #d03b3b;
+  --good-bg: #e6f4e6; --warn-bg: #fdf3dc; --bad-bg: #fbe7e7;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #111110; --surface: #1a1a19; --line: #33332f; --text: #f0efec; --text-2: #c3c2b7; --muted: #9b9a92;
+    --accent: #3987e5; --good: #0ca30c; --warn: #fab219; --warn-fill: #fab219; --bad: #e66767;
+    --good-bg: #13301a; --warn-bg: #3a2f10; --bad-bg: #3d1a1a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #111110; --surface: #1a1a19; --line: #33332f; --text: #f0efec; --text-2: #c3c2b7; --muted: #9b9a92;
+  --accent: #3987e5; --good: #0ca30c; --warn: #fab219; --warn-fill: #fab219; --bad: #e66767;
+  --good-bg: #13301a; --warn-bg: #3a2f10; --bad-bg: #3d1a1a;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+code { font-family: ui-monospace, Consolas, monospace; font-size: 0.9em; }
+h2 { font-size: 1.1rem; margin: 1.6rem 0 0.3rem; }
+h3 { font-size: 1rem; margin: 0 0 0.4rem; }
+.muted { color: var(--muted); }
+.bar { display: flex; flex-wrap: wrap; gap: 0.6rem 1.2rem; align-items: center; justify-content: space-between;
+  padding: 0.7rem 16px; background: var(--surface); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 2; }
+.controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+main { max-width: 1180px; margin: 0 auto; padding: 0.5rem 16px 3rem; }
+button, select, input { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 6px; padding: 0.3rem 0.65rem; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+button:focus-visible, select:focus-visible, input:focus-visible, tr[tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button.danger { border-color: var(--bad); color: var(--bad); }
+button:disabled { opacity: 0.5; cursor: default; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0.6rem 0; }
+.error { background: var(--bad-bg); color: var(--text); border-left: 4px solid var(--bad); padding: 0.6rem 0.8rem; border-radius: 6px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.7rem 0.9rem; }
+.tile .label { color: var(--text-2); font-size: 0.85rem; }
+.tile .value { font-size: 1.7rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.tile .sub { color: var(--muted); font-size: 0.85rem; }
+
+.mix-wrap { margin-top: 0.7rem; }
+.mix { display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden; background: var(--line); }
+.mix span { display: block; height: 100%; }
+.mix .good { background: var(--good); } .mix .fair { background: var(--warn-fill); } .mix .poor { background: var(--bad); }
+.legend { display: flex; flex-wrap: wrap; gap: 1rem; margin-top: 0.35rem; font-size: 0.9rem; color: var(--text-2); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.35rem; vertical-align: -1px; }
+
+.badge { display: inline-block; padding: 0 0.45rem; border-radius: 999px; font-size: 0.8rem; border: 1px solid var(--line);
+  white-space: nowrap; }
+.badge.good { background: var(--good-bg); border-color: var(--good); }
+.badge.warn { background: var(--warn-bg); border-color: var(--warn); }
+.badge.bad { background: var(--bad-bg); border-color: var(--bad); }
+
+table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  overflow: hidden; font-size: 0.93rem; }
+th, td { text-align: left; padding: 0.45rem 0.65rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--text-2); font-weight: 600; font-size: 0.85rem; }
+td:first-child { white-space: nowrap; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr:last-child td { border-bottom: 0; }
+tr.click { cursor: pointer; }
+tr.click:hover td { background: var(--bg); }
+.scroll { overflow-x: auto; }
+.empty { color: var(--muted); padding: 0.6rem 0; }
+
+.outage { background: var(--bad-bg); border-left: 4px solid var(--bad); padding: 0.6rem 0.8rem; border-radius: 6px; margin: 0.5rem 0; }
+
+.rollout .head { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; justify-content: space-between; }
+.waves { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; }
+.wave { border: 1px solid var(--line); border-radius: 8px; padding: 0.35rem 0.55rem; min-width: 8.5rem; font-size: 0.88rem; }
+.wave.pass { border-color: var(--good); } .wave.stop { border-color: var(--bad); } .wave.wait { border-color: var(--warn); }
+.wave.later { opacity: 0.6; }
+.reason { margin: 0.3rem 0; }
+details summary { cursor: pointer; color: var(--text-2); font-size: 0.9rem; }
+details ul { margin: 0.3rem 0; padding-left: 1.2rem; font-size: 0.88rem; }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1.4rem; }
+@media (max-width: 820px) { .two { grid-template-columns: 1fr; } }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 0.9rem; font-size: 0.93rem; }
+.kv dt { color: var(--text-2); }
+.kv dd { margin: 0; }
+.row { display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.8rem; }
+dialog { background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 10px; max-width: 30rem; width: calc(100% - 32px); }
+dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+dialog input { width: 100%; margin-top: 0.3rem; }
+#login-form { display: flex; gap: 0.5rem; }
+#login-form input { flex: 1; }
