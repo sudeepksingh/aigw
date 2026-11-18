@@ -82,7 +82,12 @@ ubus send ag.dns '{"client":"192.168.77.67","qname":"www.wikipedia.org"}'
 sleep 2
 agctl zone Living-room-TV iot || fail "zone"
 agctl block blocked.example.com 1d || fail "block"
-timeout 120 agctl care --check > /dev/null 2>&1 || echo "    (care check: $?)"
+# a care check (in the background, a few seconds): wait until the report counts it
+agctl care --check > /dev/null 2>&1
+i=0
+until agctl -j care | grep -Eq '"checks": ?[1-9]'; do
+	i=$((i + 1)); [ $i -gt 90 ] && fail "no care check counted"; sleep 1
+done
 agctl remote on 203.0.113.10 || fail "remote on"
 agctl remote add "Anna's phone" > /dev/null || fail "remote add"
 systemctl restart aigw-agd      # what agd keeps is what it saved
