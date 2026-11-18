@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIGW fleet</title>
+<link rel="stylesheet" href="/static/dashboard.css">
+<script src="/static/dashboard.js" defer></script>
+</head>
+<body>
+<header class="bar">
+  <div class="brand"><strong>AIGW OS</strong> <span class="muted">fleet dashboard</span> <span id="version" class="muted"></span></div>
+  <div class="controls">
+    <label>Group <select id="group"><option value="">All homes</option></select></label>
+    <label>Period <select id="days">
+      <option value="1">1 day</option><option value="7" selected>7 days</option><option value="30">30 days</option>
+    </select></label>
+    <button id="refresh" type="button">Refresh</button>
+    <button id="theme" type="button" title="Light or dark">Theme</button>
+  </div>
+</header>
+
+<main>
+  <section id="login" class="card" hidden>
+    <h2>This dashboard needs its token</h2>
+    <p class="muted">Use the link that <code>python3 -m aigw_cortex dashboard</code> prints, or paste the token from
+      <code>dashboard.token</code> in the cortex data directory. It is kept for this browser tab only.</p>
+    <form id="login-form"><input id="token" type="password" autocomplete="off" placeholder="token" aria-label="Token">
+      <button type="submit">Open</button></form>
+  </section>
+
+  <p id="error" class="error" role="alert" hidden></p>
+  <p id="period" class="muted"></p>
+  <div id="outages"></div>
+
+  <section aria-labelledby="h-health">
+    <h2 id="h-health">Fleet health</h2>
+    <div id="tiles" class="tiles"></div>
+    <div id="mix" class="mix-wrap"></div>
+  </section>
+
+  <section aria-labelledby="h-call">
+    <h2 id="h-call">Homes to call first</h2>
+    <p class="muted">An open problem, a warning that a fault is near, a poor score, or a gateway gone quiet.</p>
+    <div id="attention"></div>
+  </section>
+
+  <section aria-labelledby="h-roll">
+    <h2 id="h-roll">Staged rollouts</h2>
+    <p class="muted">A rollout stops by itself when a wave gets worse. Pause or abort here; resuming is done at the
+      command line (<code>rollout resume</code>).</p>
+    <div id="rollouts"></div>
+  </section>
+
+  <div class="two">
+    <section aria-labelledby="h-sig">
+      <h2 id="h-sig">ISP signals</h2>
+      <p class="muted">What homes would buy, or why they may leave, as each gateway saw it.</p>
+      <div id="signals"></div>
+    </section>
+    <section aria-labelledby="h-q">
+      <h2 id="h-q">Smart queueing and calls first</h2>
+      <div id="queueing"></div>
+    </section>
+  </div>
+
+  <section aria-labelledby="h-gw">
+    <h2 id="h-gw">Gateways</h2>
+    <div id="gateways"></div>
+  </section>
+
+  <section id="detail" class="card" hidden aria-live="polite"></section>
+</main>
+
+<dialog id="hold">
+  <form id="hold-form" method="dialog">
+    <h3 id="hold-title"></h3>
+    <p class="muted" id="hold-what"></p>
+    <label>Why (kept in the rollout's log)<br><input id="hold-reason" maxlength="200" required></label>
+    <div class="row"><button type="button" id="hold-cancel">Cancel</button>
+      <button type="submit" id="hold-ok" class="danger">Confirm</button></div>
+  </form>
+</dialog>
+</body>
+</html>

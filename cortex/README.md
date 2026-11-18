@@ -19,6 +19,10 @@ NAS, a cloud VM. Gateways work fully without it. With it:
   warnings, speeds, outages across an area's homes, and the homes to look at
   first. `python3 -m aigw_cortex fleet`, and the MCP tool `fleet_report`
   ([docs/fleet-report.md](../docs/fleet-report.md)).
+- **The operator dashboard** (v0.38): one web page with the fleet report,
+  the homes to call first, staged rollouts (pause and abort), ISP signals,
+  smart queueing and each gateway. `python3 -m aigw_cortex dashboard`
+  ([docs/dashboard.md](../docs/dashboard.md)).
 
 ```
  gateway (agd)                   bridge plug-in (nobody, curl)          cortex

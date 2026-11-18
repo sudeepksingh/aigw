@@ -9,6 +9,8 @@
     python3 -m aigw_cortex rollout new|list|status|pause|resume|abort|homes|result ...
                                                       staged firmware rollouts that stop themselves
                                                       (rollout.py; --help for each)
+    python3 -m aigw_cortex dashboard [--listen 127.0.0.1:8090] [--token-file F] [--cert c --key k]
+                                                      the operator dashboard, a web page (dashboard.py)
     python3 -m aigw_cortex pubkey                     the key gateways trust (agctl trust)
     python3 -m aigw_cortex publish <model.agm> [--notes text]
     python3 -m aigw_cortex retrain [--top N | --benign-file F] [--trees N]
@@ -277,6 +279,13 @@ def main(argv=None):
     p.add_argument("--period", help="what the customer means (\"tonight 20:00-22:00\"); cortex has the last hour")
     p.add_argument("--propose", action="store_true", help="send the remote fix as a proposal (waits for a yes)")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("dashboard", help="the operator dashboard, a web page")
+    p.add_argument("--listen", default="127.0.0.1:8090",
+                   help="address:port (default 127.0.0.1:8090; elsewhere, every request needs the token)")
+    p.add_argument("--token-file", help="the dashboard's token (default <data>/dashboard.token, made on first use)")
+    p.add_argument("--cert")
+    p.add_argument("--key")
+    p.add_argument("--quiet", action="store_true")
     sub.add_parser("remove").add_argument("name")
     sub.add_parser("pubkey")
     p = sub.add_parser("publish")
@@ -313,6 +322,12 @@ def main(argv=None):
     if a.cmd == "serve":
         from .server import serve
         serve(store, a.listen, a.port, a.cert, a.key, log=not a.quiet, fed_settings=fed_settings(a))
+    elif a.cmd == "dashboard":
+        from .dashboard import serve as dashboard
+        try:
+            dashboard(store, a.listen, a.token_file, a.cert, a.key, log=not a.quiet)
+        except (OSError, ValueError) as e:
+            sys.exit(f"dashboard: {e}")
     elif a.cmd == "fed":
         from . import fed
         s = fed_settings(a)
