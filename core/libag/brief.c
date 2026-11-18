@@ -53,7 +53,7 @@ int brief_fault_of(const char *code)
 		{ "WIFI_RADIO", BF_HOME_WIFI }, { "WIFI_PROBLEM", BF_HOME_WIFI },
 		{ "WIFI_DEVICE", BF_DEVICE }, { "WIFI_DROPS", BF_DEVICE }, { "DEVICE_OFFLINE", BF_DEVICE },
 		{ "DEVICE_BLOCKED", BF_DEVICE }, { "DEVICE_LIMITED", BF_DEVICE },
-		{ "OUTSIDE_SERVICE", BF_OUTSIDE },
+		{ "OUTSIDE_SERVICE", BF_OUTSIDE }, { "AREA_OUTAGE", BF_LINE },
 	};
 	size_t i;
 
@@ -434,6 +434,8 @@ static void visit(const struct brief_in *in, struct brief *o, int agree, long la
 		 "No: it was short and seen once; check the line from the ISP's side if it comes back.");
 }
 
+static void area(const struct brief_in *in, struct brief *o, int ends_now);
+
 void brief_judge(const struct brief_in *in, struct brief *o)
 {
 	const struct brief_finding *main = NULL;
@@ -530,6 +532,53 @@ void brief_judge(const struct brief_in *in, struct brief *o)
 		snprintf(o->visit_why, sizeof(o->visit_why), "%s", why);
 		o->visit = BV_IF_PERSISTS;
 	}
+	if (in->area && in->to >= in->area_since)
+		area(in, o, ends_now);
+}
+
+/* a known outage in the area (cortex): the ISP's network, not the home, whatever it looked like from here */
+static void area(const struct brief_in *in, struct brief *o, int ends_now)
+{
+	static const struct { const char *kind, *words; } k[] = {
+		{ "DOWN", "down" }, { "LOSS", "losing packets" }, { "SLOW", "slow" }, { "DNS", "failing to look up names" },
+	};
+	const char *words = "affected";
+	char when[16], own[120];
+	size_t i;
+
+	for (i = 0; in->area_kind && i < sizeof(k) / sizeof(k[0]); i++)
+		if (!strcmp(k[i].kind, in->area_kind))
+			words = k[i].words;
+	why_clock(in->area_since, in->now, when, sizeof(when));
+	first_sentence(o->verdict, own, sizeof(own));
+	if (o->fault != BF_LINE)
+		o->code = "AREA_OUTAGE";
+	o->fault = BF_LINE;
+	o->confidence = BC_HIGH;
+	o->current = o->current || ends_now;
+	snprintf(o->verdict, sizeof(o->verdict), "Known outage in the area: %d of %d homes on this uplink %.24s since %.15s "
+		 "(area outage %u). The ISP's network, not this home. From here: %.119s.", in->area_homes, in->area_of, words,
+		 when, in->area, own);
+	/* first in the evidence (the last line gives way when it is full) */
+	if (o->nev == BRIEF_LINES)
+		o->nev--;
+	memmove(&o->ev[1], &o->ev[0], sizeof(o->ev[0]) * (size_t)o->nev);
+	o->nev++;
+	o->ev[0].t = in->area_since;
+	o->ev[0].source = "area";
+	snprintf(o->ev[0].text, sizeof(o->ev[0].text), "cortex: %d of %d homes on this uplink %s since %s, within minutes "
+		 "of each other (area outage %u).", in->area_homes, in->area_of, words, when, in->area);
+	if (in->area_held && *in->area_held)
+		line_add(o->done, &o->ndone, in->area_since, "area", "Held its own fixes during the area outage: %s.",
+			 in->area_held);
+	snprintf(o->tell, sizeof(o->tell), "There is a known outage in your area since %s; our network team is working "
+		 "on it. Your equipment at home is fine: there is no need to restart or reset anything.", when);
+	memset(&o->fix, 0, sizeof(o->fix));
+	snprintf(o->fix.text, sizeof(o->fix.text), "Nothing to fix in the home: AIGW holds its own fixes there until the "
+		 "area is back.");
+	o->visit = BV_NO;
+	snprintf(o->visit_why, sizeof(o->visit_why), "No: a known outage in the area (area outage %u, %d homes); a visit to "
+		 "this home would not help.", in->area, in->area_homes);
 }
 
 /* ---------- the period ---------- */

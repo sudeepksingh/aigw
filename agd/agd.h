@@ -668,6 +668,29 @@ void dm_serial(char *buf, size_t n);    /* dm.c: Device.DeviceInfo.SerialNumber 
 /* main.c / dm.c: a period in words ("tonight 20:00-22:00") or Start/End */
 int brief_parse_period(const char *words, long *from, long *to, char *err, size_t en);
 
+/* area.c: an area outage cortex told of (many homes of this uplink at once): fixes held meanwhile */
+enum { AH_SQM, AH_SQM_JUDGE, AH_STEER, AH_CHANNEL, AH_STAY24, AH_N };
+struct area_now {
+	uint32_t incident;              /* 0: none */
+	const char *kind, *confidence, *uplink;
+	long since, until;              /* until: the notice lapses unless renewed */
+	int homes, of;
+	unsigned held;                  /* bits of AH_*: what was held so far */
+};
+int area_notice(struct blob_attr *a, const char *who, char *err, size_t en);  /* {incident, kind, ...}; 0 */
+int area_hold(int what);                /* 1: hold it (an area outage is on), 0: go ahead */
+int area_holds_action(const char *action);      /* sqm, channel, stay24: area_hold; others never */
+int area_get(struct area_now *o);       /* 1 while one is on */
+void area_held_words(char *buf, size_t n);
+void area_wan(char *gw, size_t gn, char *peer, size_t pn);      /* the WAN's next hop, else its peer (BNG) */
+void area_status_blob(struct blob_buf *b);      /* uplink_id, wan_gateway, bng: for cortex */
+int area_set_uplink(const char *v, char *err, size_t en);
+int area_field(const char *f, char *buf, size_t n);    /* Device.X_AIGW_.AreaOutage.; -1 unknown */
+void area_blob(struct blob_buf *b);
+/* dm.c: AreaOutage! (started 1) or AreaOutageCleared! (0) */
+void dm_on_area(int started, uint32_t incident, const char *kind, long since, long duration, int homes, int of,
+		const char *confidence, const char *uplink, const char *held, const char *why);
+
 /* act.c: the live decision of an action (state 0 proposed, 1 active, 2 kept); -1 none */
 int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,
 		    char *origin, size_t on);

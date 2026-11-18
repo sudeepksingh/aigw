@@ -196,6 +196,7 @@ void ag_config_load(struct ag_config *c)
 	c->offers = 1;
 	c->offers_share = 1;
 	c->brief = 1;
+	c->area = 1;
 	c->sqm = 1;
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
@@ -516,6 +517,10 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "brief", "names");
 		if (v)
 			c->brief_names = atoi(v) != 0;
+		v = opt(ctx, p, "area", "enabled");
+		if (v)
+			c->area = atoi(v) != 0;
+		copy(c->area_uplink_id, sizeof(c->area_uplink_id), opt(ctx, p, "area", "uplink_id"));
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));
@@ -679,6 +684,35 @@ int ag_config_set(const char *section, const char *option, const char *value)
 	snprintf(spec, sizeof(spec), "aigw.%s.%s=%s", section, option, value);
 	if (uci_lookup_ptr(ctx, &ptr, spec, true) != UCI_OK || !ptr.s)
 		goto out;               /* the section must exist */
+	if (uci_set(ctx, &ptr) == UCI_OK && uci_save(ctx, ptr.p) == UCI_OK && uci_commit(ctx, &ptr.p, false) == UCI_OK)
+		rc = 0;
+out:
+	uci_free_context(ctx);
+	return rc;
+}
+
+/* "config <section> '<section>'" in /etc/config/aigw, made when a config from before it lacks it */
+int ag_config_ensure(const char *section)
+{
+	const char *confdir = getenv("AIGW_UCI_CONFDIR");
+	struct uci_context *ctx = uci_alloc_context();
+	struct uci_ptr ptr = { 0 };
+	char spec[128];
+	int rc = -1;
+
+	if (!ctx)
+		return -1;
+	if (confdir)
+		uci_set_confdir(ctx, confdir);
+	if (strpbrk(section, ".= \n'\""))
+		goto out;
+	snprintf(spec, sizeof(spec), "aigw.%s=%s", section, section);
+	if (uci_lookup_ptr(ctx, &ptr, spec, true) != UCI_OK)
+		goto out;
+	if (ptr.s) {
+		rc = 0;                 /* there already */
+		goto out;
+	}
 	if (uci_set(ctx, &ptr) == UCI_OK && uci_save(ctx, ptr.p) == UCI_OK && uci_commit(ctx, &ptr.p, false) == UCI_OK)
 		rc = 0;
 out:

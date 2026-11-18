@@ -274,6 +274,20 @@ config brief 'brief'
 	# agctl at home always shows the names
 	option names '0'
 
+config area 'area'
+	# area outages (Device.X_AIGW_.AreaOutage., docs/area-outages.md): cortex
+	# sees many homes of this one's uplink go down or slow at once and says so
+	# with its answer to the bridge; meanwhile AIGW holds its own fixes (smart
+	# queueing trials, band steering, channel changes, keeping a device on
+	# 2.4 GHz): the fault is the ISP's network, not the home. The notice lapses
+	# by itself unless cortex renews it
+	option enabled '1'
+	# the ISP's id of this home's uplink (an OLT port, a BNG, an exchange, an
+	# area): homes with the same id are compared. The ACS may set it
+	# (Device.X_AIGW_.AreaOutage.UplinkID). Empty: cortex uses its own map, else
+	# the WAN next hop or the BNG's address
+	# option uplink_id 'OLT-3/2'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

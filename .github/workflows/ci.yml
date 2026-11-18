@@ -94,6 +94,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/fed-test.sh build
       - name: "Staged rollout test (four homes, waves through the bridge: one passes; a rollback stops it: the last home never gets it)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/rollout-test.sh build
+      - name: Area outages (cortex tells, the gateway holds its fixes)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/area-test.sh build
       - name: Remote access test (WireGuard between network namespaces)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/remote-test.sh build
       - name: DNS cache test (answer times, prefetch, stale answers)

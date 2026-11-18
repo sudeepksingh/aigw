@@ -180,6 +180,9 @@ struct ag_config {
 	/* the help-desk assistant (agd/brief.c) */
 	int brief;                /* SupportBrief(), agctl brief, and a brief in each report to cortex */
 	int brief_names;          /* the ISP's brief names devices by their names; 0: by kind ("a laptop") */
+	/* area outages (agd/area.c): cortex says many homes of this uplink are hit; agd holds its own fixes */
+	int area;                 /* take the notice (from the bridge) and hold fixes meanwhile */
+	char area_uplink_id[64];  /* the operator's id of this home's uplink (an OLT, a BNG, an area); "" none */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];
@@ -241,6 +244,8 @@ const char *ag_mode_str(int mode);
 void ag_config_load(struct ag_config *c);
 /* writes one option of /etc/config/aigw (section must exist) and commits; 0 or -1 */
 int ag_config_set(const char *section, const char *option, const char *value);
+/* makes the named section (its type its name) when it isn't there yet; 0 or -1 */
+int ag_config_ensure(const char *section);
 
 /* ubus socket path: $AIGW_UBUS if set, else NULL (libubus default). */
 const char *ag_ubus_path(void);

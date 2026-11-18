@@ -135,13 +135,22 @@ function renderHealth(r) {
       key("poor", "Poor (under 80%)", e.poor)));
 }
 
+const KIND = { DOWN: "down", LOSS: "losing packets", SLOW: "slow", DNS: "failing to look up names" };
+
 function renderOutages(r) {
   $("outages").replaceChildren(...r.outages.map((o) => {
     const codes = Object.entries(o.codes).map(([k, v]) => `${k} ${v}`).join(", ");
-    const state = o.still_open ? `${o.still_open} still affected` : `over at ${when(o.end)}`;
-    return el("div", { class: "outage", role: "status" }, el("strong", {}, "Outage: "),
-      `${o.homes} of ${o.homes_in_group} homes${o.group ? ` in ${o.group}` : ""} from ${when(o.start)} ` +
-      `(within ${Math.max(1, Math.floor(o.spread_s / 60))} min: ${codes}). The ISP's network, not the homes; ${state}.`);
+    const open = o.state === "open";
+    const state = open ? `${o.still_open} still affected` : `over at ${when(o.end)}`;
+    const homes = (o.affected || []).map((h) => el("li", {},
+      el("a", { href: "#", on: { click: (ev) => { ev.preventDefault(); openGateway(h.gateway); } } }, h.home),
+      ` ${h.code} from ${when(h.since)}${h.until ? ` to ${when(h.until)}` : ", still affected"}`));
+    return el("div", { class: open ? "outage" : "outage over", role: "status" },
+      el("strong", {}, `${open ? "Area outage" : "Area outage, over"} ${o.id}: `),
+      `${o.homes} of ${o.homes_in_group} homes${o.group ? ` on ${o.group}` : ""} ${KIND[o.kind] || o.kind} from ` +
+      `${when(o.start)} (within ${Math.max(1, Math.floor(o.spread_s / 60))} min: ${codes}; ${o.confidence} confidence). ` +
+      `The ISP's network, not the homes; ${state}.` + (open ? " Their help-desk briefs say so, and fixes in those homes are held." : ""),
+      homes.length ? el("details", {}, el("summary", {}, `The ${plural(homes.length, "home")}`), el("ul", {}, homes)) : null);
   }));
 }
 
@@ -259,6 +268,11 @@ async function openGateway(ref, quiet) {
         ["Mode", g.status.mode], ["Devices", n(g.status.devices)], ["Alerts", n(g.status.alerts)],
         ["Experience this week", g.score !== undefined && g.score !== null ? `${g.score}%` : "–"],
         ["Privacy", share]]),
+      g.area_outage ? el("div", { class: "outage", role: "status" },
+        el("strong", {}, `Known outage in the area (area outage ${g.area_outage.id}): `),
+        `${g.area_outage.homes} of ${g.area_outage.homes_in_area} homes on ${g.area_outage.uplink} since ` +
+        `${when(g.area_outage.start)}. The network's fault, not this home's; fixes in the home are held until it is over.`)
+        : null,
       g.problem ? el("div", { class: "outage" }, el("strong", {}, `Problem: ${g.problem.code} (${g.problem.area})`),
         ` since ${when(g.problem.since)}${g.problem.reported ? ", told to the ISP" : ""}.`,
         g.problem.summary ? el("div", {}, g.problem.summary) : null,

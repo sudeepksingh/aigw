@@ -46,6 +46,14 @@ TOOLS = [
          "coming, nightly speeds, outages across many homes of one group, and the homes needing attention first.",
          {"days": {"type": "integer", "description": "The period, in days (default 7)"},
           "group": {"type": "string", "description": "Only the gateways of this group (area)"}}),
+    tool("area_outages",
+         "Area outages: many homes behind one uplink (an exchange, OLT, BNG or area) whose line went down, slow, "
+         "lossy or lost DNS within minutes of each other, so the fault is the ISP's network, not the homes. Each "
+         "incident: its uplink, kind (DOWN, LOSS, SLOW, DNS), start and end, how many homes of the uplink, "
+         "confidence, the affected homes. While one is open, the help-desk brief of its homes says so and fixes "
+         "in those homes are held.",
+         {"all": {"type": "boolean", "description": "Also those over in the last days (default: open ones)"},
+          "uplink": {"type": "string", "description": "Only this uplink (area)"}}),
     tool("rollout_status",
          "Staged firmware rollouts: each one's state (running, paused, stopped by itself, aborted, done), its "
          "waves, how many homes kept the firmware or got worse (rolled back, didn't boot), the experience score "
@@ -111,6 +119,11 @@ class Server:
         if name == "fleet_report":
             from . import fleet
             return fleet.report(s, max(1, min(31, int(args.get("days") or 7))), args.get("group") or None)
+        if name == "area_outages":
+            from . import outage
+            outage.update(s)
+            return outage.incidents(s, open_only=not args.get("all"), since=int(time.time()) - 7 * 86400,
+                                    uplink=args.get("uplink") or None)
         if name == "rollout_status":
             from . import rollout
             if args.get("name"):

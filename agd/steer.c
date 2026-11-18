@@ -226,6 +226,8 @@ void steer_tick(void)
 			watch_up(&devs[i], now);
 	if (!cfg.steer || !steer_ready(&a2, &a5))
 		return;
+	if (area_hold(AH_STEER))                /* an area outage: devices stay where they are */
+		return;
 	if (now - minute_start >= 60) {
 		minute_start = now;
 		minute_moves = 0;

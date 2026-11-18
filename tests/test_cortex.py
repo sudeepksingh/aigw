@@ -662,5 +662,366 @@ class HelpDesk(unittest.TestCase):
             self.assertEqual(fleet.report(s, 7, "west")["help_desk"]["briefs"], 1)
 
 
+def fault(gw, since, until=0, code="ISP_DOWN", uplink="exch-1"):
+    from aigw_cortex import outage
+    return {"gateway": gw, "uplink": uplink, "code": code, "kind": outage.kind_of(code), "since": since, "until": until}
+
+
+class AreaOutageRules(unittest.TestCase):
+    """v0.39: the correlation rules (outage.correlate), pure."""
+    T = 1795469400
+
+    def test_thresholds(self):
+        from aigw_cortex.outage import correlate
+        t = self.T
+        # 20 homes on the uplink: 3 needed (min_homes), not 2
+        self.assertEqual(correlate([fault("a", t), fault("b", t + 60)], {"exch-1": 20}), [])
+        inc = correlate([fault("a", t), fault("b", t + 60), fault("c", t + 840)], {"exch-1": 20}, now=t + 900)
+        self.assertEqual(len(inc), 1)
+        i = inc[0]
+        self.assertEqual((i["uplink"], i["homes"], i["homes_in_area"], i["need"], i["end"], i["still"]),
+                         ("exch-1", 3, 20, 3, 0, 3))
+        self.assertEqual((i["kind"], i["confidence"], i["spread_s"], i["start"]), ("DOWN", "medium", 840, t))
+        # the same three, but not within the window (15 min) of the first: not one outage
+        self.assertEqual(correlate([fault("a", t), fault("b", t + 600), fault("c", t + 1200)], {"exch-1": 20},
+                                   {"window": 900}), [])
+        # 50 homes: 10% is 5, more than min_homes
+        four = [fault(f"h{i}", t + i * 30) for i in range(4)]
+        self.assertEqual(correlate(four, {"exch-1": 50}), [])
+        five = correlate(four + [fault("h4", t + 200)], {"exch-1": 50})
+        self.assertEqual((five[0]["homes"], five[0]["need"], five[0]["confidence"]), (5, 5, "medium"))
+        ten = correlate([fault(f"h{i}", t + i * 30) for i in range(10)], {"exch-1": 50})
+        self.assertEqual(ten[0]["confidence"], "high")                      # twice the homes needed
+        # stricter rules, from the settings
+        self.assertEqual(correlate([fault(f"h{i}", t) for i in range(4)], {"exch-1": 6}, {"min_homes": 5}), [])
+        # the kind most homes had (a tie goes to the worse one)
+        mixed = correlate([fault("a", t, code="LINE_LOSS"), fault("b", t, code="ISP_LOSS"), fault("c", t, code="DNS_FAILING"),
+                           fault("d", t, code="LINE_SLOW")], {"exch-1": 4})
+        self.assertEqual((mixed[0]["kind"], mixed[0]["confidence"]), ("LOSS", "high"))   # all 4 of 4 homes
+
+    def test_lone_home(self):
+        from aigw_cortex.outage import correlate
+        t = self.T
+        # one home, its line flapping all evening: never an outage
+        self.assertEqual(correlate([fault("a", t + k * 120, t + k * 120 + 60) for k in range(20)], {"exch-1": 30}), [])
+        # a tiny uplink: both of its two homes down is still not one (two homes never are)
+        self.assertEqual(correlate([fault("a", t), fault("b", t)], {"tiny": 2}), [])
+        # a home with no uplink known is never grouped with anyone
+        self.assertEqual(correlate([fault("a", t, uplink=""), fault("b", t, uplink=""), fault("c", t, uplink="")], {}), [])
+
+    def test_two_areas(self):
+        from aigw_cortex.outage import correlate
+        t = self.T
+        north = [fault(f"n{i}", t + i * 60, uplink="north") for i in range(4)]
+        south = [fault(f"s{i}", t + 300 + i * 60, code="LINE_SLOW", uplink="south") for i in range(3)]
+        inc = correlate(north + south, {"north": 10, "south": 8})
+        self.assertEqual([(i["uplink"], i["homes"], i["kind"]) for i in inc], [("north", 4, "DOWN"), ("south", 3, "SLOW")])
+        self.assertEqual(set(inc[0]["members"]), {"n0", "n1", "n2", "n3"})
+        # two homes in each of two areas at the same time: not one outage of four
+        two = [fault("n0", t, uplink="north"), fault("n1", t, uplink="north"),
+               fault("s0", t, uplink="south"), fault("s1", t, uplink="south")]
+        self.assertEqual(correlate(two, {"north": 10, "south": 10}), [])
+        # the same area twice in a day: two incidents
+        later = [fault(f"n{i}", t + 6 * 3600 + i * 60, t + 7 * 3600, uplink="north") for i in range(3)]
+        early = [fault(f"n{i}", t + i * 60, t + 1800, uplink="north") for i in range(3)]
+        two = correlate(early + later, {"north": 10})
+        self.assertEqual([(i["start"], bool(i["end"])) for i in two], [(t, True), (t + 6 * 3600, True)])
+
+    def test_recovery(self):
+        from aigw_cortex.outage import correlate
+        t = self.T
+        homes = ["a", "b", "c", "d", "e"]
+        f = [fault(h, t + i * 60) for i, h in enumerate(homes)]
+        self.assertEqual(correlate(f, {"exch-1": 5})[0]["end"], 0)
+        # three of five back: still on (80% must recover; one straggler may stay)
+        for i in range(3):
+            f[i]["until"] = t + 3600 + i * 60
+        i = correlate(f, {"exch-1": 5})[0]
+        self.assertEqual((i["end"], i["still"]), (0, 2))
+        # the fourth: over, at the time the fourth came back; the fifth is its own problem now
+        f[3]["until"] = t + 4000
+        i = correlate(f, {"exch-1": 5})[0]
+        self.assertEqual((i["end"], i["still"]), (t + 4000, 1))
+        # three homes: all three must recover
+        f3 = [fault(h, t, t + 1000 + k) for k, h in enumerate("xyz")]
+        f3[2]["until"] = 0
+        self.assertEqual(correlate(f3, {"exch-1": 3})[0]["end"], 0)
+        f3[2]["until"] = t + 5000
+        self.assertEqual(correlate(f3, {"exch-1": 3})[0]["end"], t + 5000)
+
+    def test_later_homes_join(self):
+        from aigw_cortex.outage import correlate
+        t = self.T
+        f = [fault(h, t + k * 60) for k, h in enumerate("abc")]
+        # 40 minutes in, a fourth home's line goes too, while the outage is on: it joins
+        f.append(fault("d", t + 2400, code="ISP_LOSS"))
+        i = correlate(f, {"exch-1": 10}, now=t + 3000)[0]
+        self.assertEqual((i["homes"], sorted(i["members"])), (4, ["a", "b", "c", "d"]))
+        self.assertEqual(i["spread_s"], 120)                                # of the first homes
+        # but not after it is over
+        for x in f[:3]:
+            x["until"] = t + 1800
+        f[3]["since"] = t + 3600
+        out = correlate(f, {"exch-1": 10}, now=t + 4000)
+        self.assertEqual((len(out), out[0]["homes"], out[0]["end"]), (1, 3, t + 1800))
+        # one home with two faults (care and the brief) counts once, from its first
+        f = [fault("a", t), fault("a", t + 30, code="ISP_LOSS"), fault("b", t + 60), fault("c", t + 90)]
+        i = correlate(f, {"exch-1": 10})[0]
+        self.assertEqual((i["homes"], i["members"]["a"]["since"]), (3, t))
+
+    def test_uplink(self):
+        from aigw_cortex.outage import reported_uplink
+        self.assertEqual(reported_uplink({"uplink_id": "OLT-7/1", "wan_gateway": "203.0.113.1"}), ("OLT-7/1", "gateway"))
+        self.assertEqual(reported_uplink({"wan_gateway": "203.0.113.1"}), ("wan:203.0.113.1", "wan"))
+        self.assertEqual(reported_uplink({"wan_gateway": "100.64.12.1"}), ("wan:100.64.12.1", "wan"))     # CGNAT: the ISP's
+        self.assertEqual(reported_uplink({"wan_gateway": "", "bng": "198.51.100.9"}), ("bng:198.51.100.9", "bng"))
+        self.assertEqual(reported_uplink({"wan_gateway": "2001:db8::1"}), ("wan:2001:db8::1", "wan"))
+        for private in ("192.168.1.1", "10.0.0.1", "172.16.5.1", "fe80::1", "fd12::1", "127.0.0.1", "nonsense", None):
+            self.assertEqual(reported_uplink({"wan_gateway": private}), ("", ""), private)
+        self.assertEqual(reported_uplink(None), ("", ""))
+
+
+def line_down(since, code="ISP_DOWN"):
+    """A report's care part with an open problem on the line (agd's care_blob)."""
+    return {"status": "problem", "problem": {"code": code, "area": "Internet", "since": since, "reported": True}}
+
+
+class AreaOutageStore(unittest.TestCase):
+    """v0.39: incidents kept in cortex: tags, the brief, held fixes, silence, recovery."""
+    T = 1795469400
+
+    def fleet(self, d, n=8, uplink="wan:203.0.113.1"):
+        s = Store(d)
+        gws = [s.enroll("home%d" % i)[0] for i in range(n)]
+        for g in gws:
+            s.report(g, {"status": {"version": "0.39.0", "wan_gateway": uplink.split(":", 1)[1]}, "interval": 300},
+                     self.T - 600)
+        return s, gws
+
+    def test_flow(self):
+        from aigw_cortex import brief, outage
+        t = self.T
+        with tempfile.TemporaryDirectory() as d:
+            s, g = self.fleet(d)
+            other = s.enroll("faraway")[0]
+            s.report(other, {"status": {"wan_gateway": "198.51.100.1"}, "care": line_down(t - 200)}, t)
+
+            def fine(at):           # the other homes go on reporting (else they'd be silent: dropped)
+                for gw in g[3:]:
+                    s.report(gw, {"status": {"wan_gateway": "203.0.113.1"}, "care": {"status": "ok"}}, at)
+            fine(t)
+            # two homes down: nothing yet
+            for i in range(2):
+                s.report(g[i], {"status": {"wan_gateway": "203.0.113.1"}, "care": line_down(t - 300 + i * 30)}, t)
+            self.assertEqual(outage.incidents(s, open_only=True), [])
+            self.assertEqual(outage.notice(s, g[0]), {"incident": 0})
+            # the third: an incident, its homes tagged
+            s.report(g[2], {"status": {"wan_gateway": "203.0.113.1"}, "care": line_down(t - 100, "ISP_LOSS")}, t + 10)
+            inc = outage.incidents(s, open_only=True)
+            self.assertEqual(len(inc), 1)
+            i = inc[0]
+            self.assertEqual((i["uplink"], i["homes"], i["homes_in_area"], i["state"], i["uplink_from"]),
+                             ("wan:203.0.113.1", 3, 8, "open", "wan"))
+            self.assertEqual(sorted(h["home"] for h in i["affected"]), ["home0", "home1", "home2"])
+            n = outage.notice(s, g[1])
+            self.assertEqual((n["incident"], n["kind"], n["homes"], n["of"], n["hold_s"]), (i["id"], "DOWN", 3, 8, 1800))
+            self.assertEqual(outage.notice(s, g[5]), {"incident": 0})              # fine: not part of it
+            self.assertEqual(outage.notice(s, other), {"incident": 0})             # alone on another uplink
+            # the help desk: a known outage in the area, no technician, nothing to fix in the home
+            s.report(g[0], {"status": {"wan_gateway": "203.0.113.1"}, "care": line_down(t - 300),
+                            "brief": a_brief("LINE", "ISP_DOWN", "IfPersists", made=t + 20,
+                                             fix={"possible": True, "action": "sqm", "target": "eth0:1:1", "text": "x"})},
+                     t + 20)
+            b = brief.answer(s, "home0", propose=True, now=t + 30)
+            self.assertEqual((b["fault"], b["visit"], b["confidence"], b["fix"]["possible"]), ("LINE", "No", "high", False))
+            self.assertIn("Known outage in the area", b["verdict"])
+            self.assertIn("known outage in your area", b["tell"])
+            self.assertIn("Held", b["proposal"]["note"])
+            self.assertEqual(b["area_outage"]["id"], i["id"])
+            self.assertEqual(b["evidence"][0]["source"], "area")
+            self.assertIn("KNOWN AREA OUTAGE", brief.text(b))
+            self.assertEqual(s.proposals(), [])                                    # nothing proposed
+            nb = brief.answer(s, "home5", now=t + 30)                               # a neighbour that is fine
+            self.assertIn("this home hasn't shown it", nb["area_note"])
+            self.assertNotIn("area_outage", nb)
+            # fixes held for its homes: queued, not sent; a quarantine still goes
+            s.propose(g[0], "sqm", "eth0:45000:0", 0, "x")
+            s.propose(g[0], "quarantine", "tv", 0, "x")
+            s.propose(g[5], "stay24", "aa:bb", 0, "x")
+            self.assertEqual([p["action"] for p in s.take_proposals(g[0], outage.HELD_ACTIONS)], ["quarantine"])
+            self.assertEqual([p["action"] for p in s.take_proposals(g[5])], ["stay24"])
+            # in the fleet report: once, with its homes, and the homes to call first say so
+            r = __import__("aigw_cortex.fleet", fromlist=["x"]).report(s, 7, now=t + 60)
+            self.assertEqual([(o["id"], o["homes"], o["still_open"]) for o in r["outages"]], [(i["id"], 3, 3)])
+            self.assertEqual({a["home"]: a.get("area_outage") for a in r["attention"] if a["why"] == "problem"},
+                             {"home0": i["id"], "home1": i["id"], "home2": i["id"], "faraway": None})
+            # recovery: 3 homes, all must come back; the incident keeps its id
+            for at in (t + 600, t + 1200, t + 1800):
+                fine(at)
+            for k in range(2):
+                s.report(g[k], {"status": {"wan_gateway": "203.0.113.1"}, "care": {"status": "ok"}}, t + 1800 + k)
+            self.assertEqual(outage.incidents(s, open_only=True)[0]["still_affected"], 1)
+            s.report(g[2], {"status": {"wan_gateway": "203.0.113.1"}, "care": {"status": "ok"}}, t + 1900)
+            self.assertEqual(outage.incidents(s, open_only=True), [])
+            done = outage.incidents(s, since=t - 86400)
+            self.assertEqual([(x["id"], x["state"], x["end"]) for x in done], [(i["id"], "closed", t + 1900)])
+            self.assertEqual(outage.notice(s, g[0]), {"incident": 0})
+            self.assertEqual([p["action"] for p in s.take_proposals(g[0], ())], ["sqm"])   # sent now that it's over
+            self.assertNotIn("area_outage", brief.answer(s, "home0", now=t + 2000))
+
+    def test_operator_uplink(self):
+        """The operator's id in cortex wins over what the gateway reports; private next hops group nothing."""
+        from aigw_cortex import outage
+        t = self.T
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            g = [s.enroll("h%d" % i)[0] for i in range(4)]
+            for k, gw in enumerate(g):      # every home behind its own modem: 192.168.1.1 tells nothing
+                s.report(gw, {"status": {"wan_gateway": "192.168.1.1"}, "care": line_down(t + k * 10)}, t + 60)
+            self.assertEqual(outage.update(s, t + 60), [])
+            for gw in g[:3]:
+                s.set_group(gw, "OLT-7")
+            s.report(g[3], {"status": {"uplink_id": "OLT-7"}, "care": line_down(t + 30)}, t + 90)  # the ACS's id
+            inc = outage.update(s, t + 90)
+            self.assertEqual((inc[0]["uplink"], inc[0]["homes"], inc[0]["homes_in_area"]), ("OLT-7", 4, 4))
+
+    def test_silence(self):
+        """Homes that stop reporting together: dropped. All of them at once: cortex is cut off, not an area."""
+        from aigw_cortex import outage
+        t = self.T
+        with tempfile.TemporaryDirectory() as d:
+            s, g = self.fleet(d, n=6)
+            far = s.enroll("far")[0]
+            for gw in g + [far]:
+                s.report(gw, {"status": {"wan_gateway": "203.0.113.1" if gw != far else "198.51.100.1"},
+                              "interval": 300}, t)
+            # four homes stop reporting; the rest go on
+            for k in range(1, 6):
+                for gw in g[4:] + [far]:
+                    s.report(gw, {"status": {"wan_gateway": "203.0.113.1" if gw != far else "198.51.100.1"},
+                                  "interval": 300}, t + k * 300)
+            inc = outage.update(s, t + 1500)
+            self.assertEqual(len(inc), 1, inc)
+            self.assertEqual((inc[0]["kind"], inc[0]["homes"], inc[0]["codes"]), ("DOWN", 4, {"SILENT": 4}))
+            self.assertEqual(inc[0]["start"], t + 300)                       # when their next report was due
+            # they come back: the gap is kept as their fault, and it is over
+            for k, gw in enumerate(g[:4]):
+                s.report(gw, {"status": {"wan_gateway": "203.0.113.1"}, "interval": 300}, t + 1600 + k)
+            self.assertEqual(outage.incidents(s, open_only=True), [])
+            done = outage.incidents(s, since=t)
+            self.assertEqual((done[0]["state"], done[0]["end"]), ("closed", t + 1603))
+            # nobody at all reports (cortex itself was cut off): nothing
+        with tempfile.TemporaryDirectory() as d:
+            s, g = self.fleet(d, n=6)
+            self.assertEqual(outage.update(s, t + 7200), [])
+
+    def test_settings(self):
+        from aigw_cortex import outage
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            self.assertEqual(outage.settings(s)["min_homes"], 3)
+            r = outage.set_settings(s, min_homes=5, share=0.2, window=None)
+            self.assertEqual((r["min_homes"], r["share"], r["window"]), (5, 0.2, 900))
+            with self.assertRaises(ValueError):
+                outage.set_settings(s, min_homes=1)                 # never a lone home
+            with self.assertRaises(ValueError):
+                outage.set_settings(s, recovered=0.1)
+
+
+class AreaOutageEndToEnd(unittest.TestCase):
+    """v0.39, end to end: 14 simulated homes on two uplinks report to cortex over HTTP. One
+    uplink's line goes; cortex opens one incident, tells those gateways in its answer, holds
+    their fixes, the help desk and the dashboard and the MCP tool say so; the homes recover
+    and it closes. The other uplink and a home alone stay out of it."""
+
+    def test_homes(self):
+        import time as _time
+        from http.server import ThreadingHTTPServer
+        from aigw_cortex import dashboard, server
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            api = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(s, log=False))
+            dash = ThreadingHTTPServer(("127.0.0.1", 0), dashboard.make_handler(s, "tok", True, log=False))
+            for h in (api, dash):
+                threading.Thread(target=h.serve_forever, daemon=True).start()
+                self.addCleanup(h.server_close)
+                self.addCleanup(h.shutdown)
+
+            def call(base, path, tok=None, body=None):
+                r = urllib.request.Request(base + path, data=json.dumps(body).encode() if body is not None else None,
+                                           headers={"Authorization": f"Bearer {tok}"} if tok else {})
+                with urllib.request.urlopen(r) as resp:
+                    return json.loads(resp.read())
+            a = f"http://127.0.0.1:{api.server_address[1]}"
+            b = f"http://127.0.0.1:{dash.server_address[1]}"
+            # homes: 8 behind one BNG (PPPoE: no next hop), 5 behind an OLT the ACS named, 1 behind its own modem
+            homes = {}
+            for i in range(8):
+                homes[f"bng-{i}"] = ({"bng": "198.51.100.7", "wan_gateway": ""}, s.enroll(f"bng-{i}")[1])
+            for i in range(5):
+                homes[f"olt-{i}"] = ({"uplink_id": "OLT-3/2", "wan_gateway": "192.168.100.1"}, s.enroll(f"olt-{i}")[1])
+            homes["lone"] = ({"wan_gateway": "192.168.1.1"}, s.enroll("lone")[1])
+
+            def report(name, care=None, brief=None):
+                st, tok = homes[name]
+                body = {"bridge": "0.39.0", "interval": 300, "status": dict(st, version="0.39.0", host=name)}
+                if care:
+                    body["care"] = care
+                if brief:
+                    body["brief"] = brief
+                return call(a, "/v1/report", tok, body)
+            for name in homes:
+                self.assertEqual(report(name)["area"], {"incident": 0})
+            now = int(_time.time())
+            # the BNG's line goes for 5 of its 8 homes within a few minutes; one OLT home and the lone home too
+            answers = {}
+            for k in range(5):
+                answers[k] = report(f"bng-{k}", care=line_down(now - 240 + k * 40, "ISP_DOWN" if k % 2 else "ISP_LOSS"))
+            report("olt-0", care=line_down(now - 200))
+            report("lone", care=line_down(now - 220, "LINE_DOWN"))
+            self.assertEqual([answers[k]["area"]["incident"] for k in range(3)], [0, 0, answers[2]["area"]["incident"]])
+            n = report("bng-0", care=line_down(now - 240, "ISP_LOSS"))["area"]
+            self.assertGreater(n["incident"], 0)
+            self.assertEqual((n["homes"], n["of"], n["uplink"], n["confidence"]), (5, 8, "bng:198.51.100.7", "high"))
+            self.assertEqual(report("bng-6")["area"], {"incident": 0})             # its neighbour is fine
+            self.assertEqual(report("olt-1")["area"], {"incident": 0})
+            self.assertEqual(report("lone", care=line_down(now - 220, "LINE_DOWN"))["area"], {"incident": 0})
+            # cortex holds fixes for those homes: a proposal waits, firmware isn't offered
+            gid = s.gateway("bng-1")["id"]
+            s.propose(gid, "sqm", "pppoe-wan:40000:0", 0, "help desk")
+            self.assertEqual(call(a, "/v1/proposals", homes["bng-1"][1])["proposals"], [])
+            self.assertIsNone(call(a, "/v1/firmware", homes["bng-1"][1])["offer"])
+            # the dashboard: the incident, its homes; a home's page says so
+            o = call(b, "/api/outages?state=open")
+            self.assertEqual(len(o["outages"]), 1)
+            inc = o["outages"][0]
+            self.assertEqual((inc["id"], inc["kind"], inc["homes"]), (n["incident"], "LOSS", 5))
+            self.assertEqual(sorted(h["home"] for h in inc["affected"]), [f"bng-{k}" for k in range(5)])
+            self.assertEqual(o["rules"]["min_homes"], 3)
+            ov = call(b, "/api/overview")
+            self.assertEqual([x["id"] for x in ov["outages"]], [n["incident"]])
+            self.assertEqual(call(b, f"/api/gateways/{gid}")["area_outage"]["id"], n["incident"])
+            self.assertIsNone(call(b, "/api/gateways/lone")["area_outage"])
+            # the MCP tools: area_outages, and the help desk's brief
+            srv = Server(s)
+            r = srv.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "area_outages",
+                                                                                     "arguments": {}}})
+            self.assertEqual([x["id"] for x in json.loads(r["result"]["content"][0]["text"])], [n["incident"]])
+            r = srv.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                            "params": {"name": "support_brief", "arguments": {"gateway": "bng-3"}}})
+            self.assertIn("Known outage in the area", json.loads(r["result"]["content"][0]["text"])["verdict"])
+            r = srv.handle({"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                            "params": {"name": "support_brief", "arguments": {"gateway": "lone"}}})
+            self.assertNotIn("area_outage", json.loads(r["result"]["content"][0]["text"]))
+            # the homes recover (80%: 4 of 5): over; the fix that waited is sent
+            for k in range(4):
+                report(f"bng-{k}", care={"status": "ok"})
+            self.assertEqual(call(b, "/api/outages?state=open")["outages"], [])
+            self.assertEqual(report("bng-4", care=line_down(now - 80))["area"], {"incident": 0})   # a straggler: its own
+            self.assertEqual([p["action"] for p in call(a, "/v1/proposals", homes["bng-1"][1])["proposals"]], ["sqm"])
+            closed = call(b, "/api/outages")["outages"]
+            self.assertEqual([(x["id"], x["state"]) for x in closed], [(n["incident"], "closed")])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -324,6 +324,21 @@ static void gather(struct brief_in *in, const struct brief_ask *a, long now)
 	}
 	in->dec = decs;
 	in->ndec = k;
+	/* an area outage cortex told of */
+	{
+		static char held[200];
+		struct area_now an;
+
+		if (area_get(&an)) {
+			area_held_words(held, sizeof(held));
+			in->area = an.incident;
+			in->area_kind = an.kind;
+			in->area_since = an.since;
+			in->area_homes = an.homes;
+			in->area_of = an.of;
+			in->area_held = held;
+		}
+	}
 }
 
 /* ---------- the answer ---------- */

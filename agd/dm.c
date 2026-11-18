@@ -44,7 +44,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.16"
+#define DM_VERSION "1.17"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -944,6 +944,42 @@ CFF(g_cf_l_verdict, "Last.Verdict")
 CFF(g_cf_l_sum, "Last.Summary")
 GET(g_cf_l_start) { char v[24] = "0"; (void)c; calls_field("Last.Start", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
 
+/* area outages (Device.X_AIGW_.AreaOutage.): cortex found many homes of this uplink down at once */
+#define AOF(fn, f) GET(fn) { (void)c; return area_field(f, buf, n); }
+#define AOT(fn, f) GET(fn) { char v[24] = "0"; (void)c; area_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+AOF(g_ao_en, "Enable")
+AOF(g_ao_up, "UplinkID")
+AOF(g_ao_st, "Status")
+AOF(g_ao_inc, "Incident")
+AOF(g_ao_kind, "Kind")
+AOF(g_ao_homes, "Homes")
+AOF(g_ao_of, "HomesInArea")
+AOF(g_ao_conf, "Confidence")
+AOF(g_ao_link, "Uplink")
+AOF(g_ao_held, "HeldFixes")
+AOF(g_ao_last, "LastIncident")
+AOT(g_ao_since, "Since")
+AOT(g_ao_until, "Until")
+AOT(g_ao_ended, "LastEnded")
+
+/* the operator's id of the uplink (the ACS writes it): cortex compares the homes that share one */
+static int s_ao_up(const struct ictx *c, const char *v, int apply, char *err, size_t en)
+{
+	char tmp[sizeof(cfg.area_uplink_id)];
+
+	(void)c;
+	if (strlen(v) >= sizeof(tmp) || strpbrk(v, "\"'\\,;\n")) {
+		snprintf(err, en, "UplinkID: up to %zu characters, no quotes, commas or semicolons", sizeof(tmp) - 1);
+		return E_INVALID_VALUE;
+	}
+	if (!apply)
+		return E_OK;
+	if (area_set_uplink(v, err, en) < 0)
+		return E_INVALID_VALUE;
+	AG_INFO("dm: area uplink id set to '%s' by %s", v, req_origin);
+	return E_OK;
+}
+
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1245,6 +1281,22 @@ static struct dm_param {
 	{ CF "Last.Verdict", T_STR, 0, TB_NONE, g_cf_l_verdict, NULL },
 	{ CF "Last.Summary", T_STR, 0, TB_NONE, g_cf_l_sum, NULL },
 #undef CF
+#define AO "Device.X_AIGW_.AreaOutage."
+	{ AO "Enable", T_BOOL, 0, TB_NONE, g_ao_en, NULL },
+	{ AO "UplinkID", T_STR, W, TB_NONE, g_ao_up, s_ao_up },
+	{ AO "Status", T_STR, N, TB_NONE, g_ao_st, NULL },
+	{ AO "Incident", T_UINT, 0, TB_NONE, g_ao_inc, NULL },
+	{ AO "Kind", T_STR, 0, TB_NONE, g_ao_kind, NULL },
+	{ AO "Since", T_TIME, 0, TB_NONE, g_ao_since, NULL },
+	{ AO "Homes", T_UINT, 0, TB_NONE, g_ao_homes, NULL },
+	{ AO "HomesInArea", T_UINT, 0, TB_NONE, g_ao_of, NULL },
+	{ AO "Confidence", T_STR, 0, TB_NONE, g_ao_conf, NULL },
+	{ AO "Uplink", T_STR, 0, TB_NONE, g_ao_link, NULL },
+	{ AO "HeldFixes", T_STR, 0, TB_NONE, g_ao_held, NULL },
+	{ AO "Until", T_TIME, 0, TB_NONE, g_ao_until, NULL },
+	{ AO "LastIncident", T_UINT, 0, TB_NONE, g_ao_last, NULL },
+	{ AO "LastEnded", T_TIME, 0, TB_NONE, g_ao_ended, NULL },
+#undef AO
 	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
 #define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
@@ -1904,6 +1956,8 @@ static struct {
 	{ "Device.X_AIGW_.OfferFound!", "Code,Kind,Product,Confidence,Evidence" },
 	{ "Device.X_AIGW_.CallReport!",
 	  "Kind,Verdict,DurationSeconds,FullLineSeconds,LineKbps,LatencyMs,JitterMs,LossPercent,Prioritized,Summary" },
+	{ "Device.X_AIGW_.AreaOutage!", "Incident,Kind,Since,Homes,HomesInArea,Confidence,Uplink" },
+	{ "Device.X_AIGW_.AreaOutageCleared!", "Incident,Kind,Since,DurationSeconds,HeldFixes,Reason" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -2521,6 +2575,30 @@ void dm_on_call(const char *kind, const char *verdict, long duration, long full_
 				     "Prioritized", prioritized ? "true" : "false", "Summary", summary, NULL };
 
 		emit(events[10].path, kv);  /* CallReport! */
+	}
+}
+
+/* area.c: an area outage this home is part of (AreaOutage!), and its end for this home (AreaOutageCleared!) */
+void dm_on_area(int started, uint32_t incident, const char *kind, long since, long duration, int homes, int of,
+		const char *confidence, const char *uplink, const char *held, const char *why)
+{
+	char inc[16], s[40], d[24], h[16], o[16];
+
+	snprintf(inc, sizeof(inc), "%u", incident);
+	fmt_time(since, s, sizeof(s));
+	snprintf(d, sizeof(d), "%ld", duration < 0 ? 0 : duration);
+	snprintf(h, sizeof(h), "%d", homes);
+	snprintf(o, sizeof(o), "%d", of);
+	if (started) {
+		const char *kv[] = { "Incident", inc, "Kind", kind, "Since", s, "Homes", h, "HomesInArea", o,
+				     "Confidence", confidence, "Uplink", uplink, NULL };
+
+		emit(events[11].path, kv);  /* AreaOutage! */
+	} else {
+		const char *kv[] = { "Incident", inc, "Kind", kind, "Since", s, "DurationSeconds", d, "HeldFixes", held,
+				     "Reason", why, NULL };
+
+		emit(events[12].path, kv);  /* AreaOutageCleared! */
 	}
 }
 

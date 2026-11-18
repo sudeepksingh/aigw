@@ -16,6 +16,11 @@
  *   fix        a remote fix, if there is one (it is only proposed: a person says yes)
  *   visit      whether a technician should go out: No, IfPersists, Yes
  *
+ * A known outage in the area (cortex: many homes of the uplink at once) comes
+ * first for a period that overlaps it: the ISP's network, not the home; no
+ * visit, nothing to fix in the home (code AREA_OUTAGE unless the home's own
+ * verdict already names the line).
+ *
  * A technician visit costs the ISP money, and a wrong one costs the customer a
  * day, so the rules are careful: a visit only for the line itself (the next
  * hop losing packets, the nightly speed far below the line's), and only when
@@ -106,6 +111,12 @@ struct brief_in {
 	/* AIGW's decisions: those made in or just before the period, and those live now */
 	const struct brief_decision *dec;
 	int ndec;
+	/* an area outage cortex told of (agd/area.c): many homes of this uplink at once */
+	uint32_t area;                  /* its number; 0 none */
+	const char *area_kind;          /* DOWN, LOSS, SLOW, DNS */
+	long area_since;
+	int area_homes, area_of;        /* homes hit, of the uplink's */
+	const char *area_held;          /* what AIGW held meanwhile, in words; NULL or "" nothing yet */
 };
 
 struct brief_line {

@@ -118,6 +118,13 @@ def answer(store, ref=None, period=None, propose=False, now=None, who="help desk
         made = int(g["last_seen"] or 0)
         out.update(_from_care(snap))
         out["source"] = "proactive care in the gateway's last report (it sends no brief: AIGW OS before 0.37)"
+    # v0.39: many homes of its uplink at once: a known outage in the area, not this home (outage.py)
+    from . import outage
+    inc = outage.for_gateway(store, g["id"])
+    if inc:
+        outage.tag_brief(out, inc)
+    elif (near := outage.nearby(store, g["id"])):
+        outage.note_nearby(out, near)
     age = now - made if made else None
     out["made"] = made
     out["age_s"] = age
@@ -149,6 +156,9 @@ def answer(store, ref=None, period=None, propose=False, now=None, who="help desk
         elif fix.get("possible"):
             out["proposal"] = {"note": "The device's address stays home: propose it from the gateway "
                                        "(SupportBrief() with Propose true)."}
+        elif fix.get("held"):
+            out["proposal"] = {"note": "Held: a known outage in the area. Nothing is proposed for this home until "
+                                       "it is over."}
         else:
             out["proposal"] = {"note": "Nothing to propose: " + str(fix.get("text") or "no remote fix") }
     _table(store)
@@ -208,8 +218,11 @@ def fleet_lines(r):
 
 def text(b):
     """One brief in words, for the support agent."""
-    out = [f"{b['home']}: {b.get('fault', 'UNKNOWN')} ({b.get('code', '')}, {b.get('confidence', 'low')} confidence)",
+    out = [f"{b['home']}: {b.get('fault', 'UNKNOWN')} ({b.get('code', '')}, {b.get('confidence', 'low')} confidence)" +
+           (", KNOWN AREA OUTAGE" if b.get("area_outage") else ""),
            f"  verdict   {b.get('verdict', '')}"]
+    if b.get("area_note"):
+        out.append(f"  area      {b['area_note']}")
     for i, e in enumerate(b.get("evidence") or []):
         out.append(("  evidence  " if not i else "            ") + (f"{e['clock']} " if e.get("clock") else "") + e.get("text", ""))
     for i, e in enumerate(b.get("done") or []):

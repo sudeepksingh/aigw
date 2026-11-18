@@ -42,6 +42,10 @@
  *                                                   (capability firmware.install): agd's own
  *                                                   Download path, into the image not running,
  *                                                   activated, then checked like any upgrade
+ *                    {"area": {incident, kind, since, homes, of, confidence, uplink, hold_s, id}}
+ *                                                   an area outage cortex found (capability
+ *                                                   area.notice): AIGW holds its own fixes
+ *                                                   until incident 0 or hold_s passes
  *                    {"model": {file, sig, id}}     offer a signed model update (capability
  *                                                   model.offer; files in its own $AIGW_STATE)
  *                    {"fed": {round, center, scale, weights, lr, epochs, clip, noise, id}}
@@ -168,7 +172,7 @@ static int trusted(const struct plugin *p)
 static int priv_cap(const char *cap)
 {
 	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read") || !strcmp(cap, "model.offer") ||
-	       !strcmp(cap, "fed.train") || !strcmp(cap, "firmware.install");
+	       !strcmp(cap, "fed.train") || !strcmp(cap, "firmware.install") || !strcmp(cap, "area.notice");
 }
 
 static void state_dir(const struct plugin *p, char *out, size_t n)
@@ -591,6 +595,30 @@ static void on_firmware(struct plugin *p, struct blob_attr *a)
 	blob_buf_free(&d);
 }
 
+/* an area outage cortex found (the bridge passes on its answer): holds AIGW's own fixes while it lasts */
+static void on_area(struct plugin *p, struct blob_attr *a)
+{
+	struct blob_buf d = { 0 };
+	char err[200] = "", who[48];
+	int rc = -1;
+
+	snprintf(who, sizeof(who), "plug-in %s", p->name);
+	if (!has_cap(p, "area.notice"))
+		snprintf(err, sizeof(err), "plug-in %s may not tell of area outages (capability area.notice%s)", p->name,
+			 trusted(p) ? " not in its manifest" : " needs: agctl plugin allow");
+	else
+		rc = area_notice(a, who, err, sizeof(err));
+	if (!get(a, "id")) {
+		if (rc)
+			AG_INFO("plug-in %s: area notice refused: %s", p->name, err);
+		return;
+	}
+	blob_buf_init(&d, 0);
+	blobmsg_add_u8(&d, "ok", rc == 0);
+	reply(p, (int)gnum(a, "id", 0), &d, rc == 0 ? NULL : err);
+	blob_buf_free(&d);
+}
+
 static void on_query(struct plugin *p, const char *what, int id)
 {
 	struct blob_buf d = { 0 };
@@ -607,6 +635,7 @@ static void on_query(struct plugin *p, const char *what, int id)
 		blobmsg_add_u32(&d, "active", (uint32_t)act_count(1));
 		blobmsg_add_u32(&d, "plugins", (uint32_t)plugin_count(1));
 		blobmsg_add_u64(&d, "uptime_s", (uint64_t)(ag_wall_s() - started));
+		area_status_blob(&d);           /* what cortex groups the homes by for area outages */
 	} else if (!strcmp(what, "models")) {
 		models_blob(&d, "models");
 	} else if (!strcmp(what, "care")) {
@@ -682,6 +711,8 @@ static void handle_line(struct plugin *p, char *line)
 			on_fed(p, body);
 		else if (!strcmp(key, "firmware") && body)
 			on_firmware(p, body);
+		else if (!strcmp(key, "area") && body)
+			on_area(p, body);
 		else if (!strcmp(key, "log") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
 			AG_INFO("plug-in %s: %.300s", p->name, blobmsg_get_string(cur));
 		else
@@ -1224,7 +1255,7 @@ static int load_manifest(struct plugin *p, char *err, size_t n)
 		if (strcmp(p->caps[i], "decision.request") && strcmp(p->caps[i], "decision.propose") &&
 		    strcmp(p->caps[i], "devices.read") && strcmp(p->caps[i], "alert.raise") &&
 		    strcmp(p->caps[i], "model.offer") && strcmp(p->caps[i], "fed.train") &&
-		    strcmp(p->caps[i], "firmware.install")) {
+		    strcmp(p->caps[i], "firmware.install") && strcmp(p->caps[i], "area.notice")) {
 			snprintf(err, n, "unknown capability '%s'", p->caps[i]);
 			goto out;
 		}

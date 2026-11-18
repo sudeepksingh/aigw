@@ -13,6 +13,8 @@
  *   learning round: agd trains ◄───── fed ◄──── GET /v1/fed      the shared layer (14 numbers)
  *   on your answers, returns          update ─► POST /v1/fed/update   averaged with other homes',
  *   only a clipped, noisy change                                   published as a signed layer
+ *   area outage: fixes held   ◄────── area ◄─── the report's answer   many homes of one uplink
+ *                                                                  at once (outage.py)
  *   firmware, agd's Download path ◄── firmware ◄ GET /v1/firmware   a staged rollout's wave
  *   (checked like any upgrade:        result ─► POST /v1/firmware/<id>   (only with firmware 1;
  *   the verdict goes in the report)                                 an ACS may push instead)
@@ -35,6 +37,8 @@
  *              federated rounds
  *   firmware   1 = take firmware from cortex's staged rollouts (default 0: the ISP's
  *              ACS pushes it); needs capability firmware.install and mgmt.firmware 1
+ *   area       1 = pass on cortex's area-outage notice (many homes of this uplink
+ *              down at once): agd holds its own fixes meanwhile (capability area.notice)
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -60,9 +64,9 @@
 
 static struct {
 	char url[128], token[128], devices[16], state[256], host[16], aigw[16];
-	int interval, models, proposals, fed, alert_names, firmware;
-	int can_read, can_propose, can_model, can_fed, can_firmware;
-} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1 };
+	int interval, models, proposals, fed, alert_names, firmware, area;
+	int can_read, can_propose, can_model, can_fed, can_firmware, can_area;
+} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1, .area = 1 };
 
 static char *ibuf;
 static size_t ilen, icap;
@@ -207,6 +211,7 @@ static void on_hello(struct blob_attr *h)
 	c.fed = (int)fnum(conf, "fed", 1);
 	c.alert_names = (int)fnum(conf, "alert_names", 1);
 	c.firmware = (int)fnum(conf, "firmware", 0);
+	c.area = (int)fnum(conf, "area", 1);
 	if ((g = field(h, "granted")))
 		blobmsg_for_each_attr(cur, g, rem) {
 			const char *cap = blobmsg_type(cur) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(cur) : "";
@@ -216,6 +221,7 @@ static void on_hello(struct blob_attr *h)
 			c.can_model |= !strcmp(cap, "model.offer");
 			c.can_fed |= !strcmp(cap, "fed.train");
 			c.can_firmware |= !strcmp(cap, "firmware.install");
+			c.can_area |= !strcmp(cap, "area.notice");
 		}
 	configured = 1;
 }
@@ -542,6 +548,51 @@ static void add_care(struct blob_buf *r, struct blob_attr *care)
 }
 
 static struct blob_buf models_now;
+static long area_told = -1;          /* the incident agd was told of last (-1: nothing yet) */
+
+/*
+ * cortex's answer to a report says whether this home is part of an area outage
+ * (many homes of its uplink at once): {"area": {incident, kind, since, ...}},
+ * incident 0 for none. agd holds its own fixes while it lasts; it forgets by
+ * itself unless told again (hold_s), so it is passed on with every report.
+ */
+static void area_pass(const char *out)
+{
+	struct blob_buf a = { 0 }, b = { 0 };
+	struct blob_attr *t, *cur, *d;
+	size_t rem;
+	long inc;
+	int id = next_id++;
+	void *tt;
+
+	if (!c.area || !c.can_area || read_json(out, &a) || !(t = field(a.head, "area")) ||
+	    blobmsg_type(t) != BLOBMSG_TYPE_TABLE) {
+		blob_buf_free(&a);
+		return;                      /* a cortex before 0.39 says nothing: nothing changes */
+	}
+	inc = fnum(t, "incident", 0);
+	blob_buf_init(&b, 0);
+	tt = blobmsg_open_table(&b, "area");
+	blobmsg_for_each_attr(cur, t, rem)
+		if (strcmp(blobmsg_name(cur), "id"))
+			blobmsg_add_blob(&b, cur);
+	blobmsg_add_u32(&b, "id", (uint32_t)id);
+	blobmsg_close_table(&b, tt);
+	d = ask(&b, id);
+	if (inc != area_told || !d || !fnum(d, "ok", 0)) {
+		if (!d || !fnum(d, "ok", 0))
+			logf_("area outage %ld: not taken by agd: %s", inc, reply_err);
+		else if (inc)
+			logf_("area outage %ld on %s: told agd (it holds its own fixes meanwhile)", inc,
+			      fstr(t, "uplink") ? fstr(t, "uplink") : "?");
+		else if (area_told > 0)
+			logf_("area outage %ld over: told agd", area_told);
+	}
+	if (d && fnum(d, "ok", 0))
+		area_told = inc;
+	blob_buf_free(&b);
+	blob_buf_free(&a);
+}
 
 static void report(void)
 {
@@ -551,6 +602,7 @@ static void report(void)
 
 	blob_buf_init(&r, 0);
 	blobmsg_add_string(&r, "bridge", c.aigw);
+	blobmsg_add_u32(&r, "interval", (uint32_t)c.interval);   /* cortex: when a silent home has missed reports */
 	if ((d = query("status")))
 		copy_attr(&r, "status", d);
 	blob_buf_init(&models_now, 0);
@@ -577,8 +629,10 @@ static void report(void)
 	}
 	snprintf(path, sizeof(path), "%s/report.json", c.state);
 	snprintf(out, sizeof(out), "%s/report.out", c.state);
-	if (write_json(path, &r) == 0 && http("POST", "/v1/report", path, out) == 0)
+	if (write_json(path, &r) == 0 && http("POST", "/v1/report", path, out) == 0) {
 		logf_("checked in with cortex");
+		area_pass(out);
+	}
 	blob_buf_free(&r);
 }
 
