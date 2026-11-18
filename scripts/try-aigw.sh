@@ -165,6 +165,8 @@ if [ $CHECK = 1 ]; then
 		echo "$out" | grep -q '^DEMO ' && ok "agctl labels it demo data" || no "agctl has no DEMO label"
 		echo "$out" | grep -q 'LINE_FULL' && ok "agctl why explains the slow evening" || no "agctl why: no LINE_FULL"
 		echo "$out" | grep -q 'verdict   kept' && ok "smart queueing kept" || no "agctl sqm: not kept"
+		echo "$out" | grep -q '^  why not ' && no "smart queueing unavailable: $(echo "$out" | grep '^  why not ')" ||
+			ok "smart queueing is available on this kernel"
 		echo "$out" | grep -q '"demo": true' && ok "ag status says demo" || no "ag status: no demo"
 	else
 		no "no ssh client to check agctl"
