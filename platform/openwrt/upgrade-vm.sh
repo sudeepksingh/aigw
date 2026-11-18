@@ -83,9 +83,10 @@ snap)
 	agctl dm get Device. > "$d/dm.txt" 2>&1
 	/etc/init.d/aigw enabled && echo enabled > "$d/service.txt"
 	opkg list-installed | grep -E 'aigw' > "$d/packages.txt"
-	# the files that hold the home (state changes as agd runs: listed, not compared)
+	# the files that hold the home (state changes as agd runs, the rules are made at
+	# every start: listed, not compared)
 	(cd /etc/aigw && find . -type f | sort | while read -r f; do
-		case $f in ./agd-state.json|./agd-upgrade.json) echo "$f";; *) md5sum "$f";; esac
+		case $f in ./agd-state.json|./agd-upgrade.json|./aigw.nft*) echo "$f";; *) md5sum "$f";; esac
 	done) > "$d/files.txt"
 	ls /etc/config/ > "$d/configs.txt"
 	tar czf "$d.tgz" -C /tmp "snap-$name"

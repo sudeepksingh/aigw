@@ -103,7 +103,7 @@ snap() {
 	agctl dm get Device. > "$d/dm.txt" 2>&1
 	systemctl is-active aigw-agd >/dev/null && echo enabled > "$d/service.txt"
 	(cd /etc/aigw && find . -type f | sort | while read -r f; do
-		case $f in ./agd-state.json|./agd-upgrade.json) echo "$f" ;; *) md5sum "$f" ;; esac
+		case $f in ./agd-state.json|./agd-upgrade.json|./aigw.nft*) echo "$f" ;; *) md5sum "$f" ;; esac
 	done) > "$d/files.txt"
 }
 snap before

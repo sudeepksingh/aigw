@@ -317,15 +317,33 @@ endef
 # An upgrade keeps AIGW as it was: on at boot if it was, its fw4 include. opkg runs
 # the old prerm with "upgrade" (PKG_UPGRADE=1) first; OpenWRT's own scripts stop agd
 # then and start the new one after. Up to 0.42 that prerm also turned AIGW off at
-# boot and removed the fw4 include on an upgrade: that is what is found here (this
-# runs before uci-defaults puts the include back), and AIGW is on at boot again.
+# boot and removed the fw4 include on an upgrade (uci-defaults puts the include
+# back). The new preinst runs right after that prerm with "upgrade <old version>"
+# (opkg's record still names the old one): from 0.42 or older, AIGW is turned on
+# at boot again by postinst.
+define Package/aigw/preinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+[ "$$1" = upgrade ] || [ "$${PKG_UPGRADE:-0}" = 1 ] || exit 0
+v=$${2:-$$(sed -n 's/^Version: //p' /usr/lib/opkg/info/aigw.control 2>/dev/null)}
+v=$${v%%-*}; maj=$${v%%.*}; min=$${v#*.}; min=$${min%%.*}
+case "$$maj.$$min" in *[!0-9.]*|.*|*.) exit 0 ;; esac
+if [ "$$maj" -eq 0 ] && [ "$$min" -lt 43 ]; then
+	mkdir -p /tmp/aigw-upgrade
+	touch /tmp/aigw-upgrade/enable
+fi
+exit 0
+endef
+
 define Package/aigw/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
-[ "$${PKG_UPGRADE:-0}" = 1 ] || exit 0
-if ! uci -q get firewall.aigw >/dev/null && ! /etc/init.d/aigw enabled 2>/dev/null; then
-	/etc/init.d/aigw enable
-	logger -t aigw "on at boot again after the upgrade (AIGW 0.42 and older turned it off)"
+if [ -e /tmp/aigw-upgrade/enable ]; then
+	rm -f /tmp/aigw-upgrade/enable
+	if ! /etc/init.d/aigw enabled 2>/dev/null; then
+		/etc/init.d/aigw enable
+		logger -t aigw "on at boot again after the upgrade (AIGW 0.42 and older turned it off)"
+	fi
 fi
 exit 0
 endef
