@@ -58,7 +58,10 @@ setup)
 	sleep 2
 	agctl zone Living-room-TV iot || exit 1
 	agctl block blocked.example.com 1d || exit 1
-	timeout 120 agctl care --check >/dev/null 2>&1 || echo "(care check: $?)"
+	# a care check now (the history: agctl care's report counts checks)
+	timeout 120 agctl care --check 2>&1 | tail -n 3
+	sleep 2
+	agctl -j care | grep -m 3 '"checks"'
 	agctl remote on 203.0.113.10 || exit 1
 	agctl remote add "Anna's phone" >/dev/null || exit 1
 	# what agd keeps is what it saved: a restart first, so the snapshot holds only that

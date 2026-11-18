@@ -127,17 +127,13 @@ def dm_paths(vals):
 
 
 def checks_total(x):
-    """Every "checks" count under a "days" list (proactive care's history), summed."""
+    """Proactive care's history: the largest "checks" count in `agctl -j care` (its
+    report over the longest period)."""
     if isinstance(x, dict):
-        s = 0
-        for k, v in x.items():
-            if k == "days" and isinstance(v, list):
-                s += sum(int(d.get("checks") or 0) for d in v if isinstance(d, dict))
-            else:
-                s += checks_total(v)
-        return s
+        own = x.get("checks") if isinstance(x.get("checks"), int) else 0
+        return max([own] + [checks_total(v) for v in x.values()])
     if isinstance(x, list):
-        return sum(checks_total(v) for v in x)
+        return max([0] + [checks_total(v) for v in x])
     return 0
 
 
@@ -267,7 +263,9 @@ def main():
         must("/etc/init.d/aigw enable; /etc/init.d/aigw restart; (i=0; until agctl status >/dev/null 2>&1;"
              " do i=$((i+1)); [ $i -gt 120 ] && exit 1; sleep 1; done)", "agd answering", 240)
         say(f"a home on {from_v}: settings, a policy of its own, devices and a zone, a block, care, a remote phone")
-        must(f"wget -q -O /tmp/upgrade-vm.sh {host}/upgrade-vm.sh && sh /tmp/upgrade-vm.sh setup", "setup", 600)
+        out = must(f"wget -q -O /tmp/upgrade-vm.sh {host}/upgrade-vm.sh && sh /tmp/upgrade-vm.sh setup", "setup", 600)
+        for ln in out.splitlines()[-8:]:
+            print("    | " + ln.rstrip("\r"), flush=True)
         before = snap("before")
         say(f"upgrading to {to_v} with opkg: {' '.join(new)}")
         out = must(retry.format("opkg install /tmp/new/*.ipk"), f"install {to_v}", 1200)
