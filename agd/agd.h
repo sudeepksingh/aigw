@@ -532,7 +532,8 @@ struct fw_request {
 };
 typedef void (*fw_done_t)(void *ctx, int ok, const char *msg);
 const char *fw_handler(void);
-int fw_list(struct fw_image *out, int max);
+int fw_list(struct fw_image *out, int max);      /* reused for FW_CACHE s: for reads */
+int fw_list_now(struct fw_image *out, int max);  /* asked now: for decisions */
 int fw_find(uint32_t id, struct fw_image *f);
 int fw_ids(uint32_t *out, int max);
 void fw_version(char *buf, size_t n);

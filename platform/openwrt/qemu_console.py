@@ -305,10 +305,15 @@ def main():
         return bad + kept_copy_checks(f"http://10.0.2.2:{acs_port}/{upgrade}")
 
     def reboot_and_back(what):
-        """The flash is written and the VM reboots: wait for it, then AIGW again (the packages are not kept)."""
+        """The flash is written and the VM reboots: wait for it, then AIGW again (the packages are not kept).
+        If agd refuses the operation (ubus prints its answer), say why at once rather than wait for a reboot."""
         try:
-            vm.expect(r"Please press Enter to activate this console", 900)
+            m = vm.expect(r'Please press Enter to activate this console|"ok": false,(?s:.*?)"message": "([^"]*)"', 900)
         except TimeoutError:
+            print("    (no reboot within 900 s)", flush=True)
+            return False
+        if m.group(1) is not None:
+            print(f"    (refused by agd: {m.group(1).decode(errors='replace')})", flush=True)
             return False
         say(f"rebooted ({what}); AIGW again")
         vm.buf = b"Please press Enter to activate this console"
