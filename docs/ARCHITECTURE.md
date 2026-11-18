@@ -1069,6 +1069,17 @@ Verified by `tests/single-image-test.sh` (CI: the handler on a fake flash with s
 | agctl | `agctl brief [device] [period] [--no-check] [--speed] [--propose]`; `ubus call ag brief`. |
 
 Verified by `tests/test_brief.c` (16 calls: the line down with three sources agreeing, loss that lasted and a blip, the ISP's network, a full line with SQM off, waiting or on, a hopping laptop, a waiting channel, a quarantined device, rough calls on a fine line, all fine, nothing known, disagreeing sources, a rolled-back upgrade, low speeds on 3 nights, the gateway off, a past period; periods in words; kinds and scrubbing), `tests/brief-test.sh` (CI: agd in a gateway namespace with a veth WAN to an ISP namespace and a fake hostapd; all fine after a fresh check; a weak laptop by name at home and as "a laptop" for the ISP; a full line, with SQM proposed and nothing shaped; the internet down: `LINE`, no technician, also for an ACS; the counts kept over a restart), `tests/test_cortex.py` and `tests/outside-test.sh` (the brief through the bridge, found by serial). Not yet used by a real help desk.
+**As built in v0.39: area outages.** Many homes behind one uplink with a line fault in the same few minutes are one network incident, not many home faults ([area-outages.md](area-outages.md)).
+
+| Piece | As built |
+|-------|----------|
+| Correlation (`cortex/aigw_cortex/outage.py`) | Homes grouped by the operator's id in cortex (`group`), else the gateway's `UplinkID`, else `wan:<next hop>` or `bng:<peer>` (home-network addresses group nothing). Faults: care's line and DNS problems, the brief's current `LINE` verdict, silence (only while cortex hears from others). Faults starting within 15 min of the first, at least 3 homes and 10% of the uplink; later ones join; over when 80% recovered. Incidents kept in `incidents`/`incident_homes` with stable ids; the operator may declare and end one. Settings in the database (`outages settings`). |
+| Tags and holds | `brief.answer` overlays "known outage in your area" (no visit, no fix); `/v1/proposals` keeps `sqm`, `stay24`, `channel` queued and `/v1/firmware` offers nothing for homes in an open incident; the report's answer carries `area` for the gateway. |
+| Gateway (`agd/area.c`) | The bridge passes `area` on (capability `area.notice`); agd holds smart-queueing trials and judging, band steering, channel changes, stay24 (`act_on_alert`, `steer_tick`, `sqm_on_sample`), never security actions; the notice lapses after `hold_s`. Data model 1.17: `Device.X_AIGW_.AreaOutage.` (writable `UplinkID`), `AreaOutage!`, `AreaOutageCleared!`. The gateway's brief rule says `AREA_OUTAGE`. |
+| Operator | Dashboard banners and `/api/outages`, the fleet report's `outages`, MCP `area_outages`, `aigw_cortex outages [declare\|end\|settings]`. |
+
+Verified by `tests/test_cortex.py` (the rules, kept incidents, silence, 14 simulated homes end to end over HTTP), `tests/test_brief.c` and `tests/area-test.sh` (three real gateways with bridges and cortex). Not yet seen on a real ISP's network.
+
 **As built in v0.38: the operator dashboard.** One web page, served by cortex, that shows an ISP the fleet: health, the homes to call first, rollouts with pause and abort, ISP signals, smart queueing, and each gateway ([dashboard.md](dashboard.md)).
 
 | Piece | As built |

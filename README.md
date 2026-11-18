@@ -58,6 +58,15 @@ illustrated version.
 > and TR-069, and cortex's `support_brief` (MCP) with the counts in the fleet
 > report; see [docs/help-desk.md](docs/help-desk.md).
 >
+> **v0.39:** **An outage in the area, not a fault in the home.** When many
+> homes behind one uplink (an OLT, a BNG, an exchange) go slow, lose packets
+> or drop in the same few minutes, cortex opens one network incident: its
+> homes' help-desk briefs say "known outage in your area" (no technician),
+> fixes in those homes are held (AIGW doesn't fix what isn't broken), and the
+> ISP sees it on the dashboard, in the fleet report, the MCP tool
+> `area_outages`, and as `Device.X_AIGW_.AreaOutage!` from each gateway; see
+> [docs/area-outages.md](docs/area-outages.md).
+>
 > **v0.36:** **A bad upgrade undone, even on a router with one firmware
 > image.** Since v0.30 AIGW rolls back an upgrade that makes the home worse,
 > but only where the flash has two banks. Most OpenWRT routers have one:
