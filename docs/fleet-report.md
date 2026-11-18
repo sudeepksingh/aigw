@@ -39,6 +39,7 @@ assistant, read-only.
 | outages | Problems on the line or DNS that start in many homes of one group within minutes of each other: at least 3 homes, and at least 10% of the group's, each within 15 minutes of the one before. That is the ISP's network, not the homes: one incident, not dozens of tickets. It shows how many homes are still affected. |
 | signals | v0.32: each home's open [signals for the ISP](isp-signals.md) (a faster plan, smart queueing, mesh Wi-Fi, a customer at risk, a line to repair), how many homes, by product and how many of high confidence, and the list in the order a team works through it: repairs first, then homes at risk, then sales by confidence. |
 | rollouts | v0.34: each [staged firmware rollout](staged-rollout.md) still going, or changed in the period: its version, state, wave, how many homes kept it or got worse, and why it waits or stopped, with counts and no names. |
+| help_desk | v0.37: the [help desk's briefs](help-desk.md) cortex answered in the period: how many, for how many homes, by fault (`LINE`, `HOME_WIFI`, `DEVICE`, `OUTSIDE`, `NONE`, `UNKNOWN`), how many advised a technician (and only if it persists), how many had a remote fix and how many were proposed; and the briefs the gateways answered themselves (USP, TR-069, agctl), from their own counts. |
 | attention | First the open problems (oldest first), then the open early warnings (the nearest fault first), then the poor scores, then the gateways that went quiet for a day. |
 
 ## Groups

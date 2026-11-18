@@ -66,6 +66,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/why-test.sh build
       - name: "ISP signals test (a week of days: a faster plan and mesh Wi-Fi, OfferFound! once, no names, share 0)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/offers-test.sh build
+      - name: "Help-desk brief test (a fresh check, a weak laptop named only by kind for the ISP, a full line: SQM only proposed; the internet down: no technician)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/brief-test.sh build
       - name: "Smart queueing test (real bufferbloat on a veth WAN: proposed, shaped, kept; tried and undone)"
         run: |
           (sudo modprobe sch_netem && sudo modprobe ifb) ||

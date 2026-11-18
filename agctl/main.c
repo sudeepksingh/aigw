@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* agctl: command-line view of the AIGW brain over ubus. */
 #define _GNU_SOURCE
+#include <ctype.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -48,6 +49,11 @@ static void usage(void)
 		"  why [device] [--at 20:00 | --from 19:30 --to 21:00 | --last 2h] [--raw]\n"
 		"                      \"why was it slow?\" afterwards: the home's timeline (the last hour by\n"
 		"                      default) explained, with what happened in order\n"
+		"  brief [device] [now | \"last 2h\" | \"tonight 20:00-22:00\" | --since 19:30] [--no-check]\n"
+		"        [--speed] [--propose]\n"
+		"                      the help desk's answer: the fault in one word, the evidence, what AIGW\n"
+		"                      did, what to tell the customer, a remote fix (--propose: a decision\n"
+		"                      that waits for a yes) and whether a technician should go out\n"
 		"  sqm [--on|--off]    smart queueing on the line: AIGW turns it on when the line is full and\n"
 		"                      everything else slows (bufferbloat), and keeps it only if it helped\n"
 		"  calls               calls and games first: the ones now (first in smart queueing), how\n"
@@ -1971,6 +1977,56 @@ static void show_why(struct ubus_request *req, int type, struct blob_attr *msg)
 		printf("    %-8s %-16s %s\n", fstr(f, "severity"), fstr(f, "code"), fstr(f, "text"));
 }
 
+static int brief_failed;
+
+/* agctl brief [device] [period] [--no-check] [--speed] [--propose]: the help desk's answer */
+static void show_brief(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *f, *fx = field(msg, "fix");
+	char a[32], b[32];
+	size_t rem;
+	int k = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (*fstr(msg, "error")) {
+		printf("%s\n", fstr(msg, "error"));
+		brief_failed = 1;
+		return;
+	}
+	clock_of(fnum(msg, "from"), a, sizeof(a));
+	clock_of(fnum(msg, "to"), b, sizeof(b));
+	printf("%s to %s%s\n", a, b, fnum(msg, "checked") ? " (checked just now)" : "");
+	printf("  fault     %s (%s, %s confidence)\n", fstr(msg, "fault"), fstr(msg, "code"), fstr(msg, "confidence"));
+	printf("  verdict   %s\n", fstr(msg, "verdict"));
+	blobmsg_for_each_attr(f, field(msg, "evidence"), rem) {
+		if (!k++)
+			printf("  evidence\n");
+		printf("    %-9s %s\n", *fstr(f, "clock") ? fstr(f, "clock") : fstr(f, "source"), fstr(f, "text"));
+	}
+	k = 0;
+	blobmsg_for_each_attr(f, field(msg, "done"), rem) {
+		if (!k++)
+			printf("  AIGW did\n");
+		printf("    %-9s %s\n", *fstr(f, "clock") ? fstr(f, "clock") : "", fstr(f, "text"));
+	}
+	printf("  tell      %s\n", fstr(msg, "tell"));
+	if (fx) {
+		printf("  fix       %s%s\n", fnum(fx, "possible") ? "remote: " : "", fstr(fx, "text"));
+		if (fnum(fx, "decision"))
+			printf("            decision %llu %s: agctl approve %llu (only with the customer's yes)\n",
+			       (unsigned long long)fnum(fx, "decision"), fnum(fx, "proposed") ? "proposed now" : "waits",
+			       (unsigned long long)fnum(fx, "decision"));
+		else if (fnum(fx, "possible") && strcmp(fstr(fx, "action"), "undo"))
+			printf("            not proposed: agctl brief --propose makes it a decision that waits for a yes\n");
+		if (*fstr(fx, "error"))
+			printf("            not proposed: %s\n", fstr(fx, "error"));
+	}
+	printf("  visit     %s\n", fstr(msg, "visit_reason"));
+}
+
 static int sqm_failed;
 
 /* agctl sqm [--on|--off]: self-tuning smart queueing */
@@ -2372,6 +2428,46 @@ int main(int argc, char **argv)
 		rc = call("ag", "calls", NULL, show_calls);
 	} else if (!strcmp(cmd, "offers")) {
 		rc = call("ag", "offers", NULL, show_offers);
+	} else if (!strcmp(cmd, "brief")) {
+		char period[96] = "";
+		const char *host = NULL;
+		int check = 1, speed = 0, propose = 0;
+		size_t pl = 0;
+
+		for (; i < argc; i++) {
+			const char *o = argv[i];
+
+			if (!strcmp(o, "--no-check"))
+				check = 0;
+			else if (!strcmp(o, "--speed"))
+				speed = 1;
+			else if (!strcmp(o, "--propose"))
+				propose = 1;
+			else if ((!strcmp(o, "--since") || !strcmp(o, "--period")) && i + 1 < argc) {
+				pl = (size_t)snprintf(period, sizeof(period), "%s%s", !strcmp(o, "--since") ? "since " : "", argv[++i]);
+			} else if (o[0] == '-') {
+				usage();
+				return 1;
+			} else if (!host && !pl && !strchr(o, ':') && strcmp(o, "now") && strcmp(o, "tonight") && strcmp(o, "yesterday") &&
+				   strcmp(o, "last") && strcmp(o, "since") && strcmp(o, "today") && !isdigit((unsigned char)o[0]) &&
+				   strncmp(o, "last ", 5))
+				host = o;
+			else if (pl < sizeof(period))       /* the period's words, in any number of arguments */
+				pl += (size_t)snprintf(period + pl, sizeof(period) - pl, "%s%s", pl ? " " : "", o);
+		}
+		blob_buf_init(&args, 0);
+		blobmsg_add_string(&args, "period", period);
+		if (host)
+			blobmsg_add_string(&args, "host", host);
+		blobmsg_add_u8(&args, "check", (uint8_t)check);
+		if (speed)
+			blobmsg_add_u8(&args, "speed", 1);
+		if (propose)
+			blobmsg_add_u8(&args, "propose", 1);
+		call_timeout = 150 * 1000;              /* a fresh check, and the speed test */
+		rc = call("ag", "brief", args.head, show_brief);
+		blob_buf_free(&args);
+		rc = rc || brief_failed;
 	} else if (!strcmp(cmd, "why")) {
 		long from = 0, to = 0, at = 0, last = 0, now = (long)time(NULL);
 		const char *host = NULL;

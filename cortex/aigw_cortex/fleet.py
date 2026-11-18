@@ -24,12 +24,14 @@ never names), for the last --days days against the days before:
                mesh Wi-Fi, a customer at risk, a line to repair first
   rollouts     (v0.34) staged firmware rollouts going on or changed in the period: the
                wave, how many homes kept it or got worse, and why one stopped (rollout.py)
+  help desk    (v0.37) support briefs answered (brief.py), by fault, and how many
+               advised a technician: the proof of faster calls and fewer visits
 """
 import statistics
 import time
 from collections import Counter
 
-from . import rollout
+from . import brief, rollout
 
 GOOD, FAIR = 95, 80
 OUTAGE_WINDOW = 900             # s: problems this close together belong to one outage
@@ -196,6 +198,7 @@ def report(store, days=7, group=None, now=None):
         "signals": signals(store, ids, names, groups),
         "rollouts": [r for r in rollout.summaries(store, since=first * 86400, now=now)
                      if group is None or r["group"] == group],
+        "help_desk": brief.fleet(store, first * 86400, ids),
         "attention": attention[:30],
         "per_home": sorted(homes.values(), key=lambda h: (h["score"] is None, h["score"] or 0)),
     }
@@ -229,7 +232,7 @@ def text(r, now=None):
            f": {h['reporting']} of {h['total']} homes reporting" + (f", {h['silent']} silent" if h["silent"] else "")]
     if e["mean"] is None:
         out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
-        return "\n".join(out + _rollouts(r))
+        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r))
     change = ""
     if e["mean_before"] is not None:
         d = e["mean"] - e["mean_before"]
@@ -269,6 +272,7 @@ def text(r, now=None):
             out.append(f"    {o['home']}{where}: {o['code']}, {o['product']} ({o['confidence']}, {o['days']} of "
                        f"{o['of_days']} days): {o['evidence']}")
     out += _rollouts(r)
+    out += brief.fleet_lines(r)
     if r["attention"]:
         out.append("  attention")
     for a in r["attention"]:

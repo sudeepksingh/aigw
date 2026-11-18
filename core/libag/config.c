@@ -195,6 +195,7 @@ void ag_config_load(struct ag_config *c)
 	c->why_probe = 1;
 	c->offers = 1;
 	c->offers_share = 1;
+	c->brief = 1;
 	c->sqm = 1;
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
@@ -509,6 +510,12 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "offers", "share");
 		if (v)
 			c->offers_share = atoi(v) != 0;
+		v = opt(ctx, p, "brief", "enabled");
+		if (v)
+			c->brief = atoi(v) != 0;
+		v = opt(ctx, p, "brief", "names");
+		if (v)
+			c->brief_names = atoi(v) != 0;
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

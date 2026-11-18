@@ -563,6 +563,9 @@ static void report(void)
 	/* the last firmware upgrade's check (a staged rollout's wave waits for it): no devices */
 	if ((d = query("upgrade")))
 		copy_attr(&r, "upgrade", d);
+	/* the help desk's brief of the last hour (device kinds unless brief.names), and how many were asked */
+	if ((d = query("brief")) && (d = field(d, "brief")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
+		copy_attr(&r, "brief", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))

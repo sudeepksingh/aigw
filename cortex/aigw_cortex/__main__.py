@@ -272,6 +272,11 @@ def main(argv=None):
     p.add_argument("--group")
     p.add_argument("--json", action="store_true")
     rollout_args(sub.add_parser("rollout", help="staged firmware rollouts that stop themselves"))
+    p = sub.add_parser("brief", help="the help desk's answer about one home")
+    p.add_argument("home", nargs="?", help="gateway name, id or TR-069 serial number")
+    p.add_argument("--period", help="what the customer means (\"tonight 20:00-22:00\"); cortex has the last hour")
+    p.add_argument("--propose", action="store_true", help="send the remote fix as a proposal (waits for a yes)")
+    p.add_argument("--json", action="store_true")
     sub.add_parser("remove").add_argument("name")
     sub.add_parser("pubkey")
     p = sub.add_parser("publish")
@@ -328,6 +333,13 @@ def main(argv=None):
             show(r)
         else:
             print(fleet.text(r))
+    elif a.cmd == "brief":
+        from . import brief
+        try:
+            b = brief.answer(store, a.home, a.period, a.propose, who="you (cortex)")
+        except ValueError as e:
+            sys.exit(str(e))
+        show(b) if a.json else print(brief.text(b))
     elif a.cmd == "rollout":
         try:
             rollout_cmd(store, a)

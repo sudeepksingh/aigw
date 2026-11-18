@@ -375,5 +375,117 @@ class Mcp(unittest.TestCase):
             self.assertEqual(srv.handle({"jsonrpc": "2.0", "id": 3, "method": "nope"})["error"]["code"], -32601)
 
 
+def a_brief(fault, code, visit="No", fix=None, made=0, serial="", asked=None):
+    """A gateway's brief, as its bridge reports it (agd's brief_report_blob)."""
+    return {"fault": fault, "code": code, "confidence": "high", "current": True,
+            "verdict": f"{fault}: {code} (a laptop)", "evidence": [{"source": "now", "clock": "20:02", "text": code}],
+            "done": [], "tell": "Tell them.", "fix": fix or {"possible": False, "proposed": False, "text": "Nothing."},
+            "visit": visit, "visit_reason": visit + ": because.", "from": made - 3600, "to": made, "checked": False,
+            "names": False, "made": made, "serial": serial,
+            "asked": asked or {"total": 0, "fault": {}, "visits": 0, "remote_fix": 0, "proposed": 0, "since": 0}}
+
+
+class HelpDesk(unittest.TestCase):
+    """v0.37: the help desk's answer about one home (brief.py), the MCP tool, the fleet report's counts."""
+
+    def test_answer(self):
+        from aigw_cortex import brief
+        now = 1795469400
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            gid, _ = s.enroll("home-a", "east")
+            s.report(gid, {"status": {"version": "0.37.0"},
+                           "brief": a_brief("LINE", "LINE_LOSS", "Yes", made=now - 120, serial="A1B2C3D4E5F6")}, now - 120)
+            # by name, id, or the serial number the ACS knows
+            for ref in ("home-a", gid, "A1B2C3D4E5F6", "a1b2c3d4e5f6"):
+                b = brief.answer(s, ref, now=now)
+                self.assertEqual((b["home"], b["fault"], b["code"], b["visit"]), ("home-a", "LINE", "LINE_LOSS", "Yes"), ref)
+            self.assertEqual(b["age_s"], 120)
+            self.assertIn("As of 2 min ago", b["freshness"])
+            self.assertNotIn("period_note", b)
+            with self.assertRaises(ValueError):
+                brief.answer(s, "nobody", now=now)
+            # old data: says so, and where to get a fresh one; another period: where to ask
+            b = brief.answer(s, "home-a", "tonight 20:00-22:00", now=now + 3600)
+            self.assertIn("62 min old", b["freshness"])
+            self.assertIn("SupportBrief()", b["freshness"])
+            self.assertIn("tonight 20:00-22:00", b["period_note"])
+            self.assertIn("Not through the bridge", b["refresh"])
+            t = brief.text(b)
+            self.assertIn("home-a: LINE (LINE_LOSS, high confidence)", t)
+            self.assertIn("visit     Yes: because.", t)
+
+    def test_propose_only(self):
+        from aigw_cortex import brief
+        now = 1795469400
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            gid, _ = s.enroll("home-b")
+            fix = {"possible": True, "action": "sqm", "target": "eth0:45000:0", "text": "Turn on smart queueing."}
+            s.report(gid, {"status": {}, "brief": a_brief("NONE", "LINE_FULL", fix=fix, made=now)}, now)
+            b = brief.answer(s, "home-b", now=now)
+            self.assertNotIn("proposal", b)
+            self.assertEqual(s.proposals(), [])                 # asking changes nothing
+            b = brief.answer(s, "home-b", propose=True, now=now)
+            p = s.proposals()
+            self.assertEqual([(x["action"], x["target"], x["state"]) for x in p], [("sqm", "eth0:45000:0", "queued")])
+            self.assertIn("waits there for a person's yes", b["proposal"]["note"])
+            # a fix that waits already is not proposed again; one without a target (a device's MAC stays home) isn't either
+            for fx in ({"possible": True, "action": "approve", "decision": 7, "text": "Approve 7."},
+                       {"possible": True, "action": "stay24", "text": "Keep a laptop on 2.4 GHz."},
+                       {"possible": True, "action": "quarantine", "target": "tv", "text": "never"}):
+                s.report(gid, {"status": {}, "brief": a_brief("HOME_WIFI", "WIFI_HOPPING", fix=fx, made=now)}, now)
+                brief.answer(s, "home-b", propose=True, now=now)
+            self.assertEqual(len(s.proposals()), 1)
+
+    def test_old_gateway(self):
+        """A gateway before 0.37 sends no brief: an answer from proactive care alone, careful."""
+        from aigw_cortex import brief
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            gid, _ = s.enroll("old")
+            s.report(gid, {"status": {"version": "0.36.0"}, "care": {"status": "problem", "problem": {
+                "code": "ISP_DOWN", "area": "Internet", "since": 100, "reported": True, "summary": "down"}}})
+            b = brief.answer(s, "old")
+            self.assertEqual((b["fault"], b["code"], b["confidence"], b["visit"]), ("LINE", "ISP_DOWN", "low", "No"))
+            self.assertIn("before 0.37", b["source"])
+            s.report(gid, {"status": {"version": "0.36.0"}})
+            self.assertEqual(brief.answer(s, "old")["fault"], "UNKNOWN")
+
+    def test_fleet_and_mcp(self):
+        from aigw_cortex import fleet
+        now = 20000 * 86400 + 12 * 3600
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            srv = Server(s)
+            gids = [s.enroll("home%d" % i)[0] for i in range(3)]
+            s.report(gids[0], {"status": {}, "brief": a_brief("LINE", "LINE_LOSS", "Yes", made=now, asked={
+                "total": 5, "fault": {"LINE": 2, "HOME_WIFI": 3}, "visits": 1, "remote_fix": 2, "proposed": 1})}, now)
+            s.report(gids[1], {"status": {}, "brief": a_brief("HOME_WIFI", "WIFI_COVERAGE", made=now)}, now)
+            s.report(gids[2], {"status": {}, "brief": a_brief("NONE", "OK", made=now)}, now)
+            for i, g in enumerate(("home0", "home1", "home2", "home1")):
+                r = srv.handle({"jsonrpc": "2.0", "id": i, "method": "tools/call",
+                                "params": {"name": "support_brief", "arguments": {"gateway": g}}})
+                self.assertFalse(r["result"]["isError"], r)
+            out = json.loads(r["result"]["content"][0]["text"])
+            self.assertEqual((out["home"], out["fault"]), ("home1", "HOME_WIFI"))
+            r = srv.handle({"jsonrpc": "2.0", "id": 9, "method": "tools/call",
+                            "params": {"name": "support_brief", "arguments": {"gateway": "nobody"}}})
+            self.assertTrue(r["result"]["isError"])
+            names = [t["name"] for t in srv.handle({"jsonrpc": "2.0", "id": 10, "method": "tools/list"})["result"]["tools"]]
+            self.assertIn("support_brief", names)
+            h = fleet.report(s, 7)["help_desk"]
+            self.assertEqual((h["briefs"], h["homes"], h["fault"]), (4, 3, {"HOME_WIFI": 2, "LINE": 1, "NONE": 1}))
+            self.assertEqual((h["visit_advised"], h["no_visit"]), (1, 3))
+            self.assertEqual(h["on_gateways"], {"briefs": 5, "fault": {"HOME_WIFI": 3, "LINE": 2}, "visit_advised": 1,
+                                                "remote_fix": 2})
+            t = fleet.text(fleet.report(s, 7))
+            self.assertIn("help desk    4 briefs for 3 homes: HOME_WIFI 2, LINE 1, NONE 1; a technician advised for 1", t)
+            self.assertIn("asked of the gateways themselves (USP, TR-069, agctl): 5", t)
+            # a group's report counts only its homes
+            s.set_group("home2", "west")
+            self.assertEqual(fleet.report(s, 7, "west")["help_desk"]["briefs"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -177,6 +177,9 @@ struct ag_config {
 	/* signals for the ISP (agd/offers.c) */
 	int offers;               /* a faster plan, mesh Wi-Fi, smart queueing, a customer at risk, a line to repair */
 	int offers_share;         /* the ISP may see them (data model, cortex): counts and words, never names */
+	/* the help-desk assistant (agd/brief.c) */
+	int brief;                /* SupportBrief(), agctl brief, and a brief in each report to cortex */
+	int brief_names;          /* the ISP's brief names devices by their names; 0: by kind ("a laptop") */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];
