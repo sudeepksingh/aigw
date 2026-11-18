@@ -20,6 +20,7 @@
 </p>
 
 <p align="center">
+  <a href="docs/try-it.md"><b>Try it in five minutes</b></a> ·
   <a href="docs/getting-started-openwrt.md">Get started on OpenWRT</a> ·
   <a href="docs/getting-started-pc-ap.md">Get started on a PC</a> ·
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
@@ -28,6 +29,16 @@
 </p>
 
 ---
+
+> **Try it in five minutes, no router needed.** One command boots a demo image
+> (OpenWRT with AIGW OS, in QEMU) with a simulated home and fleet: the
+> operator dashboard, "why was it slow last night?", smart queueing, calls
+> first and the TR-181 data model, all with real-looking content.
+> [Quick start](docs/try-it.md):
+>
+> ```bash
+> curl -fsSLO https://github.com/sudeepksingh/aigw/releases/latest/download/try-aigw.sh && sh try-aigw.sh
+> ```
 
 AIGW OS is a small AI core that turns an **OpenWRT router**, or **any Linux PC
 acting as a Wi-Fi access point**, into a gateway that knows which devices are

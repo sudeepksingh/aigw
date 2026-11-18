@@ -93,6 +93,7 @@ esac
 V=$(sed -n 's/^PKG_VERSION:=//p' "$REPO/platform/openwrt/aigw/Makefile")
 mkdir -p "$W/pkgs"
 for f in "$PKGS"/*aigw*[_-]"$V"-r*; do
+	case ${f##*/} in aigw-demo[_-]*) continue ;; esac      # the demo image's only (build-demo-image.sh)
 	[ -f "$f" ] && cp "$f" "$W/pkgs/"
 done
 # aigw-usp and aigw-cwmp need the clients they serve (their own versions); their libraries come from OpenWRT's feed

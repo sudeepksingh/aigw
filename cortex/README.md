@@ -23,6 +23,10 @@ NAS, a cloud VM. Gateways work fully without it. With it:
   the homes to call first, staged rollouts (pause and abort), ISP signals,
   smart queueing and each gateway. `python3 -m aigw_cortex dashboard`
   ([docs/dashboard.md](../docs/dashboard.md)).
+- **A demo** (v0.41): `python3 -m aigw_cortex demo` serves the dashboard with
+  a simulated fleet of 24 homes from a temporary directory, labelled as demo
+  data; the AIGW OS demo image runs the same, with its own home enrolled
+  ([docs/try-it.md](../docs/try-it.md)).
 
 ```
  gateway (agd)                   bridge plug-in (nobody, curl)          cortex

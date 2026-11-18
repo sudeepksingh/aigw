@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.40.0
+PKG_VERSION:=0.41.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -134,6 +134,22 @@ define Package/luci-app-aigw/description
   plug-ins and models.
 endef
 
+define Package/aigw-demo
+  SECTION:=net
+  CATEGORY:=Network
+  TITLE:=AIGW OS demo image only: a simulated home and fleet (QEMU virtual machines only)
+  # only in the demo image (platform/openwrt/build-demo-image.sh), which adds
+  # python3 for cortex and curl for the bridge; never released as a package
+  DEPENDS:=+aigw +aigw-bridge +luci-app-aigw
+endef
+
+define Package/aigw-demo/description
+  The demo image's simulated home and fleet (docs/try-it.md): three days of a
+  home's timeline with a slow evening, a call and an upgrade, and cortex with
+  24 simulated homes and its dashboard. It turns itself on only in a QEMU
+  virtual machine, and labels everything as demo data. Not for routers.
+endef
+
 CMAKE_OPTIONS += -DAIGW_TESTS=OFF
 
 # aarch64: binutils aligns segments to 64 KB pages by default, which pads each
@@ -147,7 +163,7 @@ define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) $(AIGW_SRC)/CMakeLists.txt $(AIGW_SRC)/include $(AIGW_SRC)/core \
 		$(AIGW_SRC)/agd $(AIGW_SRC)/agdns $(AIGW_SRC)/agctl $(AIGW_SRC)/plugins $(AIGW_SRC)/cwmp \
-		$(AIGW_SRC)/scripts $(AIGW_SRC)/tests $(AIGW_SRC)/models $(AIGW_SRC)/LICENSE \
+		$(AIGW_SRC)/demo $(AIGW_SRC)/scripts $(AIGW_SRC)/tests $(AIGW_SRC)/models $(AIGW_SRC)/LICENSE \
 		$(PKG_BUILD_DIR)/
 endef
 
@@ -233,6 +249,17 @@ fi
 exit 0
 endef
 
+CORTEX_SRC:=$(AIGW_SRC)/cortex/aigw_cortex
+
+define Package/aigw-demo/install
+	$(INSTALL_DIR) $(1)/usr/libexec/aigw $(1)/etc/init.d $(1)/usr/lib/aigw-demo/cortex/aigw_cortex/static
+	# not installed by "make install": built for the test suite, packaged only here
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/demo/aigw-demo $(1)/usr/libexec/aigw/
+	$(INSTALL_BIN) ./files/aigw-demo.init $(1)/etc/init.d/aigw-demo
+	$(INSTALL_DATA) $(CORTEX_SRC)/*.py $(1)/usr/lib/aigw-demo/cortex/aigw_cortex/
+	$(INSTALL_DATA) $(CORTEX_SRC)/static/* $(1)/usr/lib/aigw-demo/cortex/aigw_cortex/static/
+endef
+
 LUCI_SRC:=$(AIGW_SRC)/platform/openwrt/luci-app-aigw
 
 define Package/luci-app-aigw/install
@@ -271,3 +298,4 @@ $(eval $(call BuildPackage,aigw-bridge))
 $(eval $(call BuildPackage,aigw-remote))
 $(eval $(call BuildPackage,aigw-cwmp))
 $(eval $(call BuildPackage,luci-app-aigw))
+$(eval $(call BuildPackage,aigw-demo))

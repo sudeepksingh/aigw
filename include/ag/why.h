@@ -27,6 +27,17 @@
 #define WHY_TEXT     160
 #define WHY_MAX_SAMPLES 4320            /* the most samples one stretch is judged on (3 days of minutes) */
 
+/* why.file (agd/why.c; the demo image's simulated home, demo/aigw-demo.c, writes one too):
+ * this header, `ring` struct why_min (any order: each is placed by its time), then
+ * WHY_EV_MAX struct why_ev, ev_head the next to write, ev_n of them used */
+#define WHY_FILE_MAGIC "AGWHY01"
+#define WHY_EV_MAX   512
+struct why_file_hdr {
+	char magic[8];
+	uint32_t min_size, ev_size, ring, interval, ev_n, ev_head;
+	char radio[WHY_RADIOS][24];
+};
+
 /* one access point in one sample (Self-Healing Wi-Fi's verdict) */
 struct why_radio {
 	uint8_t used;

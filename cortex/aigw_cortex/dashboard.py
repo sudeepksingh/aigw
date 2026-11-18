@@ -184,6 +184,7 @@ def overview(store, days=7, group=None, now=None):
     r["groups"] = sorted({g["grp"] or "" for g in gws} - {""})
     r["version"] = __version__
     r["now"] = now
+    r["demo"] = os.path.exists(os.path.join(store.dir, "DEMO"))     # a simulated fleet (demo.py): the page says so
     return r
 
 

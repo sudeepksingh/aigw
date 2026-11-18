@@ -98,6 +98,8 @@ return view.extend({
 			]),
 			E('div', { 'class': 'cbi-map-descr' },
 				T(_('The AI-powered operating system for home gateways: what is on your network, what it does, and what AIGW OS thinks you should know.'))),
+			(data[0] && data[0].demo) ? E('div', { 'class': 'alert-message warning' },
+				T(_('Demo: a simulated home (the AIGW OS demo image). The devices, the timeline and the decisions are made up; nothing here is a real home.'))) : '',
 			E('div', { 'class': 'cbi-section' }, box)
 		]);
 	},

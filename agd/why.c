@@ -46,19 +46,14 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define EV_MAX      512
+#define EV_MAX      WHY_EV_MAX
 #define RING_MAX    10080               /* a week of minutes */
 #define TARGETS     3                   /* [0] the next router, then 2 on the internet */
 #define ROUNDS      3
 #define SAVE_S      600
 #define MAX_ASK_S   86400               /* the longest stretch explained at once */
-#define MAGIC       "AGWHY01"
+#define MAGIC       WHY_FILE_MAGIC
 
-struct hdr {
-	char magic[8];
-	uint32_t min_size, ev_size, ring, interval, ev_n, ev_head;
-	char radio[WHY_RADIOS][24];
-};
 
 static struct why_min *ring;
 static int R;
@@ -712,7 +707,7 @@ static void tick(struct uloop_timeout *t)
 
 void why_save(void)
 {
-	struct hdr h;
+	struct why_file_hdr h;
 	char tmp[300];
 	FILE *f;
 	int ok;
@@ -753,7 +748,7 @@ void why_save(void)
 
 static long load(void)
 {
-	struct hdr h;
+	struct why_file_hdr h;
 	struct why_min m;
 	FILE *f;
 	uint32_t i;

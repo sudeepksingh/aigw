@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.40.0 LANGUAGES C)
+project(aigw VERSION 0.41.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -54,6 +54,7 @@ add_subdirectory(agd)
 add_subdirectory(agdns)
 add_subdirectory(agctl)
 add_subdirectory(plugins)
+add_subdirectory(demo)
 
 # USP (TR-369): the plug-in for OB-USP-Agent, built against the obuspa source
 # tree the agent is built from (scripts/build-obuspa.sh fetches the pinned one)

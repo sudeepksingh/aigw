@@ -2112,9 +2112,16 @@ static void show_sqm(struct ubus_request *req, int type, struct blob_attr *msg)
 	       !strcmp(st, "Trial") ? "on trial: kept if the delay while the line is full clearly falls" :
 	       !strcmp(st, "On") ? "on" : !strcmp(st, "Tried") ? "off: it was tried and didn't help" :
 	       !strcmp(st, "Unavailable") ? "not available here" : st);
-	if (*fstr(msg, "interface"))
+	if (*fstr(msg, "interface")) {
+		char up[32];
+
+		if (fnum(msg, "up_kbps"))
+			snprintf(up, sizeof(up), "%.1f Mbit/s", fnum(msg, "up_kbps") / 1000.0);
+		else
+			snprintf(up, sizeof(up), "not shaped");
 		printf("  line      %s, shaped at %.1f Mbit/s down, %s up\n", fstr(msg, "interface"),
-		       fnum(msg, "down_kbps") / 1000.0, fnum(msg, "up_kbps") ? "" : "not shaped");
+		       fnum(msg, "down_kbps") / 1000.0, up);
+	}
 	if (*fstr(msg, "shaping"))
 		printf("  now       %s\n", fstr(msg, "shaping"));
 	if (*fstr(msg, "unavailable"))
@@ -2430,6 +2437,8 @@ int main(int argc, char **argv)
 		fprintf(stderr, "agctl: cannot connect to ubus. Is ubusd running?\n");
 		return 1;
 	}
+	if (!json_out && ag_demo())
+		printf("DEMO  a simulated home (the AIGW OS demo image): not real data\n");
 
 	if (!strcmp(cmd, "status")) {
 		rc = call("ag", "status", NULL, show_status);

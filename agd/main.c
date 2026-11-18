@@ -248,6 +248,8 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
 	blobmsg_add_string(&b, "phase", "advanced");
+	if (ag_demo())
+		blobmsg_add_u8(&b, "demo", 1);  /* the demo image's simulated home */
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
 	blobmsg_add_u32(&b, "devices", (uint32_t)dev_count());
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
