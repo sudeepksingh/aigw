@@ -46,6 +46,18 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.37:** **A help-desk assistant for the ISP.** The support agent asks
+> about one home in plain words ("bad internet tonight?") and gets one short
+> answer from everything AIGW already knows: the fault in one word (`LINE`,
+> `HOME_WIFI`, `DEVICE`, `OUTSIDE`, `NONE`, `UNKNOWN`), one sentence, the
+> evidence with times and numbers, what AIGW already did, what to tell the
+> customer, a remote fix (only proposed: it waits for a yes), and whether a
+> technician should go out, decided carefully. It checks the home first, needs
+> no AI model, and names devices only by kind for the ISP.
+> `agctl brief tonight 20:00-22:00`, `Device.X_AIGW_.SupportBrief()` over USP
+> and TR-069, and cortex's `support_brief` (MCP) with the counts in the fleet
+> report; see [docs/help-desk.md](docs/help-desk.md).
+>
 > **v0.36:** **A bad upgrade undone, even on a router with one firmware
 > image.** Since v0.30 AIGW rolls back an upgrade that makes the home worse,
 > but only where the flash has two banks. Most OpenWRT routers have one:

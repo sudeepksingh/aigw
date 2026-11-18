@@ -46,6 +46,11 @@ add_executable(test_calls test_calls.c)
 target_link_libraries(test_calls ag)
 add_test(NAME calls_first COMMAND test_calls)
 
+add_executable(test_brief test_brief.c)
+target_link_libraries(test_brief ag)
+add_test(NAME support_brief COMMAND test_brief)
+set_tests_properties(support_brief PROPERTIES ENVIRONMENT "TZ=UTC")
+
 add_executable(test_tr143 test_tr143.c)
 target_link_libraries(test_tr143 ag)
 add_test(NAME tr143_diagnostics COMMAND test_tr143)

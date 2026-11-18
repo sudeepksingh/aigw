@@ -57,6 +57,17 @@ TOOLS = [
          {"name": {"type": "string"}, "action": {"type": "string", "enum": ["pause", "abort"]},
           "reason": {"type": "string", "description": "Why, in plain words, kept in the rollout's log"}},
          required=("name", "action", "reason"), read_only=False),
+    tool("support_brief",
+         "The help desk's answer about one home: the fault in one word (LINE, HOME_WIFI, DEVICE, OUTSIDE, NONE, "
+         "UNKNOWN), one sentence, the evidence with times and numbers, what AIGW already did, what to tell the "
+         "customer, a remote fix if there is one, and whether a technician should go out. From the gateway's last "
+         "report, with how old it is; device kinds, not names. A fix is only proposed (propose: true): it waits on "
+         "the gateway for a person's yes.",
+         {"gateway": {"type": "string", "description": "The home: its gateway's name or id, or its TR-069 serial number"},
+          "period": {"type": "string", "description": "What the customer means, e.g. \"now\", \"tonight 20:00-22:00\" "
+                                                      "(cortex has the last hour; it says where to ask for others)"},
+          "propose": {"type": "boolean", "description": "Send the remote fix as a proposal (waits for a yes)"}},
+         read_only=False),
     tool("propose_action",
          "Suggest an action on a gateway. It is never applied directly: it waits on the gateway until a "
          "person approves it. Actions: quarantine, priority, deprioritize, throttle, disconnect (target: a "
@@ -122,6 +133,10 @@ class Server:
                 gws.append({"gateway": g["name"], "models": snap.get("models", [])})
             return {"published": [{k: m[k] for k in ("name", "version", "sha256", "notes")}
                                   for m in s.latest_models()], "gateways": gws}
+        if name == "support_brief":
+            from . import brief
+            return brief.answer(s, args.get("gateway"), args.get("period"), bool(args.get("propose")),
+                                who="an AI assistant")
         g = self.gw(args)
         snap = s.snapshot(g["id"]) or {}
         if name == "gateway_status":

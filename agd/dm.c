@@ -36,6 +36,7 @@
 
 #include <libubus.h>
 
+#include "ag/brief.h"
 #include "ag/care.h"
 #include "ag/diag.h"
 #include "ag/heal.h"
@@ -43,7 +44,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.15"
+#define DM_VERSION "1.16"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -395,6 +396,12 @@ GET(g_serial)
 	lan_mac(id, sizeof(id));
 	snprintf(buf, n, "%s", id[0] ? id : "AIGW0000000000");
 	return 0;
+}
+
+/* brief.c: the serial number an ACS knows this gateway by (cortex looks a home up by it) */
+void dm_serial(char *buf, size_t n)
+{
+	g_serial(NULL, buf, n);
 }
 
 GET(g_oui)
@@ -1698,6 +1705,103 @@ static int r_whyslow(const struct ictx *c, struct blob_attr *a, struct blob_buf 
 	return E_OK;
 }
 
+/* ---------- SupportBrief(): the help desk's answer (asynchronous: a fresh check first) ---------- */
+
+static void brief_lines(char *out, size_t n, const struct brief_line *l, int k, long to)
+{
+	size_t len = 0;
+	int i;
+
+	out[0] = '\0';
+	for (i = 0; i < k; i++) {
+		char c[16] = "", line[BRIEF_TEXT + 32];
+		int w;
+
+		if (l[i].t)
+			why_clock(l[i].t, to, c, sizeof(c));
+		w = snprintf(line, sizeof(line), "%s%s%s%s", len ? "\n" : "", c, *c ? " " : "", l[i].text);
+		if (w < 0 || len + (size_t)w >= n)
+			break;
+		memcpy(out + len, line, (size_t)w + 1);
+		len += (size_t)w;
+	}
+}
+
+static void brief_done(void *ctx, const struct brief *r, const struct brief_meta *m)
+{
+	struct dm_async *a = ctx;
+	struct blob_buf rb = { 0 };
+	char text[VAL_MAX], tm[32], num[24];
+	void *t;
+
+	blob_buf_init(&rb, 0);
+	t = blobmsg_open_table(&rb, "out");
+	blobmsg_add_string(&rb, "Fault", brief_fault_name(r->fault));
+	blobmsg_add_string(&rb, "Code", r->code);
+	blobmsg_add_string(&rb, "Confidence", brief_conf_name(r->confidence));
+	blobmsg_add_string(&rb, "Verdict", r->verdict);
+	brief_lines(text, sizeof(text), r->ev, r->nev, m->to);
+	blobmsg_add_string(&rb, "Evidence", text);
+	brief_lines(text, sizeof(text), r->done, r->ndone, m->to);
+	blobmsg_add_string(&rb, "Done", text);
+	blobmsg_add_string(&rb, "Tell", r->tell);
+	blobmsg_add_string(&rb, "RemoteFix", r->fix.possible ? "true" : "false");
+	blobmsg_add_string(&rb, "Fix", r->fix.text);
+	if (m->decision)
+		snprintf(text, sizeof(text), "Device.%s.Decision.%u", vx, m->decision);
+	else
+		text[0] = '\0';
+	blobmsg_add_string(&rb, "FixDecision", text);
+	blobmsg_add_string(&rb, "Visit", brief_visit_name(r->visit));
+	blobmsg_add_string(&rb, "VisitReason", r->visit_why);
+	blobmsg_add_string(&rb, "Checked", m->checked ? "true" : "false");
+	fmt_time(m->from, tm, sizeof(tm));
+	blobmsg_add_string(&rb, "Start", tm);
+	fmt_time(m->to, tm, sizeof(tm));
+	blobmsg_add_string(&rb, "End", tm);
+	snprintf(num, sizeof(num), "%ld", m->data_age < 0 ? -1L : m->data_age);
+	blobmsg_add_string(&rb, "DataAgeSeconds", num);
+	blobmsg_close_table(&rb, t);
+	blobmsg_add_u8(&rb, "ok", 1);
+	ubus_send_reply(a->ctx, &a->req, rb.head);
+	ubus_complete_deferred_request(a->ctx, &a->req, 0);
+	blob_buf_free(&rb);
+	AG_INFO("dm: %s by %s: %s %s", a->cmd, a->who, brief_fault_name(r->fault), r->code);
+	free(a);
+}
+
+static int r_brief(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
+{
+	const char *hv = arg(a, "Host"), *h = hv && *hv ? host_arg(hv) : "", *pv = arg(a, "Period"), *fv = arg(a, "Fresh");
+	long to = parse_time(arg(a, "End")), from = parse_time(arg(a, "Start")), now = (long)ag_wall_s();
+	struct brief_ask q;
+
+	(void)c;
+	(void)o;
+	memset(&q, 0, sizeof(q));
+	if (!h) {
+		snprintf(e, n, "Host is a Device.Hosts.Host. path, or a MAC, IP or name");
+		return E_INVALID_ARGS;
+	}
+	if (to < 0 || from < 0) {
+		snprintf(e, n, "Start and End are dateTime values (2026-11-16T20:00:00Z)");
+		return E_INVALID_ARGS;
+	}
+	if (from || to) {
+		q.to = to ? to : now;
+		q.from = from ? from : q.to - 3600;
+	} else if (brief_parse_period(pv ? pv : "", &q.from, &q.to, e, n) < 0)
+		return E_INVALID_ARGS;
+	snprintf(q.host, sizeof(q.host), "%s", h);
+	q.check = !fv || !*fv || arg_true(a, "Fresh");
+	q.speed = arg_true(a, "SpeedTest");
+	q.propose = arg_true(a, "Propose");
+	q.names = !req_remote || cfg.brief_names;         /* the ISP: device kinds, unless the home allows names */
+	q.hide_calls = req_remote && !cfg.calls_share;
+	snprintf(q.who, sizeof(q.who), "%s", req_origin);
+	return brief_start(&q, brief_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
+}
+
 /* ---------- TR-143 (asynchronous: seconds to minutes) ---------- */
 
 static void tr_done(void *ctx, int kind, const struct tr143_out *o)
@@ -1755,7 +1859,11 @@ static struct dm_cmd {
 	  "Code,Area,Severity,Summary,Advice,Findings,InternetLossPercent,InternetLatencyMs,NextHopLatencyMs,DNSLatencyMs",
 	  r_diagnose, 0, 1 },
 	{ "Device.X_AIGW_.WhySlow()", TB_NONE, "Start,End,Host",
-	  "Code,Area,Severity,Summary,Advice,Findings,Story,Start,End,RecordedPercent", r_whyslow, 0, 0 },	{ "Device.IP.Diagnostics.IPPing()", TB_NONE, "Interface,ProtocolVersion,Host,NumberOfRepetitions,Timeout,DataBlockSize,DSCP",
+	  "Code,Area,Severity,Summary,Advice,Findings,Story,Start,End,RecordedPercent", r_whyslow, 0, 0 },
+	{ "Device.X_AIGW_.SupportBrief()", TB_NONE, "Period,Start,End,Host,Fresh,SpeedTest,Propose",
+	  "Fault,Code,Confidence,Verdict,Evidence,Done,Tell,RemoteFix,Fix,FixDecision,Visit,VisitReason,Checked,Start,End,"
+	  "DataAgeSeconds", r_brief, 0, 1 },
+	{ "Device.IP.Diagnostics.IPPing()", TB_NONE, "Interface,ProtocolVersion,Host,NumberOfRepetitions,Timeout,DataBlockSize,DSCP",
 	  "Status,IPAddressUsed,SuccessCount,FailureCount,AverageResponseTime,MinimumResponseTime,MaximumResponseTime,"
 	  "AverageResponseTimeDetailed,MinimumResponseTimeDetailed,MaximumResponseTimeDetailed", r_tr143, 0, 1 },
 	{ "Device.IP.Diagnostics.TraceRoute()", TB_NONE,

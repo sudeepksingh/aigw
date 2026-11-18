@@ -634,6 +634,39 @@ void why_hide_calls(int on);            /* dm.c: WhySlow() from the ISP with cal
 void dm_on_call(const char *kind, const char *verdict, long duration, long full_s, uint32_t line_kbps, int ms,
 		int jitter, int loss10, int prioritized, const char *summary);
 
+/* sqm.c: smart queueing proposed on the line as it is now (waits for a yes) */
+int sqm_propose(const char *origin, const char *reason, uint32_t *id, char *err, size_t en);
+
+/* brief.c: the help-desk assistant (ag/brief.h): asks the home if wanted, then answers once */
+struct brief;
+struct brief_ask {
+	long from, to;                  /* the period (wall s) */
+	char host[64];                  /* a device (name, MAC or IP); "" the home */
+	int check;                      /* a fresh quiet Diagnose first */
+	int speed;                      /* ... and the speed test (care.speed_url) */
+	int propose;                    /* a remote fix becomes a proposed decision (never applied) */
+	int names;                      /* devices by name; 0 by kind (the ISP, unless brief.names) */
+	int hide_calls;                 /* calls.share 0 and the ISP asks */
+	char who[48];                   /* who asks: "you", "usp", "acs", ... */
+};
+struct brief_meta {
+	long from, to;
+	int checked, speed_test, names;
+	long data_age;                  /* s since the newest fact used; -1 not known */
+	uint32_t decision;              /* the fix's decision (proposed now, or waiting already) */
+	int proposed;                   /* ... proposed by this brief */
+	char propose_error[160];
+};
+typedef void (*brief_cb)(void *ctx, const struct brief *b, const struct brief_meta *m);
+int brief_start(const struct brief_ask *a, brief_cb cb, void *ctx, char *err, size_t en);
+void brief_blob(struct blob_buf *b, const struct brief *r, const struct brief_meta *m);
+void brief_report_blob(struct blob_buf *b);     /* the bridge: the last hour, no fresh check, the ISP's names rule */
+void brief_save(struct blob_buf *b);
+void brief_load(struct blob_attr *t);
+void dm_serial(char *buf, size_t n);    /* dm.c: Device.DeviceInfo.SerialNumber */
+/* main.c / dm.c: a period in words ("tonight 20:00-22:00") or Start/End */
+int brief_parse_period(const char *words, long *from, long *to, char *err, size_t en);
+
 /* act.c: the live decision of an action (state 0 proposed, 1 active, 2 kept); -1 none */
 int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,
 		    char *origin, size_t on);

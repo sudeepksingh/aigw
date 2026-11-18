@@ -1425,6 +1425,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Fleet report</td><td>cortex puts every home&rsquo;s care together: scores, causes, what AIGW fixed and reported, warnings, speeds, outages across an area&rsquo;s homes, and the homes to look at first. <code>aigw_cortex fleet</code>, and an MCP tool.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.37: a help-desk assistant for the ISP</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>One answer</td><td>About one home and a period in plain words (&ldquo;tonight 20:00-22:00&rdquo;), after a fresh quiet check: the fault in one word (<code>LINE</code>, <code>HOME_WIFI</code>, <code>DEVICE</code>, <code>OUTSIDE</code>, <code>NONE</code>, <code>UNKNOWN</code>), one sentence, the evidence with times and numbers, what AIGW already did, what to tell the customer. Pure rules, no AI model.</td></tr>
+      <tr><td>Fewer visits</td><td>A technician only for the line itself, and only when it lasted or two sources agree; never for the ISP&rsquo;s network, Wi-Fi or a device. A remote fix (smart queueing, a device kept on 2.4 GHz) is only proposed: it waits for a yes.</td></tr>
+      <tr><td>For the ISP</td><td><code>Device.X_AIGW_.SupportBrief()</code> over USP and TR-069, with device kinds (&ldquo;a laptop&rdquo;), not names; cortex&rsquo;s <code>support_brief</code> (MCP) finds a home by name, id or serial number, and the fleet report counts the briefs by fault.</td></tr>
+      <tr><td>For the home</td><td><code>agctl brief [device] [period] [--propose]</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.15. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.16. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-15" file="aigw-dm-1-15.xml">
+             spec="urn:aigw-os:aigw-dm-1-16" file="aigw-dm-1-16.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.15">
+  <model name="AIGW-OS:1.16">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -92,6 +92,35 @@
           <parameter name="Start"><syntax><string/></syntax></parameter>
           <parameter name="End"><syntax><string/></syntax></parameter>
           <parameter name="RecordedPercent"><syntax><string/></syntax></parameter>
+        </output>
+      </command>
+      <command name="SupportBrief()" async="true">
+        <input>
+          <parameter name="Period"><syntax><string/></syntax></parameter>
+          <parameter name="Start"><syntax><string/></syntax></parameter>
+          <parameter name="End"><syntax><string/></syntax></parameter>
+          <parameter name="Host"><syntax><string/></syntax></parameter>
+          <parameter name="Fresh"><syntax><string/></syntax></parameter>
+          <parameter name="SpeedTest"><syntax><string/></syntax></parameter>
+          <parameter name="Propose"><syntax><string/></syntax></parameter>
+        </input>
+        <output>
+          <parameter name="Fault"><syntax><string/></syntax></parameter>
+          <parameter name="Code"><syntax><string/></syntax></parameter>
+          <parameter name="Confidence"><syntax><string/></syntax></parameter>
+          <parameter name="Verdict"><syntax><string/></syntax></parameter>
+          <parameter name="Evidence"><syntax><string/></syntax></parameter>
+          <parameter name="Done"><syntax><string/></syntax></parameter>
+          <parameter name="Tell"><syntax><string/></syntax></parameter>
+          <parameter name="RemoteFix"><syntax><string/></syntax></parameter>
+          <parameter name="Fix"><syntax><string/></syntax></parameter>
+          <parameter name="FixDecision"><syntax><string/></syntax></parameter>
+          <parameter name="Visit"><syntax><string/></syntax></parameter>
+          <parameter name="VisitReason"><syntax><string/></syntax></parameter>
+          <parameter name="Checked"><syntax><string/></syntax></parameter>
+          <parameter name="Start"><syntax><string/></syntax></parameter>
+          <parameter name="End"><syntax><string/></syntax></parameter>
+          <parameter name="DataAgeSeconds"><syntax><string/></syntax></parameter>
         </output>
       </command>
       <event name="Alert!">

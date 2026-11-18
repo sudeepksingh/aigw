@@ -265,6 +265,15 @@ config offers 'offers'
 	# report): counts and words, never a device's name. 0: they stay home
 	option share '1'
 
+config brief 'brief'
+	# the help-desk assistant (agctl brief, Device.X_AIGW_.SupportBrief(),
+	# docs/help-desk.md): one short answer for the ISP's support agent, from
+	# what AIGW already knows; fixes are only proposed
+	option enabled '1'
+	# what the ISP sees calls devices by kind ("a laptop"); 1: by their names.
+	# agctl at home always shows the names
+	option names '0'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

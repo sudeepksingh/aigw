@@ -559,6 +559,7 @@ int dev_state_save(void)
 	heal_save(&b);
 	care_save(&b);
 	offers_save(&b);
+	brief_save(&b);
 	sqm_save(&b);
 	calls_save(&b);
 
@@ -663,6 +664,8 @@ int dev_state_load(void)
 			care_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "offers"))
 			offers_load(cur);
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "brief"))
+			brief_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "sqm"))
 			sqm_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "calls"))

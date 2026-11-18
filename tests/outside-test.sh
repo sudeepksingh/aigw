@@ -87,7 +87,7 @@ cx_wait() {
 	i=0
 	while :; do
 		if PYTHONPATH="$REPO/cortex" python3 - "$T/cortex" "$2" <<'EOF' 2>/dev/null; then return 0; fi
-import sys
+import json, sys
 from aigw_cortex.store import Store
 s = Store(sys.argv[1])
 sys.exit(0 if eval(sys.argv[2]) else 1)
@@ -175,8 +175,22 @@ echo "== the gateway checks in: state, not traffic"
 cx_wait 15 "s.gateway('home')['last_seen'] > 0" "no report reached cortex"
 cx_wait 10 "any(d.get('hostname') == 'smoke-host' for d in s.snapshot('home').get('devices', []))" \
 	"report lacks the device list"
-cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care', 'upgrade'}" \
+cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care', 'upgrade', 'brief'}" \
 	"report carries more than state"
+
+echo "== the help desk: the gateway's brief of the last hour reaches cortex (device kinds, not names)"
+cx_wait 10 "s.snapshot('home').get('brief', {}).get('fault') in ('NONE', 'LINE', 'HOME_WIFI', 'DEVICE', 'OUTSIDE', 'UNKNOWN')" \
+	"the report lacks the brief"
+cx_wait 5 "s.snapshot('home')['brief']['names'] in (0, False) and 'smoke-host' not in json.dumps(s.snapshot('home')['brief'])" \
+	"the brief must not name devices"
+cortex brief home > "$T/brief.txt" || fail "cortex brief: $(cat "$T/brief.txt")"
+grep -q '^home: ' "$T/brief.txt" && grep -q 'As of ' "$T/brief.txt" || fail "cortex brief (text): $(cat "$T/brief.txt")"
+SERIAL=$(PYTHONPATH="$REPO/cortex" python3 -c "
+from aigw_cortex.store import Store
+print(Store('$T/cortex').snapshot('home')['brief']['serial'])")
+cortex brief "$SERIAL" --json | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin)['home'] == 'home' else 1)" ||
+	fail "cortex brief by the TR-069 serial number ($SERIAL)"
+head -n 2 "$T/brief.txt"
 cx_wait 5 "s.snapshot('home')['models'][0]['source'] == 'package'" "report lacks the model in use"
 
 echo "== proactive care reaches cortex: the ISP's fleet report"
@@ -279,7 +293,7 @@ assert set(r) == {1, 2, 3, 4, 5, 6}, "one answer per request, none for the notif
 assert r[1]["result"]["serverInfo"]["name"] == "aigw-cortex"
 tools = {t["name"]: t for t in r[2]["result"]["tools"]}
 assert {"list_devices", "propose_action", "gateway_status"} <= set(tools)
-assert sorted(n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]) == ["propose_action", "rollout_hold"]
+assert sorted(n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]) == ["propose_action", "rollout_hold", "support_brief"]
 assert "smoke-host" in r[3]["result"]["content"][0]["text"]
 assert not r[4]["result"]["isError"] and "approve" in r[4]["result"]["content"][0]["text"]
 assert r[5]["result"]["isError"], "unknown action must be refused"

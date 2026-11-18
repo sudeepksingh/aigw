@@ -1106,8 +1106,77 @@ static int m_calls(struct ubus_context *ctx, struct ubus_object *obj, struct ubu
 	return 0;
 }
 
+/* ag brief {period | from, to, host, check, speed, propose}: the help desk's answer about a
+   period (deferred: a fresh check takes a few seconds). At home: devices by name */
+enum { BR_PERIOD, BR_FROM, BR_TO, BR_HOST, BR_CHECK, BR_SPEED, BR_PROPOSE, __BR_MAX };
+static const struct blobmsg_policy brief_policy[__BR_MAX] = {
+	[BR_PERIOD] = { "period", BLOBMSG_TYPE_STRING },
+	[BR_FROM] = { "from", BLOBMSG_TYPE_UNSPEC },
+	[BR_TO] = { "to", BLOBMSG_TYPE_UNSPEC },
+	[BR_HOST] = { "host", BLOBMSG_TYPE_STRING },
+	[BR_CHECK] = { "check", BLOBMSG_TYPE_BOOL },
+	[BR_SPEED] = { "speed", BLOBMSG_TYPE_BOOL },
+	[BR_PROPOSE] = { "propose", BLOBMSG_TYPE_BOOL },
+};
+
+static void brief_answer(void *p, const struct brief *r, const struct brief_meta *m)
+{
+	struct diag_req *q = p;
+	struct blob_buf rb = { 0 };
+
+	blob_buf_init(&rb, 0);
+	brief_blob(&rb, r, m);
+	ubus_send_reply(q->ctx, &q->req, rb.head);
+	ubus_complete_deferred_request(q->ctx, &q->req, 0);
+	blob_buf_free(&rb);
+	free(q);
+}
+
+static int m_brief(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		   const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__BR_MAX];
+	struct brief_ask a;
+	struct diag_req *q;
+	long now = (long)ag_wall_s();
+	char err[240];
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(brief_policy, __BR_MAX, tb, blob_data(msg), blob_len(msg));
+	memset(&a, 0, sizeof(a));
+	if (tb[BR_FROM] || tb[BR_TO]) {
+		a.to = num_of(tb[BR_TO], now);
+		a.from = num_of(tb[BR_FROM], a.to - 3600);
+	} else if (brief_parse_period(tb[BR_PERIOD] ? blobmsg_get_string(tb[BR_PERIOD]) : "", &a.from, &a.to, err,
+				      sizeof(err)) < 0)
+		goto refuse;
+	if (tb[BR_HOST])
+		snprintf(a.host, sizeof(a.host), "%s", blobmsg_get_string(tb[BR_HOST]));
+	a.check = tb[BR_CHECK] ? blobmsg_get_bool(tb[BR_CHECK]) : 1;
+	a.speed = tb[BR_SPEED] && blobmsg_get_bool(tb[BR_SPEED]);
+	a.propose = tb[BR_PROPOSE] && blobmsg_get_bool(tb[BR_PROPOSE]);
+	a.names = 1;
+	snprintf(a.who, sizeof(a.who), "you");
+	if (!(q = calloc(1, sizeof(*q))))
+		return UBUS_STATUS_UNKNOWN_ERROR;
+	q->ctx = ctx;
+	if (brief_start(&a, brief_answer, q, err, sizeof(err)) < 0) {
+		free(q);
+		goto refuse;
+	}
+	ubus_defer_request(ctx, req, &q->req);
+	return 0;
+refuse:
+	blob_buf_init(&b, 0);
+	blobmsg_add_string(&b, "error", err);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
+	UBUS_METHOD("brief", m_brief, brief_policy),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 	UBUS_METHOD("care", m_care, care_policy),
 	UBUS_METHOD("upgrade", m_upgrade, upgrade_policy),
