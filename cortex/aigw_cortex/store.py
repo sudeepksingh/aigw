@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import sqlite3
+import sys
 import threading
 import time
 
@@ -91,11 +92,32 @@ def token_hash(token):
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def private(path, mode=0o700):
+    """Make a directory (mode 0700) or tighten a file to mode: what cortex keeps is about
+    homes, and its tokens. Cortex before 0.43 left the data directory and cortex.db
+    readable by every user; group or other access is taken away (with a note)."""
+    if mode == 0o700:
+        os.makedirs(path, mode=0o700, exist_ok=True)
+    try:
+        st = os.stat(path)
+    except FileNotFoundError:
+        return
+    if st.st_mode & 0o077 and st.st_uid == os.getuid():
+        os.chmod(path, st.st_mode & 0o700)
+        sys.stderr.write(f"cortex: {path} was readable by other users; now only by its owner\n")
+
+
 class Store:
     def __init__(self, data_dir):
         self.dir = data_dir
+        private(data_dir)
         os.makedirs(os.path.join(data_dir, "models"), exist_ok=True)
-        self.db = sqlite3.connect(os.path.join(data_dir, "cortex.db"), check_same_thread=False)
+        db = os.path.join(data_dir, "cortex.db")
+        # the homes' reports (device names, addresses), gateways' token hashes: the owner's alone
+        os.close(os.open(db, os.O_RDWR | os.O_CREAT, 0o600))
+        for f in (db, db + "-wal", db + "-shm", db + "-journal"):
+            private(f, 0o600)
+        self.db = sqlite3.connect(db, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.lock = threading.Lock()
         with self.lock:

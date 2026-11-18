@@ -423,7 +423,10 @@ def make_handler(store, token, local, log=True):
             if what == "resume":
                 return self.send_json(403, {"error": "resuming a rollout is done at the command line: "
                                                      "python3 -m aigw_cortex rollout resume <name>"})
-            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                n = 0
             if n <= 0 or n > MAX_BODY:
                 return self.send_json(400, {"error": "expected a JSON object with a reason"})
             try:

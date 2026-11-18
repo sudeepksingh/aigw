@@ -35,6 +35,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <getopt.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -1017,6 +1018,32 @@ static int in_qemu(char *why, size_t n)
 	return 0;
 }
 
+/* a file --test may write: not under the system's own directories (where agd keeps a home) */
+static int system_path_ok(const char *f)
+{
+	static const char *const sys_dirs[] = { "/etc/", "/var/lib/", "/var/run/", "/run/", "/usr/", "/overlay/",
+						"/rom/", NULL };
+	char real[PATH_MAX], dir[PATH_MAX], *slash;
+	int i;
+
+	/* the file need not exist: its directory must (and is what is compared) */
+	snprintf(dir, sizeof(dir), "%s", f);
+	slash = strrchr(dir, '/');
+	if (slash == dir)
+		snprintf(dir, sizeof(dir), "/");
+	else if (slash)
+		*slash = '\0';
+	else
+		snprintf(dir, sizeof(dir), ".");
+	if (!realpath(dir, real))
+		return 0;
+	strncat(real, "/", sizeof(real) - strlen(real) - 1);
+	for (i = 0; sys_dirs[i]; i++)
+		if (!strncmp(real, sys_dirs[i], strlen(sys_dirs[i])))
+			return 0;
+	return strcmp(real, "/") != 0;
+}
+
 static void usage(void)
 {
 	fprintf(stderr, "usage: aigw-demo check\n"
@@ -1069,6 +1096,18 @@ int main(int argc, char **argv)
 	if (!test && !in_qemu(w, sizeof(w))) {
 		fprintf(stderr, "aigw-demo: %s: the simulated home is only for the demo image in QEMU\n", w);
 		return 1;
+	}
+	/* --test is the test suite's, with files of its own: never a system's files (a real
+	   router's /etc/aigw/agd-state.json), whatever else it is given */
+	if (test) {
+		const char *const files[] = { state, why, upgrade };
+		size_t i;
+
+		for (i = 0; i < 3; i++)
+			if (!system_path_ok(files[i])) {
+				fprintf(stderr, "aigw-demo: --test writes the test suite's own files, not %s\n", files[i]);
+				return 1;
+			}
 	}
 	if (!replace && !access(state, F_OK)) {
 		fprintf(stderr, "aigw-demo: %s exists (a real home's state?): not replaced without --replace\n", state);

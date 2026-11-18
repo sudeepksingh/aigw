@@ -2909,7 +2909,7 @@ int main(int argc, char **argv)
 			}
 		} else if (!strcmp(sub, "qr")) {
 			device_filter = name;
-			rc = call("ag.wifi", "keys", args.head, show_keys);
+			rc = call("ag.wifi", "key_show", args.head, show_keys);
 		} else if (!strcmp(sub, "revoke")) {
 			rc = call("ag.wifi", "key_revoke", args.head, show_ok) || change_failed;
 		} else {

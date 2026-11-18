@@ -18,6 +18,9 @@ config dns 'dns'
 	# Or an address: '1.1.1.1' / '9.9.9.9#53'
 	option upstream 'auto'
 	option intercept '1'
+	# agdns answers loopback, the LAN interfaces and redirected DNS only; anything
+	# else asking it (the WAN side) is dropped (aigw-nft). 0: not dropped
+	# option guard '1'
 	# answers kept and served with their TTLs counted down; 0 turns the cache off
 	option cache '1000'
 	# refresh a name in use shortly before it expires, so it never waits for upstream

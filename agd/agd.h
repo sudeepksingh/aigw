@@ -311,7 +311,7 @@ void keys_tick(void);
 void keys_seen(struct device *d, const char *keyid);
 int keys_add(const char *name, const char *zone, int ttl, struct blob_buf *reply, char *err, size_t errlen);
 int keys_revoke(const char *name, char *err, size_t errlen);
-void keys_blob(struct blob_buf *b, const char *only);
+void keys_blob(struct blob_buf *b, const char *only, int secret);
 int keys_count(void);
 
 /* main.c: a QR code as rows of '1'/'0' under field (for LuCI) */
