@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """The cortex HTTP API that gateways' bridges talk to.
 
-    POST /v1/report              gateway state: status, devices, alerts, decisions, models
+    POST /v1/report              gateway state: status, devices, alerts, decisions, models;
+                                 the answer's "area" says whether it is in an area outage (outage.py)
     GET  /v1/models              newest signed model (and list, e.g. threat-intel) per name
     GET  /v1/models/<file>       a model (.agm) or list (.list), or its signature (.sig)
     GET  /v1/proposals           suggestions waiting for this gateway (sent once)
@@ -23,7 +24,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import fed, rollout
+from . import fed, outage, rollout
 
 MAX_BODY = 4 * 1024 * 1024
 FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list|adapter)(\.sig)?$")
@@ -84,12 +85,15 @@ def make_handler(store, log=True, fed_settings=None):
                 self.end_headers()
                 self.wfile.write(data)
                 return None
+            # v0.39: a home in an area outage gets no fix and no firmware until it is over
+            held = outage.held(store, gw["id"])
             if path == "/v1/proposals":
-                return self.send_json(200, {"proposals": store.take_proposals(gw["id"])})
+                return self.send_json(200, {"proposals": store.take_proposals(
+                    gw["id"], outage.HELD_ACTIONS if held else ())})
             if path == "/v1/fed":
                 return self.send_json(200, fed.round_for_gateway(store, fs))
             if path == "/v1/firmware":
-                return self.send_json(200, {"offer": rollout.offer(store, gw["id"])})
+                return self.send_json(200, {"offer": None if held else rollout.offer(store, gw["id"])})
             return self.send_json(404, {"error": "unknown path"})
 
         def do_POST(self):  # noqa: N802
@@ -102,7 +106,9 @@ def make_handler(store, log=True, fed_settings=None):
             path = self.path.split("?")[0]
             if path == "/v1/report":
                 learned = store.report(gw["id"], body)
-                return self.send_json(200, {"ok": True, "gateway": gw["name"], "labels": learned})
+                # v0.39: in an area outage the gateway holds its own fixes (agd/area.c); incident 0: none
+                return self.send_json(200, {"ok": True, "gateway": gw["name"], "labels": learned,
+                                            "area": outage.notice(store, gw["id"])})
             if path == "/v1/fed/update":
                 code, answer = fed.accept(store, fs, gw["id"], body)
                 return self.send_json(code, answer)
@@ -136,6 +142,10 @@ def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, f
                 rollout.step_all(store)
             except Exception as e:  # noqa: BLE001 - keep serving
                 sys.stderr.write(f"rollouts: {e}\n")
+            try:
+                outage.update(store)    # homes gone silent together: an area dropped
+            except Exception as e:  # noqa: BLE001 - keep serving
+                sys.stderr.write(f"outages: {e}\n")
 
     threading.Thread(target=rollouts, daemon=True).start()
     print(f"cortex listening on {scheme}://{listen}:{httpd.server_address[1]}", flush=True)

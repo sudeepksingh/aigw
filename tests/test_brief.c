@@ -347,6 +347,108 @@ int main(void)
 	CHECK(brief_period("last week", NOW, &from, &to) < 0 && brief_period("48h", NOW, &from, &to) < 0 &&
 	      brief_period("25:00-26:00", NOW, &from, &to) < 0, "not a period (or longer than a day): refused");
 
+	printf("== a known outage in the area (cortex: 5 of 8 homes on the uplink): not this home, no visit\n");
+	home(NOW - 3600, NOW);
+	fresh("ISP_LOSS", "Internet", DS_PROBLEM, "The modem answers; 30% of packets to the internet are lost.");
+	timeline("ISP_LOSS", "Internet", DS_PROBLEM, NOW - 1500, NOW, "The internet lost packets from 20:55.");
+	in.area = 7;
+	in.area_kind = "LOSS";
+	in.area_since = NOW - 1500;
+	in.area_homes = 5;
+	in.area_of = 8;
+	in.area_held = "band steering";
+	brief_judge(&in, &o);
+	show();
+	CHECK(o.fault == BF_LINE && !strcmp(o.code, "ISP_LOSS") && o.confidence == BC_HIGH && o.current,
+	      "the line's own code stays; LINE, high, now");
+	CHECK(strstr(o.verdict, "Known outage in the area: 5 of 8 homes on this uplink losing packets since 21:05 "
+			 "(area outage 7). The ISP's network, not this home.") == o.verdict, "verdict: %s", o.verdict);
+	CHECK(o.visit == BV_NO && strstr(o.visit_why, "area outage 7"), "no visit: %s", o.visit_why);
+	CHECK(strstr(o.tell, "known outage in your area since 21:05") && strstr(o.tell, "no need to restart"),
+	      "tell: %s", o.tell);
+	CHECK(!o.fix.possible && strstr(o.fix.text, "Nothing to fix in the home"), "no fix in the home");
+	CHECK(o.nev >= 2 && !strcmp(o.ev[0].source, "area") && strstr(o.ev[0].text, "area outage 7"), "evidence: the area first");
+	CHECK(has_done("Held its own fixes during the area outage: band steering"), "done: what AIGW held");
+
+	printf("== ... the home itself sees nothing wrong, and smart queueing would be on offer: still the area's\n");
+	home(NOW - 3600, NOW);
+	fresh("OK", "All", DS_OK, "Everything is fine.");
+	timeline("LINE_FULL", "Internet", DS_WARN, NOW - 3000, NOW - 1200, "The line was full from 20:40 to 21:10.");
+	in.sqm = "Off";
+	in.area = 7;
+	in.area_kind = "DOWN";
+	in.area_since = NOW - 600;
+	in.area_homes = 4;
+	in.area_of = 30;
+	brief_judge(&in, &o);
+	show();
+	CHECK(o.fault == BF_LINE && !strcmp(o.code, "AREA_OUTAGE") && brief_fault_of("AREA_OUTAGE") == BF_LINE,
+	      "AREA_OUTAGE: LINE");
+	CHECK(!o.fix.possible && !o.fix.action, "no smart queueing proposal during an area outage");
+	CHECK(strstr(o.verdict, "down since 21:20") && strstr(o.verdict, "From here: Not a fault"), "verdict: %s", o.verdict);
+	CHECK(!has_done("Held its own fixes"), "nothing held yet: not said");
+
+	printf("== ... a period before it began: the home's own answer\n");
+	home(NOW - 3 * 3600, NOW - 2 * 3600);
+	timeline("LINE_LOSS", "Internet", DS_PROBLEM, NOW - 9000, NOW - 8000, "The next router lost 12% of packets.");
+	in.area = 7;
+	in.area_kind = "DOWN";
+	in.area_since = NOW - 600;
+	in.area_homes = 4;
+	in.area_of = 30;
+	brief_judge(&in, &o);
+	CHECK(!strcmp(o.code, "LINE_LOSS") && !strstr(o.verdict, "Known outage") && o.ev[0].source != NULL &&
+	      strcmp(o.ev[0].source, "area"), "before the outage: untouched");
+
+	printf("== ... the evidence full: the area still first, nothing past the end\n");
+	home(NOW - 3600, NOW);
+	fresh("ISP_DOWN", "Internet", DS_PROBLEM, "Down.");
+	timeline("ISP_DOWN", "Internet", DS_PROBLEM, NOW - 1500, NOW, "Down from 20:55.");
+	{
+		static struct brief_finding more[8];
+		int i;
+
+		for (i = 0; i < 8; i++) {
+			more[i].code = i % 2 ? "LINE_LOSS" : "DNS_SLOW";
+			more[i].area = "Internet";
+			more[i].sev = DS_WARN;
+			more[i].since = NOW - 1000 + i;
+			more[i].text = "more";
+		}
+		in.why_more = more;
+		in.nwhy_more = 8;
+		in.warning = "rising";
+		in.score_week = 80;
+		in.speed_at = NOW - 7200;
+		in.speed_mbps = 40;
+		in.calls = 3;
+		in.care_open = 1;
+		in.care.code = "ISP_DOWN";
+		in.care.area = "Internet";
+		in.care.sev = DS_PROBLEM;
+		in.care.since = NOW - 1400;
+		radio[0].name = "5 GHz (wlan1)";
+		radio[0].status = HEAL_POOR;
+		radio[0].cause = HC_CONGESTION;
+		radio[0].since = NOW - 600;
+		radio[0].text = "busy";
+		in.radio = radio;
+		in.nradio = 1;
+		in.upgrade = "Kept";
+		in.upgrade_at = NOW - 3000;
+		in.upgrade_from = "0.38.1";
+		in.upgrade_to = "0.39.0";
+		brief_judge(&in, &o);
+		CHECK(o.nev == BRIEF_LINES, "the evidence is full without the area: %d lines", o.nev);
+		in.area = 8;
+		in.area_kind = "DOWN";
+		in.area_since = NOW - 1500;
+		in.area_homes = 9;
+		in.area_of = 12;
+		brief_judge(&in, &o);
+		CHECK(o.nev == BRIEF_LINES && !strcmp(o.ev[0].source, "area"), "full evidence: %d lines, area first", o.nev);
+	}
+
 	printf("== names out\n");
 	brief_kind("", "laptop", buf, sizeof(buf));
 	CHECK(!strcmp(buf, "a laptop"), "laptop: %s", buf);

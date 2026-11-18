@@ -161,6 +161,8 @@ class Store:
     def report(self, gw, rep, now=None):
         now = int(now or time.time())
         st = rep.get("status") or {}
+        prev = self.q("SELECT last_seen FROM gateways WHERE id = ?", (gw,))
+        prev_seen = prev[0]["last_seen"] if prev else 0
         self.x("UPDATE gateways SET last_seen = ?, aigw = ?, host = ?, snapshot = ? WHERE id = ?",
                (now, str(st.get("version", "")), str(st.get("host", "")), json.dumps(rep), gw))
         self.x("INSERT INTO history VALUES (?, ?, ?, ?, ?, ?)",
@@ -196,6 +198,12 @@ class Store:
         if rep.get("upgrade") is not None:
             from . import rollout             # a staged rollout's wave may wait for this home's verdict
             rollout.on_report(self, gw, rep.get("upgrade"), now)
+        from . import outage                  # v0.39: many homes of one uplink at once: the ISP's network
+        outage.on_report(self, gw, rep, prev_seen, now)
+        up = self.q("SELECT g.grp, u.reported FROM gateways g LEFT JOIN uplinks u ON u.gateway = g.id WHERE g.id = ?",
+                    (gw,))
+        if up and (up[0]["grp"] or up[0]["reported"]):
+            outage.update(self, now, up[0]["grp"] or up[0]["reported"])
         return learned
 
     # ---------- proactive care (the fleet report) ----------
@@ -321,9 +329,12 @@ class Store:
                      (gw, action, target, int(ttl), reason, origin, now, now))
         return cur.lastrowid
 
-    def take_proposals(self, gw):
-        rows = self.q("SELECT id, action, target, ttl, reason, origin FROM proposals "
-                      "WHERE gateway = ? AND state = 'queued' ORDER BY id", (gw,))
+    def take_proposals(self, gw, hold=()):
+        """The queued proposals, now sent; those whose action is in hold stay queued (v0.39: an
+        area outage holds fixes in the home until it is over)."""
+        rows = [r for r in self.q("SELECT id, action, target, ttl, reason, origin FROM proposals "
+                                  "WHERE gateway = ? AND state = 'queued' ORDER BY id", (gw,))
+                if r["action"] not in hold]
         for r in rows:
             self.x("UPDATE proposals SET state = 'sent', updated = ? WHERE id = ?", (int(time.time()), r["id"]))
         return rows

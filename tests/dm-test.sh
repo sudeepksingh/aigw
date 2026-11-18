@@ -91,7 +91,7 @@ js() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 
 echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
-js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 16 and len(d['events']) == 11 and
+js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 16 and len(d['events']) == 13 and
          [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()', 'Device.X_AIGW_.Diagnose()',
           'Device.X_AIGW_.SupportBrief()', 'Device.IP.Diagnostics.IPPing()', 'Device.IP.Diagnostics.TraceRoute()', 'Device.IP.Diagnostics.DownloadDiagnostics()',
           'Device.IP.Diagnostics.UploadDiagnostics()', 'Device.DNS.Diagnostics.NSLookupDiagnostics()'] else 1)" < "$T/schema.json" ||
@@ -119,6 +119,15 @@ js "v = d['values']; sys.exit(0 if v['Device.X_AIGW_.Care.Enable'] == 'true' and
 	fail "Device.X_AIGW_.Care.: $(cat "$T/care.json")"
 agctl -j care | js "sys.exit(0 if d['enabled'] in (1, True) and d['status'] in ('ok', 'problem') and 'week' in d['report'] else 1)" ||
 	fail "agctl care: $(agctl -j care)"
+
+echo "== area outages: its object (none now), the uplink id writable (v0.39)"
+call get '{"paths":["Device.X_AIGW_.AreaOutage."]}' > "$T/area.json"
+js "v = d['values']; sys.exit(0 if v['Device.X_AIGW_.AreaOutage.Enable'] == 'true' and v['Device.X_AIGW_.AreaOutage.Status'] == 'None' and
+    v['Device.X_AIGW_.AreaOutage.Incident'] == '0' and v['Device.X_AIGW_.AreaOutage.HeldFixes'] == '' and
+    'Device.X_AIGW_.AreaOutage.UplinkID' in v else 1)" < "$T/area.json" || fail "Device.X_AIGW_.AreaOutage.: $(cat "$T/area.json")"
+js "sys.exit(0 if [e for e in d['events'] if e['path'] == 'Device.X_AIGW_.AreaOutage!'] and
+    [p for p in d['params'] if p['path'] == 'Device.X_AIGW_.AreaOutage.UplinkID' and p['writable']] else 1)" < "$T/schema.json" ||
+	fail "AreaOutage! and a writable UplinkID in the schema"
 
 echo "== get"
 call get '{"paths":["Device.Hosts."]}' > "$T/hosts.json"

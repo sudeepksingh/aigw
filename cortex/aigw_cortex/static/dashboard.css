@@ -73,6 +73,9 @@ tr.click:hover td { background: var(--bg); }
 .empty { color: var(--muted); padding: 0.6rem 0; }
 
 .outage { background: var(--bad-bg); border-left: 4px solid var(--bad); padding: 0.6rem 0.8rem; border-radius: 6px; margin: 0.5rem 0; }
+.outage.over { background: var(--surface); border-left-color: var(--line); }
+.outage details { margin-top: 0.3rem; }
+.outage a { color: inherit; }
 
 .rollout .head { display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; align-items: baseline; justify-content: space-between; }
 .waves { display: flex; gap: 0.4rem; flex-wrap: wrap; margin: 0.5rem 0; }

@@ -300,7 +300,8 @@ void sqm_on_sample(void)
 	long now = (long)ag_wall_s();
 
 	if (act_find_action("sqm", &id, &st, target, sizeof(target), &applied, origin, sizeof(origin)) == 0) {
-		if (st == 1 && strstr(origin, "bufferbloat"))
+		/* a trial isn't judged while the area's line is down or slow: that says nothing about SQM */
+		if (st == 1 && strstr(origin, "bufferbloat") && !area_hold(AH_SQM_JUDGE))
 			trial(id, applied ? (long)applied : now, target);
 		else if (st == 2 && now - last_check >= CHECK_S) {
 			last_check = now;               /* kept: still there? (a WAN that came back has lost it) */

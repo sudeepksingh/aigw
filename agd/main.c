@@ -294,6 +294,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	sni_blob(&b);
 	fastpath_blob(&b);
 	meter_blob(&b);
+	area_blob(&b);                  /* an area outage cortex told of, and the uplink it groups this home by */
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }

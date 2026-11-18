@@ -7,8 +7,10 @@ What the page shows, from what the gateways' bridges report (no new data
 leaves a home for it):
 
   fleet health   experience scores (good, fair, poor), problems found and fixed
-                 by AIGW, early warnings, outages across many homes of one group
-                 (fleet.py's report)
+                 by AIGW, early warnings (fleet.py's report)
+  area outages   (v0.39, outage.py) many homes of one uplink down, slow or lossy at
+                 once: the uplink, kind, start and end, homes, confidence, which
+                 homes; GET /api/outages?days=7&state=open|all
   call first     the homes a help desk should look at first, with the reason in words
   rollouts       staged firmware rollouts (rollout.py): state, waves, kept or got
                  worse, why one stopped; pause and abort, with a reason (resuming
@@ -46,7 +48,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, fleet, rollout
+from . import __version__, fleet, outage, rollout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -113,6 +115,7 @@ def _words(a, now):
     if a["why"] == "problem":
         s = f"{a['code']} ({a['area']}) for {fleet._ago(a['since'], now)}"
         s += ", told to the ISP already" if a.get("reported") else ""
+        s += f", part of area outage {a['area_outage']} (the network's, not the home's)" if a.get("area_outage") else ""
         return s + (f": {a['summary']}" if a.get("summary") else "")
     if a["why"] == "early warning":
         when = (f"a fault likely in about {a['predicted_fault_days']} days" if a.get("predicted_fault_days")
@@ -194,6 +197,14 @@ def rollouts(store, now=None):
     return out
 
 
+def outages(store, days=7, open_only=False, now=None):
+    """Area outages (outage.py), newest first, with their homes, and the rules that found them."""
+    now = int(now or time.time())
+    outage.update(store, now)
+    return {"outages": outage.incidents(store, open_only, since=now - days * 86400),
+            "rules": outage.settings(store)}
+
+
 def gateways(store, now=None):
     """Each gateway in a line: version, group, when last heard, score, counts."""
     now = int(now or time.time())
@@ -244,8 +255,11 @@ def gateway(store, ref, now=None):
         p["target"] = full["target"] if names or full["action"] in TARGET_NOT_DEVICE else "a device"
         p["reason"] = full["reason"] if names else ""
     keep = ("version", "host", "mode", "devices", "alerts", "waiting", "active", "uptime_s", "plugins")
+    inc = outage.for_gateway(store, g["id"])
     return {"id": g["id"], "name": g["name"], "group": g["grp"] or "", "aigw": g["aigw"],
             "last_seen": g["last_seen"], "sharing": sharing(snap),
+            "area_outage": {k: inc[k] for k in ("id", "uplink", "kind", "start", "homes", "homes_in_area",
+                                                "confidence", "words")} if inc else None,
             "status": {k: st[k] for k in keep if k in st and isinstance(st[k], (str, int, float, bool))},
             "problem": problem, "early_warning": warn,
             "score": _week_score(store, g["id"], now),
@@ -364,6 +378,9 @@ def make_handler(store, token, local, log=True):
                     return self.send_json(200, overview(store, days, group))
                 if path == "/api/rollouts":
                     return self.send_json(200, {"rollouts": rollouts(store)})
+                if path == "/api/outages":
+                    days = max(1, min(31, int((qs.get("days") or ["7"])[0])))
+                    return self.send_json(200, outages(store, days, (qs.get("state") or ["all"])[0] == "open"))
                 if path == "/api/gateways":
                     return self.send_json(200, {"gateways": gateways(store)})
                 m = re.match(r"^/api/gateways/([^/]+)$", path)

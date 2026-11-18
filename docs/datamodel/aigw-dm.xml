@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.16. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.17. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-16" file="aigw-dm-1-16.xml">
+             spec="urn:aigw-os:aigw-dm-1-17" file="aigw-dm-1-17.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.16">
+  <model name="AIGW-OS:1.17">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -208,6 +208,23 @@
         <parameter name="Prioritized"><syntax><string/></syntax></parameter>
         <parameter name="Summary"><syntax><string/></syntax></parameter>
       </event>
+      <event name="AreaOutage!">
+        <parameter name="Incident"><syntax><string/></syntax></parameter>
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+        <parameter name="Homes"><syntax><string/></syntax></parameter>
+        <parameter name="HomesInArea"><syntax><string/></syntax></parameter>
+        <parameter name="Confidence"><syntax><string/></syntax></parameter>
+        <parameter name="Uplink"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="AreaOutageCleared!">
+        <parameter name="Incident"><syntax><string/></syntax></parameter>
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+        <parameter name="DurationSeconds"><syntax><string/></syntax></parameter>
+        <parameter name="HeldFixes"><syntax><string/></syntax></parameter>
+        <parameter name="Reason"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
       <command name="NSLookupDiagnostics()" async="true">
@@ -358,6 +375,22 @@
     <object name="Device.WiFi.SSID." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.AreaOutage." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="UplinkID" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Incident" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Kind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Homes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="HomesInArea" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Uplink" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="HeldFixes" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Until" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="LastIncident" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LastEnded" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.CallsFirst." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>

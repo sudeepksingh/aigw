@@ -15,8 +15,10 @@ never names), for the last --days days against the days before:
                reported to the ISP before anyone called; the main causes
   warnings     early warnings, the problems they saw coming and how long before
   speed        the nightly speed tests: the median, the homes below their line's speed
-  outages      problems on the line or DNS that start in many homes of one group
-               within minutes of each other: the ISP's network, not the homes
+  outages      (v0.39: outage.py) many homes behind one uplink whose line goes slow,
+               loses packets or drops within minutes of each other: the ISP's
+               network, not the homes; kept as incidents that close when the homes
+               recover
   attention    the homes a help desk should look at first: an open problem, a
                warning that says a fault is near, a poor score, a gateway gone quiet
   signals      (v0.32) what homes would buy, or why they may leave, as each gateway saw
@@ -31,12 +33,9 @@ import statistics
 import time
 from collections import Counter
 
-from . import brief, rollout
+from . import brief, outage, rollout
 
 GOOD, FAIR = 95, 80
-OUTAGE_WINDOW = 900             # s: problems this close together belong to one outage
-OUTAGE_MIN_HOMES = 3
-OUTAGE_SHARE = 0.1              # ... and at least this share of the group's homes
 SILENT_S = 86400
 # the order a sales or care team works through the signals: what the ISP owes first, then who may leave
 OFFER_ORDER = {"repair": 0, "retention": 1, "upsell": 2}
@@ -66,40 +65,21 @@ def _sum(rows):
     return out
 
 
-def outages(events, groups, window=OUTAGE_WINDOW, min_homes=OUTAGE_MIN_HOMES, share=OUTAGE_SHARE):
-    """Problems on the line or DNS that start in many homes of one group within
-    minutes of each other. events: dicts with gateway, code, area, since, until;
-    groups: gateway id -> group. Returns the outages, newest first."""
-    size = Counter(groups.values())
-    by_group = {}
-    for e in events:
-        if e.get("kind", "problem") != "problem" or e.get("area") not in ("Internet", "DNS"):
+def outages(store, since, ids, now=None):
+    """Area outages (outage.py) open now or begun in the period, newest first, among
+    these homes. Kept fields from before 0.39 (group, homes_in_group, still_open) beside
+    the incident's own (id, uplink, kind, confidence, state, affected)."""
+    outage.update(store, now)
+    out = []
+    for o in outage.incidents(store, since=since):
+        if o["state"] != "open" and o["start"] < since:
             continue
-        by_group.setdefault(groups.get(e["gateway"], ""), []).append(e)
-    found = []
-    for grp, evs in by_group.items():
-        evs.sort(key=lambda e: e["since"])
-        need = max(min_homes, int(size.get(grp, 0) * share + 0.999))
-        cluster = []
-
-        def close(cl):
-            homes = {e["gateway"] for e in cl}
-            if len(homes) >= need:
-                still = {e["gateway"] for e in cl if not e.get("until")}
-                ends = [e["until"] for e in cl if e.get("until")]
-                found.append({"group": grp, "start": cl[0]["since"], "homes": len(homes),
-                              "homes_in_group": size.get(grp, 0), "still_open": len(still),
-                              "end": 0 if still else max(ends), "codes": dict(Counter(e["code"] for e in cl)),
-                              "spread_s": cl[-1]["since"] - cl[0]["since"]})
-
-        for e in evs:
-            if cluster and e["since"] - cluster[-1]["since"] > window:
-                close(cluster)
-                cluster = []
-            cluster.append(e)
-        if cluster:
-            close(cluster)
-    return sorted(found, key=lambda o: -o["start"])
+        aff = [h for h in o["affected"] if h["gateway"] in ids]
+        if not aff:
+            continue
+        o.update(group=o["uplink"], homes_in_group=o["homes_in_area"], still_open=o["still_affected"])
+        out.append(o)
+    return out
 
 
 def signals(store, ids, names, groups, limit=30):
@@ -152,10 +132,14 @@ def report(store, days=7, group=None, now=None):
     problems_open = [e for e in events if e["kind"] == "problem" and not e["until"]]
 
     attention = []
+    found = outages(store, first * 86400, ids, now)
+    in_outage = {h["gateway"]: o["id"] for o in found if o["state"] == "open" for h in o["affected"]}
     for e in sorted(problems_open, key=lambda e: e["since"]):
         attention.append({"home": names[e["gateway"]], "group": groups[e["gateway"]], "why": "problem",
                           "code": e["code"], "area": e["area"], "since": e["since"], "reported": bool(e["reported"]),
                           "summary": e["summary"]})
+        if e["gateway"] in in_outage:      # the area's, not the home's: one incident, not a call each
+            attention[-1]["area_outage"] = in_outage[e["gateway"]]
     for e in sorted(warnings_open, key=lambda e: (e["predict"] if e["predict"] >= 0 else 999, e["since"])):
         attention.append({"home": names[e["gateway"]], "group": groups[e["gateway"]], "why": "early warning",
                           "code": e["code"], "area": e["area"], "since": e["since"],
@@ -194,7 +178,7 @@ def report(store, days=7, group=None, now=None):
         "speed": {"homes_tested": len(speeds), "median_mbps": round(statistics.median(speeds), 1) if speeds else None,
                   "tests": fleet["speed_tests"], "tests_below_line_speed": fleet["speed_low"],
                   "homes_below_line_speed": sum(1 for h in homes.values() if h["speed_low"])},
-        "outages": outages(events, groups),
+        "outages": found,
         "signals": signals(store, ids, names, groups),
         "rollouts": [r for r in rollout.summaries(store, since=first * 86400, now=now)
                      if group is None or r["group"] == group],
@@ -257,11 +241,12 @@ def text(r, now=None):
                    f"{sp['homes_below_line_speed']} homes below their line's speed ({sp['tests_below_line_speed']} tests)")
     for o in r["outages"]:
         codes = ", ".join(f"{k} {v}" for k, v in o["codes"].items())
-        state = f"{o['still_open']} still affected" if o["still_open"] else f"over at {_when(o['end'])}"
+        state = f"{o['still_open']} still affected" if o["state"] == "open" else f"over at {_when(o['end'])}"
         out.append(f"  OUTAGE       {o['homes']} of {o['homes_in_group']} homes" +
                    (f" in {o['group']}" if o["group"] else "") +
                    f" from {_when(o['start'])} (within {max(1, o['spread_s'] // 60)} min: {codes}): the ISP's "
-                   f"network, not the homes; {state}")
+                   f"network, not the homes; {state} (area outage {o['id']}, {o['kind']}, {o['confidence']} "
+                   "confidence)")
     sg = r.get("signals") or {}
     if sg.get("homes"):
         prods = ", ".join(f"{k} {v}" + (f" ({sg['high'][k]} high)" if sg["high"].get(k) else "")
@@ -279,7 +264,9 @@ def text(r, now=None):
         where = f" ({a['group']})" if a.get("group") else ""
         if a["why"] == "problem":
             out.append(f"    {a['home']}{where}: {a['code']} ({a['area']}) for {_ago(a['since'], now)}"
-                       f"{', reported' if a['reported'] else ''}" + (f": {a['summary']}" if a.get("summary") else ""))
+                       f"{', reported' if a['reported'] else ''}" +
+                       (f", part of area outage {a['area_outage']}" if a.get("area_outage") else "") +
+                       (f": {a['summary']}" if a.get("summary") else ""))
         elif a["why"] == "early warning":
             when = (f"a fault in about {a['predicted_fault_days']} days" if a.get("predicted_fault_days")
                     else "worse than its normal")

@@ -4,8 +4,12 @@
     python3 -m aigw_cortex serve [--listen 0.0.0.0] [--port 8790] [--cert c --key k]
     python3 -m aigw_cortex enroll <gateway-name> [--group G]  prints the gateway's token, once
     python3 -m aigw_cortex gateways | remove <name>
-    python3 -m aigw_cortex group <gateway> <group>    its area (outages are looked for within one)
+    python3 -m aigw_cortex group <gateway> <group>    its area or uplink (outages are looked for within one)
     python3 -m aigw_cortex fleet [--days 7] [--group G] [--json]   the ISP's fleet report
+    python3 -m aigw_cortex outages [--all] [--json]   area outages: many homes of one uplink at once
+    python3 -m aigw_cortex outages settings [--window S --min-homes N --share F --recovered F]
+    python3 -m aigw_cortex outages declare <uplink> [--kind DOWN] [--note text] | end <number>
+                                                      an outage the NOC knows of: its homes are tagged
     python3 -m aigw_cortex rollout new|list|status|pause|resume|abort|homes|result ...
                                                       staged firmware rollouts that stop themselves
                                                       (rollout.py; --help for each)
@@ -269,6 +273,20 @@ def main(argv=None):
     p = sub.add_parser("group")
     p.add_argument("gateway")
     p.add_argument("group")
+    p = sub.add_parser("outages", help="area outages: many homes of one uplink at once (outage.py)")
+    p.add_argument("what", nargs="?", default="list", choices=("list", "settings", "declare", "end"))
+    p.add_argument("ref", nargs="?", help="declare: the uplink; end: the incident's number")
+    p.add_argument("--kind", default="DOWN", choices=("DOWN", "LOSS", "SLOW", "DNS"))
+    p.add_argument("--note", default="", help="declare: why, in a few words")
+    p.add_argument("--all", action="store_true", help="also those over in the last --days")
+    p.add_argument("--days", type=int, default=7)
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--window", type=int, help="s: faults starting this close together belong together (900)")
+    p.add_argument("--min-homes", type=int, help="never fewer homes than this (3)")
+    p.add_argument("--share", type=float, help="nor fewer than this share of the uplink's homes (0.1)")
+    p.add_argument("--recovered", type=float, help="over when this share of its homes recovered (0.8)")
+    p.add_argument("--silent-after", type=int, help="s without a report before a home counts as dropped (900)")
+    p.add_argument("--hold", type=int, help="s a gateway holds its fixes after the last notice (1800)")
     p = sub.add_parser("fleet")
     p.add_argument("--days", type=int, default=7)
     p.add_argument("--group")
@@ -348,6 +366,25 @@ def main(argv=None):
             show(r)
         else:
             print(fleet.text(r))
+    elif a.cmd == "outages":
+        from . import outage
+        if a.what == "settings":
+            try:
+                show(outage.set_settings(store, window=a.window, min_homes=a.min_homes, share=a.share,
+                                         recovered=a.recovered, silent_after=a.silent_after, hold_s=a.hold))
+            except ValueError as e:
+                sys.exit(str(e))
+        elif a.what in ("declare", "end"):
+            try:
+                o = (outage.declare(store, a.ref, a.kind, a.note) if a.what == "declare" else
+                     outage.end(store, int(a.ref or 0)))
+            except ValueError as e:
+                sys.exit(str(e))
+            show(o) if a.json else print(o["words"])
+        else:
+            outage.update(store)
+            rows = outage.incidents(store, open_only=not a.all, since=int(time.time()) - max(1, a.days) * 86400)
+            show(rows) if a.json else print(outage.text(rows))
     elif a.cmd == "brief":
         from . import brief
         try:

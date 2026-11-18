@@ -1087,6 +1087,11 @@ void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const cha
 
 	if (!p)
 		return;
+	/* an area outage: the home isn't what is broken, so no fix in it now (never a security action) */
+	if (area_holds_action(p->action)) {
+		AG_INFO("%s: alert %u: no %s during the area outage", origin, alert_id, p->action);
+		return;
+	}
 	mode = p->mode < cfg.act_mode ? p->mode : cfg.act_mode;
 	if (mode > cap)
 		mode = cap;
