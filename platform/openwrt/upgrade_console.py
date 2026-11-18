@@ -45,15 +45,31 @@ def serve(work, port):
         def log_message(self, *a):
             pass
 
+        def body(self):
+            """The request's body: Content-Length, or chunked (uclient-fetch --post-file sends that)."""
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                data = b""
+                while len(data) < 8 << 20:
+                    size = int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)
+                    if not size:
+                        self.rfile.readline()
+                        return data
+                    data += self.rfile.read(size)
+                    self.rfile.readline()
+                return b""
+            n = int(self.headers.get("Content-Length") or 0)
+            return self.rfile.read(n) if 0 < n < 8 << 20 else b""
+
         def do_POST(self):  # noqa: N802
             name = os.path.basename(self.path)
-            n = int(self.headers.get("Content-Length") or 0)
-            if not re.match(r"^[a-z]+\.tgz$", name) or not 0 < n < 8 << 20:
+            data = self.body() if re.match(r"^[a-z]+\.tgz$", name) else b""
+            if not data:
                 self.send_response(400)
+                self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
             with open(os.path.join(up, name), "wb") as f:
-                f.write(self.rfile.read(n))
+                f.write(data)
             self.send_response(200)
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -212,7 +228,9 @@ def main():
     def must(cmd, what, timeout=180):
         rc, out = vm.run(cmd, timeout)
         if rc:
-            say(f"FAILED: {what} (exit {rc}): {' '.join(out.split())[-300:]}; see {log}")
+            say(f"FAILED: {what} (exit {rc}); see {log}")
+            for ln in out.splitlines()[-30:]:
+                print("    | " + ln.rstrip("\r"), flush=True)
             vm.p.kill()
             sys.exit(101)
         return out
@@ -229,7 +247,11 @@ def main():
     def snap(name):
         # /tmp is RAM: fetched again after a reboot
         must(f"wget -q -O /tmp/upgrade-vm.sh {host}/upgrade-vm.sh", "fetch upgrade-vm.sh", 60)
-        must(f"sh /tmp/upgrade-vm.sh snap {name} {host}/up/{name}.tgz", f"snapshot {name}", 300)
+        out = must(f"sh /tmp/upgrade-vm.sh snap {name} {host}/up/{name}.tgz", f"snapshot {name}", 300)
+        if not os.path.exists(os.path.join(work, "up", f"{name}.tgz")):
+            say(f"FAILED: snapshot {name} did not arrive: {' '.join(out.split())[-300:]}")
+            vm.p.kill()
+            sys.exit(104)
         return load(work, name)
 
     retry = "(n=0; until {}; do n=$((n+1)); [ $n -ge 3 ] && exit 1; sleep 5; done)"
@@ -252,14 +274,24 @@ def main():
         print("    " + " | ".join(ln.strip() for ln in out.splitlines() if ln.strip().startswith(("Upgrading", "Configuring",
                                                                                                     "Collected")))[:600])
         after = snap("after")
+        failed = 0
+
+        def report(checks):
+            nonlocal failed
+            for ok, name, msg in checks:
+                print(f"    {'PASS' if ok else 'FAIL'} {name}: {msg}", flush=True)
+                failed += 0 if ok else 1
+        report(compare(before, after, to_v, "upgrade"))
         say("rebooting")
         vm.send("reboot\n")
         shell()
-        rebooted = snap("rebooted")
-        failed = 0
-        for ok, name, msg in compare(before, after, to_v, "upgrade") + compare(before, rebooted, to_v, "reboot"):
-            print(f"    {'PASS' if ok else 'FAIL'} {name}: {msg}", flush=True)
-            failed += 0 if ok else 1
+        rc, out = vm.run(f"wget -q -O /tmp/upgrade-vm.sh {host}/upgrade-vm.sh && "
+                         f"sh /tmp/upgrade-vm.sh snap rebooted {host}/up/rebooted.tgz", 400)
+        if rc or not os.path.exists(os.path.join(work, "up", "rebooted.tgz")):
+            report([(False, "reboot-agd", "after the reboot: " + " | ".join(
+                ln.strip() for ln in out.splitlines()[-12:] if ln.strip()))])
+        else:
+            report(compare(before, load(work, "rebooted"), to_v, "reboot"))
         vm.send("poweroff\n")
         try:
             vm.p.wait(30)

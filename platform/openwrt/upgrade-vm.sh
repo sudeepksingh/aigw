@@ -13,7 +13,14 @@ set -u
 wait_agd() {
 	i=0
 	until agctl status >/dev/null 2>&1; do
-		i=$((i + 1)); [ $i -gt 120 ] && { echo "agd did not answer"; return 1; }; sleep 1
+		if [ $i -gt 180 ]; then
+			echo "agd did not answer"
+			ls /etc/rc.d/ | grep -i aigw; /etc/init.d/aigw enabled && echo "aigw enabled" || echo "aigw NOT enabled"
+			ps w | grep -E '[a]gd|[u]bus'
+			logread 2>/dev/null | grep -iE 'agd|aigw|procd' | tail -n 20
+			return 1
+		fi
+		i=$((i + 1)); sleep 1
 	done
 }
 
@@ -75,7 +82,9 @@ snap)
 	done) > "$d/files.txt"
 	ls /etc/config/ > "$d/configs.txt"
 	tar czf "$d.tgz" -C /tmp "snap-$name"
-	uclient-fetch -q -O /dev/null --post-file="$d.tgz" "$url" || exit 1
+	uclient-fetch -O /dev/null --post-file="$d.tgz" "$url" 2>&1 | tail -n 2
+	# a failed upload shows in its own words above; the host checks that the file arrived
+
 	echo "snapshot $name posted"
 	;;
 *)

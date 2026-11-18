@@ -79,6 +79,7 @@ void wifi_init(void)
 		return;
 	}
 	umask(old);
+	chmod(local_path, 0600);
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	atexit(wifi_cleanup);
 }
