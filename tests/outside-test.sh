@@ -175,7 +175,7 @@ echo "== the gateway checks in: state, not traffic"
 cx_wait 15 "s.gateway('home')['last_seen'] > 0" "no report reached cortex"
 cx_wait 10 "any(d.get('hostname') == 'smoke-host' for d in s.snapshot('home').get('devices', []))" \
 	"report lacks the device list"
-cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care', 'upgrade', 'brief', 'interval'}" \
+cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care', 'upgrade', 'brief', 'interval', 'proactive'}" \
 	"report carries more than state"
 
 echo "== the help desk: the gateway's brief of the last hour reaches cortex (device kinds, not names)"
@@ -191,6 +191,13 @@ print(Store('$T/cortex').snapshot('home')['brief']['serial'])")
 cortex brief "$SERIAL" --json | python3 -c "import json,sys; sys.exit(0 if json.load(sys.stdin)['home'] == 'home' else 1)" ||
 	fail "cortex brief by the TR-069 serial number ($SERIAL)"
 head -n 2 "$T/brief.txt"
+
+echo "== before the call: the gateway's tickets and counts reach cortex (no device targets)"
+cx_wait 10 "isinstance(s.snapshot('home').get('proactive', {}).get('counts'), dict)" "the report lacks proactive care"
+cx_wait 5 "'smoke-host' not in json.dumps(s.snapshot('home')['proactive']) and all('target' not in t for t in s.snapshot('home')['proactive']['tickets'])" \
+	"proactive tickets must not name devices"
+cortex proactive home > "$T/pro.txt" || fail "cortex proactive: $(cat "$T/pro.txt")"
+grep -q '^Before the call: 1 home' "$T/pro.txt" || fail "cortex proactive (text): $(cat "$T/pro.txt")"
 cx_wait 5 "s.snapshot('home')['models'][0]['source'] == 'package'" "report lacks the model in use"
 
 echo "== proactive care reaches cortex: the ISP's fleet report"

@@ -288,6 +288,24 @@ config area 'area'
 	# the WAN next hop or the BNG's address
 	# option uplink_id 'OLT-3/2'
 
+config proactive 'proactive'
+	# proactive care, before the call (agctl care proactive,
+	# Device.X_AIGW_.Proactive., docs/before-the-call.md): faults a customer
+	# would notice are fixed by AIGW, or raised to the ISP with the brief, the
+	# evidence, the next step and a note for the customer in plain words
+	option enabled '1'
+	# AIGW may fix them itself, as act.mode allows (enforce applies, advise
+	# only proposes); 0: tickets only
+	option fix '1'
+	# worth acting on: points for how bad, how long, how many devices and how
+	# often (3), once it lasted min_duration s
+	option threshold '3'
+	option min_duration '180'
+	# at most this many new tickets to the ISP in 24 hours; a fault back
+	# within cooldown s is the same ticket (no new word to the ISP)
+	option max_per_day '3'
+	option cooldown '21600'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

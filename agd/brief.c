@@ -422,8 +422,40 @@ static void finish(void)
 	C.visits += B.visit == BV_YES;
 	C.remote += B.fix.possible;
 	C.proposed += M.proposed;
+	proactive_on_called();          /* somebody asked: an open ticket wasn't in time */
 	dev_state_save();
 	cb(ctx, &B, &M);
+}
+
+/* proactive care: the brief of a period from what is known now (no fresh check), the ISP's names rule */
+int brief_quick(long from, long to, const char *host, struct brief *out)
+{
+	struct brief_ask a;
+
+	if (!cfg.brief || Q.busy)
+		return -1;
+	memset(&a, 0, sizeof(a));
+	a.from = from;
+	a.to = to;
+	if (host && act_find_device(host))
+		snprintf(a.host, sizeof(a.host), "%s", host);
+	a.names = cfg.brief_names;
+	a.hide_calls = !cfg.calls_share;
+	snprintf(a.who, sizeof(a.who), "proactive care");
+	Q.a = a;
+	Q.have_check = Q.speed_ran = 0;
+	make();
+	*out = B;
+	return 0;
+}
+
+/* a text for the ISP: the home's device names, MACs, addresses and sites out (unless brief.names) */
+void brief_scrub_isp(char *text, size_t n)
+{
+	if (cfg.brief_names)
+		return;
+	names_build();
+	scrub(text, n);
 }
 
 static long jnum(struct blob_attr *a)

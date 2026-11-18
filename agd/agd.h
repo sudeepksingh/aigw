@@ -690,6 +690,30 @@ void area_blob(struct blob_buf *b);
 /* dm.c: AreaOutage! (started 1) or AreaOutageCleared! (0) */
 void dm_on_area(int started, uint32_t incident, const char *kind, long since, long duration, int homes, int of,
 		const char *confidence, const char *uplink, const char *held, const char *why);
+/* brief.c, for proactive care: a brief from what is known (no fresh check, the ISP's names rule);
+   a text with the home's names taken out for the ISP */
+int brief_quick(long from, long to, const char *host, struct brief *out);
+void brief_scrub_isp(char *text, size_t n);
+
+/* proactive.c: proactive care, before the call (ag/proactive.h) */
+void proactive_init(void);              /* after the state, proactive care and the timeline */
+void proactive_on_acted(const char *action, const char *target, uint32_t id);  /* act.c: a fix took effect */
+void proactive_on_called(void);         /* brief.c: the help desk was asked */
+void proactive_on_wifi(struct blob_attr *msg);         /* main.c: an ag.wifi event (joined, left) */
+int proactive_run(void);                /* a look now; -1 off */
+void proactive_blob(struct blob_buf *b, int names);   /* names 0: the ISP's view (no device targets) */
+void proactive_report_blob(struct blob_buf *b);        /* the bridge: counts and tickets, no names */
+int proactive_ids(uint32_t *out, int max);              /* the data model's Ticket.{i}. */
+int proactive_field(uint32_t id, const char *f, char *buf, size_t n);  /* -1 unknown */
+int proactive_count(const char *f, char *buf, size_t n);              /* Device.X_AIGW_.Proactive.; -1 unknown */
+void proactive_save(struct blob_buf *b);
+void proactive_load(struct blob_attr *t);
+/* dm.c: ProactiveTicket! */
+void dm_on_ticket(uint32_t id);
+int sqm_auto(const char *origin, const char *reason, uint32_t *id, int *applied, char *err, size_t en);
+/* act.c: a fix by proactive care, as act.mode allows (enforce applies, advise proposes) */
+int act_auto(const char *action, const char *what, int ttl, const char *origin, const char *reason, uint32_t *id,
+	     int *applied, char *err, size_t errlen);
 
 /* act.c: the live decision of an action (state 0 proposed, 1 active, 2 kept); -1 none */
 int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,

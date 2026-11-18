@@ -184,6 +184,31 @@ function renderSignals(r) {
     ], s.list, (o) => openGateway(o.home)));
 }
 
+function renderProactive(r) {
+  const p = r.proactive || {};
+  if (!p.homes) {
+    $("proactive").replaceChildren(el("p", { class: "empty" },
+      "No tickets before the call yet. Gateways raise them from AIGW OS 0.40 on (proactive.enabled)."));
+    return;
+  }
+  const c = p.counts || {};
+  $("proactive").replaceChildren(
+    el("div", { class: "tiles" },
+      tile("Calls likely avoided", n(c.calls_likely_avoided || 0),
+        `fixed, or the customer heard first; ${c.called_anyway || 0} called anyway`),
+      tile("Fixed by AIGW", n(c.fixed_by_aigw || 0), `${c.proposed || 0} fixes proposed (advise mode)`),
+      tile("Told to the ISP", n(c.told_isp || 0), `${c.suppressed || 0} kept at home, ${c.deduplicated || 0} repeats not told again`),
+      tile("Open now", n(p.open), plural(p.homes_with_open, "home"))),
+    p.open_tickets.length ? table([
+      { title: "Home", cell: (t) => t.home },
+      { title: "Status", cell: (t) => el("span", { class: `badge ${t.status === "Raised" ? "bad" : "warn"}` }, t.status) },
+      { title: "Fault", cell: (t) => `${t.code} (${t.fault})` },
+      { title: "Since", cell: (t) => ago(t.since) },
+      { title: "Next step", cell: (t) => t.next_step || "" },
+      { title: "For the customer", cell: (t) => t.customer_note || "" },
+    ], p.open_tickets, (t) => openGateway(t.home)) : el("p", { class: "muted" }, "No open tickets."));
+}
+
 function renderQueueing(r) {
   const q = r.queueing, s = q.sqm, c = q.calls;
   const kids = [el("div", { class: "tiles" },
@@ -369,6 +394,7 @@ async function load() {
     renderOutages(r);
     renderHealth(r);
     renderAttention(r);
+    renderProactive(r);
     renderSignals(r);
     renderQueueing(r);
     renderRollouts(group ? ro.rollouts.filter((x) => x.group === group || !x.group) : ro.rollouts);

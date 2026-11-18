@@ -197,6 +197,14 @@ void ag_config_load(struct ag_config *c)
 	c->offers_share = 1;
 	c->brief = 1;
 	c->area = 1;
+	c->pro = 1;
+	c->pro_fix = 1;
+	c->pro_interval = 60;
+	c->pro_threshold = 3;
+	c->pro_min_s = 180;
+	c->pro_clear_s = 600;
+	c->pro_cooldown_s = 21600;
+	c->pro_max_per_day = 3;
 	c->sqm = 1;
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
@@ -521,6 +529,30 @@ void ag_config_load(struct ag_config *c)
 		if (v)
 			c->area = atoi(v) != 0;
 		copy(c->area_uplink_id, sizeof(c->area_uplink_id), opt(ctx, p, "area", "uplink_id"));
+		v = opt(ctx, p, "proactive", "enabled");
+		if (v)
+			c->pro = atoi(v) != 0;
+		v = opt(ctx, p, "proactive", "fix");
+		if (v)
+			c->pro_fix = atoi(v) != 0;
+		v = opt(ctx, p, "proactive", "interval");
+		if (v && atoi(v) >= 1)
+			c->pro_interval = atoi(v);
+		v = opt(ctx, p, "proactive", "threshold");
+		if (v && atoi(v) >= 1)
+			c->pro_threshold = atoi(v);
+		v = opt(ctx, p, "proactive", "min_duration");
+		if (v && atoi(v) >= 0)
+			c->pro_min_s = atoi(v);
+		v = opt(ctx, p, "proactive", "clear");
+		if (v && atoi(v) >= 0)
+			c->pro_clear_s = atoi(v);
+		v = opt(ctx, p, "proactive", "cooldown");
+		if (v && atoi(v) >= 0)
+			c->pro_cooldown_s = atoi(v);
+		v = opt(ctx, p, "proactive", "max_per_day");
+		if (v && atoi(v) >= 0)
+			c->pro_max_per_day = atoi(v);
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

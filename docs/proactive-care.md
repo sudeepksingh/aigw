@@ -6,6 +6,11 @@ deals with what it can fix, and tells the ISP about the rest, often before the
 customer notices. Every check also counts towards a daily **experience
 score** for the home, which an ISP can collect across its homes.
 
+> Since v0.40, [proactive care before the call](before-the-call.md) builds on
+> this. It scores each fault a customer would notice from every signal AIGW
+> watches. It fixes what it can as the act mode allows and raises one ticket
+> per fault to the ISP, with a note for the customer in plain words.
+
 What an ISP can measure with it:
 
 - **calls avoided:** problems the gateway fixed itself (`FixedByAIGW`: only

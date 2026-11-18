@@ -1435,6 +1435,17 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>For the home</td><td><code>agctl brief [device] [period] [--propose]</code>.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.40: proactive care before the call</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Worth acting on</td><td>Faults a customer would notice, from care&rsquo;s open problem, the timeline, Self-Healing Wi-Fi, devices dropping off or hopping between bands, rough calls on a full line: points for how bad, how long, how many devices and whether it repeats (and a bad week). Blips never count.</td></tr>
+      <tr><td>Fix or tell</td><td>AIGW fixes what it can (a device kept on 2.4 GHz, smart queueing) as the act mode allows: enforce applies, advise only proposes. The rest is a ticket to the ISP with the brief, the evidence, the next step and a note in plain words for the customer (&ldquo;we noticed X and fixed it&rdquo;, &ldquo;we&rsquo;re on it&rdquo;).</td></tr>
+      <tr><td>No spam</td><td>One ticket per fault; a flap reopens the same ticket without a new word; at most 3 new tickets a day; an area outage holds back the line&rsquo;s tickets.</td></tr>
+      <tr><td>For the ISP</td><td><code>Device.X_AIGW_.Proactive.</code> and <code>ProactiveTicket!</code> (data model 1.18); cortex&rsquo;s fleet report, MCP <code>proactive_tickets</code>, and <strong>calls likely avoided</strong> on the dashboard.</td></tr>
+      <tr><td>For the home</td><td><code>agctl care proactive [--run]</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->

@@ -618,6 +618,9 @@ static void report(void)
 	/* the help desk's brief of the last hour (device kinds unless brief.names), and how many were asked */
 	if ((d = query("brief")) && (d = field(d, "brief")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
 		copy_attr(&r, "brief", d);
+	/* proactive care before the call: its tickets (texts follow brief.names, no device targets) and counts */
+	if ((d = query("proactive")) && (d = field(d, "proactive")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
+		copy_attr(&r, "proactive", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))

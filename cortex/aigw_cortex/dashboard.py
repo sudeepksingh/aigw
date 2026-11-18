@@ -15,6 +15,8 @@ leaves a home for it):
   rollouts       staged firmware rollouts (rollout.py): state, waves, kept or got
                  worse, why one stopped; pause and abort, with a reason (resuming
                  stays a person's action at the command line)
+  before call    (v0.40) faults the gateways fixed themselves or raised to the ISP
+                 first, the open tickets, and the calls likely avoided (proactive.py)
   ISP signals    a faster plan, mesh Wi-Fi, smart queueing, homes at risk, line repairs
   queueing       smart queueing decisions across the fleet, and calls-first
                  results where a bridge reports them
@@ -48,7 +50,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, fleet, outage, rollout
+from . import __version__, fleet, outage, proactive, rollout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -265,7 +267,9 @@ def gateway(store, ref, now=None):
             "score": _week_score(store, g["id"], now),
             "alerts": alerts, "decisions": decs[:50],
             "waiting": sum(1 for d in decs if d.get("state") == "proposed"), "proposals": props,
-            "queueing": queueing(store, {g["id"]}, {g["id"]: snap})}
+            "queueing": queueing(store, {g["id"]}, {g["id"]: snap}),
+            "proactive": {"counts": proactive.of(snap).get("counts") or {},
+                          "tickets": proactive.tickets(store, g["id"])[:20]}}
 
 
 # ---------- access ----------
@@ -383,6 +387,9 @@ def make_handler(store, token, local, log=True):
                     return self.send_json(200, outages(store, days, (qs.get("state") or ["all"])[0] == "open"))
                 if path == "/api/gateways":
                     return self.send_json(200, {"gateways": gateways(store)})
+                if path == "/api/proactive":
+                    open_only = (qs.get("open") or ["0"])[0] in ("1", "true")
+                    return self.send_json(200, proactive.summary(store, None, open_only))
                 m = re.match(r"^/api/gateways/([^/]+)$", path)
                 if m:
                     g = gateway(store, unquote(m.group(1)))
