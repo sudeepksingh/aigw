@@ -11,6 +11,8 @@
     POST /v1/fed/update          a home's clipped, noisy change {round, delta, n, noise, clip}
     GET  /v1/firmware            a staged rollout's firmware, if this home's wave is cleared (sent once)
     POST /v1/firmware/<rollout>  how the gateway took it: {ok, current, error}
+    POST /tmf621/listener[/...]  (v0.42) the ISP's TMF621 hub: a ticket it resolved, closed or
+                                 cancelled (tickets.py); its own token (tmf621.listener), not a gateway's
 
 Every request carries "Authorization: Bearer <token>" from `enroll`. Use
 --cert/--key (or a reverse proxy) for HTTPS anywhere beyond your own LAN.
@@ -24,14 +26,15 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import fed, outage, rollout
+from . import fed, outage, rollout, tickets
 
 MAX_BODY = 4 * 1024 * 1024
 FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list|adapter)(\.sig)?$")
 
 
-def make_handler(store, log=True, fed_settings=None):
+def make_handler(store, log=True, fed_settings=None, tickets_cfg=None, kick=None):
     fs = fed_settings or fed.Settings()
+    tc = tickets_cfg or {}
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "aigw-cortex"
@@ -96,7 +99,20 @@ def make_handler(store, log=True, fed_settings=None):
                 return self.send_json(200, {"offer": None if held else rollout.offer(store, gw["id"])})
             return self.send_json(404, {"error": "unknown path"})
 
+        def listener(self):
+            """v0.42: an event from the ISP's TMF621 hub (tickets.on_event)."""
+            ok = tickets.listener_token_ok(tc, self.headers.get("Authorization", ""))
+            if ok is None:
+                return self.send_json(404, {"error": "unknown path"})
+            if not ok:
+                return self.send_json(401, {"error": "unknown listener token"})
+            code, answer = tickets.on_event(store, self.body())
+            return self.send_json(code, answer)
+
         def do_POST(self):  # noqa: N802
+            p = self.path.split("?")[0]
+            if p == "/tmf621/listener" or p.startswith("/tmf621/listener/"):
+                return self.listener()
             gw = self.gateway()
             if not gw:
                 return self.send_json(401, {"error": "unknown gateway token"})
@@ -106,6 +122,8 @@ def make_handler(store, log=True, fed_settings=None):
             path = self.path.split("?")[0]
             if path == "/v1/report":
                 learned = store.report(gw["id"], body)
+                if kick:
+                    kick()                  # v0.42: news for the ISP's tickets goes out soon, not at the next look
                 # v0.39: in an area outage the gateway holds its own fixes (agd/area.c); incident 0: none
                 return self.send_json(200, {"ok": True, "gateway": gw["name"], "labels": learned,
                                             "area": outage.notice(store, gw["id"])})
@@ -127,8 +145,11 @@ def make_handler(store, log=True, fed_settings=None):
     return Handler
 
 
-def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, fed_settings=None):
-    httpd = ThreadingHTTPServer((listen, port), make_handler(store, log, fed_settings))
+def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, fed_settings=None, tickets_cfg=None):
+    tc = tickets_cfg or {}
+    worker = tickets.Worker(store, tc, log)
+    httpd = ThreadingHTTPServer((listen, port), make_handler(store, log, fed_settings, tc,
+                                                             worker.kick if tc.get("enabled") else None))
     scheme = "http"
     if cert:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -148,6 +169,9 @@ def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, f
                 sys.stderr.write(f"outages: {e}\n")
 
     threading.Thread(target=rollouts, daemon=True).start()
+    if worker.start():
+        print("ISP ticketing on" + (" (DRY RUN: nothing is sent)" if tc.get("dry_run") else "") + ": " +
+              ", ".join(t["kind"] + " " + t["host"] for t in tickets.summary(store, tc)["targets"]), flush=True)
     print(f"cortex listening on {scheme}://{listen}:{httpd.server_address[1]}", flush=True)
     try:
         httpd.serve_forever()

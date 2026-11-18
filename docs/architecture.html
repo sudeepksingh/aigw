@@ -1457,6 +1457,18 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Demo stays demo</td><td>Labelled everywhere (<code>DEMO</code> in agctl, banners in LuCI and the dashboard). On only in a QEMU virtual machine, never over a real home&rsquo;s state; QEMU&rsquo;s restricted networks, so nothing leaves the VM.</td></tr>
     </tbody>
   </table></div>
+
+  <h3 style="margin-top:18px">As built in v0.42: the ISP&rsquo;s own ticketing</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>TMF621</td><td>Each area outage and proactive ticket becomes a TroubleTicket in the ISP&rsquo;s system (TM Forum TMF621 v4 or v5, OAuth2 or a bearer token): created once, updated as it changes, resolved when it is over. Severity, ticket type, the gateway and its uplink as related entities, the brief, evidence, next step and customer note as notes.</td></tr>
+      <tr><td>Never twice, never lost</td><td>A durable outbox in cortex&rsquo;s database, retries with backoff, and a lookup by externalId before any create that may have reached the ISP already: no duplicates over a lost reply or a restart.</td></tr>
+      <tr><td>Both ways</td><td>The ISP&rsquo;s resolve or close comes back through the TMF621 hub: cortex stops updating that ticket, and a declared outage the ISP resolved is ended.</td></tr>
+      <tr><td>Without TMF621</td><td>Signed webhooks: HMAC-SHA256 over a timestamp and the body, a unique delivery id.</td></tr>
+      <tr><td>Safe to turn on</td><td>Off by default, a dry run first; secrets only from files or the environment, never logged. The sync state on the dashboard, in the fleet report and MCP <code>isp_tickets</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->

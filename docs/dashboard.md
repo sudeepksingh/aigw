@@ -31,6 +31,7 @@ so it works on an ISP's own servers with no way out.
 | Fleet health | Homes reporting and silent. The average experience score (the share of the time without a problem) and its change from the period before. Problems found, fixed by AIGW (no call needed), cleared by themselves, and told to the ISP before anyone called. Early warnings. A bar of good (95% or more), fair (80 to 95) and poor homes. An outage, when problems start in many homes of one group within minutes, is shown above it in red: the ISP's network, not the homes. This is the [fleet report](fleet-report.md). |
 | Homes to call first | Open problems, warnings that a fault is near, poor scores and gateways gone quiet, each with the reason in words. |
 | Staged rollouts | Each [rollout](staged-rollout.md): its state, every wave (how many homes kept the firmware or got worse, the score before and after), and why it stopped or waits. The log of what happened. **Pause** and **Abort** buttons. |
+| ISP tickets (v0.42) | Whether area outages and proactive tickets reach the ISP's own ticketing ([TMF621 or webhooks](isp-ticketing.md)): on or off, dry run, open and resolved, synced, waiting to go, failed, the last error and the tickets with errors. Each outage and open proactive ticket shows its ISP ticket id and sync state. |
 | ISP signals | How many homes would take a faster plan, mesh Wi-Fi or smart queueing, need a line repair, or may leave, and the list in the order a team calls ([ISP signals](isp-signals.md)). |
 | Smart queueing and calls first | How many homes have [smart queueing](smart-queueing.md) on, waiting for approval, or tried and undone, from each home's decisions. [Calls-first](calls-first.md) results across the fleet, when a bridge reports them (bridges up to 0.38 don't yet: then the page says so). |
 | Gateways | Every gateway: group, AIGW OS version, when it was last heard from, its score this week, devices, alerts, and decisions waiting for approval. Click one (or a home on any list) for its details. |
@@ -118,6 +119,7 @@ or no devices shared.
 | `/api/overview?days=7&group=G` | The fleet report, with each call-first home's reason in words (`words`), `queueing` (smart queueing and calls-first counts), `groups` and `version`. |
 | `/api/rollouts` | Every rollout (newest 50): state, waves, counts, the last 20 log lines, what it can do now (`can`). |
 | `POST /api/rollouts/<name>/pause` or `/abort` | Body `{"reason": "..."}`. Needs the token. 400 without a reason, 409 when the rollout can't (already paused, stopped, done). `/resume` is refused (403). |
+| `/api/tickets?open=1` | (v0.42) The ISP ticketing's sync state and each ticket: externalId, the ISP's id and status, sync, error ([isp-ticketing.md](isp-ticketing.md)). |
 | `/api/gateways` | One line per gateway. |
 | `/api/gateways/<id or name>` | One gateway's details, as above. |
 

@@ -13,6 +13,9 @@
     python3 -m aigw_cortex rollout new|list|status|pause|resume|abort|homes|result ...
                                                       staged firmware rollouts that stop themselves
                                                       (rollout.py; --help for each)
+    python3 -m aigw_cortex tickets [status|sync|outbox|retry|config|hub] [--json]
+                                                      area outages and proactive tickets in the ISP's
+                                                      ticketing: TMF621 and signed webhooks (tickets.py)
     python3 -m aigw_cortex dashboard [--listen 127.0.0.1:8090] [--token-file F] [--cert c --key k]
                                                       the operator dashboard, a web page (dashboard.py)
     python3 -m aigw_cortex demo [--listen 127.0.0.1:8090]   a simulated fleet and its dashboard, to try it
@@ -257,6 +260,40 @@ def rollout_cmd(store, a):
         print(ro.text(ro.acs_result(store, a.name, a.home, a.result, a.score_before, a.score_after)))
 
 
+def tickets_cmd(store, a):
+    from . import tickets as tk
+    try:
+        cfg = tk.load_config(store.dir, a.config)
+    except ValueError as e:
+        sys.exit(f"tickets: {e}")
+    if a.what == "config":              # where secrets come from, never the secrets: they aren't in it
+        return show(cfg)
+    if a.what == "sync":
+        if not cfg["enabled"]:
+            sys.exit("ISP ticketing is off: set enabled true in " + tk.config_path(store.dir, a.config))
+        from . import outage
+        outage.update(store)
+        r = tk.sync(store, cfg)
+        return show(r) if a.json else print(f"found {r['found'] or 'nothing new'}; sent {r['sent'] or 'nothing'}")
+    if a.what == "outbox":
+        return show(tk.outbox(store))
+    if a.what == "list":
+        return show(tk.listing(store, a.open))
+    if a.what == "retry":
+        return print(f"{tk.retry(store, a.ref)} to send again (with the next sync)")
+    if a.what == "hub":
+        try:
+            if a.ref == "register":
+                return print(f"registered with the ISP's hub: {tk.hub_register(store, cfg)}")
+            if a.ref == "unregister":
+                return print(f"unregistered {tk.hub_unregister(store, cfg)}")
+        except ValueError as e:
+            sys.exit(f"tickets hub: {e}")
+        sys.exit("tickets hub register | unregister")
+    s = tk.summary(store, cfg)
+    show(s) if a.json else print(tk.text(s))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="aigw_cortex", description="AIGW OS cortex")
     ap.add_argument("--data", default=os.environ.get("AIGW_CORTEX_DATA", os.path.expanduser("~/.aigw-cortex")))
@@ -267,7 +304,16 @@ def main(argv=None):
     p.add_argument("--cert")
     p.add_argument("--key")
     p.add_argument("--quiet", action="store_true")
+    p.add_argument("--tickets", help="ISP ticketing configuration (default $AIGW_CORTEX_TICKETS, else "
+                                     "<data>/tickets.json; none: off)")
     fed_args(p)
+    p = sub.add_parser("tickets", help="area outages and proactive tickets in the ISP's ticketing (tickets.py)")
+    p.add_argument("what", nargs="?", default="status",
+                   choices=("status", "list", "sync", "outbox", "retry", "config", "hub"))
+    p.add_argument("ref", nargs="?", help="retry: one ticket's key; hub: register or unregister")
+    p.add_argument("--config", help="the configuration file (default $AIGW_CORTEX_TICKETS, else <data>/tickets.json)")
+    p.add_argument("--open", action="store_true", help="list: only the open ones")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("enroll")
     p.add_argument("name")
     p.add_argument("--group", default="", help="its area, e.g. an exchange or a town")
@@ -355,8 +401,15 @@ def main(argv=None):
         return demo.main(a)
     store = Store(a.data)
     if a.cmd == "serve":
+        from . import tickets
         from .server import serve
-        serve(store, a.listen, a.port, a.cert, a.key, log=not a.quiet, fed_settings=fed_settings(a))
+        try:
+            tc = tickets.load_config(a.data, a.tickets)
+        except ValueError as e:
+            sys.exit(f"tickets: {e}")
+        serve(store, a.listen, a.port, a.cert, a.key, log=not a.quiet, fed_settings=fed_settings(a), tickets_cfg=tc)
+    elif a.cmd == "tickets":
+        tickets_cmd(store, a)
     elif a.cmd == "dashboard":
         from .dashboard import serve as dashboard
         try:

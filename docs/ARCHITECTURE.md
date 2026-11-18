@@ -1116,6 +1116,18 @@ Verified by `tests/test_proactive.c` (the points and what is worth acting on; on
 
 Verified by `tests/demo-test.sh` (CI: refused outside QEMU and over an existing state; the real agd on the seeded files: `agctl why` LINE_FULL with the download, the call and smart queueing in the story, `agctl sqm` kept at 22 ms from 193 ms and put back through the handler, the upgrade kept, the data model's calls-first and SQM, `agctl brief` not a fault, a week of care; the label only with the mark; kept over a restart), `tests/test_cortex.py` (the simulated fleet and the refusal), and the CI job `demo-image`, which builds the image and boots it with `try-aigw.sh --check` (the dashboard with demo data, the VM's own home reported through its bridge, LuCI, `agctl` over ssh).
 
+**As built in v0.42: the ISP's own ticketing.** Area outages (v0.39) and proactive tickets (v0.40) become tickets in the ISP's trouble-ticket system, through the TM Forum TMF621 API or signed webhooks ([isp-ticketing.md](isp-ticketing.md)).
+
+| Piece | As built |
+|-------|----------|
+| Configuration (`tickets.json` in the data directory, `--tickets`, `$AIGW_CORTEX_TICKETS`) | Off by default; `dry_run`; events per target; TMF621 v4 or v5, OAuth2 client credentials or a bearer token; webhooks, each signed. Secrets only from files or the environment, read when used; inline secrets, unsigned webhooks, URLs with credentials and `http://` beyond loopback are refused. |
+| Scan (`tickets.scan`) | Area incidents (`outage.incidents`) and each gateway's proactive tickets (its last report; `told_isp` by default, or `all`) against `isp_tickets`: a fingerprint per ticket gives opened, updated, resolved, reopened. Nothing that was over before ticketing was turned on. Each change becomes rows in `ticket_outbox` (one per target), in the same database, before anything is sent. |
+| Send (`tickets.flush`) | In order per (ticket, target), claimed with a lease. TMF621: POST (after a `GET ?externalId=` when an earlier try may have reached the ISP: a mark is kept before each POST), merge-patch PATCH with the ticket as it is then, `status: resolved` with a reason. Exponential backoff for network errors, 5xx, 408, 429 (`Retry-After`); one new OAuth2 token on a 401; other 4xx stop as `failed` until `tickets retry`. Redirects not followed. Webhooks: `X-AIGW-Signature: v1=HMAC-SHA256(secret, "<ts>." + body)`, `X-AIGW-Timestamp`, `X-AIGW-Delivery`. |
+| The hub | `tickets hub register` posts the callback to `<url>/hub`; cortex's API takes `TroubleTicket*Event`s at `/tmf621/listener` with its own bearer token: the ISP's status is kept, a ticket the ISP resolved or closed gets no more updates, a declared outage it resolved is ended. |
+| Where it runs | `aigw_cortex serve` (a worker every `interval_s`, and right after a report), or `aigw_cortex tickets sync`. Sync state: CLI `tickets`, the dashboard's "ISP tickets" and `/api/tickets`, the fleet report's `isp_tickets`, MCP `isp_tickets` (and `isp_ticket` in `area_outages`, `proactive_tickets`). |
+
+Verified by `tests/test_tickets.py` against `tests/tmf621_mock.py` (TMF621 v4/v5, OAuth2, hub and webhook receiver on 127.0.0.1): create, update and resolve for both kinds with the field mapping; retry after the server was down (refused, 503, 429); no duplicate after a lost reply, a restart, or a crash between POST and keeping the id; failed and retried by hand; a revoked token; v5; dry run; no secrets in any output; hub events and the listener's token; signed webhooks. Not yet against an ISP's production TMF621.
+
 ---
 
 ## 17. Status and risks

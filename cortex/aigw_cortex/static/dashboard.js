@@ -150,6 +150,7 @@ function renderOutages(r) {
       `${o.homes} of ${o.homes_in_group} homes${o.group ? ` on ${o.group}` : ""} ${KIND[o.kind] || o.kind} from ` +
       `${when(o.start)} (within ${Math.max(1, Math.floor(o.spread_s / 60))} min: ${codes}; ${o.confidence} confidence). ` +
       `The ISP's network, not the homes; ${state}.` + (open ? " Their help-desk briefs say so, and fixes in those homes are held." : ""),
+      o.isp_ticket ? el("div", { class: "muted" }, `ISP ticket: ${ispWords(o.isp_ticket)}`) : null,
       homes.length ? el("details", {}, el("summary", {}, `The ${plural(homes.length, "home")}`), el("ul", {}, homes)) : null);
   }));
 }
@@ -206,7 +207,63 @@ function renderProactive(r) {
       { title: "Since", cell: (t) => ago(t.since) },
       { title: "Next step", cell: (t) => t.next_step || "" },
       { title: "For the customer", cell: (t) => t.customer_note || "" },
+      { title: "ISP ticket", cell: (t) => ispBadge(t.isp_ticket) },
     ], p.open_tickets, (t) => openGateway(t.home)) : el("p", { class: "muted" }, "No open tickets."));
+}
+
+// v0.42: the ISP's own tickets (tickets.py)
+const SYNC = { synced: "good", "dry-run": "", pending: "warn", retrying: "warn", failed: "bad", none: "" };
+
+function ispWords(i) {
+  if (!i) return "–";
+  const id = i.remote_id ? `#${i.remote_id}` : "not created yet";
+  return `${id}${i.remote_status ? ` (${i.remote_status})` : ""}, ${i.sync}` +
+    (i.isp_closed ? ", closed by the ISP" : "") + (i.error ? `: ${i.error}` : "");
+}
+
+function ispBadge(i) {
+  if (!i || i.sync === "none") return "–";
+  return el("span", { class: `badge ${SYNC[i.sync] || ""}`, title: ispWords(i) },
+    i.remote_id ? `#${i.remote_id} ${i.sync}` : i.sync);
+}
+
+function renderIspTickets(r) {
+  const s = r.isp_tickets || {};
+  if (s.config_error) {
+    $("isp-tickets").replaceChildren(el("p", { class: "error" }, `The ticketing configuration: ${s.config_error}`));
+    return;
+  }
+  if (!s.enabled) {
+    $("isp-tickets").replaceChildren(el("p", { class: "empty" },
+      "Off. Turn it on in the cortex's tickets.json: a TMF621 Trouble Ticket API, signed webhooks, or both " +
+      "(docs/isp-ticketing.md)."));
+    return;
+  }
+  const t = s.tickets, o = s.outbox;
+  const targets = s.targets.map((x) => `${x.kind} ${x.host}`).join(", ") || "no targets";
+  const kids = [
+    s.dry_run ? el("p", { class: "demo", role: "note" }, el("strong", {}, "Dry run. "),
+      "Tickets are worked out and kept, nothing is sent.") : null,
+    el("div", { class: "tiles" },
+      tile("Open", n(t.open), `${t.resolved} resolved; ${t.isp_closed} closed by the ISP`),
+      tile("Synced", n(s.sync.synced || 0), `to ${targets}`),
+      tile("To send", n(o.queued), (s.sync.retrying ? `${s.sync.retrying} retrying; ` : "") +
+        (s.last_ok ? `last sent ${ago(s.last_ok)}` : "nothing sent yet")),
+      tile("Failed", n(o.failed), o.failed ? "python3 -m aigw_cortex tickets retry, once fixed" : "none")),
+  ];
+  if (s.last_error && (o.failed || s.sync.retrying)) {
+    kids.push(el("p", { class: "reason" }, `Last error (${ago(s.last_error.time)}, ${s.last_error.target}): ` +
+      s.last_error.text));
+  }
+  if (s.problems && s.problems.length) {
+    kids.push(table([
+      { title: "Ticket", cell: (x) => x.external_id },
+      { title: "Sync", cell: (x) => ispBadge(x) },
+      { title: "Error", cell: (x) => x.error || "" },
+      { title: "Since", cell: (x) => ago(x.updated) },
+    ], s.problems));
+  }
+  $("isp-tickets").replaceChildren(...kids.filter(Boolean));
 }
 
 function renderQueueing(r) {
@@ -396,6 +453,7 @@ async function load() {
     renderHealth(r);
     renderAttention(r);
     renderProactive(r);
+    renderIspTickets(r);
     renderSignals(r);
     renderQueueing(r);
     renderRollouts(group ? ro.rollouts.filter((x) => x.group === group || !x.group) : ro.rollouts);
