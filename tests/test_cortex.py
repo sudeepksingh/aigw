@@ -1128,7 +1128,11 @@ class Demo(unittest.TestCase):
             self.assertEqual(r["homes"]["reporting"], 24)
             self.assertEqual(r["groups"], ["hillcrest", "riverside"])
             self.assertEqual(len(r["outages"]), 1)                       # four homes of riverside, minutes apart
-            self.assertEqual(r["outages"][0]["group"], "riverside")
+            o = r["outages"][0]
+            self.assertEqual((o["uplink"], o["kind"], o["state"], o["homes"]), ("riverside", "DOWN", "open", 4))
+            p = r["proactive"]                                          # v0.40: tickets before the call
+            self.assertEqual(sorted(t["status"] for t in p["open_tickets"]), ["Proposed", "Raised"])
+            self.assertGreater(p["calls_likely_avoided"], 0)
             self.assertTrue(any(a["why"] == "early warning" for a in r["attention"]))
             self.assertGreater(r["experience"]["mean"], r["experience"]["mean_before"])   # better than before
             self.assertGreater(r["problems"]["fixed_by_aigw"], 0)

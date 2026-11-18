@@ -93,8 +93,41 @@ def _home(i, town, now):
         decs.append({"id": 3, "state": "proposed", "action": "quarantine", "target": "Living room TV",
                      "device": "Living room TV", "origin": "policy dga", "reason": "It looked up 40 random names.",
                      "created": now - 1200})
+    # proactive care (v0.40): faults the customer would notice, fixed by AIGW or raised to the ISP first
+    pro = {"counts": {"tickets": 0, "told_isp": 0, "fixed_by_aigw": 0, "proposed": 0, "suppressed": 0,
+                      "deduplicated": 0, "flaps": 0, "called_anyway": 0, "calls_likely_avoided": 0,
+                      "held_area_outage": 0}, "tickets": []}
+    c = pro["counts"]
+    if i % 4 == 0:
+        c.update(tickets=1, fixed_by_aigw=1, calls_likely_avoided=1)
+        pro["tickets"].append({"id": 1, "status": "Fixed", "open": 0, "code": "LINE_FULL", "fault": "NONE",
+                               "severity": "warning", "points": 4, "since": now - 2 * 86400, "opened": now - 2 * 86400,
+                               "closed": now - 2 * 86400 + 2400, "told_isp": 0, "called": 0, "acted": 1,
+                               "summary": "Calls stuttered while the line was full; smart queueing fixed it.",
+                               "next_step": "Nothing: smart queueing is kept."})
+    if town == "riverside" and i in (2, 3, 4, 5):
+        c["held_area_outage"] = 1           # the area outage: the ISP knows already, no ticket per home
+    if i == 8:
+        c.update(tickets=1, told_isp=1, calls_likely_avoided=0)
+        pro["tickets"].append({"id": 1, "status": "Raised", "open": 1, "code": "LINE_LOSS", "fault": "LINE",
+                               "severity": "problem", "points": 6, "since": now - 5 * 3600, "opened": now - 4 * 3600,
+                               "told_isp": 1, "called": 0, "acted": 0,
+                               "summary": "The line drops packets (4% lost) since this morning, at every hour.",
+                               "evidence": "Timeline: loss to the next router 3-6% for 5 h; the Wi-Fi is fine.",
+                               "next_step": "Check the line (the DSL port, the cable to the house).",
+                               "customer_note": "We noticed your connection dropping now and then since this "
+                                                "morning. We are checking the line; there is no need to call us."})
+    if i == 11:
+        c.update(tickets=1, proposed=1)
+        pro["tickets"].append({"id": 1, "status": "Proposed", "open": 1, "code": "WIFI_HOPPING", "fault": "HOME_WIFI",
+                               "severity": "warning", "points": 3, "since": now - 3 * 3600, "opened": now - 3 * 3600,
+                               "told_isp": 1, "called": 0, "acted": 0,
+                               "summary": "A laptop keeps hopping between 2.4 and 5 GHz in the evening.",
+                               "next_step": "Approve keeping it on 2.4 GHz (proposed on the gateway).",
+                               "customer_note": "Your laptop's Wi-Fi was unsteady this evening; your router "
+                                                "suggests a fix you can approve in its app."})
     names = i % 2 == 0
-    return {"status": {"version": OLDER if i % 6 == 5 else __version__, "host": "openwrt", "devices": 6 + i % 9,
+    return {"proactive": pro, "status": {"version": OLDER if i % 6 == 5 else __version__, "host": "openwrt", "devices": 6 + i % 9,
                        "alerts": 1 if i == 0 else 0, "mode": "advise",
                        "waiting": sum(1 for d in decs if d["state"] == "proposed")},
             "devices": [{"hostname": "Living room TV", "mac": "02:00:00:00:00:01"}] if names else [{"id": "a1b2c3d4e5f6"}],

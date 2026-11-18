@@ -681,6 +681,58 @@ static void calls_json(struct blob_buf *b)
 	blobmsg_close_table(b, t);
 }
 
+/* proactive care (v0.40): yesterday's slow evening was a ticket AIGW fixed itself (smart queueing,
+   proposed in advise mode and approved): no call to the help desk */
+static void proactive_json(struct blob_buf *b)
+{
+	void *t = blobmsg_open_table(b, "proactive"), *a, *o;
+	char ev[640];
+	struct tm a0, a1;
+
+	local_tm(T.big0, &a0);
+	local_tm(T.on, &a1);
+	snprintf(ev, sizeof(ev), "Timeline %02d:%02d-%02d:%02d: the line full, the internet in %d ms (normally %d ms); "
+		 "a call rough for 30 min. Smart queueing's trial: %s.", a0.tm_hour, a0.tm_min, a1.tm_hour, a1.tm_min,
+		 Q.before.ms, NORMAL_MS, Q.summary);
+	blobmsg_add_u32(b, "next_id", 1);
+	blobmsg_add_u64(b, "since", (uint64_t)T.first);
+	blobmsg_add_u32(b, "tickets", 1);
+	blobmsg_add_u32(b, "proposed", 1);
+	blobmsg_add_u32(b, "fixed_by_aigw", 1);
+	blobmsg_add_u32(b, "calls_likely_avoided", 1);
+	a = blobmsg_open_array(b, "sent");
+	blobmsg_close_array(b, a);
+	a = blobmsg_open_array(b, "list");
+	o = blobmsg_open_table(b, NULL);
+	blobmsg_add_u32(b, "id", 1);
+	blobmsg_add_u32(b, "open", 0);
+	blobmsg_add_string(b, "key", "LINE_FULL");
+	blobmsg_add_string(b, "code", "LINE_FULL");
+	blobmsg_add_string(b, "target", "");
+	blobmsg_add_string(b, "source", "timeline");
+	blobmsg_add_u32(b, "fault", 0);                 /* BF_NONE: not a fault of the line; the home used all of it */
+	blobmsg_add_u32(b, "sev", 2);                   /* DS_WARN */
+	blobmsg_add_u32(b, "status", 5);                /* PS_FIXED */
+	blobmsg_add_u32(b, "points", 4);
+	blobmsg_add_string(b, "why", "a rough call on a full line, 36 min");
+	blobmsg_add_u32(b, "devices", 1);
+	blobmsg_add_u32(b, "episodes", 1);
+	blobmsg_add_u32(b, "acted", 1);
+	blobmsg_add_u32(b, "decision", 1);
+	blobmsg_add_u64(b, "since", (uint64_t)T.big0);
+	blobmsg_add_u64(b, "opened", (uint64_t)T.prop);
+	blobmsg_add_u64(b, "last_seen", (uint64_t)T.on);
+	blobmsg_add_u64(b, "closed", (uint64_t)Q.judged);
+	blobmsg_add_string(b, "summary", "Calls stuttered while the line was full (bufferbloat); AIGW proposed smart "
+			   "queueing, it was approved, and it fixed it.");
+	blobmsg_add_string(b, "evidence", ev);
+	blobmsg_add_string(b, "next_step", "Nothing: smart queueing is kept.");
+	blobmsg_add_string(b, "note", "");
+	blobmsg_close_table(b, o);
+	blobmsg_close_array(b, a);
+	blobmsg_close_table(b, t);
+}
+
 static long day_of(long t)
 {
 	struct tm tm;
@@ -783,6 +835,7 @@ static int write_state(const char *path)
 	care_json(&b);
 	sqm_json(&b);
 	calls_json(&b);
+	proactive_json(&b);
 	rc = write_json(path, &b);
 	blob_buf_free(&b);
 	return rc;

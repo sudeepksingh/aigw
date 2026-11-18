@@ -82,8 +82,9 @@ interface, LuCI (`http://127.0.0.1:8080/`, user root, no password), menu
 | `agctl calls` | Calls and games first: the call on the full line that went first in the queue and stayed smooth. | [Calls first](calls-first.md) |
 | `agctl upgrade` | The upgrade to this version two days ago: the home recorded before, watched for 24 h after, kept. | [Upgrade check](upgrade-check.md) |
 | `agctl care` | Proactive care: the experience score, one problem this week, fixed by AIGW, the nightly speed test. | [Proactive care](proactive-care.md) |
+| `agctl care proactive` | Proactive care before the call: yesterday's evening as a ticket AIGW fixed itself (smart queueing), so nobody had to call. | [Proactive care](proactive-care.md) |
 | `agctl devices` | The home's nine devices, named and typed. | |
-| The dashboard | The fleet: health, the outage, the homes to call first, rollouts (try **Pause**), signals, smart queueing and calls first across homes, each gateway's details. | [Dashboard](dashboard.md), [fleet report](fleet-report.md), [staged rollout](staged-rollout.md) |
+| The dashboard | The fleet: health, an area outage (four homes behind one uplink, the ISP's network), the homes to call first, tickets raised before the call (one with a note for the customer), rollouts (try **Pause**), signals, smart queueing and calls first across homes, each gateway's details. | [Dashboard](dashboard.md), [area outages](area-outages.md), [fleet report](fleet-report.md), [staged rollout](staged-rollout.md) |
 
 ## Demo data stays demo data
 

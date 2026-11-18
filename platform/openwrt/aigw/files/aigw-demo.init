@@ -58,6 +58,7 @@ first_time() {
 		  agctl why --from "yesterday 20:00" --to "yesterday 21:00"   the slow evening, explained
 		  agctl brief "yesterday 20:00-21:00"                        what a help desk would hear
 		  agctl sqm   agctl calls   agctl upgrade   agctl care        what AIGW did about it
+		  agctl care proactive                                       the ticket it fixed before anyone called
 		  agctl dm get Device.X_AIGW_.SQM.                           the same for an ISP (TR-181)
 
 		  docs: https://github.com/sudeepksingh/aigw/blob/main/docs/try-it.md

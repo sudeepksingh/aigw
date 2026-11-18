@@ -155,6 +155,10 @@ pass "agctl brief: not a fault, the line was full; AIGW turned on smart queueing
 check "a week of proactive care: one problem, fixed by AIGW; the nightly speed test" \
 	"d['report']['week']['problems'] == 1 and d['report']['week']['fixed_by_aigw'] == 1 and d['report']['week']['score'] >= 95 and d['speed']['status'] == 'OK'" care
 
+agctl care proactive > "$T/pro.txt" 2>&1 || fail "care proactive: $(cat "$T/pro.txt")"
+grep -q "LINE_FULL" "$T/pro.txt" && grep -qi "fixed" "$T/pro.txt" || fail "proactive: no fixed ticket: $(cat "$T/pro.txt")"
+pass "proactive care: yesterday's evening a ticket AIGW fixed itself"
+
 echo "== the label"
 check "no demo mark: not labelled" "'demo' not in d" status
 agctl status | grep -q "^DEMO" && fail "agctl labelled it without the mark"
