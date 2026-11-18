@@ -57,6 +57,15 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.43:** **Hardened before others try it.** A security review of every way
+> into a gateway and into cortex, written up as a threat model
+> ([docs/security.md](docs/security.md)), with what it found fixed and tested:
+> Wi-Fi passwords only through a write permission, agdns answering the home
+> only, secrets readable by root alone, no passwords in messages. Upgrades are
+> now tested in CI from older releases (v0.29, v0.33 and the latest) on OpenWRT
+> in QEMU and on a PC: settings, policies, history and the remote phone survive.
+> To report a vulnerability, see [SECURITY.md](SECURITY.md).
+>
 > **v0.42:** **In the ISP's own ticketing.** Area outages and proactive
 > tickets become tickets in the ISP's system through the TM Forum **TMF621**
 > Trouble Ticket API (v4 or v5; OAuth2 client credentials or a bearer token):

@@ -1128,6 +1128,22 @@ Verified by `tests/demo-test.sh` (CI: refused outside QEMU and over an existing 
 
 Verified by `tests/test_tickets.py` against `tests/tmf621_mock.py` (TMF621 v4/v5, OAuth2, hub and webhook receiver on 127.0.0.1): create, update and resolve for both kinds with the field mapping; retry after the server was down (refused, 503, 429); no duplicate after a lost reply, a restart, or a crash between POST and keeping the id; failed and retried by hand; a revoked token; v5; dry run; no secrets in any output; hub events and the listener's token; signed webhooks. Not yet against an ISP's production TMF621.
 
+**As built in v0.43: hardened before others try it.** A security review of every way in, written up as the threat model in [security.md](security.md) (what is exposed, to whom, what protects it, what was fixed and what was not, with the reasons), and [SECURITY.md](../SECURITY.md) for reporting through GitHub's private vulnerability reporting.
+
+| Fixed | As built |
+|-------|----------|
+| Wi-Fi passwords through a read permission | `ag.wifi keys` never returns a passphrase; `ag.wifi key_show` (a write permission in LuCI's ACL, not in the PC's non-root one) does; `agctl key qr` uses it |
+| agdns as an open resolver on a PC | `aigw-nft`'s `dns_guard`: agdns's port from loopback, the LAN interfaces and redirected DNS only (`dns.guard`) |
+| Secrets readable by every user | the PC's `/etc/config/aigw` 0600 (also on upgrade); cortex's data directory 0700 and `cortex.db` 0600; the firmware source record 0600 |
+| A shared `/tmp` name | agd's socket for hostapd's answers in `/var/run/aigw`, 0600 |
+| Credentials in messages | the firmware handler never shows a URL's `user:password@` |
+| Warnings | cortex's fleet API beyond loopback without TLS; TR-069 without connection request credentials, or over HTTP |
+| The demo's escape hatch | `aigw-demo seed --test` never writes a system's files |
+
+Upgrades: the CI job `upgrade` installs v0.29.2, v0.33.1 and the latest release on OpenWRT 24.10 x86-64 in QEMU, sets up a home that isn't the defaults (settings, a policy of its own and a default removed, devices and a zone, a block, care history, a remote phone, the bridge's token), upgrades with `opkg` to the PR's packages and reboots; settings word for word, fw4's rules, the phone and WireGuard key, devices, decisions, care history, every data model path, every file in `/etc/aigw` and agd on the new version must survive (`platform/openwrt/upgrade-test.sh`). The job `pcap-upgrade` does the same for a PC as AP's `install.sh` (`tests/pcap-upgrade-test.sh`).
+
+Verified by `tests/security-test.sh` (CI: three network namespaces; DNS from the LAN, loopback and the WAN side, UDP and TCP; the guard off; firmware messages; the TR-069 warnings), `tests/plug-test.sh` (passwords, ACLs, the socket), `tests/test_cortex.py` (class `Security`), `tests/demo-test.sh` and the upgrade jobs.
+
 ---
 
 ## 17. Status and risks

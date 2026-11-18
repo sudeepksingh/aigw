@@ -48,17 +48,37 @@ void wifi_init(void)
 	struct sockaddr_un a = { .sun_family = AF_UNIX };
 	struct timeval tv = { 0, 300000 };
 
+	const char *dir = getenv("AIGW_RUN_DIR");
+	struct stat st;
+	mode_t old;
+
 	sock = socket(AF_UNIX, SOCK_DGRAM, 0);
 	if (sock < 0)
 		return;
-	snprintf(local_path, sizeof(local_path), "/tmp/agd-wifi-%d", (int)getpid());
-	unlink(local_path);
-	snprintf(a.sun_path, sizeof(a.sun_path), "%s", local_path);
-	if (bind(sock, (struct sockaddr *)&a, sizeof(a)) < 0) {
+	/* hostapd answers to this socket: in a directory only root writes, never a name in a
+	   shared /tmp another user could take first (a PC has more users than a router) */
+	if (!dir || !*dir)
+		dir = "/var/run/aigw";
+	mkdir(dir, 0755);
+	if (lstat(dir, &st) || !S_ISDIR(st.st_mode) || st.st_uid != geteuid() || (st.st_mode & 022)) {
+		AG_WARN("wifi: %s is not a directory only agd's user writes: no Wi-Fi control", dir);
 		close(sock);
 		sock = -1;
 		return;
 	}
+	snprintf(local_path, sizeof(local_path), "%s/agd-wifi-%d", dir, (int)getpid());
+	unlink(local_path);
+	snprintf(a.sun_path, sizeof(a.sun_path), "%s", local_path);
+	old = umask(077);
+	if (bind(sock, (struct sockaddr *)&a, sizeof(a)) < 0) {
+		umask(old);
+		AG_WARN("wifi: cannot bind %s: %s", local_path, strerror(errno));
+		local_path[0] = '\0';
+		close(sock);
+		sock = -1;
+		return;
+	}
+	umask(old);
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	atexit(wifi_cleanup);
 }
