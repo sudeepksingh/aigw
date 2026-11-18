@@ -419,4 +419,19 @@ wait_up 20 "d['state'] == 'RolledBack'" "back on 1.0 (agd's record carried over 
 wait_up 20 "d.get('confirmed') == 'yes'" "the devices came back on 1.0: confirmed"
 up "sys.exit(0 if d['held'] == '2.0-r2' and 'Rolled back to 1.0-r1 (image 3)' in d['summary'] else 1)" || fail "the record: $(agctl -j upgrade)"
 agctl upgrade
+
+echo "== a kept copy that appears a moment after agd listed the images (a USB disk mounted late)"
+K=$R/etc/aigw-rollback                                  # where this router keeps it (the flash)
+[ "$(dmget Device.DeviceInfo.FirmwareImage.3.Status)" = NoImage ] || fail "image 3 should be empty on 1.0"
+# within agd's listing cache (FW_CACHE): Activate() must look again, not refuse on what it listed
+mkdir -p "$K"; cp "$W/fw-3.0.img" "$K/kept.img"; echo 3.0-r3 > "$K/kept.version"
+fw list | grep -q '^3 Available 0 0 3.0-r3 kept$' || fail "image 3 = the copy put there: $(fw list)"
+call operate '{"command":"Device.DeviceInfo.FirmwareImage.3.Activate()"}' > "$T/out" 2>&1
+js "sys.exit(0 if d['ok'] else 1)" < "$T/out" || fail "Activate() on a copy that just appeared: $(cat "$T/out")"
+i=0
+until [ "$(flashes)" = 3 ]; do
+	i=$((i + 1)); [ $i -le 40 ] || fail "3.0 should be written"; sleep 0.5
+done
+[ "$(running)" = 3.0-r3 ] || fail "should run 3.0: $(running)"
+echo "   activated at once, on the handler's word, not agd's listing of a moment before"
 echo "SINGLE-IMAGE TEST OK"

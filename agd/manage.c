@@ -274,7 +274,9 @@ void wifiset_seen(const char *iface, int what, const char *v)
 
 /* ---------- firmware ---------- */
 
-#define FW_CACHE 3                      /* seconds a listing is reused */
+/* seconds a listing is reused, for reads only: Download() and Activate() ask the
+   handler again (a USB disk holding the kept copy may have come up a moment ago) */
+#define FW_CACHE 3
 
 static struct fw_image fw_cache[FW_MAX];
 static int fw_n = -1;
@@ -324,6 +326,13 @@ copy:
 			snprintf(out[i].status, sizeof(out[i].status), "%s", fw_busy_state);
 	}
 	return i;
+}
+
+/* fw_list, asking the handler now: for a decision, not a read */
+int fw_list_now(struct fw_image *out, int max)
+{
+	fw_n = -1;
+	return fw_list(out, max);
 }
 
 int fw_find(uint32_t id, struct fw_image *f)
@@ -522,6 +531,7 @@ int fw_download(uint32_t id, const struct fw_request *r, const char *who, fw_don
 		snprintf(err, en, "image %u is busy (a download or activation is under way)", fw_busy);
 		return -1;
 	}
+	fw_n = -1;                      /* as they are now, not as listed */
 	if (fw_find(id, &f) < 0) {
 		snprintf(err, en, "no firmware image %u", id);
 		return -1;
@@ -650,6 +660,7 @@ int fw_activate(uint32_t id, int reboot, const char *who, fw_done_t done, void *
 		snprintf(err, en, "image %u is busy (a download or activation is under way)", fw_busy);
 		return -1;
 	}
+	fw_n = -1;                      /* decide on the images as they are now, not as listed */
 	if (fw_find(id, &f) < 0) {
 		snprintf(err, en, "no firmware image %u", id);
 		return -1;

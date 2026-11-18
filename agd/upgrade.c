@@ -557,7 +557,7 @@ static void worse(long now)
 		U.state = UP_WORSE;
 		snprintf(U.note, sizeof(U.note), "Not rolled back: upgrade.rollback is off.");
 	} else {
-		n = fw_list(all, FW_MAX);
+		n = fw_list_now(all, FW_MAX);       /* the kept copy's disk may have come up just now */
 		for (i = 0; i < n; i++)
 			if (!all[i].active && !strcmp(all[i].version, U.b.from) &&
 			    (!strcmp(all[i].status, "Available") || !strcmp(all[i].status, "Active")))
