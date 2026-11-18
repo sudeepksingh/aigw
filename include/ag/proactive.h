@@ -34,8 +34,8 @@
  * comes back within `cooldown_s` reopens the same ticket (a flap): the ISP is
  * not told again, and each flap doubles how long it must stay away before the
  * ticket closes. At most `max_per_day` new tickets reach the ISP in 24 hours;
- * more are kept at home (suppressed). An outage across the area (v0.39) holds
- * back tickets about the line: the ISP knows already.
+ * more are kept at home (suppressed). A home in a known outage across the area
+ * (v0.39) gets no tickets and no customer notes at all: the ISP knows already.
  *
  * Pure (no I/O): agd (agd/proactive.c) gathers, acts and tells the ISP.
  * Unit test: tests/test_proactive.c.
@@ -59,7 +59,7 @@ enum pro_status {
 	PS_FIXING,      /* AIGW applied a fix (enforce mode): waiting to see it work */
 	PS_PROPOSED,    /* a fix waits for a person's yes (advise mode); the ISP was told */
 	PS_RAISED,      /* a ticket to the ISP: AIGW can't fix it */
-	PS_SUPPRESSED,  /* kept at home: the day's limit, or an area outage the ISP knows of */
+	PS_SUPPRESSED,  /* kept at home: the day's limit */
 	PS_FIXED,       /* over, and AIGW changed something for it */
 	PS_RESOLVED,    /* over, after the ISP was told */
 	PS_PASSED,      /* over by itself before anyone had to be told */
@@ -120,18 +120,20 @@ struct pro_counts {
 	uint32_t raised;        /* the ISP was told (a ticket, or a fix waiting for a yes) */
 	uint32_t fixed;         /* AIGW fixed it itself */
 	uint32_t proposed;      /* AIGW proposed its fix (advise mode) */
-	uint32_t suppressed;    /* kept at home (the day's limit, an area outage) */
+	uint32_t suppressed;    /* kept at home (the day's limit) */
 	uint32_t deduped;       /* seen again while known: no new word to the ISP */
 	uint32_t flaps;         /* came back after clearing */
 	uint32_t called;        /* the customer called anyway (a brief asked while open) */
 	uint32_t avoided;       /* calls likely avoided: fixed, or told first, and nobody called */
+	uint32_t area_held;     /* faults worth a ticket while the home was in a known area outage: none made */
 	long since;
 };
 
 struct pro_state {
 	struct pro_ticket t[PRO_TICKETS];
 	uint32_t next_id;
-	struct { uint32_t h; long t, last; } ep[PRO_EPISODES];  /* episodes (key, start, last seen): repeats */
+	struct { uint32_t h; long t, last; int held; } ep[PRO_EPISODES];  /* episodes (key, start, last seen): repeats */
+	int area_hold;          /* set before each step: the home is in a known area outage */
 	int ep_head;
 	long sent[PRO_SENT];    /* when the ISP was told of a new ticket: the day's limit */
 	int sent_head;
@@ -170,8 +172,13 @@ int pro_step(struct pro_state *st, const struct pro_signal *sig, int n, long now
 int pro_budget(const struct pro_state *st, long now, const struct pro_params *p);
 /* the ISP was told of this ticket now (counts against the day's limit once) */
 void pro_notified(struct pro_state *st, struct pro_ticket *t, long now);
-/* an area outage holds this ticket back (only the line's) */
-int pro_area_held(const struct pro_ticket *t, int area_outage);
+/*
+ * A home in a known area outage (st->area_hold) gets no proactive tickets and
+ * no customer notes: the ISP knows of the outage and tells its customers
+ * itself. While it lasts, no ticket is opened or reopened and none outlives a
+ * grace (the open ones wait); each fault that would have made one is counted
+ * once (area_held).
+ */
 /* the ticket is over: Fixed, Resolved or Passed, and the counts */
 int pro_close(struct pro_state *st, struct pro_ticket *t, long now);
 /* the customer asked the help desk: open tickets were not in time */

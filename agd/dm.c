@@ -1354,6 +1354,7 @@ static struct dm_param {
 	{ PR "Deduplicated", T_UINT, 0, TB_NONE, g_pr, NULL },
 	{ PR "CalledAnyway", T_UINT, 0, TB_NONE, g_pr, NULL },
 	{ PR "CallsLikelyAvoided", T_UINT, N, TB_NONE, g_pr, NULL },
+	{ PR "HeldForAreaOutage", T_UINT, 0, TB_NONE, g_pr, NULL },
 	{ PR "MaxPerDay", T_UINT, 0, TB_NONE, g_pr, NULL },
 	{ PR "Since", T_TIME, 0, TB_NONE, g_pr, NULL },
 	{ PR "TicketNumberOfEntries", T_UINT, N, TB_NONE, g_pr, NULL },

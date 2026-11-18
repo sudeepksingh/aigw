@@ -391,7 +391,7 @@ static void show_proactive(struct ubus_request *req, int type, struct blob_attr 
 	       (unsigned long long)fnum(msg, "threshold"), fnum(msg, "fix") ? "by AIGW" : "never by AIGW", fstr(msg, "mode"),
 	       (unsigned long long)fnum(msg, "left_today"), (unsigned long long)fnum(msg, "max_per_day"));
 	if (fnum(msg, "area_outage"))
-		printf("  an outage across the area: tickets about the line are held back (the ISP knows)\n");
+		printf("  an outage across the area: no tickets or customer notes while it lasts (the ISP knows)\n");
 	if (c)
 		printf("  so far    %llu worth acting on: %llu fixed by AIGW, %llu proposed, %llu told to the ISP, %llu kept at "
 		       "home, %llu repeats not told again; calls likely avoided %llu (called anyway %llu)\n",

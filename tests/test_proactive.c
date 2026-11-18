@@ -233,16 +233,49 @@ static void limit(void)
 	CHECK(S.c.raised == 3 && pro_budget(&S, now, &P) == 0, "5 faults: the ISP told of 3, then none left today");
 	CHECK(pro_budget(&S, NOW + 86400 + 1300, &P) == 3, "a day later: 3 again");
 
-	printf("-- an outage across the area holds back the line's tickets --\n");
-	{
-		struct pro_ticket t;
+}
 
-		memset(&t, 0, sizeof(t));
-		t.fault = BF_LINE;
-		CHECK(pro_area_held(&t, 1) && !pro_area_held(&t, 0), "the line, in an area outage: held back");
-		t.fault = BF_HOME_WIFI;
-		CHECK(!pro_area_held(&t, 1), "Wi-Fi at home, in an area outage: not held back");
+static void area(void)
+{
+	struct pro_signal line = sig("ISP_DOWN", DS_PROBLEM, NOW - 600, 5, NULL);
+	struct pro_signal wifi = sig("WIFI_CONGESTION", DS_WARN, NOW - 1900, 3, NULL);
+	struct pro_signal both[2];
+	struct pro_ticket *t;
+	int n, k;
+
+	printf("-- a home in a known area outage: no tickets, no notes --\n");
+	memset(&S, 0, sizeof(S));
+	S.area_hold = 1;
+	both[0] = line;
+	both[1] = wifi;
+	for (k = 0; k < 5; k++) {
+		n = pro_step(&S, both, 2, NOW + 60 * k, -1, &P, ch, 32);
+		CHECK(n == 0, "look %d: the line down and crowded Wi-Fi, worth acting on, but no ticket", k + 1);
 	}
+	CHECK(pro_open_count(&S) == 0 && S.c.tickets == 0 && S.c.area_held == 2,
+	      "nothing opened; each fault counted once as held (%u)", S.c.area_held);
+	S.area_hold = 0;
+	n = pro_step(&S, both, 2, NOW + 300, -1, &P, ch, 32);
+	CHECK(n == 2 && has(n, PC_NEW) && S.c.area_held == 2, "the outage over and the faults still there: tickets now");
+
+	printf("-- an area outage starts while a ticket is open: it waits, nothing reopens --\n");
+	memset(&S, 0, sizeof(S));
+	step1(&wifi, NOW, -1);
+	t = ch[0].t;
+	t->watch_until = NOW + 60;
+	S.area_hold = 1;
+	n = step1(&wifi, NOW + 120, -1);
+	CHECK(n == 0 && t->open, "Self-Healing Wi-Fi's grace is over, but no raise during the outage");
+	S.area_hold = 0;
+	n = step1(&wifi, NOW + 180, -1);
+	CHECK(n == 1 && ch[0].kind == PC_GRACE_OVER, "after the outage: raised");
+	t->status = PS_RAISED;
+	pro_notified(&S, t, NOW + 180);
+	step1(NULL, NOW + 900, -1);
+	pro_close(&S, t, NOW + 900);
+	S.area_hold = 1;
+	n = step1(&wifi, NOW + 1000, -1);
+	CHECK(n == 0 && !t->open && t->flaps == 0, "back during an area outage: not reopened");
 }
 
 static void watch_and_close(void)
@@ -349,6 +382,7 @@ int main(void)
 	flaps();
 	repeats();
 	limit();
+	area();
 	watch_and_close();
 	full();
 	notes();

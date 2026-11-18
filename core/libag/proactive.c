@@ -125,8 +125,8 @@ int pro_repeats(const struct pro_state *st, const char *key, long now)
 	return n;
 }
 
-/* a key seen now: the episode it belongs to (a new one after clear_s away); returns when it started */
-static long episode(struct pro_state *st, const char *key, long now, long since, const struct pro_params *p)
+/* a key seen now: the episode it belongs to (a new one after clear_s away), by its index */
+static int episode(struct pro_state *st, const char *key, long now, long since, const struct pro_params *p)
 {
 	uint32_t h = hash(key);
 	int i, best = -1;
@@ -136,14 +136,15 @@ static long episode(struct pro_state *st, const char *key, long now, long since,
 			best = i;
 	if (best >= 0) {
 		st->ep[best].last = now;
-		return st->ep[best].t;
+		return best;
 	}
 	i = st->ep_head;
 	st->ep_head = (st->ep_head + 1) % PRO_EPISODES;
 	st->ep[i].h = h;
 	st->ep[i].t = since && since < now ? since : now;
 	st->ep[i].last = now;
-	return st->ep[i].t;
+	st->ep[i].held = 0;
+	return i;
 }
 
 static struct pro_ticket *by_key(struct pro_state *st, const char *key, int open)
@@ -216,7 +217,7 @@ int pro_step(struct pro_state *st, const struct pro_signal *sig, int n, long now
 		const struct pro_signal *s = &x;
 		struct pro_ticket *t;
 		char why[160];
-		int pts, rep;
+		int pts, rep, e;
 		long es;
 
 		if (!sig[i].code || !sig[i].key[0])
@@ -231,14 +232,15 @@ int pro_step(struct pro_state *st, const struct pro_signal *sig, int n, long now
 		/* how long: what the source says, or since this episode began, whichever is longer (a source
 		   may only see the last minutes; the looks see it all) */
 		x = sig[i];
-		es = episode(st, x.key, now, x.since, p);
+		e = episode(st, x.key, now, x.since, p);
+		es = st->ep[e].t;
 		if (es && (!x.since || es < x.since))
 			x.since = es;
 		if ((t = by_key(st, s->key, 1))) {
 			fill(t, s, now);
 			seen[t - st->t] = 1;
-			if ((t->status == PS_WATCHING || t->status == PS_FIXING || t->quiet) && t->watch_until &&
-			    now >= t->watch_until) {
+			if (!st->area_hold && (t->status == PS_WATCHING || t->status == PS_FIXING || t->quiet) &&
+			    t->watch_until && now >= t->watch_until) {
 				t->watch_until = 0;
 				add(ch, &k, max, PC_GRACE_OVER, t);
 			}
@@ -248,6 +250,14 @@ int pro_step(struct pro_state *st, const struct pro_signal *sig, int n, long now
 		pts = pro_points(s, now, rep, score_week, p, why, sizeof(why));
 		if (!pro_worth(s, pts, now, p))
 			continue;
+		if (st->area_hold) {
+			/* a known area outage: the ISP knows and tells its customers; no ticket, no note */
+			if (!st->ep[e].held) {
+				st->ep[e].held = 1;
+				st->c.area_held++;
+			}
+			continue;
+		}
 		if ((t = by_key(st, s->key, 0)) && t->closed && now - t->closed < p->cooldown_s) {
 			/* back soon after it cleared: the same ticket */
 			t->open = 1;
@@ -309,11 +319,6 @@ void pro_notified(struct pro_state *st, struct pro_ticket *t, long now)
 	st->sent[st->sent_head] = now;
 	st->sent_head = (st->sent_head + 1) % PRO_SENT;
 	st->c.raised++;
-}
-
-int pro_area_held(const struct pro_ticket *t, int area_outage)
-{
-	return area_outage && t->fault == BF_LINE;
 }
 
 int pro_close(struct pro_state *st, struct pro_ticket *t, long now)

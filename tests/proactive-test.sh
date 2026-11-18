@@ -28,6 +28,7 @@ set -eu
 BIN=$(cd "${1:-build}" && pwd)
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
+chmod 755 "$T"         # the test plug-in runs as nobody
 GW=aigwpro-gw
 ISP=aigwpro-isp
 PIDS=""
@@ -190,7 +191,10 @@ config act 'act'
 	option dns_policy '$T/dns-policy'
 
 config plugins 'plugins'
-	option enabled '0'
+	option dir '$T/sys'
+	option user_dir '$T/user'
+	option user 'nobody'
+	option state_dir '$T/pstate'
 
 config models 'models'
 	option dir '$T/models'
@@ -219,12 +223,28 @@ config lan 'lan'
 EOF
 }
 config advise 3
+# a test plug-in standing in for cortex's area outage notice (the bridge passes it on the same way):
+# renewed every second while $T/pstate/nudge/outage exists, lapsing 3 s after
+mkdir -p "$T/sys/nudge" "$T/user"
+cat > "$T/sys/nudge/manifest.json" <<'EOF'
+{ "name": "nudge", "kind": "sensor", "version": "1.0.0", "description": "proactive-test: an area outage notice on request",
+  "exec": "run.sh", "caps": ["area.notice"], "hosts": ["linux", "openwrt"], "budget": { "ram_kb": 8192, "cpu_pct": 5 } }
+EOF
+cat > "$T/sys/nudge/run.sh" <<'EOF'
+#!/bin/sh
+while :; do
+	[ -f "$AIGW_STATE/outage" ] &&
+		echo '{"area": {"incident": 41, "kind": "DOWN", "since": 1, "homes": 5, "of": 8, "confidence": "high", "uplink": "OLT-P/1", "hold_s": 3}}'
+	sleep 1
+done
+EOF
+chmod 755 "$T/sys/nudge/run.sh"
 printf '1999999999 %s 10.96.0.41 dads-phone *\n1999999999 %s 10.96.0.42 sara-laptop *\n1999999999 %s 10.96.0.43 living-room-tv *\n' \
 	"$PHONE" "$LAPTOP" "$TV" > "$T/leases"
 export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock"
 "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.5
-start_agd() { ip netns exec "$GW" "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"; sleep 1; }
+start_agd() { AIGW_TEST_AREA_HOLD_MIN=1 ip netns exec "$GW" "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"; sleep 1; }
 stop_agd() { kill "$AGD"; wait "$AGD" 2>/dev/null || true; }
 start_agd
 "$UBUS" -s "$AIGW_UBUS" listen ag.dm.event > "$T/events.log" 2>&1 & L=$!; PIDS="$PIDS $L"
@@ -411,6 +431,30 @@ sleep 1
 [ "$(events)" = "$EV" ] || fail "kept at home: no event: $(cat "$T/events.log")"
 pro | js "c = d['counts']; sys.exit(0 if c['suppressed'] >= 1 else 1)" || fail "counted as kept at home: $(agctl care proactive)"
 agctl care proactive
+
+echo "== a known area outage: no tickets, no notes, not a word to the ISP"
+EV=$(events)
+N0=$(pro | js "print(d['counts']['tickets'])")
+touch "$T/pstate/nudge/outage"
+wait_pro 20 "d['area_outage'] in (1, True)"
+ip -n "$ISP" addr del 10.98.0.1/32 dev lo
+wait_pro 45 "d['counts']['held_area_outage'] >= 1"     # the line down, worth a ticket: held
+sleep 6                                         # and more looks
+pro | js "
+c = d['counts']
+ok = c['tickets'] == $N0 and c['held_area_outage'] >= 1
+ok = ok and not [t for t in d['tickets'] if t['code'] in ('ISP_DOWN', 'LINE_DOWN') and t['open'] in (1, True)]
+sys.exit(0 if ok else 1)" || fail "an area outage: no ticket: $(agctl care proactive)"
+[ "$(events)" = "$EV" ] || fail "an area outage: no event: $(cat "$T/events.log")"
+"$UBUS" -s "$AIGW_UBUS" call ag.dm get '{"paths":["Device.X_AIGW_.Proactive.HeldForAreaOutage"]}' |
+	js "sys.exit(0 if int(d['values']['Device.X_AIGW_.Proactive.HeldForAreaOutage']) >= 1 else 1)" ||
+	fail "HeldForAreaOutage"
+echo "   the internet down in a known area outage: no ticket, no event"
+rm -f "$T/pstate/nudge/outage"
+wait_pro 20 "d['area_outage'] in (0, False)"
+wait_pro 30 "[t for t in d['tickets'] if t['code'] in ('ISP_DOWN', 'LINE_DOWN') and t['open'] in (1, True)]"
+echo "   the notice lapsed, the line still down: its ticket again"
+ip -n "$ISP" addr add 10.98.0.1/32 dev lo
 
 echo "== the help desk is asked: open tickets were not in time"
 agctl brief --no-check > /dev/null

@@ -452,6 +452,7 @@
       <parameter name="Deduplicated" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="CalledAnyway" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="CallsLikelyAvoided" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="HeldForAreaOutage" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="MaxPerDay" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="TicketNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>

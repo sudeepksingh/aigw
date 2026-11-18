@@ -351,6 +351,15 @@ static void emit(struct pro_ticket *t)
 /* tell the ISP: a new ticket counts against the day's limit, later news of it doesn't */
 static void tell(struct pro_ticket *t, long now)
 {
+	if (S.area_hold) {
+		/* a known area outage: the ISP tells its customers itself. News of a ticket it already has
+		   (it is over) still goes, without a note for the customer; nothing new does */
+		if (!t->notified) {
+			AG_INFO("proactive: ticket %u %s: no word during the area outage", t->id, t->code);
+			return;
+		}
+		t->note[0] = '\0';
+	}
 	if (!t->notified) {
 		if (pro_budget(&S, now, &P) <= 0) {
 			AG_INFO("proactive: ticket %u %s kept at home: %d new tickets in 24 hours already", t->id, t->code,
@@ -443,13 +452,6 @@ static int watched_by_healing(const char *code)
 static void raise_it(struct pro_ticket *t, long now, const struct brief *b, const char *why_now)
 {
 	t->status = PS_RAISED;
-	if (pro_area_held(t, area_outage())) {
-		t->status = PS_SUPPRESSED;
-		S.c.suppressed++;
-		snprintf(t->next_step, sizeof(t->next_step), "Held back: an outage across the area; the ISP knows already.");
-		AG_INFO("proactive: ticket %u %s held back (an area outage)", t->id, t->code);
-		return;
-	}
 	snprintf(t->next_step, sizeof(t->next_step), "%s%.250s%s%.300s", why_now ? why_now : "",
 		 b && b->fix.text[0] ? b->fix.text : "Check it from the ISP's side.",
 		 b && b->visit_why[0] ? " Technician: " : "", b && b->visit_why[0] ? b->visit_why : "");
@@ -557,6 +559,7 @@ static void step(long now)
 	gather(now);
 	if (cfg.care && care_report_of(7, &week) == 0)
 		score = care_score(&week);
+	S.area_hold = area_outage();
 	n = pro_step(&S, sig, nsig, now, score, &P, ch, (int)(sizeof(ch) / sizeof(ch[0])));
 	for (i = 0; i < n; i++) {
 		struct pro_ticket *t = ch[i].t;
@@ -717,7 +720,7 @@ static int newest_first(const void *a, const void *b)
 static const struct { const char *name; size_t off; } CF[] = {
 	CFU("tickets", tickets), CFU("told_isp", raised), CFU("fixed_by_aigw", fixed), CFU("proposed", proposed),
 	CFU("suppressed", suppressed), CFU("deduplicated", deduped), CFU("flaps", flaps), CFU("called_anyway", called),
-	CFU("calls_likely_avoided", avoided),
+	CFU("calls_likely_avoided", avoided), CFU("held_area_outage", area_held),
 };
 
 static void counts_add(struct blob_buf *b)
@@ -840,6 +843,7 @@ int proactive_count(const char *f, char *buf, size_t n)
 	else if (!strcmp(f, "Deduplicated")) snprintf(buf, n, "%u", S.c.deduped);
 	else if (!strcmp(f, "CalledAnyway")) snprintf(buf, n, "%u", S.c.called);
 	else if (!strcmp(f, "CallsLikelyAvoided")) snprintf(buf, n, "%u", S.c.avoided);
+	else if (!strcmp(f, "HeldForAreaOutage")) snprintf(buf, n, "%u", S.c.area_held);
 	else if (!strcmp(f, "MaxPerDay")) snprintf(buf, n, "%d", P.max_per_day);
 	else if (!strcmp(f, "Since")) snprintf(buf, n, "%ld", S.c.since);
 	else

@@ -108,9 +108,14 @@ When it is over (not seen for `proactive.clear` seconds), a ticket is `Fixed`
   ISP in 24 hours. Past it they are kept at home (`Suppressed`), still visible
   with `agctl care proactive` and in the data model. News about a ticket the ISP
   already has (it was fixed, it is over) is free.
-- **An outage across the area** (v0.39 area outage detection) holds
-  back tickets about the line: the ISP knows already. Tickets about the home's
-  Wi-Fi and devices still go out. The hold follows `Device.X_AIGW_.AreaOutage.` ([area-outages.md](area-outages.md)).
+- **A home in a known outage across the area** (v0.39, [area-outages.md](area-outages.md):
+  `Device.X_AIGW_.AreaOutage.` is `Active`) gets **no tickets and no customer
+  notes** while it lasts: the ISP knows of the outage and tells its customers
+  itself. No ticket is opened or reopened and none is raised after a grace
+  (AIGW also holds its own fixes then). Each fault that would have made one is
+  counted once, in `HeldForAreaOutage`. If an open ticket the ISP already has
+  ends meanwhile, it still hears so, but with no note for the customer. Once the
+  notice lapses, a fault that is still there gets its ticket as usual.
 
 ## The customer's note
 
@@ -133,7 +138,7 @@ fixed or not, at every hour (`pro_plain()` in `core/libag/proactive.c`).
 | | |
 |---|---|
 | At home | `agctl care proactive [--run]` (`--run`: look now); `agctl -j ...` for JSON; ubus `ag proactive {run}` |
-| TR-181 (USP, TR-069, aigw-amx) | `Device.X_AIGW_.Proactive.`: `Enable`, `Fix`, `OpenTickets`, `Tickets`, `ToldISP`, `FixedByAIGW`, `Proposed`, `Suppressed`, `Deduplicated`, `CalledAnyway`, `CallsLikelyAvoided`, `MaxPerDay`, `Since`, and the table `Ticket.{i}.` (`Status`, `Open`, `Code`, `Fault`, `Severity`, `Points`, `Reason`, `Devices`, `Episodes`, `Flaps`, `Since`, `Opened`, `LastSeen`, `Closed`, `ToldISP`, `CustomerCalled`, `Decision`, `Summary`, `Evidence`, `NextStep`, `CustomerNote`). Data model 1.18 |
+| TR-181 (USP, TR-069, aigw-amx) | `Device.X_AIGW_.Proactive.`: `Enable`, `Fix`, `OpenTickets`, `Tickets`, `ToldISP`, `FixedByAIGW`, `Proposed`, `Suppressed`, `Deduplicated`, `CalledAnyway`, `CallsLikelyAvoided`, `HeldForAreaOutage`, `MaxPerDay`, `Since`, and the table `Ticket.{i}.` (`Status`, `Open`, `Code`, `Fault`, `Severity`, `Points`, `Reason`, `Devices`, `Episodes`, `Flaps`, `Since`, `Opened`, `LastSeen`, `Closed`, `ToldISP`, `CustomerCalled`, `Decision`, `Summary`, `Evidence`, `NextStep`, `CustomerNote`). Data model 1.18 |
 | The event | `Device.X_AIGW_.ProactiveTicket!` (`Ticket, Status, Code, Fault, Severity, Points, Reason, Devices, Since, Summary, Evidence, NextStep, CustomerNote, Decision`): when a ticket is raised or proposed, when AIGW fixed one, when one the ISP knows is over. Also `ag.ticket` on ubus for plug-ins |
 | cortex | the bridge sends the tickets and counts with each report. `python3 -m aigw_cortex proactive [home] [--open] [--json]`; the fleet report's "before call" lines and its `proactive` section; the MCP tool `proactive_tickets`; the dashboard's "Before the call" section with **calls likely avoided**, and `/api/proactive?open=1` |
 
@@ -168,8 +173,8 @@ shares device names (bridge `devices = names`).
 ## Code and tests
 
 - `core/libag/proactive.c`, `include/ag/proactive.h`: the rules, pure (points,
-  worth acting on, tickets, episodes, flaps, the day's limit, the area-outage
-  hold, the customer's note and its plain-words check). Unit test:
+  worth acting on, tickets, episodes, flaps, the day's limit, no tickets in a known
+  area outage, the customer's note and its plain-words check). Unit test:
   `tests/test_proactive.c`.
 - `agd/proactive.c`: gathers the signals, builds each ticket from the
   help-desk brief, fixes (through `act_auto()`: enforce applies, advise
