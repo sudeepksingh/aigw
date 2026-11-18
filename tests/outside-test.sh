@@ -293,7 +293,7 @@ assert set(r) == {1, 2, 3, 4, 5, 6}, "one answer per request, none for the notif
 assert r[1]["result"]["serverInfo"]["name"] == "aigw-cortex"
 tools = {t["name"]: t for t in r[2]["result"]["tools"]}
 assert {"list_devices", "propose_action", "gateway_status"} <= set(tools)
-assert sorted(n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]) == ["propose_action", "rollout_hold"]
+assert sorted(n for n, t in tools.items() if not t["annotations"]["readOnlyHint"]) == ["propose_action", "rollout_hold", "support_brief"]
 assert "smoke-host" in r[3]["result"]["content"][0]["text"]
 assert not r[4]["result"]["isError"] and "approve" in r[4]["result"]["content"][0]["text"]
 assert r[5]["result"]["isError"], "unknown action must be refused"
