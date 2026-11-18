@@ -365,7 +365,7 @@ static void fix(const struct brief_in *in, struct brief *o)
 			x->action = "undo";
 			x->decision = d->id;
 			snprintf(x->text, sizeof(x->text), "Undo decision %u (%s %s) if the device is safe; its reason: %s",
-				 d->id, d->action, d->words ? d->words : "", d->reason && *d->reason ? d->reason : "none given");
+				 d->id, d->action, d->words ? d->words : "", d->reason && *d->reason ? d->reason : "see the decision on the gateway");
 		} else
 			snprintf(x->text, sizeof(x->text), "Check the decision's reason with the customer.");
 	} else if (!strcmp(c, "LINE_DOWN") || !strcmp(c, "NO_ROUTE"))

@@ -63,8 +63,10 @@ static struct {
 
 /* ---------- names ---------- */
 
-static char nm_buf[DEV_MAX * 3][64], kd_buf[DEV_MAX * 3][40];
-static const char *nm[DEV_MAX * 3], *kd[DEV_MAX * 3];
+#define SITE_MAX  256
+#define NAMES_MAX (DEV_MAX * 3 + 2 * SITE_MAX)
+static char nm_buf[NAMES_MAX][64], kd_buf[NAMES_MAX][40];
+static const char *nm[NAMES_MAX], *kd[NAMES_MAX];
 static int nnm;
 
 static void names_build(void)
@@ -93,6 +95,27 @@ static void names_build(void)
 			snprintf(nm_buf[nnm], sizeof(nm_buf[0]), "%s", d->ip);
 			snprintf(kd_buf[nnm], sizeof(kd_buf[0]), "%s", k);
 			nnm++;
+		}
+	}
+	/* the sites alerts and decisions name (a domain a device looked up, one blocked): never for the ISP */
+	{
+		uint32_t ids[SITE_MAX];
+		int k, n = alerts_ids(ids, SITE_MAX);
+
+		for (k = 0; k < n && nnm < NAMES_MAX; k++)
+			if (alerts_field(ids[k], "subject", nm_buf[nnm], sizeof(nm_buf[0])) == 0 && strlen(nm_buf[nnm]) >= 3) {
+				snprintf(kd_buf[nnm], sizeof(kd_buf[0]), "a site");
+				nnm++;
+			}
+		n = act_ids(ids, SITE_MAX);
+		for (k = 0; k < n && nnm < NAMES_MAX; k++) {
+			char act[32];
+
+			if (act_field(ids[k], "action", act, sizeof(act)) == 0 && !strcmp(act, "block") &&
+			    act_field(ids[k], "target", nm_buf[nnm], sizeof(nm_buf[0])) == 0 && strlen(nm_buf[nnm]) >= 3) {
+				snprintf(kd_buf[nnm], sizeof(kd_buf[0]), "a site");
+				nnm++;
+			}
 		}
 	}
 	for (i = 0; i < nnm; i++) {
@@ -289,6 +312,8 @@ static void gather(struct brief_in *in, const struct brief_ask *a, long now)
 		act_field(ids[i], "origin", origin, sizeof(origin));
 		act_field(ids[i], "automatic", aut, sizeof(aut));
 		act_field(ids[i], "reason", dec_reason[k], sizeof(dec_reason[k]));
+		if (!a->names)
+			dec_reason[k][0] = '\0';        /* a reason can name the site behind an alert: it stays home */
 		snprintf(dec_words[k], sizeof(dec_words[k]), "%.95s", dev[0] ? dev : tgt);
 		d->action = dec_action[k];
 		d->words = dec_words[k];
