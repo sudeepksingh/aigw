@@ -160,7 +160,9 @@ name, MAC or address, unless the home allows it (`brief.names 1`). This is
 the same rule as the [ISP signals](isp-signals.md) (`offers.share`): the
 home decides what leaves. Every text in a brief (the verdict, the evidence,
 what AIGW did, the fix, the visit's reason) is scrubbed of the home's device
-names, MACs and IP addresses. With `calls.share 0`, the calls stay out too.
+names, MACs and IP addresses. The sites behind alerts and blocks become "a
+site", and the reasons of AIGW's decisions (which can name one) stay home.
+With `calls.share 0`, the calls stay out too.
 agctl at home always shows the names.
 
 ## Settings (`/etc/config/aigw`, section `brief`)
