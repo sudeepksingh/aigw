@@ -230,10 +230,15 @@ define Package/aigw-remote/postinst
 dir=$$(uci -q get aigw.remote.dir); dir=$${dir:-/etc/aigw/remote}
 if [ "$$(uci -q get aigw.remote.enabled)" = 0 ] && [ -n "$$(uci -q get aigw.remote.endpoint)" ] &&
    [ -s "$$dir/peers" ] && [ -n "$$(find /etc/config/aigw -mmin -5 2>/dev/null)" ]; then
+	# the setting, for agd's next start; and on now, through agd (whichever version runs at
+	# this point, perhaps still starting)
 	uci set aigw.remote.enabled=1
 	uci commit aigw
+	i=0
+	until agctl remote on "$$(uci -q get aigw.remote.endpoint)" >/dev/null 2>&1; do
+		i=$$((i + 1)); [ $$i -ge 10 ] && break; sleep 1
+	done
 	logger -t aigw "remote access on again after the upgrade (AIGW 0.42 and older turned it off)"
-	/etc/init.d/aigw running 2>/dev/null && /etc/init.d/aigw restart
 fi
 exit 0
 endef
