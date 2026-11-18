@@ -76,6 +76,13 @@ TOOLS = [
                                                       "(cortex has the last hour; it says where to ask for others)"},
           "propose": {"type": "boolean", "description": "Send the remote fix as a proposal (waits for a yes)"}},
          read_only=False),
+    tool("proactive_tickets",
+         "Proactive care before the call: the faults the gateways found that a customer would notice, each fixed by "
+         "AIGW itself (as its act mode allows: enforce applies, advise only proposes) or raised to the ISP as a "
+         "ticket with the brief, the evidence, the next step and a note in plain words for the customer; and the "
+         "counts, with how many calls were likely avoided. Device kinds, not names.",
+         {"gateway": {"type": "string", "description": "One home (its gateway's name or id); omit for every home"},
+          "open": {"type": "boolean", "description": "Only the open tickets"}}),
     tool("propose_action",
          "Suggest an action on a gateway. It is never applied directly: it waits on the gateway until a "
          "person approves it. Actions: quarantine, priority, deprioritize, throttle, disconnect (target: a "
@@ -150,6 +157,9 @@ class Server:
             from . import brief
             return brief.answer(s, args.get("gateway"), args.get("period"), bool(args.get("propose")),
                                 who="an AI assistant")
+        if name == "proactive_tickets":
+            from . import proactive
+            return proactive.summary(s, args.get("gateway") or None, bool(args.get("open")))
         g = self.gw(args)
         snap = s.snapshot(g["id"]) or {}
         if name == "gateway_status":

@@ -297,6 +297,10 @@ def main(argv=None):
     p.add_argument("--period", help="what the customer means (\"tonight 20:00-22:00\"); cortex has the last hour")
     p.add_argument("--propose", action="store_true", help="send the remote fix as a proposal (waits for a yes)")
     p.add_argument("--json", action="store_true")
+    p = sub.add_parser("proactive", help="proactive care before the call: tickets the gateways raised or fixed")
+    p.add_argument("home", nargs="?", help="one home (gateway name or id)")
+    p.add_argument("--open", action="store_true", help="only the open tickets")
+    p.add_argument("--json", action="store_true")
     p = sub.add_parser("dashboard", help="the operator dashboard, a web page")
     p.add_argument("--listen", default="127.0.0.1:8090",
                    help="address:port (default 127.0.0.1:8090; elsewhere, every request needs the token)")
@@ -392,6 +396,13 @@ def main(argv=None):
         except ValueError as e:
             sys.exit(str(e))
         show(b) if a.json else print(brief.text(b))
+    elif a.cmd == "proactive":
+        from . import proactive
+        try:
+            r = proactive.summary(store, a.home, a.open)
+        except ValueError as e:
+            sys.exit(str(e))
+        show(r) if a.json else print(proactive.text(r))
     elif a.cmd == "rollout":
         try:
             rollout_cmd(store, a)

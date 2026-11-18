@@ -42,6 +42,8 @@ static void usage(void)
 		"  wifi --report       what Self-Healing Wi-Fi found and fixed: last day, 7 and 30 days\n"
 		"  diagnose [device]   \"my internet is slow\": the line, DNS, Wi-Fi and the device, checked\n"
 		"                      in a few seconds; what is wrong, most likely first, and what to do\n"
+		"  care proactive [--run]  before the call: faults a customer would notice, fixed by AIGW\n"
+		"                      (as act.mode allows) or raised to the ISP with a note for the customer\n"
 		"  care [--check|--speed]  proactive care: problems found by the gateway itself, early\n"
 		"                      warnings, the experience score and the nightly speed (--speed: test now)\n"
 		"  upgrade [--forget]  the last firmware upgrade: the home before and after it, kept or rolled\n"
@@ -361,6 +363,62 @@ static void show_diag(struct ubus_request *req, int type, struct blob_attr *msg)
 
 /* agctl care [--check]: proactive care, what it found and the experience score */
 static int care_asked_check;
+
+/* agctl care proactive [--run]: before the call: the tickets, what AIGW fixed, what the ISP was told */
+static void show_proactive(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *c = field(msg, "counts"), *t;
+	unsigned long long now = (unsigned long long)time(NULL);
+	char t1[32];
+	size_t rem;
+	int k = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (fstr(msg, "error")[0]) {
+		fprintf(stderr, "agctl: %s\n", fstr(msg, "error"));
+		diag_failed = 1;
+		return;
+	}
+	if (!fnum(msg, "enabled")) {
+		printf("Proactive care before the call is off (proactive.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Before the call: a look every %s; worth acting on at %llu points; fixes %s (act mode %s); "
+	       "%llu of %llu new tickets to the ISP left today\n", dur_short(fnum(msg, "interval_s"), t1, sizeof(t1)),
+	       (unsigned long long)fnum(msg, "threshold"), fnum(msg, "fix") ? "by AIGW" : "never by AIGW", fstr(msg, "mode"),
+	       (unsigned long long)fnum(msg, "left_today"), (unsigned long long)fnum(msg, "max_per_day"));
+	if (fnum(msg, "area_outage"))
+		printf("  an outage across the area: no tickets or customer notes while it lasts (the ISP knows)\n");
+	if (c)
+		printf("  so far    %llu worth acting on: %llu fixed by AIGW, %llu proposed, %llu told to the ISP, %llu kept at "
+		       "home, %llu repeats not told again; calls likely avoided %llu (called anyway %llu)\n",
+		       (unsigned long long)fnum(c, "tickets"), (unsigned long long)fnum(c, "fixed_by_aigw"),
+		       (unsigned long long)fnum(c, "proposed"), (unsigned long long)fnum(c, "told_isp"),
+		       (unsigned long long)fnum(c, "suppressed"), (unsigned long long)fnum(c, "deduplicated"),
+		       (unsigned long long)fnum(c, "calls_likely_avoided"), (unsigned long long)fnum(c, "called_anyway"));
+	blobmsg_for_each_attr(t, field(msg, "tickets"), rem) {
+		unsigned long long since = fnum(t, "since");
+
+		if (!k++)
+			printf("  tickets\n");
+		printf("    #%-3llu %-10s %-16s %s%s%s, %s for %s, %llu device%s, %llu point%s (%s)%s\n",
+		       (unsigned long long)fnum(t, "id"), fstr(t, "status"), fstr(t, "code"), fstr(t, "fault"),
+		       *fstr(t, "target") ? " " : "", fstr(t, "target"), fnum(t, "open") ? "open" : "over",
+		       dur_short(((fnum(t, "open") ? now : (unsigned long long)fnum(t, "closed")) > since ?
+				  (fnum(t, "open") ? now : (unsigned long long)fnum(t, "closed")) - since : 0), t1, sizeof(t1)),
+		       (unsigned long long)fnum(t, "devices"), fnum(t, "devices") == 1 ? "" : "s",
+		       (unsigned long long)fnum(t, "points"), fnum(t, "points") == 1 ? "" : "s", fstr(t, "reason"),
+		       fnum(t, "flaps") ? " (came back)" : "");
+		printf("         %s\n", fstr(t, "summary"));
+		printf("         next: %s\n", fstr(t, "next_step"));
+		printf("         customer: %s\n", fstr(t, "customer_note"));
+	}
+	if (!k)
+		printf("  tickets   none: nothing a customer would notice\n");
+}
 
 static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2406,7 +2464,12 @@ int main(int argc, char **argv)
 			blobmsg_add_u8(&args, "speed", 1);
 			care_asked_check = 2;
 		}
-		rc = call("ag", "care", args.head, show_care);
+		if (i < argc && !strcmp(argv[i], "proactive")) {
+			if (i + 1 < argc && (!strcmp(argv[i + 1], "--run") || !strcmp(argv[i + 1], "run")))
+				blobmsg_add_u8(&args, "run", 1);
+			rc = call("ag", "proactive", args.head, show_proactive);
+		} else
+			rc = call("ag", "care", args.head, show_care);
 		blob_buf_free(&args);
 		rc = rc || diag_failed;
 	} else if (!strcmp(cmd, "upgrade")) {

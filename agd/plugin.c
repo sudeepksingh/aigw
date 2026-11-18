@@ -36,8 +36,9 @@
  *                    {"request": {"undo": id}}
  *                    {"done": {id, ok, error}}                      actuator result
  *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status" | "care" |
- *                              "upgrade" | "brief", "id": n}   (upgrade: the last one's check, no
- *                                                   devices; brief: the help desk's of the last hour)
+ *                              "upgrade" | "brief" | "proactive", "id": n}   (upgrade: the last
+ *                                                   one's check, no devices; brief: the help desk's of
+ *                                                   the last hour; proactive: tickets before the call)
  *                    {"firmware": {url, version, checksum, size, id}}   install a firmware image
  *                                                   (capability firmware.install): agd's own
  *                                                   Download path, into the image not running,
@@ -647,6 +648,8 @@ static void on_query(struct plugin *p, const char *what, int id)
 		upgrade_blob(&d, 0);            /* the last upgrade's check: counts and words, no devices */
 	} else if (!strcmp(what, "brief")) {
 		brief_report_blob(&d);          /* the help desk's brief of the last hour: kinds, not names (brief.names) */
+	} else if (!strcmp(what, "proactive")) {
+		proactive_report_blob(&d);      /* tickets before the call and their counts: no devices */
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :

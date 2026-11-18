@@ -46,6 +46,19 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.40:** **Proactive care before the call.** AIGW finds the faults a
+> customer would notice (the internet down or slow, crowded Wi-Fi, a device
+> that keeps dropping off or hopping between bands, choppy calls on a full
+> line), scored by how bad, how long, how many devices and whether it repeats.
+> It fixes what it can itself, as the act mode allows (enforce applies, advise
+> only proposes), and raises a ticket to the ISP for the rest: the brief, the
+> evidence, the next step and a short note in plain words for the customer
+> ("we noticed X and fixed it", "we're on it"). One ticket per fault, flaps not
+> told twice, a daily limit. `agctl care proactive`,
+> `Device.X_AIGW_.Proactive.` and `ProactiveTicket!` (data model 1.18), MCP
+> `proactive_tickets`, and **calls likely avoided** on cortex's dashboard; see
+> [docs/before-the-call.md](docs/before-the-call.md).
+>
 > **v0.37:** **A help-desk assistant for the ISP.** The support agent asks
 > about one home in plain words ("bad internet tonight?") and gets one short
 > answer from everything AIGW already knows: the fault in one word (`LINE`,

@@ -67,6 +67,8 @@ void agd_emit_from(const char *type, struct blob_buf *msg, const void *from)
 	if (conn.ctx.sock.fd >= 0)
 		ubus_send_event(&conn.ctx, type, msg->head);
 	why_on_emit(type, msg->head);           /* the home's timeline */
+	if (!strcmp(type, AG_EV_WIFI))
+		proactive_on_wifi(msg->head);   /* a device that keeps dropping off Wi-Fi */
 	plugin_dispatch(type, msg->head, from);
 }
 
@@ -1175,8 +1177,34 @@ refuse:
 	return 0;
 }
 
+/* ag proactive {run}: proactive care before the call: its tickets and counts; run: look now. At home: devices too */
+enum { PR_RUN, __PR_MAX };
+static const struct blobmsg_policy proactive_policy[__PR_MAX] = {
+	[PR_RUN] = { "run", BLOBMSG_TYPE_BOOL },
+};
+
+static int m_proactive(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		       const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__PR_MAX];
+	int rc = 0;
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(proactive_policy, __PR_MAX, tb, blob_data(msg), blob_len(msg));
+	if (tb[PR_RUN] && blobmsg_get_bool(tb[PR_RUN]))
+		rc = proactive_run();
+	blob_buf_init(&b, 0);
+	if (rc < 0)
+		blobmsg_add_string(&b, "error", "proactive care before the call is off (proactive.enabled)");
+	proactive_blob(&b, 1);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
+	UBUS_METHOD("proactive", m_proactive, proactive_policy),
 	UBUS_METHOD("brief", m_brief, brief_policy),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 	UBUS_METHOD("care", m_care, care_policy),
@@ -1295,6 +1323,7 @@ int main(int argc, char **argv)
 	offers_init();                  /* signals for the ISP, counted from the timeline */
 	sqm_init();                     /* smart queueing on bufferbloat, judged on the timeline */
 	calls_init();                   /* calls and games first, inside it */
+	proactive_init();               /* before the call: after care, the timeline, SQM and calls */
 	keys_init();
 	plugin_init();
 

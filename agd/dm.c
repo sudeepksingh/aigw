@@ -40,11 +40,12 @@
 #include "ag/care.h"
 #include "ag/diag.h"
 #include "ag/heal.h"
+#include "ag/proactive.h"
 #include "ag/tr143.h"
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.17"
+#define DM_VERSION "1.18"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -147,7 +148,8 @@ static const char *vx_path(const char *s)
 
 /* ---------- tables ---------- */
 
-enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_HOP, TB_NSRES, TB_N };
+enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_HOP, TB_NSRES, TB_TICKET,
+       TB_N };
 
 static int host_listed(const struct device *d)
 {
@@ -220,6 +222,7 @@ static struct {
 	[TB_HEAL]     = { "Device.X_AIGW_.WiFiHealth.{i}.", list_ssids },
 	[TB_HOP]      = { "Device.IP.Diagnostics.TraceRoute.RouteHops.{i}.", list_hops },
 	[TB_NSRES]    = { "Device.DNS.Diagnostics.NSLookupDiagnostics.Result.{i}.", list_nsres },
+	[TB_TICKET]   = { "Device.X_AIGW_.Proactive.Ticket.{i}.", proactive_ids },
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -267,6 +270,8 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 		return inst >= 1 && inst <= (uint32_t)tr143_rows(TK_TRACE) ? 0 : -1;
 	case TB_NSRES:
 		return inst >= 1 && inst <= (uint32_t)tr143_rows(TK_NSLOOKUP) ? 0 : -1;
+	case TB_TICKET:
+		return proactive_field(inst, "Code", tmp, sizeof(tmp)) < 0 ? -1 : 0;
 	}
 	return -1;
 }
@@ -980,6 +985,46 @@ static int s_ao_up(const struct ictx *c, const char *v, int apply, char *err, si
 	return E_OK;
 }
 
+/* proactive care, before the call (Device.X_AIGW_.Proactive.): two getters for all of it, by the
+   parameter's own name; booleans and times by name (a ticket's ToldISP is a boolean, the count isn't) */
+static const char *pr_name(const char *path) { const char *d = strrchr(path, '.'); return d ? d + 1 : path; }
+
+/* 1 a boolean, 2 a time, 0 as it is */
+static int pr_kind(const char *name, int ticket)
+{
+	if (!strcmp(name, "Enable") || !strcmp(name, "Fix") || !strcmp(name, "Open") || !strcmp(name, "CustomerCalled") ||
+	    (ticket && !strcmp(name, "ToldISP")))
+		return 1;
+	return !strcmp(name, "Since") || !strcmp(name, "Opened") || !strcmp(name, "LastSeen") || !strcmp(name, "Closed") ? 2 : 0;
+}
+
+static int pr_get(int ticket, uint32_t inst, const char *name, char *buf, size_t n)
+{
+	char v[24];
+	int k = pr_kind(name, ticket);
+
+	if (!k)
+		return ticket ? proactive_field(inst, name, buf, n) : proactive_count(name, buf, n);
+	if ((ticket ? proactive_field(inst, name, v, sizeof(v)) : proactive_count(name, v, sizeof(v))) < 0)
+		return -1;
+	if (k == 1)
+		snprintf(buf, n, "%s", atoi(v) ? "true" : "false");
+	else
+		fmt_time(strtoll(v, NULL, 10), buf, n);
+	return 0;
+}
+
+GET(g_pr)
+{
+	if (!strcmp(pr_name(c->ppath), "TicketNumberOfEntries")) {
+		snprintf(buf, n, "%d", count(TB_TICKET));
+		return 0;
+	}
+	return pr_get(0, 0, pr_name(c->ppath), buf, n);
+}
+
+GET(g_pt) { return pr_get(1, c->inst, pr_name(c->ppath), buf, n); }
+
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1297,6 +1342,44 @@ static struct dm_param {
 	{ AO "LastIncident", T_UINT, 0, TB_NONE, g_ao_last, NULL },
 	{ AO "LastEnded", T_TIME, 0, TB_NONE, g_ao_ended, NULL },
 #undef AO
+#define PR "Device.X_AIGW_.Proactive."
+	{ PR "Enable", T_BOOL, 0, TB_NONE, g_pr, NULL },
+	{ PR "Fix", T_BOOL, 0, TB_NONE, g_pr, NULL },
+	{ PR "OpenTickets", T_UINT, N, TB_NONE, g_pr, NULL },
+	{ PR "Tickets", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "ToldISP", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "FixedByAIGW", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "Proposed", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "Suppressed", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "Deduplicated", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "CalledAnyway", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "CallsLikelyAvoided", T_UINT, N, TB_NONE, g_pr, NULL },
+	{ PR "HeldForAreaOutage", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "MaxPerDay", T_UINT, 0, TB_NONE, g_pr, NULL },
+	{ PR "Since", T_TIME, 0, TB_NONE, g_pr, NULL },
+	{ PR "TicketNumberOfEntries", T_UINT, N, TB_NONE, g_pr, NULL },
+	{ PR "Ticket.{i}.Status", T_STR, N, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Open", T_BOOL, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Code", T_STR, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Fault", T_STR, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Severity", T_STR, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Points", T_UINT, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Reason", T_STR, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Devices", T_UINT, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Episodes", T_UINT, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Flaps", T_UINT, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Since", T_TIME, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Opened", T_TIME, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.LastSeen", T_TIME, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Closed", T_TIME, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.ToldISP", T_BOOL, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.CustomerCalled", T_BOOL, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Decision", T_UINT, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Summary", T_STR, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.Evidence", T_STR, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.NextStep", T_STR, 0, TB_TICKET, g_pt, NULL },
+	{ PR "Ticket.{i}.CustomerNote", T_STR, 0, TB_TICKET, g_pt, NULL },
+#undef PR
 	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
 #define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
@@ -1958,6 +2041,8 @@ static struct {
 	  "Kind,Verdict,DurationSeconds,FullLineSeconds,LineKbps,LatencyMs,JitterMs,LossPercent,Prioritized,Summary" },
 	{ "Device.X_AIGW_.AreaOutage!", "Incident,Kind,Since,Homes,HomesInArea,Confidence,Uplink" },
 	{ "Device.X_AIGW_.AreaOutageCleared!", "Incident,Kind,Since,DurationSeconds,HeldFixes,Reason" },
+	{ "Device.X_AIGW_.ProactiveTicket!",
+	  "Ticket,Status,Code,Fault,Severity,Points,Reason,Devices,Since,Summary,Evidence,NextStep,CustomerNote,Decision" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -2600,6 +2685,34 @@ void dm_on_area(int started, uint32_t incident, const char *kind, long since, lo
 
 		emit(events[12].path, kv);  /* AreaOutageCleared! */
 	}
+}
+
+/* proactive.c: a ticket raised, fixed by AIGW, or over (ProactiveTicket!), with names only by brief.names */
+void dm_on_ticket(uint32_t id)
+{
+	static const char *const f[] = { "Status", "Code", "Fault", "Severity", "Points", "Reason", "Devices", "Since",
+					  "Summary", "Evidence", "NextStep", "CustomerNote", "Decision" };
+	char v[13][PRO_EVIDENCE], tid[16];
+	const char *kv[2 * 14 + 1];
+	int i, k = 0;
+
+	snprintf(tid, sizeof(tid), "%u", id);
+	kv[k++] = "Ticket";
+	kv[k++] = tid;
+	for (i = 0; i < 13; i++) {
+		v[i][0] = '\0';
+		proactive_field(id, f[i], v[i], sizeof(v[i]));
+		if (!strcmp(f[i], "Since")) {
+			char t[40];
+
+			fmt_time(strtoll(v[i], NULL, 10), t, sizeof(t));
+			snprintf(v[i], sizeof(v[i]), "%s", t);
+		}
+		kv[k++] = f[i];
+		kv[k++] = v[i];
+	}
+	kv[k] = NULL;
+	emit(events[13].path, kv);          /* ProactiveTicket! */
 }
 
 /* ---------- state ---------- */

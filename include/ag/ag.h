@@ -23,6 +23,7 @@
 #define AG_EV_CARE "ag.care"       /* proactive care: a problem found, reported, over */
 #define AG_EV_UPGRADE "ag.upgrade" /* a firmware upgrade: watched, kept, worse, rolled back */
 #define AG_EV_CALL "ag.call"       /* a call or game noticed, and over (with how it went) */
+#define AG_EV_TICKET "ag.ticket"   /* proactive care, before the call: a ticket raised, fixed, over */
 #define AG_EV_DM "ag.dm.event"     /* a data model event (TR-181 path ending in '!'), for USP / TR-069 */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
@@ -183,6 +184,15 @@ struct ag_config {
 	/* area outages (agd/area.c): cortex says many homes of this uplink are hit; agd holds its own fixes */
 	int area;                 /* take the notice (from the bridge) and hold fixes meanwhile */
 	char area_uplink_id[64];  /* the operator's id of this home's uplink (an OLT, a BNG, an area); "" none */
+	/* proactive care, before the call (agd/proactive.c) */
+	int pro;                  /* find faults a customer would notice; fix them or tell the ISP */
+	int pro_fix;              /* AIGW may fix them itself (as act.mode allows: enforce applies, advise proposes) */
+	int pro_interval;         /* s between looks */
+	int pro_threshold;        /* points worth acting on (ag/proactive.h) */
+	int pro_min_s;            /* a fault must have lasted this long */
+	int pro_clear_s;          /* gone this long: over (each flap doubles it) */
+	int pro_cooldown_s;       /* back within this: the same ticket, no new word to the ISP */
+	int pro_max_per_day;      /* new tickets to the ISP in 24 hours */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

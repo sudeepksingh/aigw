@@ -1023,5 +1023,96 @@ class AreaOutageEndToEnd(unittest.TestCase):
             self.assertEqual([(x["id"], x["state"]) for x in closed], [(n["incident"], "closed")])
 
 
+def a_ticket(tid, status, code="ISP_DOWN", fault="LINE", is_open=True, told=True, called=False, opened=0, since=0):
+    return {"id": tid, "status": status, "open": is_open, "code": code, "fault": fault, "severity": "problem",
+            "points": 3, "reason": "a problem +2, 3 devices +1", "devices": 3, "episodes": 1, "flaps": 0,
+            "since": since, "opened": opened, "told_isp": told, "called": called, "acted": status == "Fixed",
+            "summary": "The ISP's line or network, now: no answer (ISP_DOWN).", "evidence": "Worth acting on.",
+            "next_step": "Check the ISP's network.", "customer_note": "We noticed your internet stopped working tonight."}
+
+
+def a_proactive(lst, **counts):
+    c = {"tickets": 0, "told_isp": 0, "fixed_by_aigw": 0, "proposed": 0, "suppressed": 0, "deduplicated": 0,
+         "flaps": 0, "called_anyway": 0, "calls_likely_avoided": 0, "since": 0}
+    c.update(counts)
+    return {"enabled": True, "open": sum(1 for t in lst if t["open"]), "counts": c, "tickets": lst, "names": 0}
+
+
+class Proactive(unittest.TestCase):
+    """v0.40: proactive care before the call across the fleet (proactive.py), the MCP tool, the dashboard."""
+
+    def fleet(self, d, now):
+        s = Store(d)
+        a, _ = s.enroll("home-a", "east")
+        b, _ = s.enroll("home-b", "west")
+        c, _ = s.enroll("old")
+        s.report(a, {"status": {"version": "0.40.0"}, "proactive": a_proactive(
+            [a_ticket(2, "Raised", opened=now - 300, since=now - 400),
+             a_ticket(1, "Fixed", "WIFI_HOPPING", "HOME_WIFI", False, False, opened=now - 9000, since=now - 9100)],
+            tickets=2, told_isp=2, fixed_by_aigw=1, calls_likely_avoided=1, deduplicated=3)}, now)
+        s.report(b, {"status": {"version": "0.40.0"}, "proactive": a_proactive(
+            [a_ticket(5, "Proposed", "LINE_FULL", "NONE", opened=now - 60, since=now - 600),
+             a_ticket(4, "Resolved", is_open=False, called=True, opened=now - 7000)],
+            tickets=4, told_isp=3, proposed=1, suppressed=1, called_anyway=1, calls_likely_avoided=2)}, now)
+        s.report(c, {"status": {"version": "0.39.0"}}, now)
+        return s
+
+    def test_fleet(self):
+        from aigw_cortex import fleet, proactive
+        now = 20000 * 86400 + 12 * 3600
+        with tempfile.TemporaryDirectory() as d:
+            s = self.fleet(d, now)
+            p = fleet.report(s, 7, now=now)["proactive"]
+            self.assertEqual((p["homes"], p["open"], p["homes_with_open"]), (2, 2, 2))
+            self.assertEqual(p["calls_likely_avoided"], 3)
+            self.assertEqual((p["counts"]["tickets"], p["counts"]["fixed_by_aigw"], p["counts"]["suppressed"]), (6, 1, 1))
+            self.assertEqual([t["status"] for t in p["open_tickets"]], ["Raised", "Proposed"])     # the ISP's first
+            self.assertEqual(p["in_period"]["tickets"], 4)
+            self.assertEqual(p["in_period"]["calls_likely_avoided"], 1)   # the fixed one; the resolved one was called about
+            t = fleet.text(fleet.report(s, 7, now=now))
+            self.assertIn("before call  2 homes (AIGW OS 0.40 on): 6 faults worth acting on, 1 fixed by AIGW itself", t)
+            self.assertIn("calls likely avoided 3 (called anyway 1)", t)
+            self.assertEqual(fleet.report(s, 7, "west", now=now)["proactive"]["calls_likely_avoided"], 2)
+            one = proactive.summary(s, "home-a", now=now)
+            self.assertEqual([x["id"] for x in one["tickets"]], [2, 1])
+            self.assertEqual([x["id"] for x in proactive.summary(s, "home-a", True, now)["tickets"]], [2])
+            self.assertIn("home-a #2 Raised ISP_DOWN (LINE), open", proactive.text(one, now))
+            with self.assertRaises(ValueError):
+                proactive.summary(s, "nobody")
+            self.assertEqual(proactive.summary(s, "old", now=now)["tickets"], [])
+
+    def test_mcp(self):
+        now = 20000 * 86400 + 12 * 3600
+        with tempfile.TemporaryDirectory() as d:
+            s = self.fleet(d, now)
+            srv = Server(s)
+            names = [t["name"] for t in srv.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})["result"]["tools"]]
+            self.assertIn("proactive_tickets", names)
+            r = srv.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                            "params": {"name": "proactive_tickets", "arguments": {"open": True}}})
+            out = json.loads(r["result"]["content"][0]["text"])
+            self.assertEqual(sorted(t["home"] for t in out["tickets"]), ["home-a", "home-b"])
+            self.assertEqual(out["calls_likely_avoided"], 3)
+
+    def test_dashboard(self):
+        from http.server import ThreadingHTTPServer
+        from aigw_cortex.dashboard import gateway, make_handler, overview
+        now = 20000 * 86400 + 12 * 3600
+        with tempfile.TemporaryDirectory() as d:
+            s = self.fleet(d, now)
+            o = overview(s, now=now)
+            self.assertEqual(o["proactive"]["calls_likely_avoided"], 3)
+            g = gateway(s, "home-a", now)
+            self.assertEqual(g["proactive"]["counts"]["fixed_by_aigw"], 1)
+            self.assertEqual(len(g["proactive"]["tickets"]), 2)
+            httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(s, "tok", True, log=False))
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            self.addCleanup(httpd.server_close)
+            self.addCleanup(httpd.shutdown)
+            with urllib.request.urlopen(f"http://127.0.0.1:{httpd.server_address[1]}/api/proactive?open=1") as resp:
+                body = json.loads(resp.read())
+            self.assertEqual(len(body["tickets"]), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

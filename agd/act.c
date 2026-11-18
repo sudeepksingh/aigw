@@ -222,6 +222,9 @@ static void set_state(struct decision *d, int state)
 		snprintf(what, sizeof(what), "decision %u, %s %s", d->id, d->action, d->target);
 		care_on_acted(what);
 	}
+	/* proactive care, before the call: a ticket this fixes was fixed by AIGW */
+	if (state == D_ACTIVE && (!strcmp(d->action, "stay24") || !strcmp(d->action, "channel") || !strcmp(d->action, "sqm")))
+		proactive_on_acted(d->action, d->target, d->id);
 }
 
 /* who answers the next approve / reject / undo: "you", or a management system (dm.c) */
@@ -1399,6 +1402,66 @@ int act_propose(const char *action, const char *what, int ttl, const char *origi
 	d->ttl = ttl;
 	d->rate = g.rate;
 	*id = d->id;
+	set_state(d, D_PROPOSED);
+	d->decided = 0;
+	return 0;
+}
+
+/*
+ * Proactive care fixes a fault itself, as act.mode allows: in enforce mode it
+ * applies the fix (within the hourly limit of automatic actions), in advise
+ * mode it only proposes it. *applied: 1 in effect (now, or already), 0
+ * waiting for a person's yes.
+ */
+int act_auto(const char *action, const char *what, int ttl, const char *origin, const char *reason, uint32_t *id,
+	     int *applied, char *err, size_t errlen)
+{
+	struct act_opts o = { 0 };
+	struct decision g = { 0 }, *d;
+	char note[160];
+
+	*applied = 0;
+	if (cfg.act_mode == AG_MODE_OFF) {
+		snprintf(err, errlen, "acting is off (act.mode)");
+		return -1;
+	}
+	o.origin = origin;
+	if (guard(action, what, &o, &ttl, &g, note, err, errlen) < 0)
+		return -1;
+	if ((d = dec_find(action, g.target, g.scope, D_ACTIVE))) {
+		*id = d->id;
+		*applied = 1;
+		return 0;                    /* in effect already */
+	}
+	if ((d = dec_find(action, g.target, g.scope, D_PROPOSED))) {
+		*id = d->id;
+		return 0;                    /* waits for a yes already: a person's to give */
+	}
+	if (!(d = dec_new())) {
+		snprintf(err, errlen, "too many live decisions");
+		return -1;
+	}
+	snprintf(d->action, sizeof(d->action), "%s", action);
+	snprintf(d->target, sizeof(d->target), "%s", g.target);
+	snprintf(d->scope, sizeof(d->scope), "%s", g.scope);
+	snprintf(d->device, sizeof(d->device), "%s", g.device);
+	snprintf(d->origin, sizeof(d->origin), "%s", origin);
+	snprintf(d->reason, sizeof(d->reason), "%s", reason && *reason ? reason : origin);
+	snprintf(d->note, sizeof(d->note), "%s", note);
+	d->ttl = ttl;
+	d->rate = g.rate;
+	*id = d->id;
+	if (cfg.act_mode == AG_MODE_ENFORCE) {
+		if (auto_actions_last_hour() < cfg.act_max_auto) {
+			if (apply(d, 1, err, errlen) < 0)
+				return -1;
+			*applied = 1;
+			return 0;
+		}
+		snprintf(d->note, sizeof(d->note),
+			 "enforce mode, but the hourly limit of %d automatic action%s is reached: waiting for you",
+			 cfg.act_max_auto, cfg.act_max_auto == 1 ? "" : "s");
+	}
 	set_state(d, D_PROPOSED);
 	d->decided = 0;
 	return 0;

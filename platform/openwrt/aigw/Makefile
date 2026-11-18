@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.39.0
+PKG_VERSION:=0.40.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -135,6 +135,13 @@ define Package/luci-app-aigw/description
 endef
 
 CMAKE_OPTIONS += -DAIGW_TESTS=OFF
+
+# aarch64: binutils aligns segments to 64 KB pages by default, which pads each
+# program with up to 60 KB of zeros in flash (agd crossed one such line in
+# v0.40). OpenWRT's arm64 kernels use 4 KB pages, so link for those.
+ifeq ($(ARCH),aarch64)
+  TARGET_LDFLAGS += -Wl,-z,max-page-size=4096
+endif
 
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)

@@ -394,6 +394,21 @@ int sqm_propose(const char *origin, const char *reason, uint32_t *id, char *err,
 	return act_propose("sqm", target, cfg.act_max_ttl, origin, reason, id, err, en);
 }
 
+/* proactive care: smart queueing on the line as it is now, as act.mode allows (enforce applies, advise proposes) */
+int sqm_auto(const char *origin, const char *reason, uint32_t *id, int *applied, char *err, size_t en)
+{
+	char target[64];
+
+	*applied = 0;
+	if (!cfg.sqm) {
+		snprintf(err, en, "smart queueing is off (sqm.enabled)");
+		return -1;
+	}
+	if (target_now(target, sizeof(target), err, en) < 0)
+		return -1;
+	return act_auto("sqm", target, cfg.act_max_ttl, origin, reason, id, applied, err, en);
+}
+
 /* ---------- what it is doing ---------- */
 
 static const char *status(char *target, size_t tn, uint32_t *id)
