@@ -136,6 +136,13 @@ endef
 
 CMAKE_OPTIONS += -DAIGW_TESTS=OFF
 
+# aarch64: binutils aligns segments to 64 KB pages by default, which pads each
+# program with up to 60 KB of zeros in flash (agd crossed one such line in
+# v0.40). OpenWRT's arm64 kernels use 4 KB pages, so link for those.
+ifeq ($(ARCH),aarch64)
+  TARGET_LDFLAGS += -Wl,-z,max-page-size=4096
+endif
+
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
 	$(CP) $(AIGW_SRC)/CMakeLists.txt $(AIGW_SRC)/include $(AIGW_SRC)/core \

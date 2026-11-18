@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.17. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.18. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-17" file="aigw-dm-1-17.xml">
+             spec="urn:aigw-os:aigw-dm-1-18" file="aigw-dm-1-18.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.17">
+  <model name="AIGW-OS:1.18">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -225,6 +225,22 @@
         <parameter name="HeldFixes"><syntax><string/></syntax></parameter>
         <parameter name="Reason"><syntax><string/></syntax></parameter>
       </event>
+      <event name="ProactiveTicket!">
+        <parameter name="Ticket"><syntax><string/></syntax></parameter>
+        <parameter name="Status"><syntax><string/></syntax></parameter>
+        <parameter name="Code"><syntax><string/></syntax></parameter>
+        <parameter name="Fault"><syntax><string/></syntax></parameter>
+        <parameter name="Severity"><syntax><string/></syntax></parameter>
+        <parameter name="Points"><syntax><string/></syntax></parameter>
+        <parameter name="Reason"><syntax><string/></syntax></parameter>
+        <parameter name="Devices"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+        <parameter name="Evidence"><syntax><string/></syntax></parameter>
+        <parameter name="NextStep"><syntax><string/></syntax></parameter>
+        <parameter name="CustomerNote"><syntax><string/></syntax></parameter>
+        <parameter name="Decision"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
       <command name="NSLookupDiagnostics()" async="true">
@@ -423,6 +439,22 @@
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Shared" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Signals" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Proactive." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Fix" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="OpenTickets" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Tickets" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ToldISP" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="FixedByAIGW" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Proposed" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Suppressed" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Deduplicated" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="CalledAnyway" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="CallsLikelyAvoided" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MaxPerDay" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="TicketNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.SQM." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
@@ -746,6 +778,8 @@
       <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
+    <object name="Device.X_AIGW_.Proactive.Ticket." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="WiFiHealthNumberOfEntries">
       <parameter name="Radio" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
@@ -819,6 +853,29 @@
       <parameter name="SpeedTestsLow" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="MeanSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
       <parameter name="MinSpeedMbps" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Proactive.Ticket.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="TicketNumberOfEntries">
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Open" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Code" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Fault" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Severity" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Points" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Reason" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Devices" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Episodes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Flaps" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Opened" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Closed" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="ToldISP" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="CustomerCalled" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Decision" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="NextStep" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="CustomerNote" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}.Stats." access="readOnly" minEntries="1" maxEntries="1">
     </object>
