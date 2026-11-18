@@ -23,8 +23,9 @@ MAX_MB=${DEMO_MAX_MB:-40}
 
 # OpenWRT's packages beside AIGW's: LuCI, curl for the bridge, the parts of
 # python3 cortex uses (http.server needs email and urllib; rollouts statistics,
-# which needs decimal; the store sqlite3; hashlib and ssl openssl)
-EXTRA="luci curl python3-light python3-sqlite3 python3-openssl python3-email python3-urllib python3-decimal"
+# which needs decimal; the store sqlite3; hashlib and ssl openssl; http.server's
+# bind asks socket.getfqdn(), which needs the idna codec from codecs)
+EXTRA="luci curl python3-light python3-sqlite3 python3-openssl python3-email python3-urllib python3-decimal python3-codecs"
 
 die() { printf 'build-demo-image: %s\n' "$*" >&2; exit 1; }
 for t in curl tar make gzip sha256sum; do command -v $t >/dev/null || die "missing tool: $t"; done
