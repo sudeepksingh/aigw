@@ -15,6 +15,8 @@
                                                       (rollout.py; --help for each)
     python3 -m aigw_cortex dashboard [--listen 127.0.0.1:8090] [--token-file F] [--cert c --key k]
                                                       the operator dashboard, a web page (dashboard.py)
+    python3 -m aigw_cortex demo [--listen 127.0.0.1:8090]   a simulated fleet and its dashboard, to try it
+                                                      (demo.py; its own data, never --data)
     python3 -m aigw_cortex pubkey                     the key gateways trust (agctl trust)
     python3 -m aigw_cortex publish <model.agm> [--notes text]
     python3 -m aigw_cortex retrain [--top N | --benign-file F] [--trees N]
@@ -308,6 +310,14 @@ def main(argv=None):
     p.add_argument("--cert")
     p.add_argument("--key")
     p.add_argument("--quiet", action="store_true")
+    p = sub.add_parser("demo", help="a simulated fleet and its dashboard, to try cortex (demo.py)")
+    p.add_argument("what", nargs="?", default="run", choices=("run", "seed"))
+    p.add_argument("--dir", help="the demo's own data directory (default: a new one, removed at the end)")
+    p.add_argument("--listen", default="127.0.0.1:8090")
+    p.add_argument("--home", help="seed: also enroll this gateway (a real one, e.g. the demo image's) and print "
+                                  "its token")
+    p.add_argument("--home-group", default="riverside")
+    p.add_argument("--quiet", action="store_true")
     sub.add_parser("remove").add_argument("name")
     sub.add_parser("pubkey")
     p = sub.add_parser("publish")
@@ -340,6 +350,9 @@ def main(argv=None):
     fed_args(p)
     a = ap.parse_args(argv)
 
+    if a.cmd == "demo":                     # never in the real fleet's directory (--data)
+        from . import demo
+        return demo.main(a)
     store = Store(a.data)
     if a.cmd == "serve":
         from .server import serve

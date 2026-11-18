@@ -64,6 +64,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/single-image-test.sh build
       - name: Why-was-it-slow test (the home's timeline kept, a weak device and the internet down explained, WhySlow())
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/why-test.sh build
+      - name: "Demo home test (the demo image's simulated home with the real agd: the slow evening explained, smart queueing kept, labelled demo; refused outside QEMU)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/demo-test.sh build
       - name: "ISP signals test (a week of days: a faster plan and mesh Wi-Fi, OfferFound! once, no names, share 0)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/offers-test.sh build
       - name: "Help-desk brief test (a fresh check, a weak laptop named only by kind for the ISP, a full line: SQM only proposed; the internet down: no technician)"
@@ -132,7 +134,7 @@ jobs:
           modinfo -F filename mac80211_hwsim
           sudo AIGW_REQUIRE_HWSIM=1 PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH" tests/hwsim-test.sh build
       - name: Shell syntax
-        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh platform/pc-ap/uninstall.sh tests/*.sh plugins/examples/*/run.sh usp/aigw-usp-run scripts/build-obuspa.sh scripts/build-icwmp.sh cwmp/aigw-cwmp-run platform/openwrt/aigw/files/aigw-cwmp.init scripts/dm-xml tests/cwmp/acs.py tests/usp/uspc.py platform/pc-ap/wifi-config platform/openwrt/aigw/files/wifi-config platform/openwrt/aigw/files/firmware tests/fw/firmware cwmp/defaultreset platform/openwrt/qemu_console.py scripts/build-ambiorix.sh; do case "$f" in *dm-xml|*.py) python3 -m py_compile "$f" ;; *) sh -n "$f" ;; esac; done
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh platform/pc-ap/uninstall.sh tests/*.sh plugins/examples/*/run.sh usp/aigw-usp-run scripts/build-obuspa.sh scripts/build-icwmp.sh cwmp/aigw-cwmp-run platform/openwrt/aigw/files/aigw-cwmp.init scripts/dm-xml tests/cwmp/acs.py tests/usp/uspc.py platform/pc-ap/wifi-config platform/openwrt/aigw/files/wifi-config platform/openwrt/aigw/files/firmware tests/fw/firmware cwmp/defaultreset platform/openwrt/qemu_console.py scripts/build-ambiorix.sh scripts/try-aigw.sh platform/openwrt/build-demo-image.sh platform/openwrt/aigw/files/aigw-demo.init; do case "$f" in *dm-xml|*.py) python3 -m py_compile "$f" ;; *) sh -n "$f" ;; esac; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}
@@ -207,14 +209,53 @@ jobs:
           name: qemu-console-log-${{ matrix.arch }}
           path: dist/openwrt/qemu-*.log
 
+  demo-image:
+    name: Demo image (OpenWRT 24.10 x86-64, AIGW OS, a simulated home and fleet), booted as docs/try-it.md says
+    needs: [openwrt]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Packages
+        run: |
+          # GitHub's runners use Azure's Ubuntu mirror; when it can't be resolved, Ubuntu's own
+          getent hosts azure.archive.ubuntu.com >/dev/null || sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+          sudo apt-get update -qq
+          # ImageBuilder's needs, and what try-aigw.sh needs (QEMU, curl, an ssh client for its checks)
+          sudo apt-get install -y -qq --no-install-recommends build-essential libncurses-dev zlib1g-dev gawk \
+            unzip file rsync python3 python3-setuptools zstd curl wget qemu-system-x86 openssh-client
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: aigw-openwrt-24.10-x86-64
+          path: dist/openwrt/
+      - name: Build the demo image (OpenWRT's ImageBuilder)
+        run: VERSION=24.10 platform/openwrt/build-demo-image.sh
+      - name: "Boot it with scripts/try-aigw.sh --check (dashboard, demo data, this VM's home through its bridge, agctl over ssh)"
+        run: scripts/try-aigw.sh --image dist/demo/aigw-os-demo-x86-64.img.gz --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-image
+          path: dist/demo/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: demo-console-log
+          path: ~/.cache/aigw-demo/console.log
+
   release:
     name: Release packages
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, openwrt, openwrt-qemu]
+    needs: [linux, openwrt, openwrt-qemu, demo-image]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -222,10 +263,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         # architecture-independent packages (e.g. aigw-remote_*_all.ipk) come from
-        # every target with the same name: upload one of each
+        # every target with the same name: upload one of each. aigw-demo is only for
+        # the demo image (attached, with its checksum and scripts/try-aigw.sh)
         run: |
           mkdir -p up
-          find dist -type f \( -name '*.ipk' -o -name '*.apk' \) | sort | while read -r f; do
+          find dist -type f \( -name '*.ipk' -o -name '*.apk' \) ! -name 'aigw-demo[_-]*' | sort | while read -r f; do
             [ -e "up/$(basename "$f")" ] || cp "$f" up/
           done
+          cp dist/demo-image/aigw-os-demo-x86-64.img.gz dist/demo-image/aigw-os-demo-x86-64.img.gz.sha256 \
+            scripts/try-aigw.sh up/
           gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --generate-notes up/*

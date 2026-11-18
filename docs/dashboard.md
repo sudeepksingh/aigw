@@ -15,6 +15,10 @@ cd aigw/cortex
 python3 -m aigw_cortex dashboard                 # http://127.0.0.1:8090/
 ```
 
+To see it without gateways, `python3 -m aigw_cortex demo` serves it with a
+simulated fleet of 24 homes from a temporary directory, labelled "Demo data"
+([try it](try-it.md)).
+
 It reads the same database as `serve`, so run it on the cortex machine, next
 to `serve`. It needs only Python 3: plain HTML, CSS and JavaScript come with
 the package. There is no build step, and nothing is loaded from the internet,

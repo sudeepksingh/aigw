@@ -71,6 +71,9 @@ void ag_log(int level, const char *fmt, ...) __attribute__((format(printf, 2, 3)
 uint64_t ag_mono_us(void);     /* monotonic clock, microseconds */
 int64_t ag_wall_s(void);       /* wall clock, seconds since epoch */
 int ag_is_openwrt(void);
+/* the demo image's simulated home (docs/try-it.md): a label only */
+#define AG_DEMO_MARK "/var/run/aigw/demo"
+int ag_demo(void);
 
 /* Settings from the UCI package "aigw" (/etc/config/aigw on every host). */
 struct ag_config {

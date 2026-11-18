@@ -39,6 +39,8 @@ button:focus-visible, select:focus-visible, input:focus-visible, tr[tabindex]:fo
 button.danger { border-color: var(--bad); color: var(--bad); }
 button:disabled { opacity: 0.5; cursor: default; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin: 0.6rem 0; }
+.demo { background: var(--warn-bg); color: var(--text); border-left: 4px solid var(--warn-fill); padding: 0.6rem 0.8rem;
+  border-radius: 6px; }
 .error { background: var(--bad-bg); color: var(--text); border-left: 4px solid var(--bad); padding: 0.6rem 0.8rem; border-radius: 6px; }
 
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.6rem; }

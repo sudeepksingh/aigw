@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <time.h>
@@ -62,4 +63,13 @@ int64_t ag_wall_s(void)
 int ag_is_openwrt(void)
 {
 	return access("/etc/openwrt_release", F_OK) == 0;
+}
+
+/* the demo image's simulated home: its init script (aigw-demo) leaves this mark in /var/run once it
+   found a QEMU virtual machine and wrote the home's state; only a label (agctl, ag status, LuCI) */
+int ag_demo(void)
+{
+	const char *m = getenv("AIGW_DEMO_MARK");
+
+	return access(m && *m ? m : AG_DEMO_MARK, F_OK) == 0;
 }

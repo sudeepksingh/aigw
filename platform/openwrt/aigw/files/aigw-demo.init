@@ -1,0 +1,124 @@
+#!/bin/sh /etc/rc.common
+# The AIGW OS demo image (docs/try-it.md): a simulated home for agd, and cortex
+# with a simulated fleet and its dashboard. Only in a QEMU virtual machine:
+# anywhere else (a router, a PC) it says so and does nothing.
+#
+# At every boot, before agd starts (START 94 < aigw's 95):
+#   - the home's state is written anew (aigw-demo seed: three days up to now)
+#   - cortex gets a fresh simulated fleet in /tmp, with this VM enrolled in it;
+#     its API (127.0.0.1:8790) and the dashboard (port 8090, with a token) start
+#   - the bridge reports this VM's home to that cortex, as a real gateway would
+#   - /var/run/aigw/demo labels it all as demo data (agctl, ag status, LuCI)
+# The first time, it also sets the demo's settings: names, the data model's
+# labels, and no network outside the VM (diagnostics against QEMU's own
+# gateway, no time servers).
+
+START=94
+STOP=11
+USE_PROCD=1
+
+DEMO=/usr/libexec/aigw/aigw-demo
+CORTEX=/usr/lib/aigw-demo/cortex
+DATA=/tmp/aigw-demo/cortex
+MARK=/var/run/aigw/demo
+STATE=/etc/aigw/agd-state.json
+OURS=/etc/aigw/demo-home        # the state file is the demo's own (written by aigw-demo before)
+
+say() {
+	echo "aigw-demo: $*" > /dev/console 2>/dev/null
+	logger -t aigw-demo "$*"
+}
+
+first_time() {
+	uci -q batch <<-EOF
+		set system.@system[0].hostname='aigw-demo'
+		set system.ntp.enabled='0'
+		set system.ntp.enable_server='0'
+		set aigw.mgmt.manufacturer='AIGW OS demo'
+		set aigw.mgmt.model_name='AIGW OS demo (simulated home)'
+		set aigw.mgmt.product_class='AIGW OS demo'
+		set aigw.diag.targets='10.0.2.2'
+		set aigw.diag.name='aigw-demo.lan'
+		set aigw.bridge=plugin
+		set aigw.bridge.url='http://127.0.0.1:8790'
+		set aigw.bridge.interval='60'
+		set aigw.bridge.devices='names'
+		set aigw.bridge.models='0'
+		set aigw.bridge.fed='0'
+		commit system
+		commit aigw
+	EOF
+	/etc/init.d/sysntpd stop 2>/dev/null
+	/etc/init.d/sysntpd disable 2>/dev/null
+	echo "$(uci -q get system.@system[0].hostname)" > /proc/sys/kernel/hostname 2>/dev/null
+	cat > /etc/banner <<-'EOF'
+
+		  AIGW OS demo: a simulated home and fleet. Not real data.
+
+		  agctl why --from "yesterday 20:00" --to "yesterday 21:00"   the slow evening, explained
+		  agctl brief "yesterday 20:00-21:00"                        what a help desk would hear
+		  agctl sqm   agctl calls   agctl upgrade   agctl care        what AIGW did about it
+		  agctl care proactive                                       the ticket it fixed before anyone called
+		  agctl dm get Device.X_AIGW_.SQM.                           the same for an ISP (TR-181)
+
+		  docs: https://github.com/sudeepksingh/aigw/blob/main/docs/try-it.md
+
+	EOF
+}
+
+start_service() {
+	local why token
+
+	if ! why=$("$DEMO" check 2>&1); then
+		say "$why: demo mode stays off (it is only for the AIGW OS demo image in QEMU)"
+		return 0
+	fi
+	if [ -e "$STATE" ] && [ ! -e "$OURS" ]; then
+		say "$STATE is a real home's state: demo mode stays off"
+		return 0
+	fi
+	[ -e "$OURS" ] || first_time
+	# agd keeps the home in memory: write it while agd is stopped (at boot it hasn't started yet)
+	/etc/init.d/aigw running 2>/dev/null && /etc/init.d/aigw stop
+	mkdir -p /tmp/aigw "${MARK%/*}"
+	if ! "$DEMO" seed --replace --state "$STATE" --why /tmp/aigw/agd-why.bin \
+		--upgrade /etc/aigw/agd-upgrade.json > /tmp/aigw-demo.log 2>&1; then
+		say "the simulated home could not be written: $(tail -n 1 /tmp/aigw-demo.log)"
+		return 1
+	fi
+	touch "$OURS" "$MARK"
+
+	# cortex: a fresh simulated fleet, this VM enrolled in it
+	rm -rf "$DATA"
+	mkdir -p "$DATA"
+	if ! token=$(PYTHONPATH="$CORTEX" python3 -m aigw_cortex demo seed --dir "$DATA" --home "This demo VM" \
+		--home-group riverside 2>>/tmp/aigw-demo.log); then
+		say "cortex could not start: $(tail -n 1 /tmp/aigw-demo.log)"
+		return 1
+	fi
+	uci set aigw.bridge.token="$token"
+	uci commit aigw
+	# the dashboard's token: printed on the console for scripts/try-aigw.sh (the VM's network is QEMU's own)
+	(umask 077; python3 -c 'import secrets; print(secrets.token_urlsafe(24))' > "$DATA/dashboard.token")
+
+	procd_open_instance cortex
+	procd_set_param command python3 -m aigw_cortex --data "$DATA" serve --listen 127.0.0.1 --port 8790 --no-fed --quiet
+	procd_set_param env PYTHONPATH="$CORTEX"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stderr 1
+	procd_close_instance
+
+	procd_open_instance dashboard
+	procd_set_param command python3 -m aigw_cortex --data "$DATA" dashboard --listen 0.0.0.0:8090 --quiet
+	procd_set_param env PYTHONPATH="$CORTEX"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stderr 1
+	procd_close_instance
+
+	say "AIGW-DEMO dashboard token $(cat "$DATA/dashboard.token")"
+	say "a simulated home and a simulated fleet of 24 homes (demo data, not real): dashboard on port 8090, LuCI on 80"
+}
+
+stop_service() {
+	rm -f "$MARK"
+}

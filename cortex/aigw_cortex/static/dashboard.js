@@ -384,6 +384,7 @@ async function load() {
     $("login").hidden = true;
     showError(null);
     $("version").textContent = `cortex ${r.version}`;
+    $("demo").hidden = !r.demo;
     $("period").textContent = `${r.period.from} to ${r.period.to}` + (r.period.group ? `, group ${r.period.group}` : "") +
       `. Updated ${new Date(r.now * 1000).toLocaleTimeString()}.`;
     const sel = $("group");

@@ -40,7 +40,8 @@ ifb_of() { echo "ifb4$(echo "$1" | cut -c1-11)"; }
 kind() {   # what the kernel offers, tried on a throwaway device
 	[ -x "$TC" ] || { echo none; return; }
 	d=aigwsqmt$$
-	$IP link add "$d" type dummy 2>/dev/null || { echo none; return; }
+	# a dummy device, else an ifb one: OpenWRT has kmod-ifb (aigw's dependency) but not always kmod-dummy
+	$IP link add "$d" type dummy 2>/dev/null || $IP link add "$d" type ifb 2>/dev/null || { echo none; return; }
 	if $TC qdisc add dev "$d" root cake bandwidth 1000kbit 2>/dev/null; then
 		k=cake
 	elif $TC qdisc add dev "$d" root handle 1: htb default 10 2>/dev/null &&

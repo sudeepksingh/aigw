@@ -1113,6 +1113,47 @@ class Proactive(unittest.TestCase):
                 body = json.loads(resp.read())
             self.assertEqual(len(body["tickets"]), 2)
 
+class Demo(unittest.TestCase):
+    """v0.41: the simulated fleet (python3 -m aigw_cortex demo, the demo image): what the
+    dashboard shows, labelled as demo data, and never mixed into a real fleet's directory."""
+
+    def test_fleet(self):
+        from aigw_cortex import dashboard, demo, fleet
+        with tempfile.TemporaryDirectory() as d:
+            s, token = demo.seed(d, home="This demo VM")
+            self.assertTrue(demo.is_demo(d) and token)
+            self.assertEqual(s.gateway_by_token(token)["name"], "This demo VM")
+            r = dashboard.overview(s)
+            self.assertTrue(r["demo"])
+            self.assertEqual(r["homes"]["reporting"], 24)
+            self.assertEqual(r["groups"], ["hillcrest", "riverside"])
+            self.assertEqual(len(r["outages"]), 1)                       # four homes of riverside, minutes apart
+            o = r["outages"][0]
+            self.assertEqual((o["uplink"], o["kind"], o["state"], o["homes"]), ("riverside", "DOWN", "open", 4))
+            p = r["proactive"]                                          # v0.40: tickets before the call
+            self.assertEqual(sorted(t["status"] for t in p["open_tickets"]), ["Proposed", "Raised"])
+            self.assertGreater(p["calls_likely_avoided"], 0)
+            self.assertTrue(any(a["why"] == "early warning" for a in r["attention"]))
+            self.assertGreater(r["experience"]["mean"], r["experience"]["mean_before"])   # better than before
+            self.assertGreater(r["problems"]["fixed_by_aigw"], 0)
+            q = r["queueing"]
+            self.assertTrue(q["calls"]["reported"] and q["calls"]["prioritized"] > 0 and q["sqm"]["on"] > 0)
+            self.assertEqual({x["state"] for x in dashboard.rollouts(s)}, {"running", "stopped"})
+            self.assertGreaterEqual(fleet.report(s)["signals"]["homes"], 5)
+
+    def test_never_a_real_fleet(self):
+        from aigw_cortex import dashboard, demo
+        with tempfile.TemporaryDirectory() as d:
+            Store(d).enroll("a real home")
+            with self.assertRaises(ValueError):
+                demo.seed(d)
+            self.assertFalse(demo.is_demo(d))
+            self.assertFalse(dashboard.overview(Store(d))["demo"])
+        with tempfile.TemporaryDirectory() as d:
+            demo.seed(d)
+            with self.assertRaises(ValueError):                         # once: a second fleet would double it
+                demo.seed(d)
+
 
 if __name__ == "__main__":
     unittest.main()
