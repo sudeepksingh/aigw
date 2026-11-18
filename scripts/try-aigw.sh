@@ -93,7 +93,8 @@ done
 # ---- the accelerator: KVM (Linux, WSL2), HVF (Intel Macs), else emulated
 ACCEL="-accel tcg"
 case $(uname -s) in
-Linux) if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL="-accel kvm -cpu host"
+Linux) # /dev/kvm can be there without working KVM (WSL2 without nested virtualization): QEMU falls back to tcg
+	if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL="-accel kvm -accel tcg -cpu max"
 	else say "no KVM (/dev/kvm): emulated, so it starts slowly (a few minutes)"; fi ;;
 Darwin) if [ "$(uname -m)" = x86_64 ] && [ "$(sysctl -n kern.hv_support 2>/dev/null)" = 1 ]; then ACCEL="-accel hvf -cpu host"
 	else say "Apple silicon: an x86-64 VM is emulated, so it starts slowly (a few minutes)"; fi ;;
@@ -125,6 +126,7 @@ while [ -z "$TOKEN" ]; do
 	sleep 2
 done
 api() { curl -fsS --max-time 10 -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$DASH_PORT$1"; }
+i=0
 until api /api/overview >/dev/null 2>&1; do
 	kill -0 $QEMU 2>/dev/null || die "QEMU stopped; see $LOG"
 	i=$((i + 2)); [ $i -le "$BOOT_S" ] || die "the dashboard didn't answer within $BOOT_S s; see $LOG"
