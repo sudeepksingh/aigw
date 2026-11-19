@@ -63,6 +63,8 @@ class Base(unittest.TestCase):
             f.write(CLIENT_SECRET + "\n")
         with open(os.path.join(self.dir, "hook.secret"), "w") as f:
             f.write(HOOK_SECRET)
+        for n in ("client.secret", "hook.secret"):          # as docs/isp-ticketing.md says (refused otherwise)
+            os.chmod(os.path.join(self.dir, n), 0o600)
         os.environ["AIGW_TEST_LISTENER_TOKEN"] = LISTENER_TOKEN
         tickets._tokens.clear()
         self.mock = None
@@ -508,6 +510,7 @@ class Views(Base):
         with open(os.path.join(self.dir, "tickets.json"), "w") as f:
             raw = {"enabled": True, "tmf621": {"url": cfg["tmf621"]["url"], "auth": cfg["tmf621"]["auth"]}}
             json.dump(raw, f)
+        os.chmod(os.path.join(self.dir, "tickets.json"), 0o644)
         gws = self.fleet(s)
         tickets.scan(s, cfg, T - 60)
         inc = self.outage_of(s, gws, at=int(time.time()))
@@ -530,6 +533,102 @@ class Views(Base):
         with open(os.path.join(self.dir, "tickets.json"), "w") as f:
             f.write("{not json")
         self.assertIn("not JSON", tickets.state(s)["config_error"])
+
+
+class Security(Base):
+    """v0.43 (docs/security.md): secrets and the configuration only their owner's; a
+    webhook receiver's whole check (replays, headers the signature doesn't cover); the
+    outbox at rest holds no secret."""
+
+    def test_secret_files_must_be_private(self):
+        self.mock = Mock().start()
+        s = Store(self.dir)
+        cfg = self.cfg()
+        gws = self.fleet(s)
+        tickets.scan(s, cfg, T - 60)
+        self.outage_of(s, gws)
+        secret = os.path.join(self.dir, "client.secret")
+        os.chmod(secret, 0o644)                             # anyone on this machine could read it
+        self.assertEqual(tickets.sync(s, cfg, T + 10)["sent"], {"failed": 1})
+        self.assertEqual(self.mock.tickets, {})
+        self.assertFalse([x for x in self.mock.log if TOKEN in x[1]])  # the secret was never sent
+        err = tickets.listing(s)[0]["error"]
+        self.assertIn("chmod 600", err)
+        self.assertNotIn(CLIENT_SECRET, err)
+        os.chmod(secret, 0o640)                             # a group may read it (root:cortex)
+        tickets.retry(s)
+        self.assertEqual(tickets.flush(s, cfg, T + 20), {"sent": 1})
+        os.chmod(secret, 0o660)                             # never write it
+        with self.assertRaises(tickets.Permanent):
+            tickets._auth_header(cfg["tmf621"], fresh=True)
+
+    def test_configuration_others_can_change_is_refused(self):
+        p = os.path.join(self.dir, "tickets.json")
+        with open(p, "w") as f:
+            json.dump({"enabled": True, "webhooks": [{"url": "https://hooks.example/a", "secret_env": "X"}]}, f)
+        for mode in (0o666, 0o664, 0o646):
+            os.chmod(p, mode)
+            with self.assertRaises(ValueError, msg=oct(mode)) as e:
+                tickets.load_config(self.dir)
+            self.assertIn("could change it", str(e.exception))
+            self.assertIn("could change it", tickets.state(Store(self.dir))["config_error"])
+        os.chmod(p, 0o644)
+        self.assertTrue(tickets.load_config(self.dir)["enabled"])
+
+    def test_listener_token_file_readable_by_others(self):
+        tok = os.path.join(self.dir, "listener.token")
+        with open(tok, "w") as f:
+            f.write(LISTENER_TOKEN)
+        cfg = tickets.check_config({"enabled": True, "tmf621": {"url": "https://tt.example/v4",
+                                                                 "listener": {"token_file": tok}}})
+        os.chmod(tok, 0o644)
+        self.assertFalse(tickets.listener_token_ok(cfg, "Bearer " + LISTENER_TOKEN))   # 401, not a crash
+        os.chmod(tok, 0o600)
+        self.assertTrue(tickets.listener_token_ok(cfg, "Bearer " + LISTENER_TOKEN))
+        self.assertFalse(tickets.listener_token_ok(cfg, "Bearer " + LISTENER_TOKEN[:-1]))
+
+    def test_a_receivers_check(self):
+        body = json.dumps({"id": "d1", "type": "outage.opened", "data": {}}).encode()
+        now = 1700000000
+
+        def hdrs(**kw):
+            h = {"X-AIGW-Timestamp": str(now), "X-AIGW-Signature": tickets.sign("k", now, body),
+                 "X-AIGW-Delivery": "d1", "X-AIGW-Event": "outage.opened"}
+            h.update(kw)
+            return h
+        seen = set()
+        self.assertEqual(tickets.verify_delivery("k", hdrs(), body, seen, now + 10), (True, "outage.opened"))
+        self.assertEqual(tickets.verify_delivery("k", hdrs(), body, seen, now + 20)[0], False)    # replayed
+        # the signature doesn't cover these headers: a replay with a new delivery id is still refused
+        ok, why = tickets.verify_delivery("k", hdrs(**{"X-AIGW-Delivery": "d2"}), body, set(), now + 10)
+        self.assertEqual((ok, why), (False, "headers do not match the signed body"))
+        self.assertFalse(tickets.verify_delivery("k", hdrs(**{"X-AIGW-Event": "outage.resolved"}), body, set(),
+                                                 now + 10)[0])
+        self.assertFalse(tickets.verify_delivery("other", hdrs(), body, set(), now + 10)[0])
+        self.assertFalse(tickets.verify_delivery("k", hdrs(), body, set(), now + 301)[0])         # too old
+        self.assertFalse(tickets.verify_delivery("k", hdrs(), body + b" ", set(), now + 10)[0])
+
+    def test_the_outbox_at_rest(self):
+        import stat
+        self.mock = Mock().start()
+        s = Store(self.dir)
+        cfg = self.cfg(webhooks=[{"url": self.mock.url + "/hook", "secret_file": os.path.join(self.dir, "hook.secret")}])
+        gws = self.fleet(s)
+        tickets.scan(s, cfg, T - 60)
+        self.outage_of(s, gws)
+        tickets.sync(s, cfg, T + 10)
+        self.assertEqual(len(self.mock.hooks), 1)
+        db = os.path.join(self.dir, "cortex.db")
+        self.assertEqual(stat.S_IMODE(os.stat(db).st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE(os.stat(self.dir).st_mode) & 0o077, 0)
+        s.db.commit()
+        raw = b""
+        for f in (db, db + "-wal", db + "-journal"):
+            if os.path.exists(f):
+                with open(f, "rb") as fh:
+                    raw += fh.read()
+        for secret in [CLIENT_SECRET, HOOK_SECRET, LISTENER_TOKEN] + sorted(self.mock.tokens):
+            self.assertNotIn(secret.encode(), raw, "a secret in cortex.db")
 
 
 if __name__ == "__main__":

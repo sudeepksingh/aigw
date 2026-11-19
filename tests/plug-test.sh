@@ -296,6 +296,26 @@ grep -q RELOAD_WPA_PSK "$T/hostapd.log" || fail "hostapd not told to reload"
 agctl key add "Living room plug" 2>&1 | grep -q "already" || fail "duplicate key name accepted"
 agctl key add "x" "Bad Zone" 2>&1 | grep -q "zone" || fail "bad zone accepted"
 agctl key qr "Living room plug" | grep -q "$pass" || fail "key qr"
+# v0.43: "keys" is in the read-only ACLs (LuCI read, agctl without sudo): never a password,
+# even for one key by name; key_show (a write permission) has it
+ubus ${AIGW_UBUS:+-s "$AIGW_UBUS"} call ag.wifi keys '{"name":"Living room plug"}' > "$T/keys-read.json" ||
+	fail "ag.wifi keys by name"
+grep -q "$pass" "$T/keys-read.json" && fail "ag.wifi keys (a read permission) gave out a key's passphrase"
+grep -q '"qr' "$T/keys-read.json" && fail "ag.wifi keys (a read permission) gave out a key's QR code"
+ubus ${AIGW_UBUS:+-s "$AIGW_UBUS"} call ag.wifi key_show '{"name":"Living room plug"}' | grep -q "$pass" ||
+	fail "ag.wifi key_show"
+# v0.43: hostapd answers to a socket only root can write to, not a name in a shared /tmp
+[ "$(stat -c '%a %U' "/var/run/aigw/agd-wifi-$AGD" 2>&1)" = "600 root" ] ||
+	fail "agd's hostapd socket: $(stat -c '%n %a %U' "/var/run/aigw/agd-wifi-$AGD" 2>&1)"
+[ ! -e "/tmp/agd-wifi-$AGD" ] || fail "agd still binds /tmp/agd-wifi-$AGD"
+python3 - "$REPO/platform/openwrt/luci-app-aigw/root/usr/share/rpcd/acl.d/luci-app-aigw.json" \
+	"$REPO/platform/pc-ap/ubus-acl.json.in" <<'EOF' || fail "key_show is in a read ACL"
+import json, sys
+luci = json.load(open(sys.argv[1]))["luci-app-aigw"]
+assert "key_show" not in luci["read"]["ubus"].get("ag.wifi", []) and "key_show" in luci["write"]["ubus"]["ag.wifi"]
+pc = json.load(open(sys.argv[2]))
+assert "key_show" not in pc["access"].get("ag.wifi", {}).get("methods", [])
+EOF
 if command -v zbarimg > /dev/null; then
 	agctl qr "WIFI:T:WPA;S:AIGW-TEST;P:$pass;;" --pbm > "$T/qr.pbm"
 	[ "$(zbarimg -q --raw "$T/qr.pbm")" = "WIFI:T:WPA;S:AIGW-TEST;P:$pass;;" ] || fail "QR code does not decode"

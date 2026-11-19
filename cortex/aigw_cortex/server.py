@@ -58,7 +58,10 @@ def make_handler(store, log=True, fed_settings=None, tickets_cfg=None, kick=None
             return store.gateway_by_token(auth[7:].strip())
 
         def body(self):
-            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                return None
             if n <= 0 or n > MAX_BODY:
                 return None
             try:
@@ -145,7 +148,20 @@ def make_handler(store, log=True, fed_settings=None, tickets_cfg=None, kick=None
     return Handler
 
 
+def exposure_note(listen, cert):
+    """What to warn of at the start: gateways' tokens travel in every request, so
+    anything beyond this host without TLS sends them in the clear. "" when fine."""
+    from .dashboard import is_loopback
+    if cert or is_loopback(listen):
+        return ""
+    return (f"  cortex listens on {listen or 'every address'} without TLS: gateways' tokens and their "
+            "reports travel in the clear. Use --cert/--key, or a reverse proxy with HTTPS")
+
+
 def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, fed_settings=None, tickets_cfg=None):
+    note = exposure_note(listen, cert)
+    if note:
+        print(note, file=sys.stderr, flush=True)
     tc = tickets_cfg or {}
     worker = tickets.Worker(store, tc, log)
     httpd = ThreadingHTTPServer((listen, port), make_handler(store, log, fed_settings, tc,

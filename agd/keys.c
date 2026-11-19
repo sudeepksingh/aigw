@@ -396,13 +396,16 @@ int keys_count(void)
 	return n;
 }
 
-void keys_blob(struct blob_buf *b, const char *only)
+/* the keys; with secret (ubus ag.wifi key_show, a write permission), one key's
+   passphrase and QR code: "keys" is read-only (LuCI's read ACL, agctl without
+   sudo) and must never hand out a password */
+void keys_blob(struct blob_buf *b, const char *only, int secret)
 {
 	void *arr = blobmsg_open_array(b, "keys"), *t;
 	char ssid[64] = "", qr[300];
 	int i;
 
-	if (only)
+	if (only && secret)
 		ssid_of_ap(ssid, sizeof(ssid));
 	for (i = 0; i < KEY_MAX; i++) {
 		const struct wkey *k = &keys[i];
@@ -422,7 +425,7 @@ void keys_blob(struct blob_buf *b, const char *only)
 		blobmsg_add_u64(b, "created", (uint64_t)k->created);
 		blobmsg_add_u64(b, "expires", (uint64_t)k->expires);
 		blobmsg_add_u64(b, "bound", (uint64_t)k->bound);
-		if (only) {                  /* one key asked for by name: enough to show its QR again */
+		if (only && secret) {        /* one key asked for by name: enough to show its QR again */
 			blobmsg_add_string(b, "ssid", ssid);
 			blobmsg_add_string(b, "passphrase", k->pass);
 			if (ssid[0] && ag_qr_wifi_text(qr, sizeof(qr), ssid, k->pass) > 0) {

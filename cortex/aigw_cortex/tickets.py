@@ -203,9 +203,26 @@ def check_config(c):
     return out
 
 
+def private_file(p, what):
+    """v0.43: refuse a file other users could change (or, for a secret, read): the
+    configuration says where secrets go, so one anyone can write could send them to
+    another host. A group may read a secret (0640, root:cortex) but never write it."""
+    try:
+        st = os.stat(p)
+    except OSError:
+        return                              # missing: the caller says so in its own words
+    bad = 0o022                             # group or others could change it
+    if what.startswith("secret"):
+        bad |= 0o004                        # others never read a secret
+    if st.st_mode & bad:
+        raise ValueError(f"{p} ({what}) is mode {st.st_mode & 0o777:o}: other users could "
+                         f"{'read or ' if bad & 0o004 else ''}change it (chmod 600 {p})")
+
+
 def load_config(data_dir, path=None):
     """The configuration from its file; off (enabled false) when there is none."""
     p = config_path(data_dir, path)
+    private_file(p, "the ticketing configuration")
     try:
         with open(p) as f:
             raw = json.load(f)
@@ -223,6 +240,10 @@ def load_config(data_dir, path=None):
 def _secret(d, name):
     """A secret from <name>_file or <name>_env; never inline, never logged."""
     if d.get(name + "_file"):
+        try:
+            private_file(d[name + "_file"], "secret " + name)
+        except ValueError as e:
+            raise Permanent(str(e))         # not retried: it stays failed until the mode is fixed
         try:
             with open(d[name + "_file"]) as f:
                 v = f.read().strip()
@@ -375,6 +396,29 @@ def verify(secret, ts, body, signature, now=None, tolerance=300):
     if abs(int(now or time.time()) - ts) > tolerance:
         return False
     return hmac.compare_digest(sign(secret, ts, body), str(signature or ""))
+
+
+def verify_delivery(secret, headers, body, seen, now=None, tolerance=300):
+    """A receiver's whole check of one webhook delivery (v0.43). The signature covers
+    the timestamp and the body, not the other headers: the delivery id and the event
+    are taken from the signed body, and must match X-AIGW-Delivery and X-AIGW-Event.
+    `seen` (a set, or anything with `in` and `add`) holds the delivery ids already
+    taken, at least for `tolerance` seconds: a replay within the window, or a retry
+    that came after all, is refused once. Returns (ok, reason)."""
+    h = {str(k).lower(): str(v) for k, v in (headers or {}).items()}
+    if not verify(secret, h.get("x-aigw-timestamp"), body, h.get("x-aigw-signature"), now, tolerance):
+        return False, "bad signature or an old timestamp"
+    try:
+        j = json.loads(body.decode() if isinstance(body, bytes) else body)
+    except ValueError:
+        return False, "not JSON"
+    did, ev = str((j or {}).get("id") or ""), str((j or {}).get("type") or "")
+    if not did or h.get("x-aigw-delivery") != did or h.get("x-aigw-event") != ev:
+        return False, "headers do not match the signed body"
+    if did in seen:
+        return False, "already taken (a replay or a retry)"
+    seen.add(did)
+    return True, ev
 
 
 # ---------- the store ----------
@@ -902,7 +946,7 @@ def listener_token_ok(cfg, auth):
         return None
     try:
         want = _secret(lis, "token")
-    except Transient:
+    except (Transient, Permanent):          # unreadable, empty, or readable by others: no one gets in
         return False
     given = auth[7:].strip() if str(auth or "").startswith("Bearer ") else ""
     return bool(given) and hmac.compare_digest(given.encode(), want.encode())

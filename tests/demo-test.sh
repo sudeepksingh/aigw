@@ -53,6 +53,18 @@ if "$DEMO" seed --test --state "$T/state.json" --why "$T/why.bin" --upgrade "$T/
 fi
 grep -q "not replaced without --replace" "$T/seed.err" || fail "$(cat "$T/seed.err")"
 pass "an existing state file is kept"
+# v0.43: --test never writes a system's files (a real router's /etc/aigw/agd-state.json), also
+# not through a link to /etc
+ln -s /etc "$T/etc-link"
+for f in "/etc/aigw-demo-test.$$.json" "$T/etc-link/aigw-demo-test.$$.json"; do
+	if "$DEMO" seed --test --replace --state "$f" --why "$T/why.bin" --upgrade "$T/upgrade.json" 2> "$T/seed.err"; then
+		rm -f "/etc/aigw-demo-test.$$.json"
+		fail "--test wrote $f"
+	fi
+	grep -q "test suite's own files" "$T/seed.err" || fail "--test refusal: $(cat "$T/seed.err")"
+	[ ! -e "/etc/aigw-demo-test.$$.json" ] || { rm -f "/etc/aigw-demo-test.$$.json"; fail "--test wrote into /etc"; }
+done
+pass "--test refuses a system's files (/etc, also through a link)"
 
 echo "== the simulated home"
 "$DEMO" seed --test --replace --state "$T/state.json" --why "$T/why.bin" --upgrade "$T/upgrade.json" ||

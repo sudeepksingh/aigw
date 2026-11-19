@@ -210,17 +210,36 @@ body and `X-AIGW-Delivery`, and a new timestamp and signature. To check one
 (Python; `aigw_cortex.tickets.verify` does the same):
 
 ```python
-import hashlib, hmac, time
+import hashlib, hmac, json, time
 
-def verified(secret: bytes, headers, body: bytes, tolerance=300) -> bool:
+def verified(secret: bytes, headers, body: bytes, seen: set, tolerance=300) -> bool:
     ts = headers["X-AIGW-Timestamp"]
     if abs(time.time() - int(ts)) > tolerance:          # a replay of an old delivery
         return False
     want = "v1=" + hmac.new(secret, ts.encode() + b"." + body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(want, headers["X-AIGW-Signature"])
+    if not hmac.compare_digest(want, headers["X-AIGW-Signature"]):
+        return False
+    j = json.loads(body)
+    # the signature covers the timestamp and the body, not the other headers: take the
+    # delivery id and the event from the body, and refuse headers that say otherwise
+    if headers["X-AIGW-Delivery"] != j["id"] or headers["X-AIGW-Event"] != j["type"]:
+        return False
+    if j["id"] in seen:                                 # a replay within the window, or a retry
+        return False                                    # that arrived after all: once only
+    seen.add(j["id"])                                   # keep ids at least `tolerance` seconds
+    return True
 ```
 
 Sign over the raw body as received, before any JSON parsing.
+`aigw_cortex.tickets.verify_delivery(secret, headers, body, seen)` is this
+check (v0.43); `verify` checks only the signature and the timestamp.
+
+**Files** (v0.43): cortex refuses a secret file that other users can read, or
+that its group or others can write (0600, or 0640 for a group that runs cortex),
+and a `tickets.json` that its group or others can write: the configuration says
+where the secrets are sent, so one anyone could edit could send them elsewhere.
+A refused secret leaves the row `failed` with the reason ("chmod 600 ..."); fix
+the mode, then `tickets retry`.
 
 ## Where to see it
 

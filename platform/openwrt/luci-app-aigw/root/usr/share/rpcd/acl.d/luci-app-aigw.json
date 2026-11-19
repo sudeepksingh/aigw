@@ -22,7 +22,7 @@
 				"ag.plugin": [ "set" ],
 				"ag.model": [ "rollback" ],
 				"ag.remote": [ "on", "off", "add", "revoke" ],
-				"ag.wifi": [ "key_add", "key_revoke" ]
+				"ag.wifi": [ "key_add", "key_show", "key_revoke" ]
 			}
 		}
 	}

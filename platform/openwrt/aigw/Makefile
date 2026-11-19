@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.42.0
+PKG_VERSION:=0.43.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -218,9 +218,35 @@ define Package/aigw-remote/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-remote $(1)/usr/sbin/
 endef
 
+# An upgrade keeps remote access as it was: opkg runs the old prerm with "upgrade"
+# (and PKG_UPGRADE=1) before the new package's scripts. Up to 0.42 that prerm turned
+# remote access off (agctl remote off) on an upgrade too; what it leaves: remote off,
+# phones still in the peers file, the config written a moment ago. Then postinst
+# turns it on again (also off within 5 minutes of an upgrade by hand: on again).
+define Package/aigw-remote/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+[ "$${PKG_UPGRADE:-0}" = 1 ] || exit 0
+dir=$$(uci -q get aigw.remote.dir); dir=$${dir:-/etc/aigw/remote}
+if [ "$$(uci -q get aigw.remote.enabled)" = 0 ] && [ -n "$$(uci -q get aigw.remote.endpoint)" ] &&
+   [ -s "$$dir/peers" ] && [ -n "$$(find /etc/config/aigw -mmin -5 2>/dev/null)" ]; then
+	# the setting, for agd's next start; and on now, through agd (whichever version runs at
+	# this point, perhaps still starting)
+	uci set aigw.remote.enabled=1
+	uci commit aigw
+	i=0
+	until agctl remote on "$$(uci -q get aigw.remote.endpoint)" >/dev/null 2>&1; do
+		i=$$((i + 1)); [ $$i -ge 10 ] && break; sleep 1
+	done
+	logger -t aigw "remote access on again after the upgrade (AIGW 0.42 and older turned it off)"
+fi
+exit 0
+endef
+
 define Package/aigw-remote/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+case " $${PKG_UPGRADE:-0} $$* " in *" 1 "*|*" upgrade "*) exit 0 ;; esac
 # take the tunnel, the open port and the firewall zone away with the package
 agctl remote off >/dev/null 2>&1 || /usr/sbin/aigw-remote down agwg >/dev/null 2>&1
 exit 0
@@ -236,9 +262,23 @@ define Package/aigw-cwmp/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/libexec/aigw/defaultreset $(1)/usr/libexec/aigw/
 endef
 
+# as for aigw: an upgrade keeps it as it was. Up to 0.42 the prerm turned it off at
+# boot on an upgrade: with an ACS set, it is on at boot again (it does nothing until
+# aigw.mgmt.enabled is 1)
+define Package/aigw-cwmp/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+[ "$${PKG_UPGRADE:-0}" = 1 ] || exit 0
+if [ -n "$$(uci -q get aigw.cwmp.url)" ] && ! /etc/init.d/aigw-cwmp enabled 2>/dev/null; then
+	/etc/init.d/aigw-cwmp enable
+fi
+exit 0
+endef
+
 define Package/aigw-cwmp/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+case " $${PKG_UPGRADE:-0} $$* " in *" 1 "*|*" upgrade "*) exit 0 ;; esac
 /etc/init.d/aigw-cwmp stop 2>/dev/null
 /etc/init.d/aigw-cwmp disable 2>/dev/null
 if uci -q get firewall.aigw_cwmp >/dev/null; then
@@ -279,9 +319,44 @@ rm -f /tmp/luci-indexcache* /tmp/luci-modulecache/* 2>/dev/null
 exit 0
 endef
 
+# An upgrade keeps AIGW as it was: on at boot if it was, its fw4 include. opkg runs
+# the old prerm with "upgrade" (PKG_UPGRADE=1) first; OpenWRT's own scripts stop agd
+# then and start the new one after. Up to 0.42 that prerm also turned AIGW off at
+# boot and removed the fw4 include on an upgrade (uci-defaults puts the include
+# back). The new preinst runs right after that prerm with "upgrade <old version>"
+# (opkg's record still names the old one): from 0.42 or older, AIGW is turned on
+# at boot again by postinst.
+define Package/aigw/preinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+[ "$$1" = upgrade ] || [ "$${PKG_UPGRADE:-0}" = 1 ] || exit 0
+v=$${2:-$$(sed -n 's/^Version: //p' /usr/lib/opkg/info/aigw.control 2>/dev/null)}
+v=$${v%%-*}; maj=$${v%%.*}; min=$${v#*.}; min=$${min%%.*}
+case "$$maj.$$min" in *[!0-9.]*|.*|*.) exit 0 ;; esac
+if [ "$$maj" -eq 0 ] && [ "$$min" -lt 43 ]; then
+	mkdir -p /tmp/aigw-upgrade
+	touch /tmp/aigw-upgrade/enable
+fi
+exit 0
+endef
+
+define Package/aigw/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+if [ -e /tmp/aigw-upgrade/enable ]; then
+	rm -f /tmp/aigw-upgrade/enable
+	if ! /etc/init.d/aigw enabled 2>/dev/null; then
+		/etc/init.d/aigw enable
+		logger -t aigw "on at boot again after the upgrade (AIGW 0.42 and older turned it off)"
+	fi
+fi
+exit 0
+endef
+
 define Package/aigw/prerm
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
+case " $${PKG_UPGRADE:-0} $$* " in *" 1 "*|*" upgrade "*) exit 0 ;; esac
 /etc/init.d/aigw stop 2>/dev/null
 /etc/init.d/aigw disable 2>/dev/null
 if uci -q get firewall.aigw >/dev/null; then

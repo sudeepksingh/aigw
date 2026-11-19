@@ -107,6 +107,28 @@ EOF
 	}
 EOF
 	fi
+	# agdns listens on dns.listen (0.0.0.0 by default): it answers the home, never the
+	# WAN side. A PC as AP has no fw4 to drop the rest, so this does it everywhere:
+	# loopback, the LAN interfaces, and what a redirect sent here (the LAN's port 53,
+	# remote access's tunnel); anything else asking agdns is dropped (dns.guard 0: off)
+	if [ "$(uci_get dns.guard)" != 0 ]; then
+		lan=""
+		[ -n "$ifaces" ] && lan="
+		iifname { $ifaces } return"
+		cat <<EOF
+
+	# agdns answers the home only, not the WAN side (an open resolver)
+	chain dns_guard {
+		type filter hook input priority filter - 5; policy accept;
+		meta l4proto { udp, tcp } th dport $port jump dns_from
+	}
+	chain dns_from {
+		iifname "lo" return$lan
+		ct status dnat return
+		counter drop
+	}
+EOF
+	fi
 	echo "}"
 }
 

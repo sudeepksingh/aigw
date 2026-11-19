@@ -1155,5 +1155,71 @@ class Demo(unittest.TestCase):
                 demo.seed(d)
 
 
+class Security(unittest.TestCase):
+    """v0.43 (docs/security.md): what cortex keeps is its owner's alone; a fleet API beyond
+    this host without TLS says so; odd requests are refused, not crashed on."""
+
+    def test_private_files(self):
+        import contextlib
+        import io
+        import stat
+        with tempfile.TemporaryDirectory() as top:
+            d = os.path.join(top, "new")
+            Store(d)
+            self.assertEqual(stat.S_IMODE(os.stat(d).st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.join(d, "cortex.db")).st_mode), 0o600)
+            # a data directory made by cortex before 0.43 (umask 022): tightened, with a note
+            old = os.path.join(top, "old")
+            os.makedirs(old, mode=0o755)
+            os.chmod(old, 0o755)
+            Store(old).enroll("home")
+            os.chmod(os.path.join(old, "cortex.db"), 0o644)
+            os.chmod(old, 0o755)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                s = Store(old)
+            self.assertEqual(stat.S_IMODE(os.stat(old).st_mode), 0o700)
+            self.assertEqual(stat.S_IMODE(os.stat(os.path.join(old, "cortex.db")).st_mode), 0o600)
+            self.assertIn("readable by other users", err.getvalue())
+            self.assertEqual(len(s.gateways()), 1)                      # nothing lost
+
+    def test_exposure_note(self):
+        from aigw_cortex.server import exposure_note
+        for listen in ("127.0.0.1", "localhost", "::1"):
+            self.assertEqual(exposure_note(listen, None), "", listen)
+        self.assertEqual(exposure_note("0.0.0.0", "cert.pem"), "")
+        for listen in ("0.0.0.0", "", "192.0.2.10", "::"):
+            self.assertIn("without TLS", exposure_note(listen, None), listen)
+
+    def test_odd_requests(self):
+        import http.client
+        from http.server import ThreadingHTTPServer
+        from aigw_cortex import dashboard, server
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            _, token = s.enroll("home")
+            api = ThreadingHTTPServer(("127.0.0.1", 0), server.make_handler(s, log=False))
+            dash = ThreadingHTTPServer(("127.0.0.1", 0), dashboard.make_handler(s, "tok", True, log=False))
+            for h in (api, dash):
+                threading.Thread(target=h.serve_forever, daemon=True).start()
+            try:
+                def post(port, path, tok):
+                    c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+                    c.putrequest("POST", path)
+                    c.putheader("Authorization", f"Bearer {tok}")
+                    c.putheader("Content-Length", "lots")
+                    c.endheaders()
+                    r = c.getresponse()
+                    c.close()
+                    return r.status
+                self.assertEqual(post(api.server_address[1], "/v1/report", token), 400)
+                self.assertEqual(post(dash.server_address[1], "/api/rollouts/x/pause", "tok"), 400)
+                # changes need the token on loopback too, and no cookie or form can stand in for it
+                self.assertEqual(post(dash.server_address[1], "/api/rollouts/x/pause", "wrong"), 401)
+            finally:
+                api.shutdown()
+                dash.shutdown()
+
+
 if __name__ == "__main__":
     unittest.main()

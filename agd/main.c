@@ -775,9 +775,12 @@ static int m_wifi_keys(struct ubus_context *ctx, struct ubus_object *obj,
 	struct blob_attr *tb[__WK_MAX];
 
 	blobmsg_parse(key_policy, __WK_MAX, tb, blob_data(msg), blob_len(msg));
+	/* key_show: one key's passphrase and QR code (a write permission in the ACLs) */
+	if (!strcmp(method, "key_show") && !tb[WK_NAME])
+		return UBUS_STATUS_INVALID_ARGUMENT;
 	blob_buf_init(&b, 0);
 	blobmsg_add_string(&b, "file", cfg.wifi_keys);
-	keys_blob(&b, tb[WK_NAME] ? blobmsg_get_string(tb[WK_NAME]) : NULL);
+	keys_blob(&b, tb[WK_NAME] ? blobmsg_get_string(tb[WK_NAME]) : NULL, !strcmp(method, "key_show"));
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
@@ -858,6 +861,7 @@ static int m_wifi_radios(struct ubus_context *ctx, struct ubus_object *obj,
 static struct ubus_method wifi_methods[] = {
 	UBUS_METHOD_NOARG("radios", m_wifi_radios),
 	UBUS_METHOD("keys", m_wifi_keys, key_policy),
+	UBUS_METHOD("key_show", m_wifi_keys, key_policy),
 	UBUS_METHOD("key_add", m_wifi_key_change, key_policy),
 	UBUS_METHOD("key_revoke", m_wifi_key_change, key_policy),
 };

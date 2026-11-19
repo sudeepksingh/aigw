@@ -63,6 +63,8 @@ running() {
 	printf '%s\n' "${DISTRIB_RELEASE:-unknown}-${DISTRIB_REVISION:-unknown}" | tr ' ' '_'
 }
 size_kb() { s=$(wc -c < "$1" 2>/dev/null) || s=0; echo $(( (${s:-0} + 1023) / 1024 )); }
+# a URL as it may be shown (agd logs it, a management system gets it as the fault): no user:password@
+shown() { printf '%s\n' "$1" | sed -E 's#^([A-Za-z][A-Za-z0-9+.-]*://)[^/@]*@#\1#'; }
 mb() { awk -v k="$1" 'BEGIN { printf "%.1f MB", k / 1024 }'; }
 
 # "<free KB> <mount point>" of the file system that holds $1 (df -Pk)
@@ -227,7 +229,7 @@ keep_current() {
 	src=$(source_of "$K" "$want" "${3:-}") || { echo "$src"; return 1; }
 	rm -f "$K/current.img" "$K/current.version" "$K/fetch.img" "$K/fetch.version"
 	if ! fetch "$src" "$K/fetch.img" 2>/dev/null; then
-		rm -f "$K/fetch.img"; echo "cannot fetch $want again from $src"; return 1
+		rm -f "$K/fetch.img"; echo "cannot fetch $want again from $(shown "$src")"; return 1
 	fi
 	# an image without metadata (x86's .img.gz has none) says no version: it is taken for
 	# the one it was named as (given, or the URL the running version came from); one that
@@ -236,7 +238,7 @@ keep_current() {
 	check_image "$K/fetch.img" "$K/fetch.version" && got=$(cat "$K/fetch.version")
 	if [ -z "$got" ] || { [ "$got" != "$want" ] && [ "$got" != unknown ]; }; then
 		rm -f "$K/fetch.img" "$K/fetch.version"
-		echo "the image from $src is not $want (${got:-not an image this device can run})"; return 1
+		echo "the image from $(shown "$src") is not $want (${got:-not an image this device can run})"; return 1
 	fi
 	mv "$K/fetch.img" "$K/current.img"; echo "$want" > "$K/current.version"; rm -f "$K/fetch.version"
 	sync
@@ -283,7 +285,9 @@ record_source() {
 	rm -f "$REC/source.url" "$REC/source.version" "$REC/source.pending" "$REC/source.from"
 	case $1 in
 	http://*|https://*)
-		printf '%s\n' "$1" > "$REC/source.url"; cp "$DIR/version" "$REC/source.version"
+		# the URL may carry a user and password: root's alone (not umask 077 for the
+		# whole script: the settings archive for a rollback is built from directories it makes)
+		(umask 077; printf '%s\n' "$1" > "$REC/source.url"); cp "$DIR/version" "$REC/source.version"
 		running > "$REC/source.from"; boot_id > "$REC/source.pending" ;;
 	esac
 }
@@ -360,7 +364,7 @@ download)
 	echo Downloading > "$DIR/status"
 	if ! fetch "$url" "$DIR/image" move; then
 		rm -f "$DIR/image"; echo DownloadFailed > "$DIR/status"
-		echo "download from $url failed" >&2; exit 2
+		echo "download from $(shown "$url") failed" >&2; exit 2
 	fi
 	if [ -n "${AIGW_FW_SIZE:-}" ] && [ "${AIGW_FW_SIZE}" != 0 ] && [ "$(wc -c < "$DIR/image")" != "$AIGW_FW_SIZE" ]; then
 		rm -f "$DIR/image"; echo ValidationFailed > "$DIR/status"; echo "the file is not $AIGW_FW_SIZE bytes" >&2; exit 3

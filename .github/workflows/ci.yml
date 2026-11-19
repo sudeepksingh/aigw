@@ -119,6 +119,8 @@ jobs:
           fi
           modinfo -F filename nf_flow_table nf_flow_table_inet nft_flow_offload || true
           sudo AIGW_REQUIRE_FLOWTABLE=1 PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/fastpath-test.sh build
+      - name: "Security test (agdns answers the home only; no passwords in firmware messages; TR-069 warnings)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/security-test.sh build
       - name: Model back-end test (built-in and loaded back-ends, checked against the reference)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/backend-test.sh build
       - name: Traffic meter test (eBPF per device on the LAN interface, tcx)
@@ -134,7 +136,7 @@ jobs:
           modinfo -F filename mac80211_hwsim
           sudo AIGW_REQUIRE_HWSIM=1 PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH" tests/hwsim-test.sh build
       - name: Shell syntax
-        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh platform/pc-ap/uninstall.sh tests/*.sh plugins/examples/*/run.sh usp/aigw-usp-run scripts/build-obuspa.sh scripts/build-icwmp.sh cwmp/aigw-cwmp-run platform/openwrt/aigw/files/aigw-cwmp.init scripts/dm-xml tests/cwmp/acs.py tests/usp/uspc.py platform/pc-ap/wifi-config platform/openwrt/aigw/files/wifi-config platform/openwrt/aigw/files/firmware tests/fw/firmware cwmp/defaultreset platform/openwrt/qemu_console.py scripts/build-ambiorix.sh scripts/try-aigw.sh platform/openwrt/build-demo-image.sh platform/openwrt/aigw/files/aigw-demo.init; do case "$f" in *dm-xml|*.py) python3 -m py_compile "$f" ;; *) sh -n "$f" ;; esac; done
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh platform/pc-ap/uninstall.sh tests/*.sh plugins/examples/*/run.sh usp/aigw-usp-run scripts/build-obuspa.sh scripts/build-icwmp.sh cwmp/aigw-cwmp-run platform/openwrt/aigw/files/aigw-cwmp.init scripts/dm-xml tests/cwmp/acs.py tests/usp/uspc.py platform/pc-ap/wifi-config platform/openwrt/aigw/files/wifi-config platform/openwrt/aigw/files/firmware tests/fw/firmware cwmp/defaultreset platform/openwrt/qemu_console.py scripts/build-ambiorix.sh scripts/try-aigw.sh platform/openwrt/build-demo-image.sh platform/openwrt/aigw/files/aigw-demo.init platform/openwrt/upgrade-test.sh platform/openwrt/upgrade-vm.sh platform/openwrt/upgrade_console.py; do case "$f" in *dm-xml|*.py) python3 -m py_compile "$f" ;; *) sh -n "$f" ;; esac; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}
@@ -209,6 +211,60 @@ jobs:
           name: qemu-console-log-${{ matrix.arch }}
           path: dist/openwrt/qemu-*.log
 
+  upgrade:
+    name: "Upgrade from ${{ matrix.from }} on OpenWRT 24.10 x86-64 in QEMU (nothing lost or reset)"
+    # an older release from GitHub, a home set up on it, this build's packages over it with opkg, a reboot
+    needs: [openwrt]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        from: [v0.29.2, v0.33.1, latest]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Packages
+        run: |
+          # GitHub's runners use Azure's Ubuntu mirror; when it can't be resolved, Ubuntu's own
+          getent hosts azure.archive.ubuntu.com >/dev/null || sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends qemu-system-x86 curl python3
+      - name: KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: aigw-openwrt-24.10-x86-64
+          path: dist/openwrt/
+      - name: "Upgrade ${{ matrix.from }} to this build: settings, policies, devices, decisions, care history, remote phone, data model"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: FROM=${{ matrix.from }} platform/openwrt/upgrade-test.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upgrade-console-log-${{ matrix.from }}
+          path: dist/openwrt/upgrade-*.log
+
+  pcap-upgrade:
+    name: PC as AP upgrade (the latest release's install.sh, then this one's)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Packages
+        run: |
+          getent hosts azure.archive.ubuntu.com >/dev/null || sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' /etc/apt/apt-mirrors.txt /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null || true
+          sudo apt-get update -qq
+          # what install.sh's unit tests (cortex) use besides what it installs itself
+          sudo apt-get install -y -qq --no-install-recommends python3 python3-numpy python3-sklearn python3-cryptography
+      - name: "Upgrade: settings, Wi-Fi settings, remote phone, devices, decisions, care history, data model; config 0600"
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sudo CI=true GH_TOKEN="$GH_TOKEN" tests/pcap-upgrade-test.sh
+
   demo-image:
     name: Demo image (OpenWRT 24.10 x86-64, AIGW OS, a simulated home and fleet), booted as docs/try-it.md says
     needs: [openwrt]
@@ -250,7 +306,7 @@ jobs:
   release:
     name: Release packages
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, openwrt, openwrt-qemu, demo-image]
+    needs: [linux, openwrt, openwrt-qemu, demo-image, upgrade, pcap-upgrade]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

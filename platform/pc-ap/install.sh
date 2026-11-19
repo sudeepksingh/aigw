@@ -59,8 +59,11 @@ ldconfig
 step "Configuring"
 mkdir -p /etc/config /etc/aigw /etc/aigw/plugins /etc/aigw/keys.d /etc/aigw/models /var/lib/aigw
 if [ ! -f /etc/config/aigw ]; then
-	install -m 0644 "$REPO/config/aigw" /etc/config/aigw
+	install -m 0600 "$REPO/config/aigw" /etc/config/aigw
 fi
+# it holds secrets (the bridge's token, the ACS and MQTT passwords): root's alone, as
+# on OpenWRT. Installs before 0.43 made it 0644. agctl reaches agd over ubus, not this file
+chmod 600 /etc/config/aigw
 if [ ! -f /etc/aigw/pc-ap.conf ]; then
 	pass=$(tr -dc 'a-km-zA-HJ-NP-Z2-9' < /dev/urandom | head -c 12)
 	tag=$(tr -dc 'A-Z0-9' < /dev/urandom | head -c 4)
@@ -73,8 +76,10 @@ if [ ! -f /etc/aigw/pc-ap.conf ]; then
 	chmod 600 /etc/aigw/pc-ap.conf
 fi
 
-# Let the user who ran the installer use agctl without sudo (read-only:
-# status, devices, DNS log, live DNS events). More users: AIGW_USERS="a b".
+# Let the user who ran the installer use agctl without sudo: status, devices,
+# DNS log, live events, and answering AIGW's proposals (approve, reject, undo,
+# ask for one); never Wi-Fi passwords, remote access, plug-ins or the data model
+# (platform/pc-ap/ubus-acl.json.in). More users: AIGW_USERS="a b".
 mkdir -p /usr/share/acl.d
 for u in ${AIGW_USERS:-${SUDO_USER:-}}; do
 	[ "$u" = root ] && continue

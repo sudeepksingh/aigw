@@ -65,6 +65,14 @@ settings() {
 	echo "lwn enable 0"
 }
 
+# connection requests (an ACS waking the gateway on cwmp.port) without a user and
+# password are taken from anyone who reaches that port: say so (docs/security.md)
+if [ -z "$(get cwmp.cr_username "")" ] || [ -z "$(get cwmp.cr_password "")" ]; then
+	echo "aigw-cwmp: WARNING: connection requests are not authenticated (set aigw.cwmp.cr_username and" \
+	     "cr_password; the ACS learns them from Device.ManagementServer.ConnectionRequestUsername/Password)" >&2
+fi
+case $URL in http://*) echo "aigw-cwmp: WARNING: the ACS is reached over plain HTTP ($URL): use https://" >&2 ;; esac
+
 if [ "${1:-}" = --print ]; then
 	settings | sed -E 's/^(acs passwd|cpe passwd) .+/\1 ***/'
 	exit 0

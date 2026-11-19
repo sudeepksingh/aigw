@@ -1469,6 +1469,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Safe to turn on</td><td>Off by default, a dry run first; secrets only from files or the environment, never logged. The sync state on the dashboard, in the fleet report and MCP <code>isp_tickets</code>.</td></tr>
     </tbody>
   </table></div>
+
+  <h3 style="margin-top:18px">As built in v0.43: hardened before others try it</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Threat model</td><td><code>docs/security.md</code>: every way in (cortex&rsquo;s API, dashboard and MCP, USP and TR-069, remote access, LuCI&rsquo;s ACL, ubus and agctl, DNS, the shell helpers, firmware, the demo), who may use it, what protects it, what was fixed and what not, and why. <code>SECURITY.md</code>: report privately through GitHub.</td></tr>
+      <tr><td>Fixed</td><td>Wi-Fi passwords only through a write permission (<code>ag.wifi key_show</code>); agdns answers the home only (<code>aigw-nft</code> <code>dns_guard</code>); secrets root&rsquo;s alone (the PC&rsquo;s config, cortex&rsquo;s database); agd&rsquo;s hostapd socket out of <code>/tmp</code>; no passwords in firmware messages; warnings for cortex without TLS and TR-069 without credentials; the demo seeder never writes a system&rsquo;s files.</td></tr>
+      <tr><td>Upgrades</td><td>CI installs v0.29.2, v0.33.1 and the latest release on OpenWRT in QEMU, sets up a home, upgrades it to the new packages and reboots: settings, policies, devices, decisions, care history, the remote phone and the data model must all survive. The same for a PC as AP&rsquo;s <code>install.sh</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->
