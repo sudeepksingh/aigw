@@ -621,6 +621,9 @@ static void report(void)
 	/* proactive care before the call: its tickets (texts follow brief.names, no device targets) and counts */
 	if ((d = query("proactive")) && (d = field(d, "proactive")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
 		copy_attr(&r, "proactive", d);
+	/* mesh Wi-Fi: access points, extenders whose backhaul hurts more than it helps, AIGW's moves: counts only */
+	if ((d = query("mesh")) && (d = field(d, "mesh")))
+		copy_attr(&r, "mesh", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))

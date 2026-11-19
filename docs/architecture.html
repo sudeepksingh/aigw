@@ -1479,6 +1479,18 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Upgrades</td><td>CI installs v0.29.2, v0.33.1 and the latest release on OpenWRT in QEMU, sets up a home, upgrades it to the new packages and reboots: settings, policies, devices, decisions, care history, the remote phone and the data model must all survive. The same for a PC as AP&rsquo;s <code>install.sh</code>.</td></tr>
     </tbody>
   </table></div>
+
+  <h3 style="margin-top:18px">As built in v0.44: smarter mesh Wi-Fi over EasyMesh</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Over a standard controller</td><td>AIGW reads a Wi-Fi Alliance EasyMesh controller (prplMesh, the reference) through its Data Elements model (<code>Device.WiFi.DataElements.</code>) and acts through the controller&rsquo;s own requests: not another 1905.1 stack. Another vendor&rsquo;s controller plugs in with its own handler.</td></tr>
+      <tr><td>Steering</td><td>A device struggling (a weak signal, or losing traffic at a good one) moves to an access point measured to hear it clearly better, with hysteresis. Never in a call, never a protected device, never right after the controller moved it; a device whose steers don&rsquo;t land is left alone, doubling.</td></tr>
+      <tr><td>Trials</td><td>Each move is measured against just before: kept when clearly better, else moved back and avoided for a day. Advise proposes, enforce applies, as for every AIGW decision.</td></tr>
+      <tr><td>Channels and backhaul</td><td>No extender on the gateway&rsquo;s air where it is avoidable. An extender whose weak or slow backhaul slows the devices behind it &ldquo;hurts more than it helps&rdquo;: in the help-desk brief, a proactive ticket, and cortex&rsquo;s fleet dashboard.</td></tr>
+      <tr><td>Explained</td><td><code>agctl mesh</code>, the why timeline, data model 1.19 (<code>Device.X_AIGW_.Mesh.</code>, <code>MeshDecision!</code>), tested end to end against a simulated controller.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->

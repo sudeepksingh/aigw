@@ -2298,13 +2298,14 @@ static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
 		printf("\n  last      decision %llu (%s, %s, %s): %s\n", (unsigned long long)fnum(x, "decision"), fstr(x, "kind"),
 		       fstr(x, "state"), ago(fnum(x, "at"), when, sizeof(when)), fstr(x, "summary"));
 	if ((x = field(m, "counts")))
-		printf("  so far    moved %llu devices (kept %llu, moved back %llu, missed %llu); %llu channel changes "
-		       "(kept %llu, back %llu); %llu proposed; %llu moves by the devices or the controller\n",
-		       (unsigned long long)fnum(x, "steers"), (unsigned long long)fnum(x, "kept"),
+		printf("  so far    moved %llu device%s (kept %llu, moved back %llu, missed %llu); %llu channel change%s "
+		       "(kept %llu, back %llu); %llu proposed; %llu move%s by the devices or the controller\n",
+		       (unsigned long long)fnum(x, "steers"), fnum(x, "steers") == 1 ? "" : "s", (unsigned long long)fnum(x, "kept"),
 		       (unsigned long long)fnum(x, "undone"), (unsigned long long)fnum(x, "misses"),
-		       (unsigned long long)fnum(x, "channel_changes"), (unsigned long long)fnum(x, "channels_kept"),
-		       (unsigned long long)fnum(x, "channels_undone"), (unsigned long long)fnum(x, "proposed"),
-		       (unsigned long long)fnum(x, "roams"));
+		       (unsigned long long)fnum(x, "channel_changes"), fnum(x, "channel_changes") == 1 ? "" : "s",
+		       (unsigned long long)fnum(x, "channels_kept"), (unsigned long long)fnum(x, "channels_undone"),
+		       (unsigned long long)fnum(x, "proposed"), (unsigned long long)fnum(x, "roams"),
+		       fnum(x, "roams") == 1 ? "" : "s");
 }
 
 /* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */

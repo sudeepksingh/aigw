@@ -30,12 +30,14 @@ never names), for the last --days days against the days before:
                advised a technician: the proof of faster calls and fewer visits
   before call  (v0.40) proactive care before the call (proactive.py): faults the gateways
                fixed themselves or raised to the ISP first, and the calls likely avoided
+  mesh         (v0.44) mesh Wi-Fi (mesh.py): extenders, their backhaul, the homes whose extenders
+               hurt more than they help, and the devices AIGW moved to a better access point
 """
 import statistics
 import time
 from collections import Counter
 
-from . import brief, outage, proactive, rollout, tickets
+from . import brief, mesh, outage, proactive, rollout, tickets
 
 GOOD, FAIR = 95, 80
 SILENT_S = 86400
@@ -186,6 +188,7 @@ def report(store, days=7, group=None, now=None):
                      if group is None or r["group"] == group],
         "help_desk": brief.fleet(store, first * 86400, ids),
         "proactive": proactive.fleet(store, first * 86400, ids),
+        "mesh": mesh.fleet(store, first * 86400, ids),
         "attention": attention[:30],
         "per_home": sorted(homes.values(), key=lambda h: (h["score"] is None, h["score"] or 0)),
     })      # v0.42: each outage's and open proactive ticket's ISP ticket, and the sync state (tickets.py)
@@ -219,7 +222,8 @@ def text(r, now=None):
            f": {h['reporting']} of {h['total']} homes reporting" + (f", {h['silent']} silent" if h["silent"] else "")]
     if e["mean"] is None:
         out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
-        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) + tickets.fleet_lines(r))
+        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) + mesh.fleet_lines(r) +
+                         tickets.fleet_lines(r))
     change = ""
     if e["mean_before"] is not None:
         d = e["mean"] - e["mean_before"]
@@ -262,6 +266,7 @@ def text(r, now=None):
     out += _rollouts(r)
     out += brief.fleet_lines(r)
     out += proactive.fleet_lines(r)
+    out += mesh.fleet_lines(r)
     out += tickets.fleet_lines(r)
     if r["attention"]:
         out.append("  attention")

@@ -322,7 +322,8 @@ mesh "sys.exit(0 if m['counts']['channel_changes'] == 1 and m['counts']['channel
 echo "== backhaul: weak (-78 dBm, 54 Mbit/s) with the phone and laptop behind it: hurts more than it helps"
 world "w['agents'][1]['backhaul'].update(dbm=-78, kbps=54000)"
 wait_mesh 20 "m['backhaul'] and m['backhaul'][0]['kind'] == 'Weak' and m['backhaul'][0]['hurts'] in (1, True)"
-agctl mesh | grep -q "the extender 'bedroom' has a weak wireless backhaul to the gateway (-78 dBm, 54 Mbit/s, 5 GHz)" ||
+agctl mesh | tee "$T/mesh.txt"
+grep -q "the extender 'bedroom' has a weak wireless backhaul to the gateway (-78 dBm, 54 Mbit/s, 5 GHz)" "$T/mesh.txt" ||
 	fail "agctl mesh: $(agctl mesh)"
 [ "$(agctl dm get Device.X_AIGW_.Mesh.HurtingExtenders | sed 's/.*= *//')" = 1 ] ||
 	fail "HurtingExtenders: $(agctl dm get Device.X_AIGW_.Mesh.)"

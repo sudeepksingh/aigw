@@ -72,6 +72,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/brief-test.sh build
       - name: "Proactive care test (the internet down: one ticket to the ISP with a plain note; a flap not told twice; advise proposes, enforce fixes; the day's limit)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/proactive-test.sh build
+      - name: "Mesh Wi-Fi test (a simulated EasyMesh controller: a move proposed, approved and kept; one moved back; a miss; the controller's own steers left alone; a channel plan; a weak backhaul to the ISP)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/mesh-test.sh build
       - name: "Smart queueing test (real bufferbloat on a veth WAN: proposed, shaped, kept; tried and undone)"
         run: |
           (sudo modprobe sch_netem && sudo modprobe ifb) ||

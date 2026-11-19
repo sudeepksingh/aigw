@@ -211,6 +211,31 @@ function renderProactive(r) {
     ], p.open_tickets, (t) => openGateway(t.home)) : el("p", { class: "muted" }, "No open tickets."));
 }
 
+// v0.44: mesh Wi-Fi (mesh.py): the homes whose extenders hurt more than they help
+function renderMesh(r) {
+  const m = r.mesh || {};
+  if (!m.homes) {
+    $("mesh").replaceChildren(el("p", { class: "empty" },
+      "No mesh Wi-Fi reported. Gateways report it from AIGW OS 0.44 on, where an EasyMesh controller (prplMesh) runs."));
+    return;
+  }
+  const c = m.counts || {};
+  $("mesh").replaceChildren(
+    el("div", { class: "tiles" },
+      tile("Extenders hurting", n(m.homes_hurting), `homes, of ${plural(m.homes_with_extenders, "home")} with extenders`),
+      tile("Extenders", n(m.extenders), `${m.wireless_backhauls || 0} on a wireless backhaul, ${m.weak_backhauls || 0} weak`),
+      tile("Devices moved", n(c.steers || 0),
+        `${c.kept || 0} kept, ${c.undone || 0} moved back` + (m.kept_pct !== null && m.kept_pct !== undefined ? ` (${m.kept_pct}% kept)` : "")),
+      tile("Channel changes", n(c.channel_changes || 0), `${c.channels_kept || 0} kept, ${c.channels_undone || 0} switched back`)),
+    (m.hurting || []).length ? table([
+      { title: "Home", cell: (h) => h.home },
+      { title: "Backhaul", cell: (h) => el("span", { class: "badge bad" }, h.kind || "Weak") },
+      { title: "Signal", cell: (h) => (h.signal !== null && h.signal !== undefined ? `${h.signal} dBm` : "–") },
+      { title: "Rate", cell: (h) => (h.rate_mbps !== null && h.rate_mbps !== undefined ? `${h.rate_mbps} Mbit/s` : "–") },
+      { title: "Devices behind it", cell: (h) => String(h.stations) },
+    ], m.hurting, (h) => openGateway(h.home)) : el("p", { class: "muted" }, "No extender hurts more than it helps."));
+}
+
 // v0.42: the ISP's own tickets (tickets.py)
 const SYNC = { synced: "good", "dry-run": "", pending: "warn", retrying: "warn", failed: "bad", none: "" };
 
@@ -453,6 +478,7 @@ async function load() {
     renderHealth(r);
     renderAttention(r);
     renderProactive(r);
+    renderMesh(r);
     renderIspTickets(r);
     renderSignals(r);
     renderQueueing(r);

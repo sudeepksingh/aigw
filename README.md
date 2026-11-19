@@ -57,6 +57,19 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.44:** **Smarter mesh Wi-Fi over EasyMesh.** AIGW is the intelligence over
+> a standard Wi-Fi Alliance EasyMesh controller (prplMesh, the one in prplOS),
+> not another 1905.1 stack: it reads the mesh through the Data Elements model
+> (`Device.WiFi.DataElements.`) and acts through the controller. A device that
+> struggles (a weak signal, or losing traffic at a good one) moves to an access
+> point measured to hear it clearly better, never in a call and never right
+> after the controller moved it; each move is a trial, kept when the device does
+> clearly better, else moved back. A channel plan across the gateway and its
+> extenders, and the extenders whose weak backhaul hurts more than it helps: in
+> the help-desk brief, a proactive ticket and cortex's fleet dashboard.
+> `agctl mesh`, data model 1.19 (`Device.X_AIGW_.Mesh.`, `MeshDecision!`); see
+> [docs/mesh.md](docs/mesh.md), with how to pair it with prplMesh on OpenWRT.
+>
 > **v0.43:** **Hardened before others try it.** A security review of every way
 > into a gateway and into cortex, written up as a threat model
 > ([docs/security.md](docs/security.md)), with what it found fixed and tested:

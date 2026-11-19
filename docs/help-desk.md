@@ -65,7 +65,7 @@ day. So the rules are careful:
 | `LINE` | `LINE_SLOW_SPEED` | `Yes` when the nightly speed test was low on 2 nights or more; once: `IfPersists` |
 | `LINE` | `LINE_DOWN`, `NO_ROUTE` | `IfPersists`: first the customer restarts the modem and checks its cable |
 | `LINE` | `ISP_DOWN`, `ISP_LOSS`, `ISP_SLOW`, `DNS_FAILING`, `DNS_SLOW` | `No`: the home is fine up to the ISP; this is for the network team |
-| `HOME_WIFI` | `WIFI_COVERAGE`, `WIFI_CONGESTION`, `WIFI_HOPPING`, `WIFI_RADIO` | `No` |
+| `HOME_WIFI` | `WIFI_COVERAGE`, `WIFI_CONGESTION`, `WIFI_HOPPING`, `WIFI_RADIO`; v0.44 `MESH_BACKHAUL` (an extender's weak or slow backhaul with devices behind it, [mesh.md](mesh.md)) | `No` |
 | `DEVICE` | `WIFI_DEVICE`, `WIFI_DROPS`, `DEVICE_OFFLINE`, `DEVICE_BLOCKED`, `DEVICE_LIMITED` | `No` |
 | `NONE` | `OK`, `LINE_FULL` (the home used its whole line: not a fault) | `No` |
 | `OUTSIDE`, `UNKNOWN` | `OUTSIDE_SERVICE`; `GATEWAY_OFF`, `NO_DATA` | `No` |
@@ -81,7 +81,8 @@ When a fix is possible, the brief offers it. It never applies it.
 |---|---|
 | `LINE_FULL` | Smart queueing (`sqm`), if it is off and wasn't tried here already |
 | `WIFI_HOPPING` | Keep the device on 2.4 GHz for a day (`stay24`) |
-| `WIFI_CONGESTION`, `WIFI_COVERAGE` | A channel change or `stay24` that AIGW already proposed: approve it |
+| `WIFI_CONGESTION`, `WIFI_COVERAGE` | A channel change, a move to a better mesh access point (`meshsteer`) or `stay24` that AIGW already proposed: approve it |
+| `MESH_BACKHAUL` | A move off the extender that AIGW already proposed: approve it; for good, the extender closer or on a cable |
 | `DEVICE_BLOCKED`, `DEVICE_LIMITED` | Undo AIGW's decision, after checking its reason with the customer |
 
 With `--propose` (agctl) or `Propose` = `true` (the data model), a new fix

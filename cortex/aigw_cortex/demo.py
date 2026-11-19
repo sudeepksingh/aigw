@@ -127,7 +127,19 @@ def _home(i, town, now):
                                "customer_note": "Your laptop's Wi-Fi was unsteady this evening; your router "
                                                 "suggests a fix you can approve in its app."})
     names = i % 2 == 0
-    return {"proactive": pro, "status": {"version": OLDER if i % 6 == 5 else __version__, "host": "openwrt", "devices": 6 + i % 9,
+    # mesh Wi-Fi (v0.44): a third of the homes have an extender; two of them on a weak wireless backhaul
+    mesh = None
+    if i % 3 == 1:
+        weak = i in (4, 10)
+        mesh = {"agents": 2, "extenders": 1, "stations": 5 + i % 4, "wireless_backhauls": 1,
+                "weak_backhauls": 1 if weak else 0, "hurting": 1 if weak else 0,
+                "findings": [{"kind": "Weak", "stations": 3, "hurts": True, "signal": -77 - i % 3,
+                              "rate_kbps": 52000}] if weak else [],
+                "counts": {"steers": 2 + i % 3, "kept": 1 + i % 3, "undone": 1, "misses": 0, "proposed": 0,
+                           "channel_changes": 1 if i == 7 else 0, "channels_kept": 1 if i == 7 else 0,
+                           "channels_undone": 0, "roams": 9}}
+    extra = {"mesh": mesh} if mesh else {}
+    return {**extra, "proactive": pro, "status": {"version": OLDER if i % 6 == 5 else __version__, "host": "openwrt", "devices": 6 + i % 9,
                        "alerts": 1 if i == 0 else 0, "mode": "advise",
                        "waiting": sum(1 for d in decs if d["state"] == "proposed")},
             "devices": [{"hostname": "Living room TV", "mac": "02:00:00:00:00:01"}] if names else [{"id": "a1b2c3d4e5f6"}],

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.18. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.19. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-18" file="aigw-dm-1-18.xml">
+             spec="urn:aigw-os:aigw-dm-1-19" file="aigw-dm-1-19.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.18">
+  <model name="AIGW-OS:1.19">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -241,6 +241,17 @@
         <parameter name="CustomerNote"><syntax><string/></syntax></parameter>
         <parameter name="Decision"><syntax><string/></syntax></parameter>
       </event>
+      <event name="MeshDecision!">
+        <parameter name="Decision"><syntax><string/></syntax></parameter>
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="State"><syntax><string/></syntax></parameter>
+        <parameter name="Station"><syntax><string/></syntax></parameter>
+        <parameter name="From"><syntax><string/></syntax></parameter>
+        <parameter name="To"><syntax><string/></syntax></parameter>
+        <parameter name="Reason"><syntax><string/></syntax></parameter>
+        <parameter name="Before"><syntax><string/></syntax></parameter>
+        <parameter name="After"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
       <command name="NSLookupDiagnostics()" async="true">
@@ -434,6 +445,32 @@
       <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Findings" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Mesh." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="ControllerID" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="ReadTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Agents" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Extenders" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Stations" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WirelessBackhauls" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeakBackhauls" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="HurtingExtenders" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Steers" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SteersKept" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SteersUndone" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SteerMisses" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ChannelChanges" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ChannelsKept" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ChannelsUndone" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Proposed" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LastDecision" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LastKind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="LastState" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="LastTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="LastSummary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Offers." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
