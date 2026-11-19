@@ -75,6 +75,52 @@ fix (with the reason). To report a problem, see [SECURITY.md](../SECURITY.md).
   on most systems only root and the `adm`/`systemd-journal` groups read. Start it
   with `--quiet` and read `dashboard.token` instead if your logs go further.
 
+### Cortex: the ISP's ticketing (TMF621 and webhooks, v0.42)
+
+Cortex sends area outages and proactive tickets to the ISP's own system
+([isp-ticketing.md](isp-ticketing.md)); off unless `tickets.json` turns it on.
+
+- **Secrets** (the OAuth2 client secret, a bearer token, the webhook secrets,
+  the listener's token) come only from a file or an environment variable, read
+  when used; inline ones are refused. They never appear in logs, errors, the
+  outbox, `tickets config`, the dashboard or MCP (`test_tickets.py`
+  `test_secrets_never_shown`); an OAuth2 access token is kept in memory only.
+  **Fixed in 0.43**: secret files were used whatever their mode. Now one that
+  other users can read, or that its group or others can write, is refused
+  (0600, or 0640 for cortex's group), and the row stays `failed` with
+  "chmod 600 ...", never retried with the secret.
+- **Where secrets go** is the configuration's: the TMF621 URL, the OAuth2
+  token URL, the webhook URLs, the hub callback. That is the SSRF and
+  credential-leak path, so **fixed in 0.43**: a `tickets.json` that its group
+  or others can write is refused (anyone who could edit it could send the
+  bearer token or client secret to their own host). Nothing a gateway or the
+  ISP sends chooses a URL: the ISP's ticket ids go into paths URL-encoded,
+  its `href`s are kept but never fetched.
+- **TLS**: outbound calls use Python's default context (certificates and host
+  names checked; `ca_file` adds a private CA, nothing turns checking off);
+  `http://` only to this machine unless `allow_http`; no credentials in URLs;
+  **redirects are not followed**, so a token never goes to another host.
+- **Webhooks** are signed: `HMAC-SHA256(secret, "<timestamp>." + body)`, with a
+  unique delivery id in the body and a new timestamp per try. The signature does
+  not cover the `X-AIGW-Delivery` and `X-AIGW-Event` headers. **Fixed in 0.43**:
+  the documented receiver check verified the signature and the timestamp window
+  but deduplicated on the unsigned header, so a replay within 5 minutes with a
+  new `X-AIGW-Delivery` would pass. `tickets.verify_delivery` and the example in
+  isp-ticketing.md now take the id and the event from the signed body, refuse
+  headers that differ, and refuse an id already seen (constant-time compare).
+- **The hub's callback** (`POST /tmf621/listener`, on the fleet API's port)
+  needs its own bearer token (`tmf621.listener`), compared in constant time;
+  gateways' tokens don't work there, and without a configured token the path
+  doesn't exist (404). A token file readable by others refuses every call (401;
+  0.43). It changes only a ticket's ISP status, and may end a *declared* outage
+  the ISP resolved. Put it behind HTTPS (cortex warns without TLS, 0.43).
+- **The outbox** is rows in `cortex.db` (bodies, never secrets), so it is
+  0600 in a 0700 directory since 0.43 (`test_tickets.py` class `Security`
+  checks the file's bytes for every secret and access token).
+- What leaves: incident and ticket documents as cortex's own API shows them,
+  which name the affected homes (gateway names) for the ISP's own system;
+  device kinds, not names, for proactive tickets.
+
 ### MCP
 
 - **Cortex's MCP server** (`python3 -m aigw_cortex mcp`) speaks over stdio to
@@ -254,6 +300,8 @@ fix (with the reason). To report a problem, see [SECURITY.md](../SECURITY.md).
 | the bridge's token for curl | the plug-in's state directory | umask 077 |
 | cortex: token hashes, homes' data | `cortex.db` | 0600 (since 0.43) |
 | cortex's signing key, dashboard token | `keys/cortex.key`, `dashboard.token` | 0600 |
+| ticketing secrets (OAuth2, bearer, webhooks, listener) | files you name in `tickets.json`, or the environment | refused unless 0600/0640 (since 0.43) |
+| ticketing configuration (where secrets go) | `tickets.json` | refused if group or others can write it (since 0.43) |
 | firmware source URL | `/etc/aigw/firmware/source.url` | 0600 (since 0.43) |
 
 Logs: agd logs names of keys and peers, never passphrases or private keys;
@@ -281,6 +329,11 @@ reaches cortex, so it never names a home's domains.
   agd's hostapd socket (0600, not in `/tmp`).
 - `tests/test_cortex.py` (class `Security`): cortex's file modes, the
   exposure warning, malformed requests, the dashboard's token for changes.
+- `tests/test_tickets.py` (class `Security`): secret files and the
+  configuration refused when others can read or change them (and the secret
+  never sent), the listener with a token file others can read, a receiver's
+  check of replays and unsigned headers, no secret or access token in
+  `cortex.db`.
 - `tests/demo-test.sh`: `--test` never writes a system's files.
 - The upgrade tests (below) check that `/etc/config/aigw` is 0600 after a PC
   as AP upgrade.
