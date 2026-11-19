@@ -336,8 +336,26 @@ int main(void)
 		m[i].top[0].kbps = 34000;
 	}
 	judge();
+	CHECK(has("LINE_FULL") < 0, "near the most seen, the internet as fast as ever: not full, the line may be faster (%s)",
+	      r.f[0].code);
+	for (i = 10; i < 20; i++)
+		m[i].in_ms = 140;               /* a full line's queue */
+	judge();
 	CHECK(!strcmp(r.f[0].code, "LINE_FULL") && strstr(r.f[0].text, "the most this gateway has seen") &&
-	      strstr(r.f[0].text, "Laptop"), "full by the most seen: LINE_FULL, the laptop (%s)", r.f[0].code);
+	      strstr(r.f[0].text, "Laptop"), "... and the internet slowed meanwhile: LINE_FULL, the laptop (%s)", r.f[0].code);
+	/* the PC AP, 2026-11-18 21:56: a quiet home, a phone sending at the most seen (2 Mbit/s), nothing slower */
+	evening();
+	in.down_mbps = 0;
+	in.peak_down_mbps = 2.2f, in.peak_up_mbps = 2.5f;
+	for (i = 0; i < N; i++)
+		m[i].down_kbps = 300, m[i].up_kbps = 100, m[i].top[0].kbps = 200;
+	for (i = 26; i < 28; i++) {
+		m[i].down_kbps = 2000, m[i].up_kbps = 2400;
+		memcpy(m[i].top[0].mac, PHONE, 6);
+		m[i].top[0].kbps = 1000;
+	}
+	judge();
+	CHECK(has("LINE_FULL") < 0, "a quiet home's 2 Mbit/s, nothing slower: not \"used to its limit\" (%s)", r.f[0].code);
 
 	/* 17. nothing recorded; before the timeline starts */
 	evening();

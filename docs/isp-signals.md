@@ -40,7 +40,9 @@ Signals for the ISP, from the last 7 days (7 watched): 2 found
 - `PLAN_UPGRADE`:
   - **high** with the line's sold speed known (`care.speed_mbps`) and 4 days or more;
   - **medium** with only a tested speed;
-  - **low** with neither, when "full" is the most the timeline has seen.
+  - **low** with neither, when "full" is the most the timeline has seen. Without a speed, a moment near the most seen
+    counts as full only when the internet also slowed, as a full line's queue makes it: a quiet home's most seen may be
+    far below its line, and a line that isn't full needs no bigger plan.
 - `MESH_WIFI`: **high** with 5 days or more and 2 devices or more.
 - `SMART_QUEUE`: **high** with 5 days or more.
 - `RETENTION_RISK`: **high** when two of its reasons hold.

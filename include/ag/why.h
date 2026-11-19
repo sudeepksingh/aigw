@@ -110,7 +110,8 @@ struct why_in {
 	float norm[WN_N];               /* ms, ms, %, ms */
 	int have_norm[WN_N];
 	float down_mbps;                /* the line's download speed (sold, else tested); 0 not known */
-	float peak_down_mbps, peak_up_mbps;     /* the most the timeline has seen (when the speed isn't known) */
+	float peak_down_mbps, peak_up_mbps;     /* the most the timeline has seen (when the speed isn't known; then a
+						   moment near it is full only when the internet slowed too) */
 	const char *radio[WHY_RADIOS];  /* the access points' names ("5 GHz (wlan1)"); NULL unused */
 	const uint8_t *host;            /* the device asked about (MAC); NULL: the whole home */
 	const char *host_name;

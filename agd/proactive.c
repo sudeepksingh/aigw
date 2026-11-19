@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 #include <libubox/blobmsg.h>
@@ -209,6 +210,39 @@ static const char *heal_code(int cause)
 	return "WIFI_PROBLEM";
 }
 
+/* how badly: the worst loss among the affected devices (the radio's own figure is over all it measured, so one
+   phone losing 38% beside three fine ones reads 10%), and the worst affected device's delay */
+static void signal_measure(const char *key, const struct heal_radio *h, const char *only)
+{
+	const char *p;
+	int i, worst = h->loss_pct > 0 ? h->loss_pct : 0;
+
+	for (p = h->affected; *p; ) {
+		size_t l = strcspn(p, ",");
+		char mac[18];
+		const struct device *d;
+		int loss = -1, rtt = -1, n = 0;
+
+		snprintf(mac, sizeof(mac), "%.*s", (int)(l < 17 ? l : 17), p);
+		p += l + (p[l] == ',');
+		if (only && strcasecmp(mac, only))
+			continue;
+		if ((d = dev_find_mac(mac, 0))) {
+			heal_device(d, &loss, &rtt, &n);
+			if (n > 0 && loss > worst)
+				worst = loss;
+		}
+	}
+	for (i = 0; i < nsig; i++)
+		if (!strcmp(sig[i].key, key)) {
+			if (worst > sig[i].loss_pct)
+				sig[i].loss_pct = worst;
+			if (h->rtt_ms > sig[i].delay_ms)
+				sig[i].delay_ms = h->rtt_ms;
+			return;
+		}
+}
+
 static void gather(long now)
 {
 	const struct care_state *cs;
@@ -259,9 +293,14 @@ static void gather(long now)
 				size_t l = strcspn(p, ",");
 
 				snprintf(mac, sizeof(mac), "%.*s", (int)(l < 17 ? l : 17), p);
-				if (mac[0] && !(h->cause == HC_HOPPING && act_active("stay24", mac)))
+				if (mac[0] && !(h->cause == HC_HOPPING && act_active("stay24", mac))) {
+					char key[PRO_KEY];
+
 					signal_add(code, h->status == HEAL_POOR ? DS_PROBLEM : DS_WARN, (long)h->problem_since, 1, 0,
 						   mac, "wifi");
+					snprintf(key, sizeof(key), "%s:%s", code, mac);
+					signal_measure(key, h, mac);
+				}
 				p += l + (p[l] == ',');
 			}
 			continue;
@@ -272,6 +311,7 @@ static void gather(long now)
 		if (h->cause == HC_RADIO || !n)
 			n = wifi_aps[i].stations;
 		signal_add(code, h->status == HEAL_POOR ? DS_PROBLEM : DS_WARN, (long)h->problem_since, n, 0, NULL, "wifi");
+		signal_measure(code, h, NULL);
 	}
 	/* devices that keep dropping off Wi-Fi, or keep changing band */
 	for (i = 0; i < PDEV_MAX; i++) {

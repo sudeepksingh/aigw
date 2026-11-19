@@ -100,6 +100,29 @@ static void points(void)
 	P.threshold = 4;
 	CHECK(!pro_worth(&s, p, NOW, &P), "... not at a threshold of 4");
 	P.threshold = 3;
+
+	/* how badly (the PC AP, 2026-11-18 21:56): one phone on a crowded 2.4 GHz losing 38%, replies 2 s */
+	s = sig("WIFI_CONGESTION", DS_PROBLEM, NOW - 200, 1, NULL);
+	p = pro_points(&s, NOW, 1, -1, &P, why, sizeof(why));
+	CHECK(p == 2 && !pro_worth(&s, p, NOW, &P), "a crowded channel, 1 device, 3 min, how badly not known: %d (%s)", p, why);
+	s.loss_pct = 38, s.delay_ms = 2088;
+	p = pro_points(&s, NOW, 1, -1, &P, why, sizeof(why));
+	CHECK(p == 3 && pro_worth(&s, p, NOW, &P) && strstr(why, "38% lost"),
+	      "... the phone losing 38%%, replies 2 s: %d (%s), worth acting on", p, why);
+	s.loss_pct = 4, s.delay_ms = 1500;
+	p = pro_points(&s, NOW, 1, -1, &P, why, sizeof(why));
+	CHECK(p == 3 && strstr(why, "1500 ms replies"), "... 4%% lost but replies 1.5 s: %d (%s)", p, why);
+	s.loss_pct = 13, s.delay_ms = 255;
+	p = pro_points(&s, NOW, 1, -1, &P, why, sizeof(why));
+	CHECK(p == 2 && !pro_worth(&s, p, NOW, &P), "... 13%% lost, 255 ms: not badly, not yet (%d)", p);
+	s.loss_pct = 38, s.since = NOW - 60;
+	p = pro_points(&s, NOW, 1, -1, &P, why, sizeof(why));
+	CHECK(!pro_worth(&s, p, NOW, &P), "... badly for a minute is still a blip");
+	s.since = NOW - 200;
+	P.bad_loss_pct = 0, P.bad_ms = 0;
+	p = pro_points(&s, NOW, 1, -1, &P, why, sizeof(why));
+	CHECK(p == 2, "... with how-badly off (0): %d", p);
+	pro_params_default(&P);
 }
 
 static void tickets(void)

@@ -88,7 +88,7 @@ void offers_on_sample(const struct why_min *m, long secs, float peak_down, float
 	time_t t = (time_t)m->t;
 	struct tm tm;
 	float n = 0;
-	int sold, have, hour;
+	int sold, have, hour, slow;
 	float speed = line_mbps(&sold);
 
 	if (!cfg.offers || secs <= 0)
@@ -103,11 +103,16 @@ void offers_on_sample(const struct why_min *m, long secs, float peak_down, float
 		d->peak_kbps = m->down_kbps;
 	if (!m->route || !why_full(m, speed, peak_down, peak_up))
 		return;
+	have = care_normal_hour(CM_INET_MS, hour, &n) == 0;
+	slow = m->in_ms != WHY_NONE && m->in_sent && m->in_lost < m->in_sent && m->in_ms >= why_slow_ms(n, have);
+	/* the speed not known: the most seen is only a guess at the line's limit (a quiet home's is far below it); full
+	   only when the internet slowed too, as on the timeline (ag/why.h) - no bigger plan for a line that isn't full */
+	if (speed <= 0 && !slow)
+		return;
 	d->full_s += (uint32_t)secs;
 	if (hour >= 18)
 		d->full_evening_s += (uint32_t)secs;
-	have = care_normal_hour(CM_INET_MS, hour, &n) == 0;
-	if (m->in_ms != WHY_NONE && m->in_sent && m->in_lost < m->in_sent && m->in_ms >= why_slow_ms(n, have))
+	if (slow)
 		d->full_slow_s += (uint32_t)secs;
 }
 
