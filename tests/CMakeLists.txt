@@ -55,6 +55,10 @@ add_executable(test_proactive test_proactive.c)
 target_link_libraries(test_proactive ag)
 add_test(NAME proactive_before_the_call COMMAND test_proactive)
 
+add_executable(test_mesh test_mesh.c)
+target_link_libraries(test_mesh ag)
+add_test(NAME mesh_wifi COMMAND test_mesh)
+
 add_executable(test_tr143 test_tr143.c)
 target_link_libraries(test_tr143 ag)
 add_test(NAME tr143_diagnostics COMMAND test_tr143)

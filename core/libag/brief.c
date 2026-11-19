@@ -50,7 +50,7 @@ int brief_fault_of(const char *code)
 		{ "ISP_LOSS", BF_LINE }, { "LINE_SLOW", BF_LINE }, { "ISP_SLOW", BF_LINE }, { "DNS_FAILING", BF_LINE },
 		{ "DNS_SLOW", BF_LINE }, { "LINE_SLOW_SPEED", BF_LINE },
 		{ "WIFI_COVERAGE", BF_HOME_WIFI }, { "WIFI_CONGESTION", BF_HOME_WIFI }, { "WIFI_HOPPING", BF_HOME_WIFI },
-		{ "WIFI_RADIO", BF_HOME_WIFI }, { "WIFI_PROBLEM", BF_HOME_WIFI },
+		{ "WIFI_RADIO", BF_HOME_WIFI }, { "WIFI_PROBLEM", BF_HOME_WIFI }, { "MESH_BACKHAUL", BF_HOME_WIFI },
 		{ "WIFI_DEVICE", BF_DEVICE }, { "WIFI_DROPS", BF_DEVICE }, { "DEVICE_OFFLINE", BF_DEVICE },
 		{ "DEVICE_BLOCKED", BF_DEVICE }, { "DEVICE_LIMITED", BF_DEVICE },
 		{ "OUTSIDE_SERVICE", BF_OUTSIDE }, { "AREA_OUTAGE", BF_LINE },
@@ -152,6 +152,8 @@ static const char *tell_of(const char *code, int fault)
 		{ "WIFI_HOPPING", "The device is at the edge of the fast Wi-Fi band; the gateway can keep it on the "
 				  "steadier band." },
 		{ "WIFI_RADIO", "Please restart the gateway; if Wi-Fi stays down, it may need replacing." },
+		{ "MESH_BACKHAUL", "The Wi-Fi extender is too far from the gateway, so its own link is weak and slows the "
+				   "devices behind it: move it a room closer, or connect it with a cable." },
 		{ "WIFI_PROBLEM", "There is a Wi-Fi problem in the home; the gateway is working on it." },
 		{ "WIFI_DEVICE", "Please restart Wi-Fi on that device, or the device itself; an update may help." },
 		{ "WIFI_DROPS", "That device keeps dropping off Wi-Fi: restart its Wi-Fi, turn off its power saving, or "
@@ -237,6 +239,10 @@ static void evidence(const struct brief_in *in, struct brief *o)
 			 heal_status_name((enum heal_status)r->status), heal_cause_name((enum heal_cause)r->cause),
 			 r->text ? r->text : "");
 	}
+	for (i = 0; i < in->nmesh; i++)
+		if (in->mesh[i].code && in->mesh[i].since < in->to)
+			line_add(o->ev, &o->nev, in->mesh[i].since, "mesh", "Mesh Wi-Fi now: %s (%s)",
+				 in->mesh[i].text ? in->mesh[i].text : "", in->mesh[i].code);
 	if (in->speed_at && in->speed_mbps > 0) {
 		char when[16], line[48] = "";
 
@@ -278,7 +284,9 @@ static void done(const struct brief_in *in, struct brief *o)
 		why_clock(d->t, in->now, when, sizeof(when));
 		line_add(o->done, &o->ndone, d->t, "decision", "%s %s %s (decision %u, %s)%s%s", when,
 			 !strcmp(d->action, "channel") ? "moved Wi-Fi:" : !strcmp(d->action, "stay24") ? "kept on 2.4 GHz:" :
-			 !strcmp(d->action, "sqm") ? "turned on smart queueing:" : d->action,
+			 !strcmp(d->action, "sqm") ? "turned on smart queueing:" :
+			 !strcmp(d->action, "meshsteer") ? "moved a device to a better access point:" :
+			 !strcmp(d->action, "meshchan") ? "moved an extender's channel:" : d->action,
 			 d->words ? d->words : "", d->id, d->state == BD_ACTIVE ? "in effect" : d->state == BD_KEPT ? "kept" :
 			 "ended", d->reason && *d->reason ? ": " : "", d->reason ? d->reason : "");
 	}
@@ -337,7 +345,7 @@ static void fix(const struct brief_in *in, struct brief *o)
 	} else if (!strcmp(c, "WIFI_HOPPING") || !strcmp(c, "WIFI_COVERAGE")) {
 		static const char *const st[] = { "stay24", NULL };
 
-		if ((d = waiting(in, "stay24")) || (d = waiting(in, "channel"))) {
+		if ((d = waiting(in, "meshsteer")) || (d = waiting(in, "stay24")) || (d = waiting(in, "channel"))) {
 			x->action = "approve";
 			x->decision = d->id;
 			snprintf(x->text, sizeof(x->text), "A fix waits for a yes (decision %u, %s %s): approve it.", d->id,
@@ -349,8 +357,17 @@ static void fix(const struct brief_in *in, struct brief *o)
 				 "Needs the customer's yes.", in->host ? in->host : "the device");
 		} else
 			snprintf(x->text, sizeof(x->text), "No remote fix: a mesh node or extender, or the device closer.");
+	} else if (!strcmp(c, "MESH_BACKHAUL")) {
+		if ((d = waiting(in, "meshsteer"))) {
+			x->action = "approve";
+			x->decision = d->id;
+			snprintf(x->text, sizeof(x->text), "A device waits to move off the extender (decision %u, %s): approve "
+				 "it; for good, the extender closer to the gateway or on a cable.", d->id, d->words ? d->words : "");
+		} else
+			snprintf(x->text, sizeof(x->text), "No remote fix: the extender a room closer to the gateway, or on a "
+				 "cable (Ethernet, powerline or MoCA).");
 	} else if (!strcmp(c, "WIFI_CONGESTION")) {
-		if ((d = waiting(in, "channel"))) {
+		if ((d = waiting(in, "channel")) || (d = waiting(in, "meshchan"))) {
 			x->action = "approve";
 			x->decision = d->id;
 			snprintf(x->text, sizeof(x->text), "A quieter channel waits for a yes (decision %u, %s): approve it.", d->id,
@@ -456,6 +473,12 @@ void brief_judge(const struct brief_in *in, struct brief *o)
 		main = &in->why;
 	else if (!ends_now && in->care_open && bad(&in->care) && in->care.since < in->to)
 		main = &in->care;
+	/* nothing else: an extender whose backhaul slows the devices behind it (mesh Wi-Fi, now) */
+	for (f = 0; !main && f < in->nmesh; f++)
+		if (bad(&in->mesh[f]) && in->mesh[f].since < in->to) {
+			main = &in->mesh[f];
+			o->current = ends_now;
+		}
 	if (main) {
 		o->code = main->code;
 		f = brief_fault_of(main->code);
@@ -466,6 +489,15 @@ void brief_judge(const struct brief_in *in, struct brief *o)
 			brief_fault_of(in->why.code) == f ? agree++ : conflict++;
 		if (in->care_open && bad(&in->care) && &in->care != main)
 			brief_fault_of(in->care.code) == f ? agree++ : conflict++;
+		if (f == BF_HOME_WIFI) {        /* a weak extender backhaul backs a Wi-Fi verdict (not counted against others) */
+			int k;
+
+			for (k = 0; k < in->nmesh; k++)
+				if (bad(&in->mesh[k]) && &in->mesh[k] != main) {
+					agree++;
+					break;
+				}
+		}
 		if (in->have_check && !bad(&in->check) && main != &in->check && ends_now && f == BF_LINE)
 			conflict++;     /* the line is fine now: it was, not is */
 		if (!strcmp(main->code, "LINE_SLOW_SPEED") && in->speed_low_nights >= 2)

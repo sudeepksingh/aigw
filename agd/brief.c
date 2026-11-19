@@ -273,6 +273,24 @@ static void gather(struct brief_in *in, const struct brief_ask *a, long now)
 	}
 	in->radio = radios;
 	in->nradio = k;
+	/* mesh Wi-Fi now: an extender's backhaul (a warning when it slows the devices behind it) */
+	{
+		static struct mesh_issue mi[4];
+		static struct brief_finding mf[4];
+		int m = mesh_issues(mi, 4);
+
+		for (i = 0; i < m; i++) {
+			if (!a->names)
+				brief_scrub_isp(mi[i].text, sizeof(mi[i].text));
+			mf[i].code = mi[i].code;
+			mf[i].area = "WiFi";
+			mf[i].sev = mi[i].hurts ? DS_WARN : DS_INFO;
+			mf[i].since = mi[i].since;
+			mf[i].text = mi[i].text;
+		}
+		in->mesh = mf;
+		in->nmesh = m;
+	}
 	/* smart queueing, the last upgrade */
 	if (cfg.sqm && sqm_field("Status", sqm_state, sizeof(sqm_state)) == 0) {
 		uint32_t id;
@@ -319,7 +337,7 @@ static void gather(struct brief_in *in, const struct brief_ask *a, long now)
 		d->words = dec_words[k];
 		d->reason = dec_reason[k];
 		d->t = created;
-		d->by_aigw = atoi(aut) || !strncmp(origin, "policy ", 7);
+		d->by_aigw = atoi(aut) || !strncmp(origin, "policy ", 7) || !strncmp(origin, "mesh", 4);
 		k++;
 	}
 	in->dec = decs;

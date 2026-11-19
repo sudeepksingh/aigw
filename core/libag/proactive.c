@@ -445,6 +445,11 @@ void pro_note(const char *code, int fixed, int hour, char *buf, size_t n)
 			 "nothing you need to do." :
 			 "We noticed the Wi-Fi is weak in part of your home %s. Moving the device a little closer to the "
 			 "gateway helps; we will be in touch about ways to improve it.", w);
+	else if (!strcmp(c, "MESH_BACKHAUL"))
+		snprintf(buf, n, fixed ? "We noticed your Wi-Fi extender had a weak link to your gateway %s, which slowed the "
+			 "devices near it. It is better now; there is nothing you need to do." :
+			 "We noticed your Wi-Fi extender has a weak link to your gateway %s, which slows the devices near it. "
+			 "Moving it a little closer to the gateway usually helps; we will be in touch about ways to improve it.", w);
 	else if (!strcmp(c, "WIFI_RADIO"))
 		snprintf(buf, n, fixed ? "We noticed your Wi-Fi stopped working %s. It is working again now; there is nothing "
 			 "you need to do." :

@@ -1208,8 +1208,32 @@ static int m_proactive(struct ubus_context *ctx, struct ubus_object *obj, struct
 	return 0;
 }
 
+/* ag mesh {run}: mesh Wi-Fi over the EasyMesh controller: the topology, each device's access point and link, the
+   backhaul, the channel plan, the trial, the counts; run: read the controller now. At home: devices by name */
+enum { MS_RUN, __MS_MAX };
+static const struct blobmsg_policy mesh_policy[__MS_MAX] = {
+	[MS_RUN] = { "run", BLOBMSG_TYPE_BOOL },
+};
+
+static int m_mesh(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		  const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__MS_MAX];
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(mesh_policy, __MS_MAX, tb, blob_data(msg), blob_len(msg));
+	if (tb[MS_RUN] && blobmsg_get_bool(tb[MS_RUN]))
+		mesh_run();
+	blob_buf_init(&b, 0);
+	mesh_blob(&b, 1);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
+	UBUS_METHOD("mesh", m_mesh, mesh_policy),
 	UBUS_METHOD("proactive", m_proactive, proactive_policy),
 	UBUS_METHOD("brief", m_brief, brief_policy),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
@@ -1330,6 +1354,7 @@ int main(int argc, char **argv)
 	sqm_init();                     /* smart queueing on bufferbloat, judged on the timeline */
 	calls_init();                   /* calls and games first, inside it */
 	proactive_init();               /* before the call: after care, the timeline, SQM and calls */
+	mesh_init();                    /* mesh Wi-Fi over the EasyMesh controller: after the state and act */
 	keys_init();
 	plugin_init();
 

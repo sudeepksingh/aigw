@@ -117,6 +117,10 @@ struct brief_in {
 	long area_since;
 	int area_homes, area_of;        /* homes hit, of the uplink's */
 	const char *area_held;          /* what AIGW held meanwhile, in words; NULL or "" nothing yet */
+	/* mesh Wi-Fi (ag/mesh.h): what is wrong in it now, e.g. an extender's weak backhaul (MESH_BACKHAUL;
+	   a warning when devices are behind it) */
+	const struct brief_finding *mesh;
+	int nmesh;
 };
 
 struct brief_line {

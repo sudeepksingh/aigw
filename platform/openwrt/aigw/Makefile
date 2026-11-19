@@ -183,6 +183,8 @@ define Package/aigw/install
 	# platform handlers: Wi-Fi settings and firmware, as a management system changes them
 	$(INSTALL_BIN) ./files/wifi-config $(1)/usr/libexec/aigw/wifi-config
 	$(INSTALL_BIN) ./files/firmware $(1)/usr/libexec/aigw/firmware
+	# the mesh handler: prplMesh's EasyMesh controller (Data Elements), when it runs here
+	$(INSTALL_BIN) ./files/mesh-prplmesh $(1)/usr/libexec/aigw/mesh-prplmesh
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
 		$(1)/usr/share/aigw/plugins/iot-guard/
 	# per-device Wi-Fi keys, your plug-ins, trusted keys, model updates and

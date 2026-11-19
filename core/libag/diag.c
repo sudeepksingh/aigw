@@ -265,6 +265,8 @@ const char *diag_advice(const char *code)
 		{ "WIFI_HOPPING", "AIGW keeps the device on 2.4 GHz for a day; moving the access point closer helps for good." },
 		{ "WIFI_DEVICE", "Restart the device's Wi-Fi; turn off its power saving; update it." },
 		{ "WIFI_RADIO", "Restart the access point; if no device can use it afterwards, the radio may be faulty." },
+		{ "MESH_BACKHAUL", "Move the extender a room closer to the gateway, or connect it with a cable (Ethernet, "
+				   "powerline or MoCA); AIGW moves devices that hear the gateway well enough off it meanwhile." },
 		{ "DNS_SLOW", "Check the DNS servers the gateway uses (a closer or faster one)." },
 		/* proactive care's nightly speed test (a TR-143 download from the ISP's own server) */
 		{ "LINE_SLOW_SPEED", "The line delivers far less than its speed: check its sync rate and the access network." },

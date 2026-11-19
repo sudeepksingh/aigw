@@ -80,6 +80,7 @@ enum why_kind {
 	WE_SPEED,                       /* the nightly speed test */
 	WE_UPGRADE,                     /* a firmware upgrade */
 	WE_CALL,                        /* a call or game ended, and how it went; flag: enum call_verdict (ag/calls.h) */
+	WE_MESH,                        /* mesh Wi-Fi: a device moved between access points, a backhaul, a trial's verdict */
 	WE_N
 };
 
