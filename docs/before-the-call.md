@@ -59,7 +59,7 @@ customer pick up the phone:
 
 | | |
 |---|---|
-| **How bad** | a warning 1, a problem 2 (below a warning: never) |
+| **How bad** | a warning 1, a problem 2 (below a warning: never); +1 when it hits badly: a quarter or more of the traffic lost (the worst affected device), or replies taking a second or more. Calls break up and pages stall, so the customer notices at once, however short it is and however few devices it hits |
 | **How long** | 10 minutes or more +1, 30 minutes or more +2 |
 | **How many devices** | 2 or more +1, 4 or more +2 (the whole home: those online) |
 | **Whether it repeats** | its 2nd episode in a day +1, its 4th +2 (an episode ends after `proactive.clear` seconds away) |

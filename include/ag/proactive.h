@@ -18,8 +18,11 @@
  * "Worth acting on" is a points rule (pro_points), all four things that make
  * a customer pick up the phone:
  *
- *   how bad       a warning 1, a problem 2 (below a warning: never)
- *   how long      10 minutes or more +1, 30 minutes or more +2
+ *   how bad       a warning 1, a problem 2 (below a warning: never); and +1
+ *                 when it hits badly: a quarter or more of the traffic lost,
+ *                 or replies taking a second or more (calls break up, pages
+ *                 stall: noticed at once, however short or few)
+ *   how long     10 minutes or more +1, 30 minutes or more +2
  *   how many      2 devices or more +1, 4 or more +2
  *   repeats       its 2nd episode in a day +1, its 4th +2
  *   (and a home whose experience score this week is under 90%: +1)
@@ -75,6 +78,8 @@ struct pro_params {
 	int max_per_day;        /* new tickets to the ISP in 24 hours (3) */
 	long wifi_grace;        /* Self-Healing Wi-Fi's time before a Wi-Fi ticket (1800) */
 	int score_poor;         /* a week's score under this: +1 (90) */
+	int bad_loss_pct;       /* this much lost hits badly: +1 (25) */
+	int bad_ms;             /* replies this slow hit badly: +1 (1000) */
 };
 
 /* one fault seen now */
@@ -86,7 +91,9 @@ struct pro_signal {
 	long since;             /* first seen (wall s) */
 	int devices;            /* devices it touches (the whole home: those online) */
 	int rough_calls;        /* calls or games that were rough on it (a full line) */
-	const char *target;     /* a device's MAC, a radio; NULL the home */
+	int loss_pct;           /* traffic lost where it is measured (Wi-Fi: the affected devices); 0 not known */
+	int delay_ms;           /* replies' delay where it is measured; 0 not known */
+	const char *target;    /* a device's MAC, a radio; NULL the home */
 	const char *source;     /* care, timeline, wifi, device, calls */
 };
 

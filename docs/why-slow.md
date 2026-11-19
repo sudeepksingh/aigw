@@ -73,7 +73,7 @@ finding.
 | `NO_ROUTE` | Internet | no default route |
 | `LINE_DOWN` | Internet | the internet didn't answer, nor did the next router (when it answers at other times) |
 | `ISP_DOWN` | Internet | the internet didn't answer while the next router did: beyond the home |
-| `LINE_FULL` | Internet | the line was used to its speed (80% of `care.speed_mbps`, else of the last speed test, else of the most this timeline has seen on it), and by whom. The delays meanwhile are the full line's, not the ISP's fault |
+| `LINE_FULL` | Internet | the line was used to its speed (80% of `care.speed_mbps`, else of the last speed test, else of the most this timeline has seen on it), and by whom. With no speed known, the most seen is only a guess at the line's limit (a quiet home's may be far below it), so a moment near it counts as full only when the internet also slowed, as a full line's queue makes it. The delays meanwhile are the full line's, not the ISP's fault |
 | `LINE_SLOW` | Internet | the next router answered slowly, and the home wasn't filling the line |
 | `ISP_SLOW` | Internet | the internet answered slowly while the next router was fine and the line wasn't full |
 | `LINE_LOSS`, `ISP_LOSS` | Internet | 5% or more of the echo requests lost, to the next router or only beyond it |

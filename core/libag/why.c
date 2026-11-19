@@ -1026,7 +1026,9 @@ void why_judge(const struct why_in *in, struct why_result *out)
 		}
 		slow = s->in_ms != WHY_NONE && answered(s->in_sent, s->in_lost) && s->in_ms >= slow_i;
 		gslow = gw_known && s->gw_ms != WHY_NONE && answered(s->gw_sent, s->gw_lost) && s->gw_ms >= slow_g;
-		if (busy(in, s))
+		/* the line's speed not known: the most seen on it is only a guess at its limit (a quiet home's most may
+		   be far below it), so it was full only when the internet also slowed, as a full line's queue makes it */
+		if (busy(in, s) && (in->down_mbps > 0 || slow || gslow))
 			st[S_FULL][i] = 1;              /* the home's own use: whatever else is slow follows from it */
 		else if (gslow)
 			st[S_LINE_SLOW][i] = 1;

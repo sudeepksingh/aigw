@@ -24,6 +24,8 @@ void pro_params_default(struct pro_params *p)
 	p->max_per_day = 3;
 	p->wifi_grace = 1800;
 	p->score_poor = 90;
+	p->bad_loss_pct = 25;
+	p->bad_ms = 1000;
 }
 
 const char *pro_status_name(int st)
@@ -70,7 +72,17 @@ int pro_points(const struct pro_signal *s, long now, int repeats, int score_week
 			cat(why, n, "a warning +1");
 	} else
 		return 0;               /* below a warning: never */
-	if (lasted >= p->long2 || lasted >= p->long1) {
+	if ((p->bad_loss_pct > 0 && s->loss_pct >= p->bad_loss_pct) || (p->bad_ms > 0 && s->delay_ms >= p->bad_ms)) {
+		/* noticed at once: a call breaks up, a page stalls, however short or few it is */
+		pts += 1;
+		if (s->loss_pct >= p->bad_loss_pct && p->bad_loss_pct > 0)
+			snprintf(w, sizeof(w), "%d%% lost +1", s->loss_pct);
+		else
+			snprintf(w, sizeof(w), "%d ms replies +1", s->delay_ms);
+		if (why)
+			cat(why, n, w);
+	}
+	if (lasted>= p->long2 || lasted >= p->long1) {
 		int k = lasted >= p->long2 ? 2 : 1;
 
 		pts += k;
