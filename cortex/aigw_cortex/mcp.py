@@ -83,6 +83,11 @@ TOOLS = [
          "counts, with how many calls were likely avoided. Device kinds, not names.",
          {"gateway": {"type": "string", "description": "One home (its gateway's name or id); omit for every home"},
           "open": {"type": "boolean", "description": "Only the open tickets"}}),
+    tool("isp_tickets",
+         "The ISP's own trouble tickets for area outages and proactive tickets (TMF621, or signed webhooks): "
+         "whether ticketing is on, each ticket's sync state (synced, pending, retrying, failed, dry-run), the ISP's "
+         "ticket id and status, which ones the ISP closed itself, and the last error. Read only.",
+         {"open": {"type": "boolean", "description": "Only the tickets still open"}}),
     tool("propose_action",
          "Suggest an action on a gateway. It is never applied directly: it waits on the gateway until a "
          "person approves it. Actions: quarantine, priority, deprioritize, throttle, disconnect (target: a "
@@ -127,10 +132,14 @@ class Server:
             from . import fleet
             return fleet.report(s, max(1, min(31, int(args.get("days") or 7))), args.get("group") or None)
         if name == "area_outages":
-            from . import outage
+            from . import outage, tickets
             outage.update(s)
-            return outage.incidents(s, open_only=not args.get("all"), since=int(time.time()) - 7 * 86400,
+            rows = outage.incidents(s, open_only=not args.get("all"), since=int(time.time()) - 7 * 86400,
                                     uplink=args.get("uplink") or None)
+            isp = tickets.isp_of(s)
+            for o in rows:
+                o["isp_ticket"] = isp.get(f"outage:{o['id']}")
+            return rows
         if name == "rollout_status":
             from . import rollout
             if args.get("name"):
@@ -158,8 +167,21 @@ class Server:
             return brief.answer(s, args.get("gateway"), args.get("period"), bool(args.get("propose")),
                                 who="an AI assistant")
         if name == "proactive_tickets":
-            from . import proactive
-            return proactive.summary(s, args.get("gateway") or None, bool(args.get("open")))
+            from . import proactive, tickets
+            r = proactive.summary(s, args.get("gateway") or None, bool(args.get("open")))
+            isp, ids = tickets.isp_of(s), {g["name"]: g["id"] for g in s.gateways()}
+            for t in r["tickets"]:
+                t["isp_ticket"] = isp.get(tickets.proactive_key(ids.get(t["home"], ""), t))
+            return r
+        if name == "isp_tickets":
+            from . import tickets
+            try:
+                cfg = tickets.load_config(s.dir)
+            except ValueError as e:
+                cfg = {"error": str(e)}
+            out = tickets.summary(s, cfg)
+            out["list"] = tickets.listing(s, bool(args.get("open")), 50)
+            return out
         g = self.gw(args)
         snap = s.snapshot(g["id"]) or {}
         if name == "gateway_status":

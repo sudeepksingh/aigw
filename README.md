@@ -57,6 +57,18 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.42:** **In the ISP's own ticketing.** Area outages and proactive
+> tickets become tickets in the ISP's system through the TM Forum **TMF621**
+> Trouble Ticket API (v4 or v5; OAuth2 client credentials or a bearer token):
+> created once, updated as they change, resolved when they are over, with the
+> brief, the evidence, the next step and the customer's note as notes, and the
+> gateway and its uplink as related entities. A durable outbox with retries
+> and an externalId lookup, so nothing is lost or sent twice over a restart;
+> the ISP's own resolve or close comes back through the TMF621 hub. For ISPs
+> without TMF621: signed webhooks (HMAC-SHA256). Off by default, with a dry
+> run; the sync state on the dashboard, in the fleet report and MCP
+> `isp_tickets`; see [docs/isp-ticketing.md](docs/isp-ticketing.md).
+>
 > **v0.40:** **Proactive care before the call.** AIGW finds the faults a
 > customer would notice (the internet down or slow, crowded Wi-Fi, a device
 > that keeps dropping off or hopping between bands, choppy calls on a full

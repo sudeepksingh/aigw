@@ -23,6 +23,11 @@ NAS, a cloud VM. Gateways work fully without it. With it:
   the homes to call first, staged rollouts (pause and abort), ISP signals,
   smart queueing and each gateway. `python3 -m aigw_cortex dashboard`
   ([docs/dashboard.md](../docs/dashboard.md)).
+- **The ISP's ticketing** (v0.42): area outages and proactive tickets as
+  TM Forum TMF621 trouble tickets (created, updated, resolved; the ISP's
+  resolve comes back through the hub) or signed webhooks, from a durable
+  outbox. Off by default; `tickets.json`, `python3 -m aigw_cortex tickets`
+  ([docs/isp-ticketing.md](../docs/isp-ticketing.md)).
 - **A demo** (v0.41): `python3 -m aigw_cortex demo` serves the dashboard with
   a simulated fleet of 24 homes from a temporary directory, labelled as demo
   data; the AIGW OS demo image runs the same, with its own home enrolled
@@ -141,6 +146,7 @@ key run the plug-in with its privileged capabilities, without
 | `model_status` | published models and what each gateway runs |
 | `list_proposals` | suggestions sent and how each was taken |
 | `fleet_report` | the ISP's fleet report (days, group): scores, causes, problems fixed and reported, early warnings, speeds, outages, homes needing attention |
+| `isp_tickets` | (v0.42) the ISP's own tickets for outages and proactive tickets: on or off, sync state, the ISP's id and status, errors |
 | `propose_action` | **the only write tool.** quarantine, priority, deprioritize, throttle, disconnect or block, with a reason. It travels to the gateway with the next check-in and waits there as a proposal (`agctl decisions`, then `agctl approve <id>`), even in enforce mode. The gateway's guardrails (protected devices, time limits) apply as for any request. |
 
 ## HTTP API (for bridges)
@@ -152,6 +158,7 @@ Every request carries `Authorization: Bearer <token>`.
 | `POST /v1/report` | `{status, models, alerts, decisions, devices}`; answers `{ok, labels}` |
 | `GET /v1/models` | `{models: [{name, version, file, sig, sha256, size}]}`, the newest version of each (models and the threat list) |
 | `GET /v1/models/<file>` | the `.agm` or `.list`, or its `.sig` |
+| `POST /tmf621/listener[/...]` | (v0.42) the ISP's TMF621 hub events; its own bearer token (`tmf621.listener`), not a gateway's; 404 while off |
 | `GET /v1/proposals` | suggestions waiting for this gateway (each is sent once) |
 | `POST /v1/proposals/<id>` | `{ok, decision, error}`: how the gateway took it |
 | `GET /v1/fed` | the open federated learning round: `{round, center, scale, weights, lr, epochs, clip, noise}` (`{round: 0}` with `--no-fed`) |

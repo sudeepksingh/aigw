@@ -17,6 +17,9 @@ leaves a home for it):
                  stays a person's action at the command line)
   before call    (v0.40) faults the gateways fixed themselves or raised to the ISP
                  first, the open tickets, and the calls likely avoided (proactive.py)
+  ISP tickets    (v0.42) each outage's and proactive ticket's ticket in the ISP's own
+                 system (TMF621 or webhooks, tickets.py): synced, retrying, failed;
+                 GET /api/tickets?open=1
   ISP signals    a faster plan, mesh Wi-Fi, smart queueing, homes at risk, line repairs
   queueing       smart queueing decisions across the fleet, and calls-first
                  results where a bridge reports them
@@ -50,7 +53,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlsplit
 
-from . import __version__, fleet, outage, proactive, rollout
+from . import __version__, fleet, outage, proactive, rollout, tickets
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(HERE, "static")
@@ -270,7 +273,14 @@ def gateway(store, ref, now=None):
             "waiting": sum(1 for d in decs if d.get("state") == "proposed"), "proposals": props,
             "queueing": queueing(store, {g["id"]}, {g["id"]: snap}),
             "proactive": {"counts": proactive.of(snap).get("counts") or {},
-                          "tickets": proactive.tickets(store, g["id"])[:20]}}
+                          "tickets": _with_isp(store, g["id"], proactive.tickets(store, g["id"])[:20])}}
+
+
+def _with_isp(store, gid, rows):
+    isp = tickets.isp_of(store)
+    for t in rows:
+        t["isp_ticket"] = isp.get(tickets.proactive_key(gid, t))
+    return rows
 
 
 # ---------- access ----------
@@ -388,6 +398,9 @@ def make_handler(store, token, local, log=True):
                     return self.send_json(200, outages(store, days, (qs.get("state") or ["all"])[0] == "open"))
                 if path == "/api/gateways":
                     return self.send_json(200, {"gateways": gateways(store)})
+                if path == "/api/tickets":       # v0.42: the ISP's tickets, their sync state (tickets.py)
+                    open_only = (qs.get("open") or ["0"])[0] in ("1", "true")
+                    return self.send_json(200, dict(tickets.state(store), list=tickets.listing(store, open_only)))
                 if path == "/api/proactive":
                     open_only = (qs.get("open") or ["0"])[0] in ("1", "true")
                     return self.send_json(200, proactive.summary(store, None, open_only))

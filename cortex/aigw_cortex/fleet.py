@@ -35,7 +35,7 @@ import statistics
 import time
 from collections import Counter
 
-from . import brief, outage, proactive, rollout
+from . import brief, outage, proactive, rollout, tickets
 
 GOOD, FAIR = 95, 80
 SILENT_S = 86400
@@ -154,7 +154,7 @@ def report(store, days=7, group=None, now=None):
         if g["last_seen"] and now - g["last_seen"] > SILENT_S:
             attention.append({"home": g["name"], "group": g["grp"] or "", "why": "silent", "last_seen": g["last_seen"]})
 
-    return {
+    return tickets.attach(store, {
         "period": {"days": days, "from": time.strftime("%Y-%m-%d", time.gmtime(first * 86400)),
                    "to": time.strftime("%Y-%m-%d", time.gmtime(today * 86400)), "group": group},
         "homes": {"total": len(gws), "reporting": len(scored),
@@ -188,7 +188,7 @@ def report(store, days=7, group=None, now=None):
         "proactive": proactive.fleet(store, first * 86400, ids),
         "attention": attention[:30],
         "per_home": sorted(homes.values(), key=lambda h: (h["score"] is None, h["score"] or 0)),
-    }
+    })      # v0.42: each outage's and open proactive ticket's ISP ticket, and the sync state (tickets.py)
 
 
 def _when(ts):
@@ -219,7 +219,7 @@ def text(r, now=None):
            f": {h['reporting']} of {h['total']} homes reporting" + (f", {h['silent']} silent" if h["silent"] else "")]
     if e["mean"] is None:
         out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
-        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r))
+        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) + tickets.fleet_lines(r))
     change = ""
     if e["mean_before"] is not None:
         d = e["mean"] - e["mean_before"]
@@ -262,6 +262,7 @@ def text(r, now=None):
     out += _rollouts(r)
     out += brief.fleet_lines(r)
     out += proactive.fleet_lines(r)
+    out += tickets.fleet_lines(r)
     if r["attention"]:
         out.append("  attention")
     for a in r["attention"]:

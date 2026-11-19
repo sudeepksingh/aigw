@@ -67,6 +67,8 @@ find_package(Python3 COMPONENTS Interpreter)
 if(Python3_FOUND)
   add_test(NAME cortex COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_cortex.py)
   add_test(NAME staged_rollout COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_rollout.py)
+  # v0.42: ISP ticketing against a local mock TMF621 server (tests/tmf621_mock.py, 127.0.0.1 only)
+  add_test(NAME isp_tickets COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_tickets.py)
 endif()
 
 # example model back-ends (plugins/examples/backend): one that agrees with the reference, one that doesn't
