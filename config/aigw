@@ -309,6 +309,40 @@ config proactive 'proactive'
 	option max_per_day '3'
 	option cooldown '21600'
 
+config mesh 'mesh'
+	# smarter mesh Wi-Fi (agctl mesh, Device.X_AIGW_.Mesh., docs/mesh.md): AIGW
+	# reads a standard EasyMesh controller (prplMesh) through its Data Elements
+	# model, moves struggling devices to a better access point, plans channels
+	# across the gateway and its extenders, and finds a weak backhaul. Every
+	# change goes through act.mode (enforce applies, advise proposes) and is a
+	# trial: kept when the device does clearly better, else taken back.
+	# Nothing happens where no EasyMesh controller runs.
+	option enabled '1'
+	# the controller: the handler program (default /usr/libexec/aigw/mesh-prplmesh),
+	# or a Data Elements snapshot to read instead (JSON or path=value lines)
+	# option handler '/usr/libexec/aigw/mesh-prplmesh'
+	# option source '/tmp/de.json'
+	option poll '30'
+	option steer '1'
+	option channel '1'
+	# a move is measured this long (s) before it is judged
+	option trial '120'
+	# a device at or below weak_dbm for hold s is struggling; a target must
+	# hear it hysteresis dB better (and at -68 dBm or better)
+	option weak_dbm '-75'
+	option hysteresis '8'
+	option hold '60'
+	# after AIGW moved a device: leave it cooldown s; after the controller or
+	# the device itself moved it: quiet s (AIGW never fights the controller)
+	option cooldown '900'
+	option quiet '300'
+	# also steer devices without 802.11v (the controller's blocklist drops them
+	# for a moment)
+	option legacy '0'
+	# the home's names for its extenders, by AL MAC (agctl mesh shows them):
+	# the help desk hears "the extender 'bedroom' has a weak backhaul"
+	# list name '02:11:22:33:44:55=bedroom'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

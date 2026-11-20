@@ -261,8 +261,10 @@ int area_holds_action(const char *action)
 		return 0;
 	if (!strcmp(action, "sqm"))
 		return area_hold(AH_SQM);
-	if (!strcmp(action, "channel"))
+	if (!strcmp(action, "channel") || !strcmp(action, "meshchan"))
 		return area_hold(AH_CHANNEL);
+	if (!strcmp(action, "meshsteer"))
+		return area_hold(AH_STEER);
 	if (!strcmp(action, "stay24"))
 		return area_hold(AH_STAY24);
 	return 0;               /* security and a person's own actions are never held */

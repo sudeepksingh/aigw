@@ -715,6 +715,39 @@ int sqm_auto(const char *origin, const char *reason, uint32_t *id, int *applied,
 int act_auto(const char *action, const char *what, int ttl, const char *origin, const char *reason, uint32_t *id,
 	     int *applied, char *err, size_t errlen);
 
+/* calls.c, for mesh steering: a call or game is on for this device now */
+int calls_live_on(const char *mac);
+
+/* mesh.c: smarter mesh Wi-Fi over a standard EasyMesh controller (ag/mesh.h) */
+void mesh_init(void);                   /* after the state and act */
+int mesh_run(void);                     /* read the controller now; -1 off */
+/* act.c: actions meshsteer ("<station MAC>@<target BSSID>") and meshchan ("<radio RUID>:<channel>"): a request
+   checked now (target, scope: where it is now; device: in words); 0, or -1 with err */
+int mesh_guard(const char *action, const char *what, char *target, size_t tn, char *scope, size_t sn, char *device,
+	       size_t dn, char *err, size_t en);
+int mesh_target_ok(const char *action, const char *target);    /* the target's form only */
+/* act.c: carry a decision out through the controller (undo 0), or take it back (undo 1) */
+int mesh_apply(uint32_t id, const char *action, const char *target, const char *scope, int undo, char *err, size_t en);
+void mesh_blob(struct blob_buf *b, int names);
+void mesh_report_blob(struct blob_buf *b);      /* the bridge: counts and findings, no names */
+int mesh_field(const char *f, char *buf, size_t n);    /* Device.X_AIGW_.Mesh.; -1 unknown */
+void mesh_save(struct blob_buf *b);
+void mesh_load(struct blob_attr *t);
+/* brief.c, proactive.c: what is wrong in the mesh now (an extender's weak backhaul) */
+struct mesh_issue {
+	char code[24];                  /* MESH_BACKHAUL */
+	char target[18];                /* the extender (its AL MAC) */
+	char kind[8];                   /* Weak, Slow, Busy, On24, Try6 */
+	char text[400];                 /* in words, with the advice */
+	long since;
+	int stations;                   /* devices behind it */
+	int hurts;                      /* weak or slow with devices behind it */
+};
+int mesh_issues(struct mesh_issue *out, int max);
+/* dm.c: MeshDecision! */
+void dm_on_mesh(uint32_t id, const char *kind, const char *state, const char *station, const char *from,
+		const char *to, const char *reason, const char *before, const char *after);
+
 /* act.c: the live decision of an action (state 0 proposed, 1 active, 2 kept); -1 none */
 int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,
 		    char *origin, size_t on);

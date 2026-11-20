@@ -60,6 +60,10 @@ static void usage(void)
 		"                      everything else slows (bufferbloat), and keeps it only if it helped\n"
 		"  calls               calls and games first: the ones now (first in smart queueing), how\n"
 		"                      the last one went while the line was full, the counts\n"
+		"  mesh [--run]        mesh Wi-Fi over the EasyMesh controller: access points, their backhaul,\n"
+		"                      each device's access point and link, the channel plan, AIGW's moves\n"
+		"  mesh steer <device> <BSSID> [time]   move a device to another access point of the mesh\n"
+		"  mesh channel <radio> <ch> [time]     move a mesh radio to another channel (trials both)\n"
 		"  offers              signals for the ISP from the last week: a faster plan, smart queueing,\n"
 		"                      mesh Wi-Fi, a customer at risk, a line to repair; with the evidence\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
@@ -2193,6 +2197,117 @@ static void show_calls(struct ubus_request *req, int type, struct blob_attr *msg
 	       "sees nothing (calls.share 0)");
 }
 
+/* agctl mesh: the EasyMesh network as AIGW sees it: access points and their backhaul, each device's access point
+   and link (and why AIGW left it there), the channel plan, the trial now, the counts */
+static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *m = field(msg, "mesh"), *a, *r, *s, *x;
+	size_t rem, r2, r3;
+	char when[32];
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!m)
+		return;
+	if (!fnum(m, "enabled")) {
+		printf("Mesh Wi-Fi is off (mesh.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Mesh Wi-Fi: %s\n", fstr(m, "summary"));
+	if (strcmp(fstr(m, "status"), "Ok")) {
+		printf("  status    %s%s%s\n", fstr(m, "status"), *fstr(m, "error") ? ": " : "", fstr(m, "error"));
+		if (!strcmp(fstr(m, "status"), "NoController"))
+			printf("  AIGW reads a standard EasyMesh controller (prplMesh, or another through mesh.handler);\n"
+			       "  see docs/mesh.md for pairing it with prplMesh on OpenWRT.\n");
+	}
+	if (field(m, "read"))
+		printf("  read      %s from the controller %s (%s; steering %s, channel plan %s, act.mode %s)\n",
+		       ago(fnum(m, "read"), when, sizeof(when)), fstr(m, "controller"), fstr(m, "source"),
+		       fnum(m, "steer") ? "on" : "off", fnum(m, "channel") ? "on" : "off", fstr(m, "mode"));
+	blobmsg_for_each_attr(a, field(m, "agents"), rem) {
+		struct blob_attr *bh = field(a, "backhaul");
+
+		printf("\n  %s%s%s%s%s (%s)\n", fstr(a, "words"), *fstr(a, "model") ? ", " : "", fstr(a, "model"),
+		       "", "", fstr(a, "id"));
+		if (bh) {
+			char sig[24] = "", rate[32] = "";
+
+			if (field(bh, "signal"))
+				snprintf(sig, sizeof(sig), ", %d dBm", (int)fnum(bh, "signal"));
+			if (field(bh, "rate_kbps"))
+				snprintf(rate, sizeof(rate), ", %llu Mbit/s", (unsigned long long)fnum(bh, "rate_kbps") / 1000);
+			printf("    backhaul  %s%s%s%s%s to %s\n", fstr(bh, "type"),
+			       fnum(bh, "band") ? " " : "", fnum(bh, "band") == 2 ? "2.4 GHz" : fnum(bh, "band") == 5 ? "5 GHz" :
+			       fnum(bh, "band") == 6 ? "6 GHz" : "", sig, rate, *fstr(bh, "parent") ? fstr(bh, "parent") : "?");
+		}
+		blobmsg_for_each_attr(r, field(a, "radios"), r2) {
+			int k = 0;
+
+			printf("    radio     %s %s channel %llu/%llu MHz%s", fstr(r, "id"),
+			       fnum(r, "band") == 2 ? "2.4 GHz" : fnum(r, "band") == 5 ? "5 GHz" : fnum(r, "band") == 6 ? "6 GHz" : "?",
+			       (unsigned long long)fnum(r, "channel"), (unsigned long long)fnum(r, "width"),
+			       field(r, "utilization") ? "" : "\n");
+			if (field(r, "utilization"))
+				printf(", %llu%% busy\n", (unsigned long long)fnum(r, "utilization"));
+			blobmsg_for_each_attr(x, field(r, "bss"), r3) {
+				printf("%s%s%s%s", k++ ? ", " : "              BSS ", fstr(x, "bssid"),
+				       *fstr(x, "ssid") ? " " : "", fstr(x, "ssid"));
+				if (fnum(x, "backhaul"))
+					printf(fnum(x, "fronthaul") ? " (also backhaul)" : " (backhaul)");
+			}
+			if (k)
+				printf("\n");
+		}
+	}
+	if (field(m, "stations")) {
+		printf("\n  devices\n");
+		blobmsg_for_each_attr(s, field(m, "stations"), rem) {
+			char sig[16] = "?", rate[40] = "", rt[40] = "";
+
+			if (field(s, "signal"))
+				snprintf(sig, sizeof(sig), "%d dBm", (int)fnum(s, "signal"));
+			if (field(s, "rate_kbps"))
+				snprintf(rate, sizeof(rate), ", %llu Mbit/s", (unsigned long long)fnum(s, "rate_kbps") / 1000);
+			if (field(s, "retry_pct"))
+				snprintf(rt, sizeof(rt), ", %llu%% sent again", (unsigned long long)fnum(s, "retry_pct"));
+			printf("    %-18s %s %s, %s%s%s; 11v %s, 11k %s", *fstr(s, "name") ? fstr(s, "name") : fstr(s, "mac"),
+			       fstr(s, "on"), fnum(s, "band") == 2 ? "2.4 GHz" : fnum(s, "band") == 5 ? "5 GHz" :
+			       fnum(s, "band") == 6 ? "6 GHz" : "", sig, rate, rt, fstr(s, "btm"), fstr(s, "rrm"));
+			if (fnum(s, "steers"))
+				printf("; moved %llu (kept %llu, back %llu, missed %llu)", (unsigned long long)fnum(s, "steers"),
+				       (unsigned long long)fnum(s, "kept"), (unsigned long long)fnum(s, "undone"),
+				       (unsigned long long)fnum(s, "misses"));
+			printf("\n");
+			if (*fstr(s, "now") && strcmp(fstr(s, "now"), "fine"))
+				printf("    %-18s %s\n", "", fstr(s, "now"));
+		}
+	}
+	blobmsg_for_each_attr(x, field(m, "backhaul"), rem)
+		printf("\n  backhaul  %s%s\n            %s\n", fstr(x, "words"),
+		       fnum(x, "hurts") ? " It hurts more than it helps." : "", fstr(x, "advice"));
+	blobmsg_for_each_attr(x, field(m, "plan"), rem)
+		printf("\n  channels  %s%s\n", fstr(x, "why"), fnum(x, "tried") ? " (tried in the last day: not again yet)" : "");
+	if ((x = field(m, "trial")))
+		printf("\n  trial     decision %llu: %s %s -> %s, %s; before: %s\n", (unsigned long long)fnum(x, "decision"),
+		       fstr(x, "kind"), !strcmp(fstr(x, "kind"), "steer") ? fstr(x, "from") : fstr(x, "radio"),
+		       !strcmp(fstr(x, "kind"), "steer") ? fstr(x, "to") : "new channel",
+		       fnum(x, "landed") ? "measuring" : "waiting for it to take effect", fstr(x, "before"));
+	if ((x = field(m, "last")))
+		printf("\n  last      decision %llu (%s, %s, %s): %s\n", (unsigned long long)fnum(x, "decision"), fstr(x, "kind"),
+		       fstr(x, "state"), ago(fnum(x, "at"), when, sizeof(when)), fstr(x, "summary"));
+	if ((x = field(m, "counts")))
+		printf("  so far    moved %llu device%s (kept %llu, moved back %llu, missed %llu); %llu channel change%s "
+		       "(kept %llu, back %llu); %llu proposed; %llu move%s by the devices or the controller\n",
+		       (unsigned long long)fnum(x, "steers"), fnum(x, "steers") == 1 ? "" : "s", (unsigned long long)fnum(x, "kept"),
+		       (unsigned long long)fnum(x, "undone"), (unsigned long long)fnum(x, "misses"),
+		       (unsigned long long)fnum(x, "channel_changes"), fnum(x, "channel_changes") == 1 ? "" : "s",
+		       (unsigned long long)fnum(x, "channels_kept"), (unsigned long long)fnum(x, "channels_undone"),
+		       (unsigned long long)fnum(x, "proposed"), (unsigned long long)fnum(x, "roams"),
+		       fnum(x, "roams") == 1 ? "" : "s");
+}
+
 /* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */
 static void show_offers(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2498,6 +2613,29 @@ int main(int argc, char **argv)
 		rc = rc || sqm_failed;
 	} else if (!strcmp(cmd, "calls")) {
 		rc = call("ag", "calls", NULL, show_calls);
+	} else if (!strcmp(cmd, "mesh") && i + 2 < argc && (!strcmp(argv[i], "steer") || !strcmp(argv[i], "channel"))) {
+		char target[128];
+		int ttl = i + 3 < argc ? parse_time(argv[i + 3]) : 0;
+
+		snprintf(target, sizeof(target), "%s%s%s", argv[i + 1], !strcmp(argv[i], "steer") ? "@" : ":", argv[i + 2]);
+		if (i + 3 < argc && ttl <= 0) {
+			fprintf(stderr, "agctl: usage: agctl mesh steer <device> <BSSID> [time] | mesh channel <radio> <ch> [time]\n");
+			rc = 1;
+		} else {
+			blob_buf_init(&args, 0);
+			blobmsg_add_string(&args, "action", !strcmp(argv[i], "steer") ? "meshsteer" : "meshchan");
+			blobmsg_add_string(&args, "target", target);
+			if (ttl > 0)
+				blobmsg_add_u32(&args, "ttl", (uint32_t)ttl);
+			rc = call("ag.decision", "request", args.head, show_change) || change_failed;
+			blob_buf_free(&args);
+		}
+	} else if (!strcmp(cmd, "mesh")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && (!strcmp(argv[i], "--run") || !strcmp(argv[i], "run")))
+			blobmsg_add_u8(&args, "run", 1);
+		rc = call("ag", "mesh", args.head, show_mesh);
+		blob_buf_free(&args);
 	} else if (!strcmp(cmd, "offers")) {
 		rc = call("ag", "offers", NULL, show_offers);
 	} else if (!strcmp(cmd, "brief")) {

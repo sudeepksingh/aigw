@@ -313,6 +313,16 @@ static void gather(long now)
 		signal_add(code, h->status == HEAL_POOR ? DS_PROBLEM : DS_WARN, (long)h->problem_since, n, 0, NULL, "wifi");
 		signal_measure(code, h, NULL);
 	}
+	/* mesh Wi-Fi: an extender whose own link to the gateway is weak or slow, with devices behind it (they feel it) */
+	{
+		struct mesh_issue mi[8];
+		int k, m = mesh_issues(mi, 8);
+
+		for (k = 0; k < m; k++)
+			if (mi[k].hurts)
+				signal_add(mi[k].code, DS_WARN, mi[k].since ? mi[k].since : now, mi[k].stations, 0, mi[k].target,
+					   "mesh");
+	}
 	/* devices that keep dropping off Wi-Fi, or keep changing band */
 	for (i = 0; i < PDEV_MAX; i++) {
 		struct pdev *d = &pd[i];

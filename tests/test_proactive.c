@@ -365,7 +365,7 @@ static void notes(void)
 	static const char *const codes[] = { "LINE_DOWN", "NO_ROUTE", "ISP_DOWN", "LINE_LOSS", "ISP_LOSS", "LINE_SLOW",
 					     "ISP_SLOW", "LINE_SLOW_SPEED", "DNS_FAILING", "DNS_SLOW", "WIFI_CONGESTION",
 					     "WIFI_HOPPING", "WIFI_COVERAGE", "WIFI_RADIO", "WIFI_PROBLEM", "WIFI_DEVICE",
-					     "WIFI_DROPS", "DEVICE_OFFLINE", "LINE_FULL", "SOMETHING_NEW", NULL };
+					     "WIFI_DROPS", "DEVICE_OFFLINE", "LINE_FULL", "MESH_BACKHAUL", "SOMETHING_NEW", NULL };
 	char note[PRO_TEXT];
 	int i, h, fx, bad = 0, total = 0;
 

@@ -1221,5 +1221,50 @@ class Security(unittest.TestCase):
                 dash.shutdown()
 
 
+def a_mesh(extenders=1, wireless=1, weak=0, hurting=0, findings=(), **counts):
+    c = {"steers": 0, "kept": 0, "undone": 0, "misses": 0, "proposed": 0, "channel_changes": 0, "channels_kept": 0,
+         "channels_undone": 0, "roams": 0}
+    c.update(counts)
+    return {"agents": extenders + 1, "extenders": extenders, "stations": 7, "wireless_backhauls": wireless,
+            "weak_backhauls": weak, "hurting": hurting, "findings": list(findings), "counts": c}
+
+
+class Mesh(unittest.TestCase):
+    """v0.44: mesh Wi-Fi across the fleet (mesh.py): homes whose extenders hurt more than they help."""
+
+    def test_fleet(self):
+        from aigw_cortex import fleet, mesh
+        from aigw_cortex.dashboard import overview
+        now = 20000 * 86400 + 12 * 3600
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            a, _ = s.enroll("home-a", "east")
+            b, _ = s.enroll("home-b", "west")
+            c, _ = s.enroll("home-c")
+            old, _ = s.enroll("old")
+            s.report(a, {"status": {"version": "0.44.0"}, "mesh": a_mesh(
+                weak=1, hurting=1, findings=[{"kind": "Weak", "stations": 3, "hurts": True, "signal": -79,
+                                              "rate_kbps": 48000}], steers=4, kept=3, undone=1)}, now)
+            s.report(b, {"status": {"version": "0.44.0"}, "mesh": a_mesh(
+                extenders=2, wireless=1, findings=[{"kind": "Try6", "stations": 2, "hurts": False, "signal": -58}],
+                steers=2, kept=1, misses=1, channel_changes=1, channels_kept=1)}, now)
+            s.report(c, {"status": {"version": "0.44.0"}, "mesh": a_mesh(extenders=0, wireless=0)}, now)
+            s.report(old, {"status": {"version": "0.43.1"}}, now)
+            m = fleet.report(s, 7, now=now)["mesh"]
+            self.assertEqual((m["homes"], m["homes_with_extenders"], m["extenders"], m["homes_hurting"]), (3, 2, 3, 1))
+            self.assertEqual((m["wireless_backhauls"], m["weak_backhauls"]), (2, 1))
+            self.assertEqual((m["counts"]["steers"], m["counts"]["kept"], m["kept_pct"]), (6, 4, 67))
+            self.assertEqual(m["findings"], {"Weak": 1, "Try6": 1})
+            self.assertEqual(m["hurting"], [{"home": "home-a", "group": "east", "extenders": 1, "hurting": 1,
+                                             "stations": 3, "kind": "Weak", "signal": -79, "rate_mbps": 48}])
+            t = fleet.text(fleet.report(s, 7, now=now))
+            self.assertIn("mesh        3 homes with an EasyMesh controller (AIGW OS 0.44 on), 3 extenders (2 wireless, 1 weak); "
+                          "1 home whose extenders hurt more than they help", t)
+            self.assertIn("home-a (east): an extender's backhaul weak, -79 dBm, 48 Mbit/s, 3 devices behind it", t)
+            self.assertEqual(fleet.report(s, 7, "west", now=now)["mesh"]["homes_hurting"], 0)
+            self.assertEqual(overview(s, now=now)["mesh"]["homes_hurting"], 1)
+            self.assertEqual(mesh.of(s.snapshot(old)), {})
+
+
 if __name__ == "__main__":
     unittest.main()

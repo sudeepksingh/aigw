@@ -118,6 +118,34 @@ int main(void)
 	CHECK(has_done("Told the ISP"), "done: told the ISP");
 	CHECK(strstr(o.verdict, "The ISP's line or network, now:") == o.verdict, "verdict: one sentence, the line, now");
 
+	printf("== mesh Wi-Fi: everything else fine, an extender's weak backhaul slows the devices behind it\n");
+	{
+		struct brief_finding mesh[1];
+
+		home(NOW - 3600, NOW);
+		fresh("OK", "All", DS_OK, "Everything is fine.");
+		mesh[0].code = "MESH_BACKHAUL";
+		mesh[0].area = "WiFi";
+		mesh[0].sev = DS_WARN;
+		mesh[0].since = NOW - 1800;
+		mesh[0].until = 0;
+		mesh[0].text = "the extender 'bedroom' has a weak wireless backhaul to the gateway (-78 dBm, 54 Mbit/s, 5 GHz); "
+			       "2 devices are behind it. Move it a room closer to the gateway.";
+		in.mesh = mesh;
+		in.nmesh = 1;
+		brief_judge(&in, &o);
+		show();
+		CHECK(o.fault == BF_HOME_WIFI && !strcmp(o.code, "MESH_BACKHAUL") && o.visit == BV_NO,
+		      "HOME_WIFI, MESH_BACKHAUL, no visit");
+		CHECK(strstr(o.verdict, "the extender 'bedroom' has a weak wireless backhaul") != NULL, "verdict names the extender");
+		CHECK(has_ev("mesh", "MESH_BACKHAUL") && strstr(o.tell, "extender") && strstr(o.fix.text, "closer"),
+		      "evidence from the mesh; tell and fix: move it closer, or a cable");
+		mesh[0].sev = DS_INFO;
+		brief_judge(&in, &o);
+		CHECK(strcmp(o.code, "MESH_BACKHAUL") && has_ev("mesh", "weak wireless backhaul"),
+		      "no devices behind it: only evidence, not the verdict (%s)", o.code);
+	}
+
 	printf("== the next hop losing packets for 40 min last night, reported: a visit\n");
 	home(NOW - 3 * 3600, NOW - 3600);
 	fresh("OK", "All", DS_OK, "Everything is fine.");

@@ -20,9 +20,9 @@ static const char *opt(struct uci_context *ctx, struct uci_package *p,
 	return s ? uci_lookup_option_string(ctx, s, option) : NULL;
 }
 
-/* An option that may be a single value or a UCI list -> space-separated. */
-static void read_list(struct uci_context *ctx, struct uci_section *s, const char *option,
-		      char *out, size_t n)
+/* An option that may be a single value or a UCI list -> joined by sep. */
+static void read_list_sep(struct uci_context *ctx, struct uci_section *s, const char *option,
+			  char *out, size_t n, const char *sep)
 {
 	struct uci_option *o = s ? uci_lookup_option(ctx, s, option) : NULL;
 	struct uci_element *e;
@@ -33,13 +33,20 @@ static void read_list(struct uci_context *ctx, struct uci_section *s, const char
 	} else if (o && o->type == UCI_TYPE_LIST) {
 		out[0] = '\0';
 		uci_foreach_element(&o->v.list, e) {
-			int w = snprintf(out + len, n - len, "%s%s", len ? " " : "", e->name);
+			int w = snprintf(out + len, n - len, "%s%s", len ? sep : "", e->name);
 
 			if (w < 0 || (size_t)w >= n - len)
 				break;
 			len += (size_t)w;
 		}
 	}
+}
+
+/* An option that may be a single value or a UCI list -> space-separated. */
+static void read_list(struct uci_context *ctx, struct uci_section *s, const char *option,
+		      char *out, size_t n)
+{
+	read_list_sep(ctx, s, option, out, n, " ");
 }
 
 int ag_mode_parse(const char *s, int dflt)
@@ -205,6 +212,16 @@ void ag_config_load(struct ag_config *c)
 	c->pro_clear_s = 600;
 	c->pro_cooldown_s = 21600;
 	c->pro_max_per_day = 3;
+	c->mesh = 1;
+	c->mesh_poll = 30;
+	c->mesh_steer = 1;
+	c->mesh_channel = 1;
+	c->mesh_trial = 120;
+	c->mesh_hold = 60;
+	c->mesh_weak_dbm = -75;
+	c->mesh_hyst_db = 8;
+	c->mesh_cooldown = 900;
+	c->mesh_quiet = 300;
 	c->sqm = 1;
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
@@ -553,6 +570,42 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "proactive", "max_per_day");
 		if (v && atoi(v) >= 0)
 			c->pro_max_per_day = atoi(v);
+		v = opt(ctx, p, "mesh", "enabled");
+		if (v)
+			c->mesh = atoi(v) != 0;
+		copy(c->mesh_handler, sizeof(c->mesh_handler), opt(ctx, p, "mesh", "handler"));
+		copy(c->mesh_source, sizeof(c->mesh_source), opt(ctx, p, "mesh", "source"));
+		v = opt(ctx, p, "mesh", "poll");
+		if (v && atoi(v) >= 1 && atoi(v) <= 3600)
+			c->mesh_poll = atoi(v);
+		v = opt(ctx, p, "mesh", "steer");
+		if (v)
+			c->mesh_steer = atoi(v) != 0;
+		v = opt(ctx, p, "mesh", "channel");
+		if (v)
+			c->mesh_channel = atoi(v) != 0;
+		v = opt(ctx, p, "mesh", "trial");
+		if (v && atoi(v) >= 1 && atoi(v) <= 3600)
+			c->mesh_trial = atoi(v);
+		v = opt(ctx, p, "mesh", "hold");
+		if (v && atoi(v) >= 0 && atoi(v) <= 3600)
+			c->mesh_hold = atoi(v);
+		v = opt(ctx, p, "mesh", "legacy");
+		if (v)
+			c->mesh_legacy = atoi(v) != 0;
+		v = opt(ctx, p, "mesh", "weak_dbm");
+		if (v && atoi(v) <= -40 && atoi(v) >= -95)
+			c->mesh_weak_dbm = atoi(v);
+		v = opt(ctx, p, "mesh", "hysteresis");
+		if (v && atoi(v) >= 3 && atoi(v) <= 30)
+			c->mesh_hyst_db = atoi(v);
+		v = opt(ctx, p, "mesh", "cooldown");
+		if (v && atoi(v) >= 0)
+			c->mesh_cooldown = atoi(v);
+		v = opt(ctx, p, "mesh", "quiet");
+		if (v && atoi(v) >= 0)
+			c->mesh_quiet = atoi(v);
+		read_list_sep(ctx, uci_lookup_section(ctx, p, "mesh"), "name", c->mesh_names, sizeof(c->mesh_names), ";");
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

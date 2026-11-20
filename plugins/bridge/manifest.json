@@ -1,7 +1,7 @@
 {
   "name": "bridge",
   "kind": "connector",
-  "version": "0.43.1",
+  "version": "0.44.0",
   "description": "Links this gateway to cortex: fleet history, signed model updates, federated learning rounds (names stay home), suggestions from the AI assistant (they wait for your OK), staged firmware rollouts (off unless firmware is 1), area outages (AIGW holds its fixes while the ISP's network is down)",
   "exec": "ag-bridge",
   "caps": ["devices.read", "decision.propose", "model.offer", "fed.train", "firmware.install", "area.notice"],

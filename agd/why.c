@@ -272,11 +272,17 @@ static void on_decision(struct blob_attr **tb)
 		flag = WF_BLOCKS;
 	else if (!strcmp(a, "throttle") || !strcmp(a, "deprioritize"))
 		flag = WF_LIMITS;
-	else if (!strcmp(a, "channel") || !strcmp(a, "stay24") || !strcmp(a, "sqm"))
+	else if (!strcmp(a, "channel") || !strcmp(a, "stay24") || !strcmp(a, "sqm") || !strcmp(a, "meshsteer") ||
+		 !strcmp(a, "meshchan"))
 		flag = WF_WIFI;
 	if (ended)
 		flag |= WF_ENDED;
-	if (strcmp(a, "channel") && strcmp(a, "block") && strcmp(a, "sqm"))
+	if (!strcmp(a, "meshsteer")) {          /* "<station>@<access point>": the station */
+		char mac[18];
+
+		snprintf(mac, sizeof(mac), "%.17s", target);
+		d = dev_find_mac(mac, 0);
+	} else if (strcmp(a, "channel") && strcmp(a, "block") && strcmp(a, "sqm") && strcmp(a, "meshchan"))
 		d = act_find_device(target);
 	note(WE_DECISION, d ? d->mac : NULL, flag, 0, "AIGW %s: %s %s%s%s", ended ? "ended" : "acted", a, who,
 	     *s_(tb, P_ORIGIN) ? ", by " : "", s_(tb, P_ORIGIN));
@@ -302,6 +308,18 @@ static void on_upgrade(struct blob_attr **tb)
 		note(WE_UPGRADE, NULL, 0, 0, "Firmware %s to %s: %s", s_(tb, P_FROM), s_(tb, P_TO), ev);
 }
 
+/* mesh Wi-Fi: a device moved between access points (by itself or the controller), a backhaul found weak or fine
+   again, a trial's verdict (AIGW's own steers and channel changes are on the timeline as decisions too) */
+static void on_mesh(struct blob_attr **tb)
+{
+	const char *ev = s_(tb, P_EVENT), *mac = s_(tb, P_MAC), *sum = s_(tb, P_SUMMARY);
+
+	if (!strcmp(ev, "roamed") || !strcmp(ev, "backhaul") || !strcmp(ev, "backhaul-ok") || !strcmp(ev, "kept") ||
+	    !strcmp(ev, "undone") || !strcmp(ev, "missed") || !strcmp(ev, "channel-kept") || !strcmp(ev, "channel-undone") ||
+	    !strcmp(ev, "controller-lost"))
+		note(WE_MESH, *mac ? mac : NULL, 0, 0, "Mesh: %.140s", sum);
+}
+
 void why_on_emit(const char *type, struct blob_attr *msg)
 {
 	struct blob_attr *tb[__P_MAX];
@@ -309,6 +327,10 @@ void why_on_emit(const char *type, struct blob_attr *msg)
 	if (!cfg.why || !ring)
 		return;
 	blobmsg_parse(pol, __P_MAX, tb, blob_data(msg), blob_len(msg));
+	if (!strcmp(type, AG_EV_MESH)) {
+		on_mesh(tb);
+		return;
+	}
 	if (!strcmp(type, AG_EV_WIFI))
 		on_wifi(tb);
 	else if (!strcmp(type, AG_EV_DECISION))

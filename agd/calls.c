@@ -495,6 +495,17 @@ static int live_n(void)
 	return n;
 }
 
+/* mesh.c: a call or game is on for this device now (a steer would break it up) */
+int calls_live_on(const char *mac)
+{
+	int i;
+
+	for (i = 0; mac && *mac && i < LIVE_MAX; i++)
+		if (lives[i].used && !strcasecmp(lives[i].mac, mac))
+			return 1;
+	return 0;
+}
+
 static const char *status(void)
 {
 	if (!cfg.calls || !flow_active())

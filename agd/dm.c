@@ -45,7 +45,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.18"
+#define DM_VERSION "1.19"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -949,6 +949,34 @@ CFF(g_cf_l_verdict, "Last.Verdict")
 CFF(g_cf_l_sum, "Last.Summary")
 GET(g_cf_l_start) { char v[24] = "0"; (void)c; calls_field("Last.Start", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
 
+/* mesh Wi-Fi over the EasyMesh controller (Device.X_AIGW_.Mesh.) */
+#define MSF(fn, f) GET(fn) { (void)c; return mesh_field(f, buf, n); }
+#define MST(fn, f) GET(fn) { char v[24] = "0"; (void)c; mesh_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+MSF(g_ms_en, "Enable")
+MSF(g_ms_st, "Status")
+MSF(g_ms_ctl, "ControllerID")
+MSF(g_ms_ag, "Agents")
+MSF(g_ms_ext, "Extenders")
+MSF(g_ms_sta, "Stations")
+MSF(g_ms_wbh, "WirelessBackhauls")
+MSF(g_ms_weak, "WeakBackhauls")
+MSF(g_ms_hurt, "HurtingExtenders")
+MSF(g_ms_steer, "Steers")
+MSF(g_ms_kept, "SteersKept")
+MSF(g_ms_undone, "SteersUndone")
+MSF(g_ms_miss, "SteerMisses")
+MSF(g_ms_chan, "ChannelChanges")
+MSF(g_ms_ckept, "ChannelsKept")
+MSF(g_ms_cundone, "ChannelsUndone")
+MSF(g_ms_prop, "Proposed")
+MSF(g_ms_lid, "LastDecision")
+MSF(g_ms_lkind, "LastKind")
+MSF(g_ms_lstate, "LastState")
+MSF(g_ms_lsum, "LastSummary")
+MSF(g_ms_sum, "Summary")
+MST(g_ms_ltime, "LastTime")
+MST(g_ms_read, "ReadTime")
+
 /* area outages (Device.X_AIGW_.AreaOutage.): cortex found many homes of this uplink down at once */
 #define AOF(fn, f) GET(fn) { (void)c; return area_field(f, buf, n); }
 #define AOT(fn, f) GET(fn) { char v[24] = "0"; (void)c; area_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
@@ -1326,6 +1354,32 @@ static struct dm_param {
 	{ CF "Last.Verdict", T_STR, 0, TB_NONE, g_cf_l_verdict, NULL },
 	{ CF "Last.Summary", T_STR, 0, TB_NONE, g_cf_l_sum, NULL },
 #undef CF
+#define MS "Device.X_AIGW_.Mesh."
+	{ MS "Enable", T_BOOL, 0, TB_NONE, g_ms_en, NULL },
+	{ MS "Status", T_STR, N, TB_NONE, g_ms_st, NULL },
+	{ MS "ControllerID", T_STR, 0, TB_NONE, g_ms_ctl, NULL },
+	{ MS "ReadTime", T_TIME, 0, TB_NONE, g_ms_read, NULL },
+	{ MS "Agents", T_UINT, 0, TB_NONE, g_ms_ag, NULL },
+	{ MS "Extenders", T_UINT, 0, TB_NONE, g_ms_ext, NULL },
+	{ MS "Stations", T_UINT, 0, TB_NONE, g_ms_sta, NULL },
+	{ MS "WirelessBackhauls", T_UINT, 0, TB_NONE, g_ms_wbh, NULL },
+	{ MS "WeakBackhauls", T_UINT, N, TB_NONE, g_ms_weak, NULL },
+	{ MS "HurtingExtenders", T_UINT, N, TB_NONE, g_ms_hurt, NULL },
+	{ MS "Steers", T_UINT, 0, TB_NONE, g_ms_steer, NULL },
+	{ MS "SteersKept", T_UINT, 0, TB_NONE, g_ms_kept, NULL },
+	{ MS "SteersUndone", T_UINT, 0, TB_NONE, g_ms_undone, NULL },
+	{ MS "SteerMisses", T_UINT, 0, TB_NONE, g_ms_miss, NULL },
+	{ MS "ChannelChanges", T_UINT, 0, TB_NONE, g_ms_chan, NULL },
+	{ MS "ChannelsKept", T_UINT, 0, TB_NONE, g_ms_ckept, NULL },
+	{ MS "ChannelsUndone", T_UINT, 0, TB_NONE, g_ms_cundone, NULL },
+	{ MS "Proposed", T_UINT, 0, TB_NONE, g_ms_prop, NULL },
+	{ MS "LastDecision", T_UINT, 0, TB_NONE, g_ms_lid, NULL },
+	{ MS "LastKind", T_STR, 0, TB_NONE, g_ms_lkind, NULL },
+	{ MS "LastState", T_STR, 0, TB_NONE, g_ms_lstate, NULL },
+	{ MS "LastTime", T_TIME, 0, TB_NONE, g_ms_ltime, NULL },
+	{ MS "LastSummary", T_STR, 0, TB_NONE, g_ms_lsum, NULL },
+	{ MS "Summary", T_STR, 0, TB_NONE, g_ms_sum, NULL },
+#undef MS
 #define AO "Device.X_AIGW_.AreaOutage."
 	{ AO "Enable", T_BOOL, 0, TB_NONE, g_ao_en, NULL },
 	{ AO "UplinkID", T_STR, W, TB_NONE, g_ao_up, s_ao_up },
@@ -2043,6 +2097,7 @@ static struct {
 	{ "Device.X_AIGW_.AreaOutageCleared!", "Incident,Kind,Since,DurationSeconds,HeldFixes,Reason" },
 	{ "Device.X_AIGW_.ProactiveTicket!",
 	  "Ticket,Status,Code,Fault,Severity,Points,Reason,Devices,Since,Summary,Evidence,NextStep,CustomerNote,Decision" },
+	{ "Device.X_AIGW_.MeshDecision!", "Decision,Kind,State,Station,From,To,Reason,Before,After" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -2713,6 +2768,25 @@ void dm_on_ticket(uint32_t id)
 	}
 	kv[k] = NULL;
 	emit(events[13].path, kv);          /* ProactiveTicket! */
+}
+
+/* mesh.c: a mesh decision proposed, applied, kept, undone or missed (MeshDecision!); names only by brief.names */
+void dm_on_mesh(uint32_t id, const char *kind, const char *state, const char *station, const char *from,
+		const char *to, const char *reason, const char *before, const char *after)
+{
+	char d[16], r[400];
+
+	snprintf(d, sizeof(d), "%u", id);
+	snprintf(r, sizeof(r), "%s", reason ? reason : "");
+	if (!cfg.brief_names)
+		brief_scrub_isp(r, sizeof(r));
+	{
+		const char *kv[] = { "Decision", d, "Kind", kind, "State", state, "Station", station ? station : "",
+				     "From", from ? from : "", "To", to ? to : "", "Reason", r, "Before", before ? before : "",
+				     "After", after ? after : "", NULL };
+
+		emit(events[14].path, kv);  /* MeshDecision! */
+	}
 }
 
 /* ---------- state ---------- */

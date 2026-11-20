@@ -24,6 +24,7 @@
 #define AG_EV_UPGRADE "ag.upgrade" /* a firmware upgrade: watched, kept, worse, rolled back */
 #define AG_EV_CALL "ag.call"       /* a call or game noticed, and over (with how it went) */
 #define AG_EV_TICKET "ag.ticket"   /* proactive care, before the call: a ticket raised, fixed, over */
+#define AG_EV_MESH "ag.mesh"       /* mesh Wi-Fi: the controller found or lost, a device moved, a backhaul, a trial */
 #define AG_EV_DM "ag.dm.event"     /* a data model event (TR-181 path ending in '!'), for USP / TR-069 */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
@@ -196,6 +197,21 @@ struct ag_config {
 	int pro_clear_s;          /* gone this long: over (each flap doubles it) */
 	int pro_cooldown_s;       /* back within this: the same ticket, no new word to the ISP */
 	int pro_max_per_day;      /* new tickets to the ISP in 24 hours */
+	/* smarter mesh Wi-Fi over a standard EasyMesh controller (agd/mesh.c) */
+	int mesh;                 /* read the controller's Data Elements, decide, act through the controller */
+	char mesh_handler[128];   /* the controller's handler; "" the platform's (mesh-prplmesh) */
+	char mesh_source[256];    /* read this Data Elements snapshot (JSON or path=value) instead; "" the handler */
+	int mesh_poll;            /* s between reads */
+	int mesh_steer;           /* move struggling devices to a better access point (as act.mode allows) */
+	int mesh_channel;         /* plan channels across the gateway and extenders (as act.mode allows) */
+	int mesh_trial;           /* s a move or channel change is measured before it is judged */
+	int mesh_hold;            /* s a device must struggle before it is moved */
+	int mesh_legacy;          /* also steer devices without 802.11v (the controller's blocklist steering) */
+	int mesh_weak_dbm;        /* a device at or below this is struggling */
+	int mesh_hyst_db;         /* a target must hear it this much better */
+	int mesh_cooldown;        /* s after a move by AIGW before the same device again */
+	int mesh_quiet;           /* s after the controller, or the device itself, moved it */
+	char mesh_names[512];     /* "<AL MAC>=<name>;..." the home's names for its extenders */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

@@ -18,6 +18,10 @@
  *   disconnect <device>     hostapd: kicked off Wi-Fi and refused until the time is up
  *   channel <ap>:<channel>  an access point moves to a quieter channel (chan.c: hostapd
  *                           channel switch announcement); back to the old one at the end
+ *   meshsteer <sta>@<bssid> a device moves to another access point of the mesh, through the
+ *                           EasyMesh controller (mesh.c); moved back if its trial says so
+ *   meshchan <ruid>:<ch>    a mesh radio (an extender's) moves to another channel, through the
+ *                           controller; back to the old one if its trial says so
  *   <plugin>.<action>       an actuator plug-in carries it out (plugin.c); same rules
  *
  * Policies come from /etc/config/aigw first, then from skills (plug-ins);
@@ -106,6 +110,18 @@ static int by_mac(const char *a)
 static int is_plugin_action(const char *a)
 {
 	return strchr(a, '.') != NULL;
+}
+
+/* through the mesh controller (mesh.c): one request each, never re-sent on its own */
+static int is_mesh(const char *a)
+{
+	return !strcmp(a, "meshsteer") || !strcmp(a, "meshchan");
+}
+
+/* AIGW changed something on Wi-Fi with it */
+static int is_wifi_fix(const char *a)
+{
+	return !strcmp(a, "stay24") || !strcmp(a, "channel") || is_mesh(a);
 }
 
 /* free-text targets of plug-in actions ("everyone", "kitchen light") */
@@ -216,14 +232,14 @@ static void set_state(struct decision *d, int state)
 	if (state == D_ACTIVE && !strcmp(d->action, "stay24"))
 		heal_on_band_rule(d->target, d->id);   /* the healing report counts it (once per decision) */
 	/* proactive care: a Wi-Fi problem is "fixed by AIGW" only if AIGW changed something */
-	if (state == D_ACTIVE && (!strcmp(d->action, "stay24") || !strcmp(d->action, "channel"))) {
+	if (state == D_ACTIVE && is_wifi_fix(d->action)) {
 		char what[96];
 
 		snprintf(what, sizeof(what), "decision %u, %s %s", d->id, d->action, d->target);
 		care_on_acted(what);
 	}
 	/* proactive care, before the call: a ticket this fixes was fixed by AIGW */
-	if (state == D_ACTIVE && (!strcmp(d->action, "stay24") || !strcmp(d->action, "channel") || !strcmp(d->action, "sqm")))
+	if (state == D_ACTIVE && (is_wifi_fix(d->action) || !strcmp(d->action, "sqm")))
 		proactive_on_acted(d->action, d->target, d->id);
 }
 
@@ -345,6 +361,8 @@ static struct device *find_device(const char *q);
 
 static int valid_target(const struct decision *d)
 {
+	if (is_mesh(d->action))
+		return mesh_target_ok(d->action, d->target);
 	if (!strcmp(d->action, "sqm"))
 		return sqm_target_ok(d->target, NULL, 0) == 0;
 	if (!strcmp(d->action, "channel")) {
@@ -450,6 +468,8 @@ static int actuate(struct decision *d, char *err, size_t errlen)
 	}
 	if (!strcmp(d->action, "block"))
 		return dns_policy_write(err, errlen);
+	if (is_mesh(d->action))
+		return mesh_apply(d->id, d->action, d->target, d->scope, 0, err, errlen);
 	if (!strcmp(d->action, "sqm"))
 		return sqm_apply(d->target, err, errlen);
 	if (!strcmp(d->action, "disconnect"))
@@ -515,6 +535,11 @@ static void unactuate(struct decision *d)
 	}
 	if (!strcmp(d->action, "sqm")) {
 		sqm_remove(d->target);
+		return;
+	}
+	if (is_mesh(d->action)) {             /* moved back, or the channel back (mesh.c knows whether it is due) */
+		if (mesh_apply(d->id, d->action, d->target, d->scope, 1, err, sizeof(err)))
+			AG_WARN("undo %s %s: %s", d->action, d->target, err);
 		return;
 	}
 	if (!strcmp(d->action, "disconnect")) {
@@ -694,6 +719,9 @@ static int guard(const char *action, const char *what, const struct act_opts *o,
 			 a->band == 5 ? "5" : "2.4", a->iface, a->channel, ch);
 		return 0;
 	}
+	if (is_mesh(action))
+		return mesh_guard(action, what, out->target, sizeof(out->target), out->scope, sizeof(out->scope), out->device,
+				  sizeof(out->device), err, errlen);
 	if (!strcmp(action, "sqm")) {
 		if (sqm_target_ok(what, out->device, sizeof(out->device)) < 0) {
 			snprintf(err, errlen, "'%.40s' is not <WAN interface>:<download kbit/s>:<upload kbit/s>", what);
@@ -723,7 +751,7 @@ static int guard(const char *action, const char *what, const struct act_opts *o,
 	}
 	if (!is_device_action(action)) {
 		snprintf(err, errlen, "unknown action '%s' (priority, deprioritize, throttle, block, "
-			 "quarantine, disconnect, stay24, channel, or a plug-in's: agctl plugins)", action);
+			 "quarantine, disconnect, stay24, channel, meshsteer, meshchan, or a plug-in's: agctl plugins)", action);
 		return -1;
 	}
 	if (!(dv = guard_device(what, out->device, err, errlen)))
@@ -1170,8 +1198,8 @@ void act_init(void)
 				unactuate(d);
 			continue;
 		}
-		if (is_plugin_action(d->action))
-			continue;                /* sent to the plug-in once it has started */
+		if (is_plugin_action(d->action) || is_mesh(d->action))
+			continue;                /* sent to the plug-in once it has started; mesh.c ends a trial agd lost */
 		if (actuate(d, err, sizeof(err)) < 0)
 			AG_WARN("could not restore decision %u (%s %s): %s", d->id, d->action, d->target, err);
 		else
@@ -1202,7 +1230,8 @@ void act_tick(void)
 			unactuate(d);
 			snprintf(d->note, sizeof(d->note), "time limit reached");
 			set_state(d, D_EXPIRED);
-		} else if (d->state == D_ACTIVE && reassert && strcmp(d->action, "block") && !is_plugin_action(d->action)) {
+		} else if (d->state == D_ACTIVE && reassert && strcmp(d->action, "block") && !is_plugin_action(d->action) &&
+			   !is_mesh(d->action)) {
 			if (actuate(d, err, sizeof(err)) < 0)
 				AG_WARN("decision %u: %s", d->id, err);
 		} else if (d->state == D_PROPOSED && now - d->created >= PROPOSAL_SECS) {
