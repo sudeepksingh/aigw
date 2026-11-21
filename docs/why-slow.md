@@ -88,7 +88,7 @@ too:
 | `DEVICE_BLOCKED`, `DEVICE_LIMITED` | AIGW | an AIGW decision kept it off, or slowed it, for part of the stretch |
 | `DEVICE_OFFLINE` | Device | it wasn't on Wi-Fi for half the stretch or more |
 | `WIFI_DROPS` | WiFi | it dropped off Wi-Fi twice or more (with when) |
-| `WIFI_COVERAGE` | WiFi | its signal was weak, and for how long |
+| `WIFI_COVERAGE` | WiFi | its signal was weak, and for how long; the advice says where and what fixes it (v0.46, [coverage.md](coverage.md)) |
 | `DEVICE_ON_24GHZ` | WiFi | it moved to 2.4 GHz (a warning when it stayed there for half the stretch) |
 
 **Slow is the home's own.** A delay is slow at twice the normal and at least

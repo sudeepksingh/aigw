@@ -1099,7 +1099,11 @@ void why_blob(struct blob_buf *b, long from, long to, const char *host, int raw)
 	blobmsg_add_string(b, "area", r.f[0].area);
 	blobmsg_add_string(b, "severity", diag_sev_name(r.f[0].sev));
 	blobmsg_add_string(b, "summary", r.f[0].text);
-	blobmsg_add_string(b, "advice", why_advice(r.f[0].code));
+	{
+		const struct device *hd = host && *host ? act_find_device(host) : NULL;
+
+		blobmsg_add_string(b, "advice", coverage_advice(r.f[0].code, hd ? hd->mac : NULL, 0));
+	}
 	if (in.host_name)
 		blobmsg_add_string(b, "host", in.host_name);
 	add_time(b, "from", from);

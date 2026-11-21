@@ -343,6 +343,21 @@ config mesh 'mesh'
 	# the help desk hears "the extender 'bedroom' has a weak backhaul"
 	# list name '02:11:22:33:44:55=bedroom'
 
+config coverage 'coverage'
+	# coverage placement advice (agctl coverage, Device.X_AIGW_.Coverage.,
+	# docs/coverage.md): AIGW learns where each Wi-Fi device is weak, when, and
+	# whether devices share a weak spot (the gateway's place: an extender about
+	# halfway) or one device is in a far room (move it). The advice replaces
+	# "move it closer" in Diagnose, the timeline, the help-desk brief and
+	# proactive tickets. It only advises: nothing is changed.
+	option enabled '1'
+	# a look at each device every interval s; judged after learn looks
+	option interval '60'
+	option learn '60'
+	# cortex gets the verdict and counts (a home that needs an extender is a
+	# lead), spots by device kind; never a name unless brief.names
+	option share '1'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

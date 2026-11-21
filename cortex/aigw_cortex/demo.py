@@ -139,6 +139,18 @@ def _home(i, town, now):
                            "channel_changes": 1 if i == 7 else 0, "channels_kept": 1 if i == 7 else 0,
                            "channels_undone": 0, "roams": 9}}
     extra = {"mesh": mesh} if mesh else {}
+    # coverage (v0.46): a few homes need an extender (a weak spot two devices share), others only a device moved
+    verdict = "Extender" if i % 4 == 2 else "MoveDevice" if i % 4 == 3 else "Fine"
+    spot = {"where": "where a TV and an Android phone are, in the evening (about -84 dBm at the gateway)",
+            "when": "in the evening", "devices": 2, "suffering": 2, "shared": True, "samples": 300, "signal": -84}
+    extra["coverage"] = {"enabled": True, "names": False, "verdict": verdict, "judged": 6 + i % 9,
+                         "weak_devices": 2 if verdict == "Extender" else 1 if verdict == "MoveDevice" else 0,
+                         "to_move": 2 if verdict == "Extender" else 1 if verdict == "MoveDevice" else 0,
+                         "weak_transmitters": 1 if i % 5 == 0 else 0, "shared_spots": 1 if verdict == "Extender" else 0,
+                         "access_points": 1, "spots": [spot] if verdict == "Extender" else [],
+                         "advice": "2 devices are weak in the same spot (" + spot["where"] + "): the gateway is too far "
+                                   "from it. Move the gateway toward that spot (higher, in the open), or add a Wi-Fi "
+                                   "extender about halfway between the gateway and it." if verdict == "Extender" else ""}
     return {**extra, "proactive": pro, "status": {"version": OLDER if i % 6 == 5 else __version__, "host": "openwrt", "devices": 6 + i % 9,
                        "alerts": 1 if i == 0 else 0, "mode": "advise",
                        "waiting": sum(1 for d in decs if d["state"] == "proposed")},

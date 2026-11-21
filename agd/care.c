@@ -636,7 +636,7 @@ void care_blob(struct blob_buf *b)
 		blobmsg_add_string(b, "area", op->area);
 		blobmsg_add_string(b, "severity", diag_sev_name(op->sev));
 		blobmsg_add_string(b, "summary", op->text);
-		blobmsg_add_string(b, "advice", diag_advice(op->code));
+		blobmsg_add_string(b, "advice", coverage_advice(op->code, NULL, 1));
 		blobmsg_add_u64(b, "since", (uint64_t)op->since);
 		blobmsg_add_u8(b, "reported", (uint8_t)op->reported);
 		blobmsg_add_string(b, "owner", care_isp_owned(op->area) ? "ISP" :

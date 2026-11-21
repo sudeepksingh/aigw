@@ -476,7 +476,11 @@ void diag_blob(struct blob_buf *b, const struct diag_result *r, const struct dia
 	blobmsg_add_string(b, "area", v ? v->area : "All");
 	blobmsg_add_string(b, "severity", diag_sev_name(v ? v->sev : DS_OK));
 	blobmsg_add_string(b, "summary", v ? v->text : "");
-	blobmsg_add_string(b, "advice", diag_advice(v ? v->code : "OK"));
+	{
+		const struct device *hd = in->host.given && in->host.found ? act_find_device(in->host.name) : NULL;
+
+		blobmsg_add_string(b, "advice", coverage_advice(v ? v->code : "OK", hd ? hd->mac : NULL, 0));
+	}
 	if (in->host.given)
 		blobmsg_add_string(b, "host", in->host.name);
 	t = blobmsg_open_table(b, "measured");

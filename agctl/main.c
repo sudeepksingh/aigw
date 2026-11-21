@@ -64,6 +64,8 @@ static void usage(void)
 		"                      each device's access point and link, the channel plan, AIGW's moves\n"
 		"  mesh steer <device> <BSSID> [time]   move a device to another access point of the mesh\n"
 		"  mesh channel <radio> <ch> [time]     move a mesh radio to another channel (trials both)\n"
+		"  coverage            where Wi-Fi is weak: which device, when, where in the home (spots named\n"
+		"                      by the devices seen there), and what fixes it (move it, or an extender)\n"
 		"  offers              signals for the ISP from the last week: a faster plan, smart queueing,\n"
 		"                      mesh Wi-Fi, a customer at risk, a line to repair; with the evidence\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
@@ -2308,6 +2310,48 @@ static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
 		       fnum(x, "roams") == 1 ? "" : "s");
 }
 
+/* agctl coverage: where Wi-Fi is weak, which device, when, and what fixes it */
+static void show_coverage(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s;
+	size_t rem;
+	int k = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "enabled")) {
+		printf("Coverage advice is off (coverage.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Coverage: %s (%llu device%s judged, %llu weak, %llu to move, %llu with a weak radio of their own; "
+	       "weak at %d dBm)\n", fstr(msg, "verdict"), (unsigned long long)fnum(msg, "judged"),
+	       fnum(msg, "judged") == 1 ? "" : "s", (unsigned long long)fnum(msg, "weak_devices"),
+	       (unsigned long long)fnum(msg, "to_move"), (unsigned long long)fnum(msg, "weak_transmitters"),
+	       (int)fnum(msg, "weak_dbm"));
+	if (*fstr(msg, "advice"))
+		printf("  advice    %s\n", fstr(msg, "advice"));
+	else
+		printf("  advice    nothing yet: AIGW learns each device's coverage first (an hour or so of looks)\n");
+	if (*fstr(msg, "customer_note"))
+		printf("  customer  %s\n", fstr(msg, "customer_note"));
+	blobmsg_for_each_attr(s, field(msg, "spots"), rem) {
+		printf("%s  spot %d    %s: %llu device%s, %llu suffer%s%s%s%s\n", k ? "" : "\n", k + 1, fstr(s, "where"),
+		       (unsigned long long)fnum(s, "devices"), fnum(s, "devices") == 1 ? "" : "s",
+		       (unsigned long long)fnum(s, "suffering"), fnum(s, "suffering") == 1 ? "s" : "",
+		       fnum(s, "shared") ? " (shared: the gateway's place)" : "", *fstr(s, "heard_best_by") ? "; heard best by " : "",
+		       fstr(s, "heard_best_by"));
+		k++;
+	}
+	k = 0;
+	blobmsg_for_each_attr(s, field(msg, "list"), rem) {
+		printf("%s  %s\n", k++ ? "" : "\n  devices\n", fstr(s, "words"));
+		if (strcmp(fstr(s, "kind"), "Fine") && strcmp(fstr(s, "kind"), "Learning") && *fstr(s, "advice"))
+			printf("      -> %s\n", fstr(s, "advice"));
+	}
+}
+
 /* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */
 static void show_offers(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2636,6 +2680,8 @@ int main(int argc, char **argv)
 			blobmsg_add_u8(&args, "run", 1);
 		rc = call("ag", "mesh", args.head, show_mesh);
 		blob_buf_free(&args);
+	} else if (!strcmp(cmd, "coverage")) {
+		rc = call("ag", "coverage", NULL, show_coverage);
 	} else if (!strcmp(cmd, "offers")) {
 		rc = call("ag", "offers", NULL, show_offers);
 	} else if (!strcmp(cmd, "brief")) {
