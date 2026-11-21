@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -180,6 +181,16 @@ void ag_config_load(struct ag_config *c)
 	c->chan_hold = 1800;
 	c->chan_poll = 30;
 	c->chan_scan_gap = 21600;
+	c->chan_plan = 1;
+	c->chan_plan_days = 3;
+	c->chan_plan_better = 30;
+	c->chan_plan_hold = 3;
+	c->chan_plan_every = 3600;
+	c->chan_plan_gap = 604800;
+	c->chan_plan_trial = 3600;
+	c->chan_avoid = 604800;
+	c->chan_learn_gap = 10800;
+	c->chan_quiet = 5;
 	copy(c->model_dir, sizeof(c->model_dir), AG_DATADIR "/models");
 	c->alerts_enabled = 1;
 	c->dga_threshold = 0.98;
@@ -422,11 +433,35 @@ void ag_config_load(struct ag_config *c)
 		if (v && atoi(v) >= 0)
 			c->chan_hold = atoi(v);
 		v = opt(ctx, p, "wifi", "chan_poll");
-		if (v && atoi(v) >= 5)
+		if (v && atoi(v) >= 1)
 			c->chan_poll = atoi(v);
 		v = opt(ctx, p, "wifi", "chan_scan_gap");
 		if (v && atoi(v) >= 10)
 			c->chan_scan_gap = atoi(v);
+		{
+			/* neighbour-aware channels: option, lowest value allowed, where */
+			static const struct { const char *name; int min; size_t off; } plan[] = {
+				{ "chan_plan", 0, offsetof(struct ag_config, chan_plan) },
+				{ "chan_plan_days", 0, offsetof(struct ag_config, chan_plan_days) },
+				{ "chan_plan_better", 10, offsetof(struct ag_config, chan_plan_better) },
+				{ "chan_plan_hold", 1, offsetof(struct ag_config, chan_plan_hold) },
+				{ "chan_plan_every", 1, offsetof(struct ag_config, chan_plan_every) },
+				{ "chan_plan_gap", 0, offsetof(struct ag_config, chan_plan_gap) },
+				{ "chan_plan_trial", 1, offsetof(struct ag_config, chan_plan_trial) },
+				{ "chan_avoid", 0, offsetof(struct ag_config, chan_avoid) },
+				{ "chan_learn_gap", 10, offsetof(struct ag_config, chan_learn_gap) },
+				{ "chan_quiet", 0, offsetof(struct ag_config, chan_quiet) },
+			};
+			size_t k;
+
+			for (k = 0; k < sizeof(plan) / sizeof(plan[0]); k++) {
+				v = opt(ctx, p, "wifi", plan[k].name);
+				if (v && atoi(v) >= plan[k].min)
+					*(int *)((char *)c + plan[k].off) = k ? atoi(v) : atoi(v) != 0;
+			}
+			if (c->chan_plan_better > 90)
+				c->chan_plan_better = 90;
+		}
 		copy(c->model_dir, sizeof(c->model_dir), opt(ctx, p, "main", "model_dir"));
 		read_list(ctx, uci_lookup_section(ctx, p, "lan"), "iface", c->lan_ifaces, sizeof(c->lan_ifaces));
 		v = opt(ctx, p, "alerts", "enabled");
@@ -746,6 +781,10 @@ defaults:
 		   back within the trial), and a device kept on 2.4 GHz for a day */
 		add_policy(c, "wifi_congestion", "wifi-congestion", "channel", NULL, 3600, 0, AG_MODE_ENFORCE);
 		add_policy(c, "wifi_hopping", "wifi-hopping", "stay24", NULL, 86400, 0, AG_MODE_ENFORCE);
+		/* neighbour-aware channels: a channel learned clearly better over the busy hours,
+		   a trial judged over them (kept, or back); a configuration without this policy
+		   gets it all the same (act.c), unless wifi.chan_plan 0 */
+		add_policy(c, "wifi_plan", "wifi-plan", "channel", NULL, 86400, 0, AG_MODE_ENFORCE);
 		/* bufferbloat: smart queueing, judged on the timeline (kept when it helps); a configuration
 		   without this policy gets it all the same (act.c), unless sqm.enabled 0 */
 		add_policy(c, "bufferbloat", "bufferbloat", "sqm", NULL, 86400, 0, AG_MODE_ENFORCE);

@@ -32,12 +32,14 @@ never names), for the last --days days against the days before:
                fixed themselves or raised to the ISP first, and the calls likely avoided
   mesh         (v0.44) mesh Wi-Fi (mesh.py): extenders, their backhaul, the homes whose extenders
                hurt more than they help, and the devices AIGW moved to a better access point
+  channels     (v0.45) neighbour-aware channels (channels.py): homes with a clearly better Wi-Fi
+               channel in their busy hours, and AIGW's planned moves (kept, moved back)
 """
 import statistics
 import time
 from collections import Counter
 
-from . import brief, mesh, outage, proactive, rollout, tickets
+from . import brief, channels, mesh, outage, proactive, rollout, tickets
 
 GOOD, FAIR = 95, 80
 SILENT_S = 86400
@@ -189,6 +191,7 @@ def report(store, days=7, group=None, now=None):
         "help_desk": brief.fleet(store, first * 86400, ids),
         "proactive": proactive.fleet(store, first * 86400, ids),
         "mesh": mesh.fleet(store, first * 86400, ids),
+        "channels": channels.fleet(store, first * 86400, ids),
         "attention": attention[:30],
         "per_home": sorted(homes.values(), key=lambda h: (h["score"] is None, h["score"] or 0)),
     })      # v0.42: each outage's and open proactive ticket's ISP ticket, and the sync state (tickets.py)
@@ -223,6 +226,7 @@ def text(r, now=None):
     if e["mean"] is None:
         out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
         return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) + mesh.fleet_lines(r) +
+                         channels.fleet_lines(r) +
                          tickets.fleet_lines(r))
     change = ""
     if e["mean_before"] is not None:
@@ -267,6 +271,7 @@ def text(r, now=None):
     out += brief.fleet_lines(r)
     out += proactive.fleet_lines(r)
     out += mesh.fleet_lines(r)
+    out += channels.fleet_lines(r)
     out += tickets.fleet_lines(r)
     if r["attention"]:
         out.append("  attention")

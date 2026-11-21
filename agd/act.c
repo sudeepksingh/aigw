@@ -1105,6 +1105,18 @@ static const struct ag_policy *policy_for(const char *kind, const char *ip, char
 		snprintf(origin, n, "policy bufferbloat");
 		return &bb;
 	}
+	if (!strcmp(kind, "wifi-plan") && cfg.chan_plan) {
+		/* neighbour-aware channels: also for a configuration from before it had this policy */
+		static struct ag_policy wp;
+
+		snprintf(wp.name, sizeof(wp.name), "wifi_plan");
+		snprintf(wp.alert, sizeof(wp.alert), "wifi-plan");
+		snprintf(wp.action, sizeof(wp.action), "channel");
+		wp.ttl = 86400;
+		wp.mode = AG_MODE_ENFORCE;
+		snprintf(origin, n, "policy wifi_plan");
+		return &wp;
+	}
 	return plugin_policy_for(kind, zone, origin, n, cap);
 }
 

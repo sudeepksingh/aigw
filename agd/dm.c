@@ -45,7 +45,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.19"
+#define DM_VERSION "1.20"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -149,7 +149,7 @@ static const char *vx_path(const char *s)
 /* ---------- tables ---------- */
 
 enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_HOP, TB_NSRES, TB_TICKET,
-       TB_N };
+       TB_CHAN, TB_N };
 
 static int host_listed(const struct device *d)
 {
@@ -223,6 +223,7 @@ static struct {
 	[TB_HOP]      = { "Device.IP.Diagnostics.TraceRoute.RouteHops.{i}.", list_hops },
 	[TB_NSRES]    = { "Device.DNS.Diagnostics.NSLookupDiagnostics.Result.{i}.", list_nsres },
 	[TB_TICKET]   = { "Device.X_AIGW_.Proactive.Ticket.{i}.", proactive_ids },
+	[TB_CHAN]     = { "Device.X_AIGW_.ChannelPlan.Radio.{i}.", list_ssids },
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -257,6 +258,7 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 	case TB_RADIO:
 	case TB_AP:
 	case TB_HEAL:
+	case TB_CHAN:
 		k = imap_key(&ssid_map, inst);
 		for (i = 0; k && i < wifi_n_aps; i++)
 			if (!strcmp(wifi_aps[i].iface, k))
@@ -646,6 +648,10 @@ GET(g_ap_key) { (void)c; snprintf(buf, n, "%s", ""); return 0; }      /* TR-181:
 
 /* Self-Healing Wi-Fi: what each radio's devices feel, and why */
 GET(g_heal_n) { (void)c; snprintf(buf, n, "%d", count(TB_HEAL)); return 0; }
+/* neighbour-aware channels (Device.X_AIGW_.ChannelPlan.) */
+GET(g_cp_en) { (void)c; snprintf(buf, n, "%s", cfg.chan_heal && cfg.chan_plan ? "true" : "false"); return 0; }
+GET(g_cp_n) { (void)c; snprintf(buf, n, "%d", count(TB_CHAN)); return 0; }
+GET(g_cp) { return chan_plan_field(c->ap->iface, strrchr(c->ppath, '.') + 1, buf, n); }
 GET(g_heal_radio) { snprintf(buf, n, "Device.WiFi.Radio.%u", c->inst); return 0; }
 static const struct heal_radio *heal_of(const struct ictx *c) { return heal_for(c->ap->iface); }
 GET(g_heal_status) { const struct heal_radio *r = heal_of(c); snprintf(buf, n, "%s", heal_status_name(r ? r->status : 0)); return 0; }
@@ -1195,6 +1201,23 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Decision.{i}.Created", T_TIME, 0, TB_DECISION, g_d_created, NULL },
 	{ "Device.X_AIGW_.Decision.{i}.Expires", T_TIME, 0, TB_DECISION, g_d_expires, NULL },
 
+#define CP "Device.X_AIGW_.ChannelPlan."
+	{ CP "Enable", T_BOOL, 0, TB_NONE, g_cp_en, NULL },
+	{ CP "RadioNumberOfEntries", T_UINT, 0, TB_NONE, g_cp_n, NULL },
+	{ CP "Radio.{i}.Radio", T_STR, 0, TB_CHAN, g_heal_radio, NULL },
+	{ CP "Radio.{i}.Channel", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.Status", T_STR, N, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.Verdict", T_STR, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.BestChannel", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.GainPercent", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.BusyHours", T_STR, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.LearnedDays", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.Scans", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.Proposed", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.Kept", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.MovedBack", T_UINT, 0, TB_CHAN, g_cp, NULL },
+	{ CP "Radio.{i}.LastResult", T_STR, 0, TB_CHAN, g_cp, NULL },
+#undef CP
 	{ "Device.X_AIGW_.WiFiHealthNumberOfEntries", T_UINT, 0, TB_NONE, g_heal_n, NULL },
 	{ "Device.X_AIGW_.WiFiHealth.{i}.Radio", T_STR, 0, TB_HEAL, g_heal_radio, NULL },
 	{ "Device.X_AIGW_.WiFiHealth.{i}.Status", T_STR, N, TB_HEAL, g_heal_status, NULL },
@@ -2100,6 +2123,7 @@ static struct {
 	{ "Device.X_AIGW_.ProactiveTicket!",
 	  "Ticket,Status,Code,Fault,Severity,Points,Reason,Devices,Since,Summary,Evidence,NextStep,CustomerNote,Decision" },
 	{ "Device.X_AIGW_.MeshDecision!", "Decision,Kind,State,Station,From,To,Reason,Before,After" },
+	{ "Device.X_AIGW_.ChannelPlan!", "Radio,FromChannel,ToChannel,State,Reason,Before,After" },
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -2788,6 +2812,27 @@ void dm_on_mesh(uint32_t id, const char *kind, const char *state, const char *st
 				     "After", after ? after : "", NULL };
 
 		emit(events[14].path, kv);  /* MeshDecision! */
+	}
+}
+
+/* chan.c: a planned channel move proposed, applied, kept or moved back (ChannelPlan!) */
+void dm_on_chanplan(const char *iface, int from, int to, const char *state, const char *reason, const char *before,
+		    const char *after)
+{
+	char radio[40], f[8], t[8];
+	int i;
+
+	snprintf(radio, sizeof(radio), "%s", iface);
+	for (i = 0; i < wifi_n_aps; i++)
+		if (!strcmp(wifi_aps[i].iface, iface))
+			snprintf(radio, sizeof(radio), "Device.WiFi.Radio.%u", imap_num(&ssid_map, iface));
+	snprintf(f, sizeof(f), "%d", from);
+	snprintf(t, sizeof(t), "%d", to);
+	{
+		const char *kv[] = { "Radio", radio, "FromChannel", f, "ToChannel", t, "State", state, "Reason",
+				     reason ? reason : "", "Before", before ? before : "", "After", after ? after : "", NULL };
+
+		emit(events[15].path, kv);  /* ChannelPlan! */
 	}
 }
 

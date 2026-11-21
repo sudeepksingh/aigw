@@ -205,7 +205,7 @@ static void radio_words(const char *iface, char *buf, size_t n)
 }
 
 enum { P_EVENT, P_MAC, P_HOST, P_BAND, P_SIGNAL, P_IFACE, P_STATUS, P_CAUSE, P_ACTION, P_TARGET, P_DEVICE, P_STATE,
-       P_ORIGIN, P_CODE, P_SUMMARY, P_FROM, P_TO, P_METRIC, __P_MAX };
+       P_ORIGIN, P_CODE, P_SUMMARY, P_FROM, P_TO, P_METRIC, P_EXPL, __P_MAX };
 static const struct blobmsg_policy pol[__P_MAX] = {
 	[P_EVENT] = { "event", BLOBMSG_TYPE_STRING }, [P_MAC] = { "mac", BLOBMSG_TYPE_STRING },
 	[P_HOST] = { "hostname", BLOBMSG_TYPE_STRING }, [P_BAND] = { "band", BLOBMSG_TYPE_STRING },
@@ -216,6 +216,7 @@ static const struct blobmsg_policy pol[__P_MAX] = {
 	[P_ORIGIN] = { "origin", BLOBMSG_TYPE_STRING }, [P_CODE] = { "code", BLOBMSG_TYPE_STRING },
 	[P_SUMMARY] = { "summary", BLOBMSG_TYPE_STRING }, [P_FROM] = { "from", BLOBMSG_TYPE_STRING },
 	[P_TO] = { "to", BLOBMSG_TYPE_STRING }, [P_METRIC] = { "metric", BLOBMSG_TYPE_STRING },
+	[P_EXPL] = { "explanation", BLOBMSG_TYPE_STRING },
 };
 
 static const char *s_(struct blob_attr **tb, int k)
@@ -246,6 +247,12 @@ static void on_wifi(struct blob_attr **tb)
 		     sigs);
 	else if (!strcmp(ev, "steer"))
 		note(WE_STEER, mac, 0, 0, "AIGW moved %s to %s GHz", who, *s_(tb, P_TO) ? s_(tb, P_TO) : "another band");
+	else if (!strcmp(ev, "plan") || !strcmp(ev, "plan-kept") || !strcmp(ev, "plan-tried")) {
+		radio_words(s_(tb, P_IFACE), rw, sizeof(rw));
+		note(WE_PLAN, NULL, 0, 0, "%s, %s: %.120s", rw, !strcmp(ev, "plan") ? "a quieter channel learned" :
+		     !strcmp(ev, "plan-kept") ? "planned channel kept" : "planned channel moved back",
+		     s_(tb, P_EXPL));
+	}
 	else if (!strcmp(ev, "health")) {
 		const char *st = s_(tb, P_STATUS);
 		int flag = !strcmp(st, "Good") ? HEAL_GOOD : !strcmp(st, "Degraded") ? HEAL_DEGRADED :

@@ -57,6 +57,17 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.45:** **Neighbour-aware channels.** AIGW learns how crowded each Wi-Fi
+> channel is, hour by hour of the day: the air others use (the radio's survey),
+> the neighbouring networks (scan results, rare scans of its own only when the
+> home is quiet and never during a call), what devices felt, and the home's own
+> busy hours. It moves only when another channel is clearly better over those
+> hours, after days of history, never from one moment: a trial judged on loss,
+> replies and link rates, kept or moved back and avoided. Self-Healing Wi-Fi's
+> trial now tries the quietest channel known first. `agctl channels` (a
+> per-channel, per-hour view), data model 1.20 (`Device.X_AIGW_.ChannelPlan.`,
+> `ChannelPlan!`); see [docs/neighbour-channels.md](docs/neighbour-channels.md).
+>
 > **v0.44:** **Smarter mesh Wi-Fi over EasyMesh.** AIGW is the intelligence over
 > a standard Wi-Fi Alliance EasyMesh controller (prplMesh, the one in prplOS),
 > not another 1905.1 stack: it reads the mesh through the Data Elements model

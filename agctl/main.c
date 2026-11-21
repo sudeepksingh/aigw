@@ -40,6 +40,8 @@ static void usage(void)
 		"  dns cache           the DNS cache: hits, answer times, prefetches, stale answers\n"
 		"  wifi                access points (band, channel), their devices, band steering\n"
 		"  wifi --report       what Self-Healing Wi-Fi found and fixed: last day, 7 and 30 days\n"
+		"  channels            neighbour-aware channels: each channel's air by hour of day, the home's\n"
+		"                      busy hours, whether another is clearly better, a planned move's trial\n"
 		"  diagnose [device]   \"my internet is slow\": the line, DNS, Wi-Fi and the device, checked\n"
 		"                      in a few seconds; what is wrong, most likely first, and what to do\n"
 		"  care proactive [--run]  before the call: faults a customer would notice, fixed by AIGW\n"
@@ -264,6 +266,8 @@ static void show_radios(struct ubus_request *req, int type, struct blob_attr *ms
 			       fnum(r, "suggest") ? "" : "\n");
 		if (fnum(r, "suggest"))
 			printf("; quieter: channel %llu\n", (unsigned long long)fnum(r, "suggest"));
+		if (*fstr(r, "plan"))
+			printf("  channels        %s (agctl channels)\n", fstr(r, "plan"));
 		if (field(r, "health")) {
 			struct blob_attr *h = field(r, "health");
 
@@ -2208,6 +2212,111 @@ static void show_calls(struct ubus_request *req, int type, struct blob_attr *msg
 	       "sees nothing (calls.share 0)");
 }
 
+/* an hour's value from an array of 24 (-1: not known) */
+static int hour_val(struct blob_attr *arr, int h)
+{
+	struct blob_attr *v;
+	size_t rem;
+	int k = 0;
+
+	if (arr)
+		blobmsg_for_each_attr(v, arr, rem)
+			if (k++ == h)
+				return (int32_t)blobmsg_get_u32(v);
+	return -1;
+}
+
+/* agctl channels: neighbour-aware channels, each access point's channels by hour of day */
+static void show_channels(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "radios"), *r, *c, *a;
+	size_t rem, rem2;
+	int h;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "enabled")) {
+		printf("Neighbour-aware channels are off (wifi.chan_plan, wifi.chan_heal in /etc/config/aigw).\n");
+		return;
+	}
+	if (!arr || !blobmsg_len(arr)) {
+		printf("No access point learned yet (each channel is learned hour by hour once the Wi-Fi is up).\n");
+		return;
+	}
+	blobmsg_for_each_attr(r, arr, rem) {
+		struct blob_attr *use = field(r, "use"), *chs = field(r, "channels");
+		int max = 0;
+
+		printf("%s GHz (%s), channel %llu: %s", fstr(r, "band"), fstr(r, "iface"),
+		       (unsigned long long)fnum(r, "channel"), fstr(r, "status"));
+		if (!strcmp(fstr(r, "status"), "Confirming"))
+			printf(" (look %llu)", (unsigned long long)fnum(r, "looks"));
+		printf("\n  Learned for %llu days, %llu scans. The home's busy hours: %s.\n  %s\n",
+		       (unsigned long long)fnum(r, "days"), (unsigned long long)fnum(r, "scans"), fstr(r, "busy_hours"),
+		       fstr(r, "verdict"));
+		if (*fstr(r, "waits"))
+			printf("  The move waits: %s.\n", fstr(r, "waits"));
+		if (chs) {
+			for (h = 0; h < 24; h++)
+				if (hour_val(use, h) > max)
+					max = hour_val(use, h);
+			printf("  Air used by others, %% by hour of day (. not measured, * the home's busy hours):\n   hour");
+			for (h = 0; h < 24; h++)
+				printf("%3d", h);
+			printf("  neighbours\n       ");
+			for (h = 0; h < 24; h++)
+				printf("  %c", max >= 1 && hour_val(use, h) * 2 >= max ? '*' : ' ');
+			printf("\n");
+			blobmsg_for_each_attr(c, chs, rem2) {
+				struct blob_attr *air = field(c, "air"), *nb = field(c, "neighbours");
+				int sum = 0, n = 0;
+
+				printf("  %s%3llu ", fnum(c, "channel") == fnum(r, "channel") ? ">" : " ",
+				       (unsigned long long)fnum(c, "channel"));
+				for (h = 0; h < 24; h++) {
+					int v = hour_val(air, h), w = hour_val(nb, h);
+
+					if (v < 0)
+						printf("  .");
+					else
+						printf("%3d", v > 99 ? 99 : v);
+					if (w >= 0)
+						sum += w, n++;
+				}
+				if (n)
+					printf("  %.1f\n", sum / 10.0 / n);
+				else
+					printf("  .\n");
+			}
+		}
+		if ((a = field(r, "avoided")) && blobmsg_len(a)) {
+			struct blob_attr *x;
+			size_t rem3;
+
+			printf("  Avoided (didn't help lately):");
+			blobmsg_for_each_attr(x, a, rem3) {
+				char t[32];
+				time_t u = (time_t)fnum(x, "until");
+
+				strftime(t, sizeof(t), "%Y-%m-%d %H:%M", localtime(&u));
+				printf(" %llu until %s", (unsigned long long)fnum(x, "channel"), t);
+			}
+			printf("\n");
+		}
+		if (fnum(r, "trial_decision"))
+			printf("  Trial: from channel %llu (decision %llu), %llu s of busy hours measured so far.\n",
+			       (unsigned long long)fnum(r, "trial_from"), (unsigned long long)fnum(r, "trial_decision"),
+			       (unsigned long long)fnum(r, "trial_measured_s"));
+		printf("  Planned moves: %llu proposed, %llu kept, %llu moved back.\n",
+		       (unsigned long long)fnum(r, "proposed"), (unsigned long long)fnum(r, "kept"),
+		       (unsigned long long)fnum(r, "tried"));
+		if (*fstr(r, "last"))
+			printf("  Last: %s\n", fstr(r, "last"));
+	}
+}
+
 /* agctl mesh: the EasyMesh network as AIGW sees it: access points and their backhaul, each device's access point
    and link (and why AIGW left it there), the channel plan, the trial now, the counts */
 static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -2626,6 +2735,8 @@ int main(int argc, char **argv)
 		rc = rc || sqm_failed;
 	} else if (!strcmp(cmd, "calls")) {
 		rc = call("ag", "calls", NULL, show_calls);
+	} else if (!strcmp(cmd, "channels")) {
+		rc = call("ag", "channels", NULL, show_channels);
 	} else if (!strcmp(cmd, "mesh") && i + 2 < argc && (!strcmp(argv[i], "steer") || !strcmp(argv[i], "channel"))) {
 		char target[128];
 		int ttl = i + 3 < argc ? parse_time(argv[i + 3]) : 0;

@@ -59,6 +59,10 @@ add_executable(test_mesh test_mesh.c)
 target_link_libraries(test_mesh ag)
 add_test(NAME mesh_wifi COMMAND test_mesh)
 
+add_executable(test_chanplan test_chanplan.c)
+target_link_libraries(test_chanplan ag)
+add_test(NAME neighbour_channels COMMAND test_chanplan)
+
 add_executable(test_tr143 test_tr143.c)
 target_link_libraries(test_tr143 ag)
 add_test(NAME tr143_diagnostics COMMAND test_tr143)

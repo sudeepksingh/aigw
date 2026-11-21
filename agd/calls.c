@@ -495,6 +495,12 @@ static int live_n(void)
 	return n;
 }
 
+/* chan.c: a call or game is on now, anywhere in the home (no scan, no channel move then) */
+int calls_live(void)
+{
+	return live_n();
+}
+
 /* mesh.c: a call or game is on for this device now (a steer would break it up) */
 int calls_live_on(const char *mac)
 {

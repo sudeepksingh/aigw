@@ -121,6 +121,8 @@ struct brief_in {
 	   a warning when devices are behind it) */
 	const struct brief_finding *mesh;
 	int nmesh;
+	/* neighbour-aware channels (ag/chanplan.h): what was learned of the channels by hour, in words; NULL none */
+	const char *chan_plan;
 };
 
 struct brief_line {

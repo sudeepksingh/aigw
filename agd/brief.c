@@ -291,6 +291,12 @@ static void gather(struct brief_in *in, const struct brief_ask *a, long now)
 		in->mesh = mf;
 		in->nmesh = m;
 	}
+	/* neighbour-aware channels: what was learned of each channel by hour */
+	{
+		static char cw[400];
+
+		in->chan_plan = cfg.chan_plan && chan_plan_words(cw, sizeof(cw)) ? cw : NULL;
+	}
 	/* smart queueing, the last upgrade */
 	if (cfg.sqm && sqm_field("Status", sqm_state, sizeof(sqm_state)) == 0) {
 		uint32_t id;

@@ -573,6 +573,7 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 					 t->from);
 			act_undo_because(t->id, note);
 			mark_bad(t, t->to);
+			chan_avoid(ap->iface, t->to, BAD_FOR);  /* a planned move doesn't go there either */
 			heal_report_day(&reps[a], (long)wall)->tried++;
 			snprintf(text, sizeof(text), "Channel %d -> %d did not help: switched back; channel %d is avoided for a day.",
 				 t->from, t->to, t->to);
