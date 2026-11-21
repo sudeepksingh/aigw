@@ -45,7 +45,8 @@ static void usage(void)
 		"  care proactive [--run]  before the call: faults a customer would notice, fixed by AIGW\n"
 		"                      (as act.mode allows) or raised to the ISP with a note for the customer\n"
 		"  care [--check|--speed]  proactive care: problems found by the gateway itself, early\n"
-		"                      warnings, the experience score and the nightly speed (--speed: test now)\n"
+		"                      warnings, the experience score and the nightly speed (--speed: test now;\n"
+		"                      --speed <http://server/file>: once, against a server of your own)\n"
 		"  upgrade [--forget]  the last firmware upgrade: the home before and after it, kept or rolled\n"
 		"                      back, and why (--forget: a version rolled back may be installed again)\n"
 		"  why [device] [--at 20:00 | --from 19:30 --to 21:00 | --last 2h] [--raw]\n"
@@ -499,14 +500,15 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 		if (any)
 			printf(" (learned over %llu day%s)\n", (unsigned long long)fnum(w, "learned_days"),
 			       fnum(w, "learned_days") == 1 ? "" : "s");
-		if (sp && fnum(sp, "enabled")) {
+		if (sp && (fnum(sp, "enabled") || strcmp(fstr(sp, "status"), "None"))) {
 			printf("  speed     ");
 			if (!strcmp(fstr(sp, "status"), "None"))
 				printf("no test yet");
 			else if (!strcmp(fstr(sp, "status"), "Error"))
 				printf("the last test failed (%s)", fstr(sp, "why"));
 			else
-				printf("%s Mbit/s, %s%s", fstr(sp, "mbps"), ago(fnum(sp, "last"), t1, sizeof(t1)),
+				printf("%s Mbit/s, %s%s%s%s", fstr(sp, "mbps"), ago(fnum(sp, "last"), t1, sizeof(t1)),
+				       fstr(sp, "by")[0] ? ", a test by " : "", fstr(sp, "by"),
 				       !strcmp(fstr(sp, "status"), "Low") ? " (slow)" : "");
 			if (fnum(sp, "expected_mbps"))
 				printf("; the line's speed %llu, at least %llu%% required", (unsigned long long)fnum(sp, "expected_mbps"),
@@ -515,6 +517,15 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 				printf("; next in %s", dur_short(fnum(sp, "next") - now, t2, sizeof(t2)));
 			printf("\n");
 		}
+		if (sp && fnum(sp, "running"))
+			printf("  speed     a test you asked for is running\n");
+		if (sp && fstr(sp, "asked_why")[0])
+			printf("  speed     the test you asked for didn't count: %s\n", fstr(sp, "asked_why"));
+		/* v0.44.1: say so when the line's speed isn't known, and how to fix it */
+		if (sp && !strcmp(fstr(sp, "line"), "unknown"))
+			printf("  line      its speed isn't known: the timeline and smart queueing guess it from the most seen.\n"
+			       "            Set what was sold (care.speed_mbps), a speed test server (care.speed_url), or\n"
+			       "            test once now: agctl care --speed http://<server>/<big file>\n");
 	}
 	for (k = 0; k < 3; k++) {
 		struct blob_attr *s = field(rep, per[k]);
@@ -2586,6 +2597,8 @@ int main(int argc, char **argv)
 			care_asked_check = 1;
 		} else if (i < argc && (!strcmp(argv[i], "--speed") || !strcmp(argv[i], "speed"))) {
 			blobmsg_add_u8(&args, "speed", 1);
+			if (i + 1 < argc && !strncmp(argv[i + 1], "http", 4))
+				blobmsg_add_string(&args, "speed_url", argv[i + 1]);   /* a server of one's own */
 			care_asked_check = 2;
 		}
 		if (i < argc && !strcmp(argv[i], "proactive")) {

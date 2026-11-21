@@ -480,6 +480,9 @@ int care_normal_now(int metric, float *v);      /* the normal at this hour; -1 n
 int care_learned_days(void);
 const char *care_speed_status(void);    /* None, OK, Low, Error */
 int care_speed_now(void);               /* the speed test now; -1 no care.speed_url */
+int care_speed_url_now(const char *url, char *err, size_t en); /* a person's one test against their server */
+struct tr143_out;
+void care_speed_seen(const struct tr143_out *o, const char *who); /* the ISP's TR-143 download: the line's speed */
 void care_days_blob(struct blob_buf *b, int days);      /* the last days' rows (cortex's fleet report) */
 long care_speed_last(double *mbps);     /* when the last speed test ran (wall s), its Mbit/s */
 /* dm.c: ProblemDetected! (1) or ProblemCleared! (0); EarlyWarning! (1) or EarlyWarningCleared! (0) */
