@@ -239,6 +239,8 @@ static void evidence(const struct brief_in *in, struct brief *o)
 			 heal_status_name((enum heal_status)r->status), heal_cause_name((enum heal_cause)r->cause),
 			 r->text ? r->text : "");
 	}
+	if (in->chan_plan)
+		line_add(o->ev, &o->nev, 0, "wifi", "Channels, learned by the hour: %s", in->chan_plan);
 	for (i = 0; i < in->nmesh; i++)
 		if (in->mesh[i].code && in->mesh[i].since < in->to)
 			line_add(o->ev, &o->nev, in->mesh[i].since, "mesh", "Mesh Wi-Fi now: %s (%s)",
@@ -372,7 +374,10 @@ static void fix(const struct brief_in *in, struct brief *o)
 			x->decision = d->id;
 			snprintf(x->text, sizeof(x->text), "A quieter channel waits for a yes (decision %u, %s): approve it.", d->id,
 				 d->words ? d->words : "");
-		} else
+		} else if (in->chan_plan)
+			snprintf(x->text, sizeof(x->text), "AIGW learns each channel by the hour and moves only when one is "
+				 "clearly better in the busy hours: %.170s", in->chan_plan);
+		else
 			snprintf(x->text, sizeof(x->text), "AIGW tries quieter channels by itself; nothing to do remotely.");
 	} else if (!strcmp(c, "DEVICE_BLOCKED") || !strcmp(c, "DEVICE_LIMITED")) {
 		static const char *const blk[] = { "quarantine", "disconnect", NULL };

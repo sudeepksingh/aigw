@@ -392,8 +392,20 @@ void chan_blob(struct blob_buf *b, const char *iface);
 int chan_valid(int band, int ch);
 int chan_parse(const char *target, const struct wifi_ap **ap, int *ch);
 int chan_switch(const char *iface, int ch, char *err, size_t errlen);
-/* the other channels AIGW would use on this access point (allowed here) */
+/* the other channels AIGW would use on this access point (allowed here, not avoided), quietest known first */
 int chan_options(const struct wifi_ap *a, int *out, int max);
+/* neighbour-aware channels (ag/chanplan.h): a channel that didn't help, avoided for secs */
+void chan_avoid(const char *iface, int ch, int secs);
+void chan_plan_blob(struct blob_buf *b, int table);    /* ag channels; table 0: verdicts and counts only */
+int chan_plan_field(const char *iface, const char *f, char *buf, size_t n);     /* ChannelPlan.Radio.{i}.; -1 */
+int chan_plan_words(char *buf, size_t n);              /* brief.c: worth saying now, in words; 0 nothing */
+void chan_save(struct blob_buf *b);
+void chan_load(struct blob_attr *t);
+/* dm.c: ChannelPlan! (State: Proposed, Applied, Kept, MovedBack) */
+void dm_on_chanplan(const char *iface, int from, int to, const char *state, const char *reason, const char *before,
+		    const char *after);
+/* calls.c: a call or game is on now, anywhere in the home */
+int calls_live(void);
 
 /* presence: arrivals and departures */
 void presence_tick(void);

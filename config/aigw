@@ -447,6 +447,15 @@ config policy 'wifi_congestion'
 	option action 'channel'
 	option ttl '3600'
 
+config policy 'wifi_plan'
+	# neighbour-aware channels: another channel learned clearly better over the
+	# home's busy hours (days of history, not one moment): moved at a quiet
+	# moment, judged over the busy hours, kept if clearly better, else back.
+	# Without this section it is built in (unless wifi.chan_plan is 0)
+	option alert 'wifi-plan'
+	option action 'channel'
+	option ttl '86400'
+
 config policy 'wifi_hopping'
 	# a device keeps hopping to a 5 GHz it can barely reach: keep it on 2.4 GHz
 	# for a day (refused on the 5 GHz access points only)
@@ -526,6 +535,27 @@ config wifi 'wifi'
 	option chan_hold '1800'
 	option chan_poll '30'
 	option chan_scan_gap '21600'
+	# Neighbour-aware channels (docs/neighbour-channels.md): each channel AIGW
+	# may use (2.4 GHz: 1, 6, 11; 5 GHz: no radar channels) learned hour by hour:
+	# the air others use, the neighbouring networks, what devices feel, and the
+	# home's busy hours. Scans: the results already there first; one of its own
+	# at most every chan_learn_gap seconds, only when the home is quiet (no call
+	# or game, its own traffic under chan_quiet % of the air).
+	option chan_plan '1'
+	# option chan_learn_gap '10800'
+	# option chan_quiet '5'
+	# a move: after chan_plan_days of history, another channel chan_plan_better %
+	# less loaded over the busy hours, for chan_plan_hold looks in a row (one
+	# every chan_plan_every seconds), at most one every chan_plan_gap seconds
+	# option chan_plan_days '3'
+	# option chan_plan_better '30'
+	# option chan_plan_hold '3'
+	# option chan_plan_every '3600'
+	# option chan_plan_gap '604800'
+	# its trial: judged over chan_plan_trial seconds of busy hours; a channel
+	# that didn't help is avoided for chan_avoid seconds
+	# option chan_plan_trial '3600'
+	# option chan_avoid '604800'
 
 config plugins 'plugins'
 	# Plug-ins wire themselves in, no configuration needed: packages put them

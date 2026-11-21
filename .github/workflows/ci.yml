@@ -112,6 +112,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/steer-test.sh build
       - name: Channel self-healing test (busy channel, proposal, channel switch, undo)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/chan-test.sh build
+      - name: "Neighbour-aware channels test (five days learned: no scan or move while the home is busy; channel 6 not 1; kept on better rates; moved back and avoided on worse)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/chanplan-test.sh build
       - name: Fast path test (kernel flowtable; actions send offloaded connections back)
         run: |
           # the flowtable modules live in the kernel's extra modules package on this runner

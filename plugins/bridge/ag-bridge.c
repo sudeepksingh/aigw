@@ -624,6 +624,10 @@ static void report(void)
 	/* mesh Wi-Fi: access points, extenders whose backhaul hurts more than it helps, AIGW's moves: counts only */
 	if ((d = query("mesh")) && (d = field(d, "mesh")))
 		copy_attr(&r, "mesh", d);
+	/* neighbour-aware channels: each radio's verdict and AIGW's planned moves: counts and words, no names */
+	if ((d = query("channels")) && (d = field(d, "channels")) && field(d, "radios") &&
+	    blobmsg_data_len(field(d, "radios")))
+		copy_attr(&r, "channels", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))

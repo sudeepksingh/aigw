@@ -1238,8 +1238,31 @@ static int m_mesh(struct ubus_context *ctx, struct ubus_object *obj, struct ubus
 	return 0;
 }
 
+/* ag channels {brief}: neighbour-aware channels: each access point's channels by hour of day (the air others use,
+   the neighbours), the home's busy hours, the verdict, a planned move's trial, the counts; brief: no table */
+enum { CH_BRIEF, __CH_MAX };
+static const struct blobmsg_policy chan_policy[__CH_MAX] = {
+	[CH_BRIEF] = { "brief", BLOBMSG_TYPE_BOOL },
+};
+
+static int m_channels(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		      const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__CH_MAX];
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(chan_policy, __CH_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	blobmsg_add_u8(&b, "enabled", (uint8_t)(cfg.chan_heal && cfg.chan_plan));
+	chan_plan_blob(&b, !(tb[CH_BRIEF] && blobmsg_get_bool(tb[CH_BRIEF])));
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
+	UBUS_METHOD("channels", m_channels, chan_policy),
 	UBUS_METHOD("mesh", m_mesh, mesh_policy),
 	UBUS_METHOD("proactive", m_proactive, proactive_policy),
 	UBUS_METHOD("brief", m_brief, brief_policy),

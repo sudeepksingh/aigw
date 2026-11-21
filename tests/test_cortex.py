@@ -1266,5 +1266,35 @@ class Mesh(unittest.TestCase):
             self.assertEqual(mesh.of(s.snapshot(old)), {})
 
 
+class Channels(unittest.TestCase):
+    """v0.45: neighbour-aware channels across the fleet (channels.py): homes with a clearly better channel."""
+
+    def test_fleet(self):
+        from aigw_cortex import channels, fleet
+        now = 20000 * 86400 + 12 * 3600
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            a, _ = s.enroll("home-a", "east")
+            b, _ = s.enroll("home-b")
+            old, _ = s.enroll("old")
+            s.report(a, {"status": {"version": "0.45.0"}, "channels": {"radios": [
+                {"band": "2.4", "channel": 11, "status": "Planned", "best": 6, "gain_pct": 89, "metric": "neighbours",
+                 "proposed": 1, "kept": 0, "tried": 1},
+                {"band": "5", "channel": 36, "status": "Stay", "best": 0, "proposed": 0, "kept": 1, "tried": 0}]}}, now)
+            s.report(b, {"status": {"version": "0.45.0"}, "channels": {"radios": [
+                {"band": "2.4", "channel": 1, "status": "Learning", "best": 0}]}}, now)
+            s.report(old, {"status": {"version": "0.44.0"}}, now)
+            m = fleet.report(s, 7, now=now)["channels"]
+            self.assertEqual((m["homes"], m["radios"], m["homes_better"]), (2, 3, 1))
+            self.assertEqual(m["counts"], {"proposed": 1, "kept": 1, "tried": 1})
+            self.assertEqual(m["better"], [{"home": "home-a", "group": "east", "band": "2.4", "channel": 11, "best": 6,
+                                            "gain_pct": 89, "metric": "neighbours", "status": "Planned"}])
+            t = fleet.text(fleet.report(s, 7, now=now))
+            self.assertIn("channels    2 homes learning their Wi-Fi channels by the hour (AIGW OS 0.45 on): 1 with a "
+                          "clearly better channel in their busy hours; AIGW moved 2 (kept 1, moved back 1)", t)
+            self.assertIn("home-a (east): 2.4 GHz channel 11 -> 6, 89% less load in the busy hours (neighbours), planned", t)
+            self.assertEqual(channels.of(s.snapshot(old)), [])
+
+
 if __name__ == "__main__":
     unittest.main()

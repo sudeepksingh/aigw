@@ -1491,6 +1491,17 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Explained</td><td><code>agctl mesh</code>, the why timeline, data model 1.19 (<code>Device.X_AIGW_.Mesh.</code>, <code>MeshDecision!</code>), tested end to end against a simulated controller.</td></tr>
     </tbody>
   </table></div>
+
+  <h3 style="margin-top:18px">As built in v0.45: neighbour-aware channels</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Learns by the hour</td><td>Each channel AIGW may use (2.4 GHz: 1, 6, 11; 5 GHz: no radar channels), hour by hour of the day: the air others use, the neighbouring networks (strong and busy ones weigh more, overlap counts), what devices felt, and the home&rsquo;s own busy hours.</td></tr>
+      <tr><td>Scans with care</td><td>The scan results already there first; a scan of its own rarely, only when the home is quiet, never during a call or game: a scan takes the radio off its channel for a moment.</td></tr>
+      <tr><td>Moves only when clearly better</td><td>After days of history, over the busy hours, the same answer several looks in a row, at most once a week. A trial judged on loss, replies and link rates: kept, or moved back and avoided. Advise proposes, enforce applies.</td></tr>
+      <tr><td>Explained</td><td><code>agctl channels</code> (a per-channel, per-hour view), the why timeline, the help-desk brief, data model 1.20 (<code>Device.X_AIGW_.ChannelPlan.</code>, <code>ChannelPlan!</code>), cortex&rsquo;s fleet report.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 -->

@@ -132,6 +132,16 @@ struct ag_config {
 	int chan_hold;            /* seconds it must stay that busy */
 	int chan_poll;            /* seconds between channel measurements */
 	int chan_scan_gap;        /* seconds between two neighbour scans (a scan leaves the channel briefly) */
+	int chan_plan;            /* neighbour-aware channels: learn each channel by hour, move when clearly better */
+	int chan_plan_days;       /* days of history before a move */
+	int chan_plan_better;     /* % less load over the busy hours that is clearly better */
+	int chan_plan_hold;       /* looks in a row that must agree */
+	int chan_plan_every;      /* seconds between two looks */
+	int chan_plan_gap;        /* seconds between two planned moves on one access point */
+	int chan_plan_trial;      /* seconds measured in busy hours before a move is judged */
+	int chan_avoid;           /* seconds a channel that didn't help is avoided */
+	int chan_learn_gap;       /* seconds between two learning scans (only when the home is quiet) */
+	int chan_quiet;           /* % of the air the home itself uses below which it is quiet now */
 	char model_dir[256];      /* .agm models */
 	char lan_ifaces[256];     /* space-separated; clients on these are "the home" */
 	int alerts_enabled;
