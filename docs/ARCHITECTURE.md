@@ -1158,6 +1158,16 @@ Verified by `tests/security-test.sh` (CI: three network namespaces; DNS from the
 
 Verified by `tests/test_mesh.c` (the read, the rules, the trial, the plan, the backhaul), `test_brief.c`, `test_proactive.c`, `tests/mesh-test.sh` (CI: agd against `tests/mesh/fakectl.py`, a fake controller answering like prplMesh's ubus `_get`: advise, approve and kept; enforce, worse and moved back; a miss; the controller's own steering left alone; the channel plan; a weak backhaul to the timeline, the data model, proactive care and the brief; state over a restart; a snapshot; no controller) and `tests/test_cortex.py` (class `Mesh`). Not yet on real multi-AP hardware: [mesh.md](mesh.md) says how.
 
+**As built in v0.46: coverage placement advice.** Which device has weak Wi-Fi, when, where in the home, and what fixes it, from what agd already measures; no floor plan, no model on the router ([coverage.md](coverage.md)).
+
+| Piece | As built |
+|-------|----------|
+| Rules (`core/libag/coverage.c`, `ag/coverage.h`, pure) | Per device: a signal histogram (2 dB bins), looks and weak looks by local hour, the last 7 days, loss when weak and when fine, rate and resends when weak, 2.4 GHz share; up to 3 weak spots, each a signature (what each access point hears, 2.4 GHz less 7 dB) plus the time of day, merged within 6 dB. The history halves after a week of looks. Kinds: `Sometimes`, `Always`, `WeakTransmitter` (steady and weak, yet low loss where other weak devices lose a lot, or a high rate to it where theirs falls, or a smart-home device in a home that is otherwise fine). The home's spots: the devices' spots with the same signature; shared when two or more suffer there. Verdict `Extender`, `UseExtender` (a mesh extender hears the spot well), `MoveDevice`, `WeakDevice`, `Fine`, `Learning`; the words, and a plain customer note |
+| Sampling (`agd/coverage.c`) | Every `coverage.interval` s: each device on the gateway's hostapd (signal, band, rate) and on the mesh (`mesh_seen_at`: the agent it is on, resends, unassociated-station and 802.11k readings of the others); Self-Healing Wi-Fi's loss; drops and roams from `ag.wifi`; the local hour (`AIGW_TEST_HOUR_FILE` in tests). Kept in agd's state |
+| Shown | `coverage_advice()` for `WIFI_COVERAGE` (and `WIFI_DROPS` of a weak device) in Diagnose, the timeline, care, the data model's advice fields; the brief's evidence (`coverage`), fix and tell; proactive tickets' next step and customer note; `agctl coverage`; data model 1.20 `Device.X_AIGW_.Coverage.` (+ `Spot.{i}.`), `Hosts.Host.{i}.X_AIGW_Coverage`, `X_AIGW_UsualSignal`; the bridge's `coverage` (kinds unless `brief.names`), cortex `coverage.py`: homes that need an extender, in the fleet report and the dashboard |
+
+Verified by `tests/test_coverage.c` (the history, kinds, spots across bands, a shared spot, weak transmitters by loss and by kind, a mesh's best ear, decay, plain notes), `test_brief.c` (a name before a colon is scrubbed too), `test_cortex.py` (`Coverage`), `tests/coverage-test.sh` (CI: a simulated home with a fake hostapd and a test clock: the phone that moves, the TV that stays, the weak plug, one shared spot; kinds for the ISP; a ticket that says where; kept over a restart).
+
 ---
 
 ## 17. Status and risks

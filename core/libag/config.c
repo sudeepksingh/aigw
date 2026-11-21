@@ -222,6 +222,10 @@ void ag_config_load(struct ag_config *c)
 	c->mesh_hyst_db = 8;
 	c->mesh_cooldown = 900;
 	c->mesh_quiet = 300;
+	c->cov = 1;
+	c->cov_interval = 60;
+	c->cov_learn = 60;
+	c->cov_share = 1;
 	c->sqm = 1;
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
@@ -606,6 +610,18 @@ void ag_config_load(struct ag_config *c)
 		if (v && atoi(v) >= 0)
 			c->mesh_quiet = atoi(v);
 		read_list_sep(ctx, uci_lookup_section(ctx, p, "mesh"), "name", c->mesh_names, sizeof(c->mesh_names), ";");
+		v = opt(ctx, p, "coverage", "enabled");
+		if (v)
+			c->cov = atoi(v) != 0;
+		v = opt(ctx, p, "coverage", "interval");
+		if (v && atoi(v) >= 1)
+			c->cov_interval = atoi(v);
+		v = opt(ctx, p, "coverage", "learn");
+		if (v && atoi(v) >= 4)
+			c->cov_learn = atoi(v);
+		v = opt(ctx, p, "coverage", "share");
+		if (v)
+			c->cov_share = atoi(v) != 0;
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

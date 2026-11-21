@@ -219,6 +219,8 @@ static void evidence(const struct brief_in *in, struct brief *o)
 			line_add(o->ev, &o->nev, 0, "timeline", "Only %d%% of the period was recorded.", in->recorded_pct);
 	} else
 		line_add(o->ev, &o->nev, 0, "timeline", "No timeline for this period (why.enabled, or not recorded).");
+	if (in->coverage_line && (!strcmp(o->code, "WIFI_COVERAGE") || !strcmp(o->code, "WIFI_DROPS")))
+		line_add(o->ev, &o->nev, 0, "coverage", "Coverage: %s", in->coverage_line);
 	if (in->care_open) {
 		char when[16];
 
@@ -355,7 +357,9 @@ static void fix(const struct brief_in *in, struct brief *o)
 			snprintf(x->target, sizeof(x->target), "%s", in->host_target);
 			snprintf(x->text, sizeof(x->text), "Keep %s on 2.4 GHz for a day (steadier at the edge of 5 GHz). "
 				 "Needs the customer's yes.", in->host ? in->host : "the device");
-		} else
+		} else if (!strcmp(c, "WIFI_COVERAGE") && in->coverage && *in->coverage)
+			snprintf(x->text, sizeof(x->text), "No remote fix: %s", in->coverage);
+		else
 			snprintf(x->text, sizeof(x->text), "No remote fix: a mesh node or extender, or the device closer.");
 	} else if (!strcmp(c, "MESH_BACKHAUL")) {
 		if ((d = waiting(in, "meshsteer"))) {
@@ -390,6 +394,8 @@ static void fix(const struct brief_in *in, struct brief *o)
 			 "fibre box; check the line from the ISP's side.");
 	else if (o->fault == BF_LINE)
 		snprintf(x->text, sizeof(x->text), "No fix on the gateway: the ISP's side (%s).", diag_advice(c));
+	else if (o->fault == BF_DEVICE && !strcmp(c, "WIFI_DROPS") && in->coverage && *in->coverage)
+		snprintf(x->text, sizeof(x->text), "No remote fix: it drops when it is weak; %s", in->coverage);
 	else if (o->fault == BF_DEVICE)
 		snprintf(x->text, sizeof(x->text), "No remote fix: the device itself (restart its Wi-Fi, update it).");
 	else
@@ -553,7 +559,8 @@ void brief_judge(const struct brief_in *in, struct brief *o)
 			 o->current ? ", now" : main ? ", earlier" : "", first, o->code, conflict ? "; the sources disagree" : "");
 	evidence(in, o);
 	done(in, o);
-	snprintf(o->tell, sizeof(o->tell), "%s", tell_of(o->code, o->fault));
+	snprintf(o->tell, sizeof(o->tell), "%s", in->coverage_note && *in->coverage_note && !strcmp(o->code, "WIFI_COVERAGE") ?
+		 in->coverage_note : tell_of(o->code, o->fault));
 	fix(in, o);
 	visit(in, o, agree, lasted);
 	if (conflict && o->visit == BV_YES) {      /* the sources disagree (fine now, say): not a truck yet */
@@ -795,7 +802,7 @@ void brief_scrub(char *text, size_t n, const char *const *name, const char *cons
 			size_t len = strlen(text), rest;
 			int start = p == text || !word_char(p[-1]);
 			char after = p[nl];
-			int end = !after || !word_char(after) || (after == '.' && (!p[nl + 1] || p[nl + 1] == ' '));
+			int end = !after || !word_char(after) || ((after == '.' || after == ':') && (!p[nl + 1] || p[nl + 1] == ' '));
 
 			if (!start || !end) {
 				p += nl;

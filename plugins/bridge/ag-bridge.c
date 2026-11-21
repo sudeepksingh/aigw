@@ -624,6 +624,9 @@ static void report(void)
 	/* mesh Wi-Fi: access points, extenders whose backhaul hurts more than it helps, AIGW's moves: counts only */
 	if ((d = query("mesh")) && (d = field(d, "mesh")))
 		copy_attr(&r, "mesh", d);
+	/* coverage advice: the verdict (a home that needs an extender), counts, spots by kind (coverage.share) */
+	if ((d = query("coverage")) && (d = field(d, "coverage")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
+		copy_attr(&r, "coverage", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))

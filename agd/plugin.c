@@ -36,9 +36,11 @@
  *                    {"request": {"undo": id}}
  *                    {"done": {id, ok, error}}                      actuator result
  *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status" | "care" |
- *                              "upgrade" | "brief" | "proactive", "id": n}   (upgrade: the last
- *                                                   one's check, no devices; brief: the help desk's of
- *                                                   the last hour; proactive: tickets before the call)
+ *                              "upgrade" | "brief" | "proactive" | "mesh" | "coverage", "id": n}
+ *                                                   (upgrade: the last one's check, no devices; brief:
+ *                                                   the help desk's of the last hour; proactive: tickets
+ *                                                   before the call; coverage: the verdict, counts and
+ *                                                   spots by device kind)
  *                    {"firmware": {url, version, checksum, size, id}}   install a firmware image
  *                                                   (capability firmware.install): agd's own
  *                                                   Download path, into the image not running,
@@ -652,6 +654,8 @@ static void on_query(struct plugin *p, const char *what, int id)
 		proactive_report_blob(&d);      /* tickets before the call and their counts: no devices */
 	} else if (!strcmp(what, "mesh")) {
 		mesh_report_blob(&d);           /* mesh Wi-Fi: access points, backhaul findings, AIGW's moves: counts, no names */
+	} else if (!strcmp(what, "coverage")) {
+		coverage_report_blob(&d);       /* coverage advice: the verdict and counts, spots by kind: no names */
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :
@@ -674,7 +678,7 @@ static void on_query(struct plugin *p, const char *what, int id)
 		alerts_blob(&d, 50, "alerts");
 	} else {
 		blob_buf_free(&d);
-		reply(p, id, NULL, "unknown query (status, care, upgrade, brief, proactive, mesh, devices, decisions, alerts, models)");
+		reply(p, id, NULL, "unknown query (status, care, upgrade, brief, proactive, mesh, coverage, devices, decisions, alerts, models)");
 		return;
 	}
 	reply(p, id, &d, NULL);

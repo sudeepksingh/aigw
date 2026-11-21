@@ -45,7 +45,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.19"
+#define DM_VERSION "1.20"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -149,7 +149,7 @@ static const char *vx_path(const char *s)
 /* ---------- tables ---------- */
 
 enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_HOP, TB_NSRES, TB_TICKET,
-       TB_N };
+       TB_SPOT, TB_N };
 
 static int host_listed(const struct device *d)
 {
@@ -223,6 +223,7 @@ static struct {
 	[TB_HOP]      = { "Device.IP.Diagnostics.TraceRoute.RouteHops.{i}.", list_hops },
 	[TB_NSRES]    = { "Device.DNS.Diagnostics.NSLookupDiagnostics.Result.{i}.", list_nsres },
 	[TB_TICKET]   = { "Device.X_AIGW_.Proactive.Ticket.{i}.", proactive_ids },
+	[TB_SPOT]     = { "Device.X_AIGW_.Coverage.Spot.{i}.", coverage_spot_ids },
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -272,6 +273,8 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 		return inst >= 1 && inst <= (uint32_t)tr143_rows(TK_NSLOOKUP) ? 0 : -1;
 	case TB_TICKET:
 		return proactive_field(inst, "Code", tmp, sizeof(tmp)) < 0 ? -1 : 0;
+	case TB_SPOT:
+		return coverage_spot_field(inst, "Devices", tmp, sizeof(tmp));
 	}
 	return -1;
 }
@@ -443,6 +446,8 @@ GET(g_h_ip) { snprintf(buf, n, "%s", c->dev->ip); return 0; }
 GET(g_h_name) { snprintf(buf, n, "%s", c->dev->hostname); return 0; }
 GET(g_h_active) { snprintf(buf, n, "%s", c->dev->present || c->dev->wifi_connected ? "true" : "false"); return 0; }
 GET(g_h_type) { snprintf(buf, n, "%s", c->dev->type); return 0; }
+GET(g_h_cov) { snprintf(buf, n, "%s", coverage_kind_of(c->dev->mac)); return 0; }
+GET(g_h_usual) { snprintf(buf, n, "%d", coverage_usual_of(c->dev->mac)); return 0; }
 GET(g_h_zone) { snprintf(buf, n, "%s", c->dev->zone); return 0; }
 GET(g_h_rdown) { snprintf(buf, n, "%llu", (unsigned long long)c->dev->rate_down); return 0; }
 GET(g_h_rup) { snprintf(buf, n, "%llu", (unsigned long long)c->dev->rate_up); return 0; }
@@ -788,7 +793,7 @@ GET(g_ld_host) { const char *h; int64_t at; (void)c; ld(&h, &at); snprintf(buf, 
 GET(g_ld_code) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? f->code : ""); return 0; }
 GET(g_ld_sev) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? diag_sev_name(f->sev) : ""); return 0; }
 GET(g_ld_summary) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? f->text : ""); return 0; }
-GET(g_ld_advice) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? diag_advice(f->code) : ""); return 0; }
+GET(g_ld_advice) { const char *h; int64_t at; const struct diag_finding *f = ld(&h, &at); (void)c; snprintf(buf, n, "%s", f ? coverage_advice(f->code, NULL, 1) : ""); return 0; }
 GET(g_ld_findings)
 {
 	const struct diag_result *r;
@@ -815,7 +820,7 @@ GET(g_cp_code) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, 
 GET(g_cp_area) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? s->area : ""); return 0; }
 GET(g_cp_sev) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? diag_sev_name(s->sev) : ""); return 0; }
 GET(g_cp_summary) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? s->text : ""); return 0; }
-GET(g_cp_advice) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? diag_advice(s->code) : ""); return 0; }
+GET(g_cp_advice) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s ? coverage_advice(s->code, NULL, 1) : ""); return 0; }
 GET(g_cp_since) { const struct care_state *s = cs_open(); (void)c; fmt_time(s ? s->since : 0, buf, n); return 0; }
 GET(g_cp_rep) { const struct care_state *s = cs_open(); (void)c; snprintf(buf, n, "%s", s && s->reported ? "true" : "false"); return 0; }
 #define CSTAT(fn, days, expr) \
@@ -977,6 +982,10 @@ MSF(g_ms_sum, "Summary")
 MST(g_ms_ltime, "LastTime")
 MST(g_ms_read, "ReadTime")
 
+/* coverage placement advice (Device.X_AIGW_.Coverage.): by the parameter's own name, a spot's too */
+GET(g_cov) { const char *d = strrchr(c->ppath, '.'); return coverage_field(d ? d + 1 : c->ppath, buf, n); }
+GET(g_cov_spot) { const char *d = strrchr(c->ppath, '.'); return coverage_spot_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
+
 /* area outages (Device.X_AIGW_.AreaOutage.): cortex found many homes of this uplink down at once */
 #define AOF(fn, f) GET(fn) { (void)c; return area_field(f, buf, n); }
 #define AOT(fn, f) GET(fn) { char v[24] = "0"; (void)c; area_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
@@ -1135,6 +1144,8 @@ static struct dm_param {
 	{ "Device.Hosts.Host.{i}.Active", T_BOOL, N, TB_HOST, g_h_active, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_Type", T_STR, 0, TB_HOST, g_h_type, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_Zone", T_STR, 0, TB_HOST, g_h_zone, NULL },
+	{ "Device.Hosts.Host.{i}.X_AIGW_Coverage", T_STR, 0, TB_HOST, g_h_cov, NULL },
+	{ "Device.Hosts.Host.{i}.X_AIGW_UsualSignal", T_INT, 0, TB_HOST, g_h_usual, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_FirstSeen", T_TIME, 0, TB_HOST, g_h_first, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_LastSeen", T_TIME, 0, TB_HOST, g_h_last, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_RateDown", T_ULONG, 0, TB_HOST, g_h_rdown, NULL },
@@ -1380,6 +1391,25 @@ static struct dm_param {
 	{ MS "LastSummary", T_STR, 0, TB_NONE, g_ms_lsum, NULL },
 	{ MS "Summary", T_STR, 0, TB_NONE, g_ms_sum, NULL },
 #undef MS
+#define CV "Device.X_AIGW_.Coverage."
+	{ CV "Enable", T_BOOL, 0, TB_NONE, g_cov, NULL },
+	{ CV "Status", T_STR, N, TB_NONE, g_cov, NULL },
+	{ CV "Advice", T_STR, 0, TB_NONE, g_cov, NULL },
+	{ CV "CustomerNote", T_STR, 0, TB_NONE, g_cov, NULL },
+	{ CV "Devices", T_UINT, 0, TB_NONE, g_cov, NULL },
+	{ CV "WeakDevices", T_UINT, 0, TB_NONE, g_cov, NULL },
+	{ CV "DevicesToMove", T_UINT, 0, TB_NONE, g_cov, NULL },
+	{ CV "WeakTransmitters", T_UINT, 0, TB_NONE, g_cov, NULL },
+	{ CV "SharedSpots", T_UINT, N, TB_NONE, g_cov, NULL },
+	{ CV "SpotNumberOfEntries", T_UINT, N, TB_NONE, g_cov, NULL },
+	{ CV "Spot.{i}.Where", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
+	{ CV "Spot.{i}.When", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
+	{ CV "Spot.{i}.Devices", T_UINT, 0, TB_SPOT, g_cov_spot, NULL },
+	{ CV "Spot.{i}.Suffering", T_UINT, 0, TB_SPOT, g_cov_spot, NULL },
+	{ CV "Spot.{i}.Shared", T_BOOL, 0, TB_SPOT, g_cov_spot, NULL },
+	{ CV "Spot.{i}.Signal", T_INT, 0, TB_SPOT, g_cov_spot, NULL },
+	{ CV "Spot.{i}.HeardBestBy", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
+#undef CV
 #define AO "Device.X_AIGW_.AreaOutage."
 	{ AO "Enable", T_BOOL, 0, TB_NONE, g_ao_en, NULL },
 	{ AO "UplinkID", T_STR, W, TB_NONE, g_ao_up, s_ao_up },
@@ -1748,7 +1778,7 @@ static void diag_out(struct blob_buf *bb, const struct diag_result *r, const str
 	blobmsg_add_string(bb, "Area", v ? v->area : "All");
 	blobmsg_add_string(bb, "Severity", diag_sev_name(v ? v->sev : DS_OK));
 	blobmsg_add_string(bb, "Summary", v ? v->text : "");
-	blobmsg_add_string(bb, "Advice", diag_advice(v ? v->code : "OK"));
+	blobmsg_add_string(bb, "Advice", coverage_advice(v ? v->code : "OK", NULL, 1));
 	blobmsg_add_string(bb, "Findings", codes);
 	snprintf(num, sizeof(num), "%d", in->inet.sent ? in->inet.lost * 100 / in->inet.sent : 100);
 	blobmsg_add_string(bb, "InternetLossPercent", num);
@@ -1881,7 +1911,7 @@ static int r_whyslow(const struct ictx *c, struct blob_attr *a, struct blob_buf 
 	blobmsg_add_string(o, "Area", r.f[0].area);
 	blobmsg_add_string(o, "Severity", diag_sev_name(r.f[0].sev));
 	blobmsg_add_string(o, "Summary", r.f[0].text);
-	blobmsg_add_string(o, "Advice", why_advice(r.f[0].code));
+	blobmsg_add_string(o, "Advice", coverage_advice(r.f[0].code, NULL, 1));
 	blobmsg_add_string(o, "Findings", codes);
 	blobmsg_add_string(o, "Story", story);
 	fmt_time(from, tm, sizeof(tm));
@@ -2638,7 +2668,7 @@ void dm_on_care(const struct care_state *s, int detected)
 	snprintf(dur, sizeof(dur), "%ld", s->duration);
 	if (detected) {
 		const char *kv[] = { "Code", s->code, "Area", s->area, "Severity", diag_sev_name(s->sev),
-				     "Summary", s->text, "Advice", diag_advice(s->code), "Since", since, NULL };
+				     "Summary", s->text, "Advice", coverage_advice(s->code, NULL, 1), "Since", since, NULL };
 
 		emit(events[4].path, kv);   /* ProblemDetected! */
 	} else {

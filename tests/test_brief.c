@@ -495,6 +495,9 @@ int main(void)
 		brief_scrub(buf, sizeof(buf), nm, kd, 4);
 		CHECK(!strcmp(buf, "a TV moved to 2.4 GHz; a TV left; a device joined; tvbox stayed; an iPhone weak; the a TV."),
 		      "whole names only, longest first: %s", buf);
+		snprintf(buf, sizeof(buf), "Coverage: tv: weak all the time; tv:1 stays");
+		brief_scrub(buf, sizeof(buf), nm, kd, 4);
+		CHECK(!strcmp(buf, "Coverage: a TV: weak all the time; tv:1 stays"), "a name before a colon too: %s", buf);
 		snprintf(buf, 24, "tv tv tv tv tv");
 		brief_scrub(buf, 24, nm, kd, 1);
 		CHECK(strlen(buf) < 24 && !strncmp(buf, "a TV a TV", 9) && !strstr(buf, " tv"),

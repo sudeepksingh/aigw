@@ -21,6 +21,8 @@ leaves a home for it):
                  system (TMF621 or webhooks, tickets.py): synced, retrying, failed;
                  GET /api/tickets?open=1
   ISP signals    a faster plan, mesh Wi-Fi, smart queueing, homes at risk, line repairs
+  coverage       (v0.46) the homes that need an extender: a weak spot two or more devices share
+                 (coverage.py), and those where moving one device is enough
   queueing       smart queueing decisions across the fleet, and calls-first
                  results where a bridge reports them
   per gateway    status, open problem and warning, alerts, decisions waiting for
