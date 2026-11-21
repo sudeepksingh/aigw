@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.20. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.21. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-20" file="aigw-dm-1-20.xml">
+             spec="urn:aigw-os:aigw-dm-1-21" file="aigw-dm-1-21.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.20">
+  <model name="AIGW-OS:1.21">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -448,6 +448,18 @@
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="RadioNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
+    <object name="Device.X_AIGW_.Coverage." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="CustomerNote" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Devices" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeakDevices" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DevicesToMove" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeakTransmitters" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SharedSpots" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="SpotNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+    </object>
     <object name="Device.X_AIGW_.Decision." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.LastDiagnosis." access="readOnly" minEntries="1" maxEntries="1">
@@ -589,6 +601,8 @@
       <parameter name="Active" access="readOnly" activeNotify="normal"><syntax><boolean/></syntax></parameter>
       <parameter name="X_AIGW_Type" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="X_AIGW_Zone" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="X_AIGW_Coverage" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="X_AIGW_UsualSignal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
       <parameter name="X_AIGW_FirstSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="X_AIGW_LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="X_AIGW_RateDown" access="readOnly" activeNotify="canDeny"><syntax><unsignedLong/></syntax></parameter>
@@ -768,6 +782,8 @@
     </object>
     <object name="Device.X_AIGW_.ChannelPlan.Radio." access="readOnly" minEntries="1" maxEntries="1">
     </object>
+    <object name="Device.X_AIGW_.Coverage.Spot." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
     <object name="Device.X_AIGW_.Decision.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="DecisionNumberOfEntries">
       <parameter name="Action" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Target" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -921,6 +937,15 @@
       <parameter name="Kept" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="MovedBack" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="LastResult" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Coverage.Spot.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="SpotNumberOfEntries">
+      <parameter name="Where" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="When" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Devices" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Suffering" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Shared" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Signal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="HeardBestBy" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Proactive.Ticket.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="TicketNumberOfEntries">
       <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>

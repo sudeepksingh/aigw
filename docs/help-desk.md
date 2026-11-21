@@ -81,7 +81,7 @@ When a fix is possible, the brief offers it. It never applies it.
 |---|---|
 | `LINE_FULL` | Smart queueing (`sqm`), if it is off and wasn't tried here already |
 | `WIFI_HOPPING` | Keep the device on 2.4 GHz for a day (`stay24`) |
-| `WIFI_CONGESTION`, `WIFI_COVERAGE` | A channel change, a move to a better mesh access point (`meshsteer`) or `stay24` that AIGW already proposed: approve it. v0.45: for congestion with nothing waiting, what AIGW learned of the channels by the hour ([neighbour-channels.md](neighbour-channels.md)), also among the evidence |
+| `WIFI_CONGESTION`, `WIFI_COVERAGE` | A channel change, a move to a better mesh access point (`meshsteer`) or `stay24` that AIGW already proposed: approve it. v0.45: for congestion with nothing waiting, what AIGW learned of the channels by the hour ([neighbour-channels.md](neighbour-channels.md)), also among the evidence For `WIFI_COVERAGE` (v0.46): the [coverage advice](coverage.md): which device, when, where in the home, and whether moving it, moving the gateway, or an extender about halfway would fix it |
 | `MESH_BACKHAUL` | A move off the extender that AIGW already proposed: approve it; for good, the extender closer or on a cable |
 | `DEVICE_BLOCKED`, `DEVICE_LIMITED` | Undo AIGW's decision, after checking its reason with the customer |
 

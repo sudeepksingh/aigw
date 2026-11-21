@@ -1226,6 +1226,47 @@ static void on_read(void)
 
 /* ---------- for others ---------- */
 
+/* coverage advice: a device, where it is, and what the other access points hear of it (unassociated-station and
+   802.11k measurements) */
+int mesh_seen_at(int i, struct mesh_seen *o)
+{
+	const struct mesh_sta *s;
+	const struct mesh_hist *h;
+	int k, d, r, x;
+
+	if (!have || i < 0 || i >= N.n_sta || N.n_dev < 2)
+		return -1;              /* no mesh: the gateway's own access points say it all */
+	s = &N.sta[i];
+	memset(o, 0, sizeof(*o));
+	snprintf(o->mac, sizeof(o->mac), "%s", s->mac);
+	if (!N.dev[s->dev].gateway)
+		snprintf(o->on, sizeof(o->on), "%s", N.dev[s->dev].id);
+	o->dbm = s->dbm;
+	o->band = N.dev[s->dev].radio[s->radio].band;
+	o->retry_pct = (h = hist_of(s->mac, 0, NULL)) ? h->retry_pct : -1;
+	for (k = 0; k < N.n_un && o->n < 4; k++)
+		if (!strcasecmp(N.un[k].mac, s->mac) && N.un[k].dev != s->dev && N.un[k].dbm) {
+			snprintf(o->id[o->n], sizeof(o->id[0]), "%s", N.dev[N.un[k].dev].gateway ? "" : N.dev[N.un[k].dev].id);
+			o->heard[o->n++] = N.un[k].dbm;
+		}
+	for (k = 0; k < s->n_meas && o->n < 4; k++)
+		if (mesh_find_bss(&N, s->meas[k].bssid, &d, &r, &x) == 0 && d != s->dev && s->meas[k].dbm) {
+			snprintf(o->id[o->n], sizeof(o->id[0]), "%s", N.dev[d].gateway ? "" : N.dev[d].id);
+			o->heard[o->n++] = s->meas[k].dbm;
+		}
+	return 0;
+}
+
+void mesh_agent_words(const char *id, char *buf, size_t n)
+{
+	int d = have ? mesh_find_dev(&N, id) : -1;
+
+	if (d >= 0)
+		mesh_dev_words(&N, d, buf, n);
+	else
+		snprintf(buf, n, "the extender %s", id);
+}
+
 int mesh_issues(struct mesh_issue *out, int max)
 {
 	int i, k, n = 0;

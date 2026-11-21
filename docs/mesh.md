@@ -341,8 +341,9 @@ advice. Still to come:
   or 5 GHz backhaul, or another parent, as a trial like the others. Today it is advice.
 - **The 6 GHz channel plan**, and DFS channels with their CAC (from the radios'
   `CACCapability`).
-- **Placement.** RoomSense-style placement of devices and extenders, to say *where*
-  to move the extender, not only that it is too far.
+- **Placement.** v0.46 does part of this: [coverage advice](coverage.md) finds the
+  weak spots of the home, says which access point hears each one best, and where an
+  extender would go (about halfway). Still to do: where to move an extender that is there.
 - **Neighbours.** The controller's channel scan results (`ScanResult`), so the plan
   avoids the neighbours' networks as well as the home's own radios.
 - **Moving a device off a hurting extender**, even when the gateway hears it

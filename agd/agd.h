@@ -772,6 +772,37 @@ int act_recent(const char *action, int64_t since);     /* one made since, in any
 struct care_day;
 int care_days_get(struct care_day *out, int max);
 
+/* mesh.c, for coverage advice: the devices the mesh sees, one by one (i from 0): -1 past the last (or no mesh) */
+struct mesh_seen {
+	char mac[18];
+	char on[18];                    /* the access point it is on (AL MAC), "" the gateway */
+	int dbm, band, retry_pct;       /* its link there; retry -1 not known */
+	int n;                          /* other access points that hear it */
+	char id[4][18];
+	int heard[4];                   /* dBm */
+};
+int mesh_seen_at(int i, struct mesh_seen *o);
+void mesh_agent_words(const char *id, char *buf, size_t n);    /* "the extender 'bedroom'" */
+
+/* coverage.c: coverage placement advice (ag/coverage.h): which device is weak, when, where, what fixes it */
+void coverage_init(void);               /* after the state */
+void coverage_on_wifi(struct blob_attr *msg);  /* main.c: an ag.wifi event (drops, roams) */
+/* a device's (MAC) or the home's (NULL) advice, history line and customer note (devices by name: an ISP's text is
+   scrubbed by the caller); the verdict (enum cov_verdict), -1 when nothing is known yet */
+int coverage_words(const char *mac, char *advice, size_t an, char *line, size_t ln, char *note, size_t nn);
+/* what to do about a code: WIFI_COVERAGE (and WIFI_DROPS of a weak device) from what was learned, else the
+   timeline's or Diagnose's; isp: names out (brief.names) */
+const char *coverage_advice(const char *code, const char *mac, int isp);
+const char *coverage_kind_of(const char *mac);  /* Fine, Sometimes, Always, WeakTransmitter, ...; "" not known */
+int coverage_usual_of(const char *mac);         /* its usual signal (dBm), 0 not known */
+void coverage_blob(struct blob_buf *b, int names);
+void coverage_report_blob(struct blob_buf *b);  /* the bridge: verdict, counts, spots by kind */
+int coverage_spot_ids(uint32_t *out, int max);  /* Device.X_AIGW_.Coverage.Spot.{i}. */
+int coverage_spot_field(uint32_t id, const char *f, char *buf, size_t n);
+int coverage_field(const char *f, char *buf, size_t n);        /* Device.X_AIGW_.Coverage.; -1 unknown */
+void coverage_save(struct blob_buf *b);
+void coverage_load(struct blob_attr *t);
+
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
 typedef void (*handler_done_t)(void *ctx, int code, const char *msg);
 const char *handler_path(const char *configured, const char *name);

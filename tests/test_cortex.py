@@ -1296,5 +1296,51 @@ class Channels(unittest.TestCase):
             self.assertEqual(channels.of(s.snapshot(old)), [])
 
 
+def a_coverage(verdict, suffering=0, where="", aps=1, **kw):
+    spots = [{"where": where, "when": "in the evening", "devices": suffering, "suffering": suffering, "shared": True,
+              "samples": 120, "signal": -85}] if suffering else []
+    c = {"enabled": True, "names": False, "verdict": verdict, "judged": 6, "weak_devices": suffering, "to_move": suffering,
+         "weak_transmitters": 0, "shared_spots": 1 if suffering >= 2 else 0, "access_points": aps, "spots": spots,
+         "advice": f"{suffering} devices are weak in the same spot ({where})" if suffering else ""}
+    c.update(kw)
+    return c
+
+
+class Coverage(unittest.TestCase):
+    """v0.46: Wi-Fi coverage across the fleet (coverage.py): the homes that need an extender, and those that don't."""
+
+    def test_fleet(self):
+        from aigw_cortex import coverage, fleet
+        from aigw_cortex.dashboard import overview
+        now = 20000 * 86400 + 12 * 3600
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            ids = {n: s.enroll(n, g)[0] for n, g in (("flat-1", "east"), ("flat-2", "east"), ("flat-3", "west"),
+                                                     ("flat-4", None), ("flat-5", None), ("old", None))}
+            s.report(ids["flat-1"], {"status": {"version": "0.46.0"}, "coverage": a_coverage(
+                "Extender", 3, "where a TV, a laptop and 1 more are, in the evening (about -86 dBm at the gateway)")}, now)
+            s.report(ids["flat-2"], {"status": {"version": "0.46.0"}, "coverage": a_coverage(
+                "Extender", 2, "where a TV and an Android phone are, at night (about -84 dBm at the gateway)")}, now)
+            s.report(ids["flat-3"], {"status": {"version": "0.46.0"}, "coverage": a_coverage(
+                "UseExtender", 2, "where two phones are", aps=2)}, now)
+            s.report(ids["flat-4"], {"status": {"version": "0.46.0"}, "coverage": a_coverage("MoveDevice", to_move=1)}, now)
+            s.report(ids["flat-5"], {"status": {"version": "0.46.0"}, "coverage": a_coverage(
+                "WeakDevice", weak_transmitters=1)}, now)
+            s.report(ids["old"], {"status": {"version": "0.45.0"}}, now)
+            c = fleet.report(s, 7, now=now)["coverage"]
+            self.assertEqual((c["homes"], c["need_extender"], c["use_extender"], c["move_device"], c["weak_device_only"]),
+                             (5, 2, 1, 1, 1))
+            self.assertEqual([h["home"] for h in c["leads"]], ["flat-1", "flat-2"])    # most devices first
+            self.assertEqual((c["leads"][0]["devices"], c["leads"][0]["group"], c["leads"][0]["mesh"]), (3, "east", False))
+            t = fleet.text(fleet.report(s, 7, now=now))
+            self.assertIn("coverage    5 homes judged (AIGW OS 0.46 on): 2 need an extender (a weak spot two or more "
+                          "devices share), 1 should use the extender they have, 1 only a device to move", t)
+            self.assertIn("flat-2 (east): 2 devices weak in one spot where a TV and an Android phone are, at night", t)
+            self.assertNotIn("02:00", t)
+            self.assertEqual(fleet.report(s, 7, "west", now=now)["coverage"]["need_extender"], 0)
+            self.assertEqual(overview(s, now=now)["coverage"]["need_extender"], 2)
+            self.assertEqual(coverage.of(s.snapshot(ids["old"])), {})
+
+
 if __name__ == "__main__":
     unittest.main()

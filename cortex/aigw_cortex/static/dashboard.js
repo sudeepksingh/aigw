@@ -236,6 +236,29 @@ function renderMesh(r) {
     ], m.hurting, (h) => openGateway(h.home)) : el("p", { class: "muted" }, "No extender hurts more than it helps."));
 }
 
+// v0.46: Wi-Fi coverage (coverage.py): the homes that need an extender (a sales lead), and those that don't
+function renderCoverage(r) {
+  const c = r.coverage || {};
+  if (!c.homes) {
+    $("coverage").replaceChildren(el("p", { class: "empty" },
+      "No coverage reported yet. Gateways report it from AIGW OS 0.46 on, after an hour or so of learning."));
+    return;
+  }
+  $("coverage").replaceChildren(
+    el("div", { class: "tiles" },
+      tile("Need an extender", n(c.need_extender), `of ${plural(c.homes, "home")} judged: a weak spot devices share`),
+      tile("Use their extender", n(c.use_extender), "it hears the weak spot well"),
+      tile("Move one device", n(c.move_device), `${c.devices_to_move || 0} devices in far spots`),
+      tile("Weak radios", n(c.weak_device_only), `${c.weak_transmitters || 0} devices weak on their own`)),
+    (c.leads || []).length ? table([
+      { title: "Home", cell: (h) => h.home },
+      { title: "Devices", cell: (h) => String(h.devices) },
+      { title: "Where", cell: (h) => h.where || "" },
+      { title: "Mesh", cell: (h) => (h.mesh ? "yes" : "no") },
+      { title: "Advice", cell: (h) => h.advice || "" },
+    ], c.leads, (h) => openGateway(h.home)) : el("p", { class: "muted" }, "No home needs an extender."));
+}
+
 // v0.42: the ISP's own tickets (tickets.py)
 const SYNC = { synced: "good", "dry-run": "", pending: "warn", retrying: "warn", failed: "bad", none: "" };
 
@@ -479,6 +502,7 @@ async function load() {
     renderAttention(r);
     renderProactive(r);
     renderMesh(r);
+    renderCoverage(r);
     renderIspTickets(r);
     renderSignals(r);
     renderQueueing(r);

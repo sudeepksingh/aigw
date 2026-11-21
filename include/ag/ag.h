@@ -222,6 +222,11 @@ struct ag_config {
 	int mesh_cooldown;        /* s after a move by AIGW before the same device again */
 	int mesh_quiet;           /* s after the controller, or the device itself, moved it */
 	char mesh_names[512];     /* "<AL MAC>=<name>;..." the home's names for its extenders */
+	/* coverage placement advice (agd/coverage.c) */
+	int cov;                  /* learn each Wi-Fi device's coverage, its weak spots, and what fixes them */
+	int cov_interval;         /* s between looks (60) */
+	int cov_learn;            /* looks at a device before it is judged (60) */
+	int cov_share;            /* cortex gets the verdict and counts (never names) */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

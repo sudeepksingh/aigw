@@ -31,7 +31,7 @@ is the verdict:
 | `DEVICE_LIMITED` | AIGW | AIGW slows the device on purpose (throttle, deprioritize) |
 | `LINE_LOSS`, `LINE_SLOW` | Internet | packets lost, or slow answers, already to the next router |
 | `ISP_LOSS`, `ISP_SLOW` | Internet | lost or slow only beyond it |
-| `WIFI_COVERAGE`, `WIFI_CONGESTION`, `WIFI_HOPPING`, `WIFI_DEVICE`, `WIFI_RADIO` | WiFi | the device's signal is weak, or Self-Healing Wi-Fi's cause on its access point (or any access point) |
+| `WIFI_COVERAGE`, `WIFI_CONGESTION`, `WIFI_HOPPING`, `WIFI_DEVICE`, `WIFI_RADIO` | WiFi | the device's signal is weak, or Self-Healing Wi-Fi's cause on its access point (or any access point); for a weak signal the advice says where and what fixes it (v0.46, [coverage.md](coverage.md)) |
 | `DNS_SLOW` | DNS | names take 300 ms or more |
 | `OK` | All | everything the gateway can measure is fine: likely the service used, or the device itself |
 
