@@ -21,6 +21,12 @@
  * own server at a random minute of care.speed_hour. Its speed is learned like
  * the rest; below care.speed_min_pct of the line's speed (care.speed_mbps) on
  * two tests in a row it is a problem, LINE_SLOW_SPEED, reported at once.
+ *
+ * Other speed tests teach the line's speed too (v0.44.1): a TR-143 download
+ * the ISP runs (USP or TR-069) and one a person asks for with a server of
+ * their own (agctl care --speed <url>), when it completed and ran for 2 s or
+ * more. Without any of these, and no care.speed_mbps, the line's speed isn't
+ * known, and the timeline only guesses it from the most it has seen.
  */
 #define _GNU_SOURCE                     /* tm_gmtoff */
 #include <math.h>
@@ -45,6 +51,8 @@
 #define SPEED_CONFIRM 900               /* a slow test: another one this much later */
 #define SPEED_WATCH   3600              /* while the line is slow: a test this often, to see it end */
 #define SPEED_RETRY   1800              /* a test that failed: again (3 times a night at most) */
+#define SPEED_MIN_US  2000000LL         /* another test counts once it ran this long (TCP is past its slow start) */
+#define SPEED_MIN_RX  (1024ULL * 1024)  /* ... and moved at least this much */
 
 static struct care_state st;
 static struct care_report rep;
@@ -68,6 +76,9 @@ static struct {
 	int status;                     /* 0 none, 1 ok, 2 low, 3 failed */
 	int tries;
 	char why[160];
+	char by[24];                    /* who ran the last one: "" the nightly test, "the ISP", "a person" */
+	int once;                       /* a person's test is running */
+	char once_why[160];             /* why a person's last test didn't count */
 } spd;
 
 static void schedule(int secs)
@@ -430,31 +441,17 @@ static void speed_tonight_done(void)
 	speed_plan();
 }
 
-static void speed_done(void *ctx, int kind, const struct tr143_out *o)
+/* a test that completed: the line's speed now, the day's numbers, the learned normal; 1 when slow */
+static int speed_record(const struct tr143_out *o, long now, const char *by)
 {
-	long now = (long)ag_wall_s();
 	struct care_day *d = care_report_day(&rep, now);
-	struct care_verdict ok = { "OK", "All", DS_OK, "" }, slow = { "LINE_SLOW_SPEED", "Internet", DS_WARN, "" };
-	struct care_report scratch;
 	struct care_sample s;
-	char text[300];
 	double min = cfg.care_speed_mbps * cfg.care_speed_min_pct / 100.0;
-	int low, ev;
+	int low;
 
-	(void)ctx;
-	(void)kind;
 	spd.at = now;
 	snprintf(spd.why, sizeof(spd.why), "%s", o->why);
-	if (o->status != TS_COMPLETE || o->eom_us <= o->bom_us || !o->test_rx) {
-		spd.status = 3;
-		AG_INFO("care: the speed test failed (%s): %s", tr143_status_name(o->status), o->why);
-		if (++spd.tries < 3)
-			speed_in(SPEED_RETRY);
-		else
-			speed_tonight_done();
-		return;
-	}
-	spd.tries = 0;
+	snprintf(spd.by, sizeof(spd.by), "%s", by);
 	spd.mbps = (double)o->test_rx * 8.0 / (double)(o->eom_us - o->bom_us);
 	low = cfg.care_speed_mbps && spd.mbps < min;
 	spd.status = low ? 2 : 1;
@@ -464,12 +461,84 @@ static void speed_done(void *ctx, int kind, const struct tr143_out *o)
 		d->speed_kbps_min = (unsigned)(spd.mbps * 1000);
 	if (low)
 		d->speed_low++;
-	AG_INFO("care: speed test: %.1f Mbit/s%s", spd.mbps, low ? " (slow)" : "");
+	AG_INFO("care: speed test%s%s: %.1f Mbit/s%s", by[0] ? " by " : "", by, spd.mbps, low ? " (slow)" : "");
 	upgrade_on_speed((float)spd.mbps);
 	memset(&s, 0, sizeof(s));
 	s.have[CM_SPEED] = 1;
 	s.v[CM_SPEED] = (float)spd.mbps;
 	learn_one(&s, now, low ? CA_INTERNET : -1);
+	return low;
+}
+
+/* another test's result: why it doesn't count, or NULL when it does */
+static const char *speed_unfit(const struct tr143_out *o)
+{
+	if (o->status != TS_COMPLETE)
+		return tr143_status_name(o->status);
+	if (o->eom_us - o->bom_us < SPEED_MIN_US)
+		return "it ran for less than 2 s";
+	if (o->test_rx < SPEED_MIN_RX)
+		return "it moved less than 1 MB";
+	return NULL;
+}
+
+/* a TR-143 download the ISP ran (agd/dm.c): it teaches the line's speed too */
+void care_speed_seen(const struct tr143_out *o, const char *who)
+{
+	const char *why = speed_unfit(o);
+
+	if (!cfg.care)
+		return;
+	if (why) {
+		AG_DEBUG("care: %s's download test isn't the line's speed: %s", who, why);
+		return;
+	}
+	speed_record(o, (long)ag_wall_s(), "the ISP");
+}
+
+/* agctl care --speed <url>: a person's test against their own server */
+static void speed_once_done(void *ctx, int kind, const struct tr143_out *o)
+{
+	const char *why = speed_unfit(o);
+
+	(void)ctx;
+	(void)kind;
+	spd.once = 0;
+	if (why) {
+		snprintf(spd.once_why, sizeof(spd.once_why), "%s%s%.100s", why, o->why[0] ? ": " : "", o->why);
+		AG_INFO("care: the speed test asked for didn't count: %s", spd.once_why);
+		return;
+	}
+	spd.once_why[0] = 0;
+	speed_record(o, (long)ag_wall_s(), "a person");
+}
+
+static void speed_done(void *ctx, int kind, const struct tr143_out *o)
+{
+	long now = (long)ag_wall_s();
+	struct care_day *d = care_report_day(&rep, now);
+	struct care_verdict ok = { "OK", "All", DS_OK, "" }, slow = { "LINE_SLOW_SPEED", "Internet", DS_WARN, "" };
+	struct care_report scratch;
+	char text[300];
+	double min = cfg.care_speed_mbps * cfg.care_speed_min_pct / 100.0;
+	int low, ev;
+
+	(void)ctx;
+	(void)kind;
+	if (o->status != TS_COMPLETE || o->eom_us <= o->bom_us || !o->test_rx) {
+		spd.at = now;
+		snprintf(spd.why, sizeof(spd.why), "%s", o->why);
+		spd.by[0] = 0;
+		spd.status = 3;
+		AG_INFO("care: the speed test failed (%s): %s", tr143_status_name(o->status), o->why);
+		if (++spd.tries < 3)
+			speed_in(SPEED_RETRY);
+		else
+			speed_tonight_done();
+		return;
+	}
+	spd.tries = 0;
+	low = speed_record(o, now, "");
 	/* its own problem: two slow tests in a row, over after one fine */
 	snprintf(text, sizeof(text), "Downloads reach %.1f Mbit/s, under %d%% of the line's %d Mbit/s (%.0f Mbit/s at "
 		 "least): the line is slow.", spd.mbps, cfg.care_speed_min_pct, cfg.care_speed_mbps, min);
@@ -590,6 +659,29 @@ int care_speed_now(void)
 	return 0;
 }
 
+/* agctl care --speed <url>: one test against a person's own server (http://, a big file); -1 with words */
+int care_speed_url_now(const char *url, char *err, size_t en)
+{
+	struct tr143_in in;
+
+	if (!cfg.care) {
+		snprintf(err, en, "proactive care is off (care.enabled)");
+		return -1;
+	}
+	if (spd.once) {
+		snprintf(err, en, "a speed test is running already");
+		return -1;
+	}
+	tr143_defaults(TK_DOWNLOAD, &in);
+	snprintf(in.url, sizeof(in.url), "%s", url);
+	in.duration_s = (unsigned)(cfg.care_speed_seconds > 0 ? cfg.care_speed_seconds : 8);
+	if (tr143_start(TK_DOWNLOAD, &in, "agctl", speed_once_done, NULL, err, en) < 0)
+		return -1;
+	spd.once = 1;
+	spd.once_why[0] = 0;
+	return 0;
+}
+
 const struct care_state *care_now(void)
 {
 	return &st;
@@ -687,6 +779,14 @@ void care_blob(struct blob_buf *b)
 		add_dec(b, "mbps", spd.mbps);
 	if (spd.status == 3)
 		blobmsg_add_string(b, "why", spd.why);
+	if (spd.at && spd.by[0])
+		blobmsg_add_string(b, "by", spd.by);
+	if (spd.once)
+		blobmsg_add_u8(b, "running", 1);
+	if (spd.once_why[0])
+		blobmsg_add_string(b, "asked_why", spd.once_why);
+	/* what the timeline, smart queueing and the ISP signals take as the line's speed */
+	blobmsg_add_string(b, "line", cfg.care_speed_mbps > 0 ? "set" : spd.status == 1 || spd.status == 2 ? "tested" : "unknown");
 	blobmsg_add_u32(b, "expected_mbps", (uint32_t)cfg.care_speed_mbps);
 	blobmsg_add_u32(b, "min_pct", (uint32_t)cfg.care_speed_min_pct);
 	blobmsg_close_table(b, t);
@@ -873,6 +973,8 @@ void care_save(struct blob_buf *b)
 		blobmsg_add_double(b, "mbps", spd.mbps);
 		blobmsg_add_u32(b, "status", (uint32_t)spd.status);
 		blobmsg_add_u64(b, "day_done", (uint64_t)spd.day_done);
+		if (spd.by[0])
+			blobmsg_add_string(b, "by", spd.by);
 		blobmsg_close_table(b, s);
 	}
 	save_learn(b);
@@ -1084,6 +1186,8 @@ void care_load(struct blob_attr *t)
 						spd.status = (int)jnum(v) % 4;
 					else if (!strcmp(blobmsg_name(v), "day_done"))
 						spd.day_done = (long)jnum(v);
+					else if (!strcmp(blobmsg_name(v), "by") && blobmsg_type(v) == BLOBMSG_TYPE_STRING)
+						snprintf(spd.by, sizeof(spd.by), "%s", blobmsg_get_string(v));
 				}
 			continue;
 		}

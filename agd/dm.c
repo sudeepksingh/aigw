@@ -1999,6 +1999,8 @@ static void tr_done(void *ctx, int kind, const struct tr143_out *o)
 	struct blob_buf rb = { 0 };
 	void *t;
 
+	if (kind == TK_DOWNLOAD)
+		care_speed_seen(o, a->who);     /* the ISP's download test teaches the line's speed (v0.44.1) */
 	blob_buf_init(&rb, 0);
 	t = blobmsg_open_table(&rb, "out");
 	tr143_out_blob(&rb, kind, o);

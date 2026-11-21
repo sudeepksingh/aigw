@@ -973,10 +973,11 @@ static int m_diagnose(struct ubus_context *ctx, struct ubus_object *obj, struct 
 }
 
 /* ag care {check}: proactive care's state and report; check: run one now */
-enum { CR_CHECK, CR_SPEED, __CR_MAX };
+enum { CR_CHECK, CR_SPEED, CR_URL, __CR_MAX };
 static const struct blobmsg_policy care_policy[__CR_MAX] = {
 	[CR_CHECK] = { "check", BLOBMSG_TYPE_BOOL },
 	[CR_SPEED] = { "speed", BLOBMSG_TYPE_BOOL },
+	[CR_URL] = { "speed_url", BLOBMSG_TYPE_STRING },
 };
 
 static int m_care(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
@@ -990,8 +991,14 @@ static int m_care(struct ubus_context *ctx, struct ubus_object *obj, struct ubus
 	blob_buf_init(&b, 0);
 	if (tb[CR_CHECK] && blobmsg_get_bool(tb[CR_CHECK]) && care_check_now() < 0)
 		blobmsg_add_string(&b, "error", "proactive care is off (care.enabled)");
-	if (tb[CR_SPEED] && blobmsg_get_bool(tb[CR_SPEED]) && care_speed_now() < 0)
-		blobmsg_add_string(&b, "error", "no speed test: set care.speed_url (an HTTP download on the ISP's server)");
+	if (tb[CR_URL]) {
+		char err[160] = "";
+
+		if (care_speed_url_now(blobmsg_get_string(tb[CR_URL]), err, sizeof(err)) < 0)
+			blobmsg_add_string(&b, "error", err);
+	} else if (tb[CR_SPEED] && blobmsg_get_bool(tb[CR_SPEED]) && care_speed_now() < 0)
+		blobmsg_add_string(&b, "error", "no speed test server: set care.speed_url (an HTTP download on the ISP's "
+				   "server), or give one: agctl care --speed http://<server>/<big file>");
 	care_blob(&b);
 	ubus_send_reply(ctx, req, b.head);
 	return 0;

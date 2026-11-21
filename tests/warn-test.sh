@@ -36,8 +36,10 @@ command -v python3 >/dev/null || fail "missing python3"
 UBUSD=$(command -v ubusd || echo /usr/local/sbin/ubusd)
 UBUS=$(command -v ubus || echo /usr/local/bin/ubus)
 
-config() { # config <speed_mbps>
+config() { # config <speed_mbps> [speed_url] [speed_seconds]
 	mkdir -p "$T/config"
+	URL=${2-http://127.0.0.1:$HTTP/speed}
+	SECS=${3:-1}
 	cat > "$T/config/aigw" <<EOF
 config aigw 'main'
 	option log_level 'debug'
@@ -79,8 +81,8 @@ config care 'care'
 	option interval '3600'
 	option recheck '3'
 	option learn_days '0'
-	option speed_url 'http://127.0.0.1:$HTTP/speed'
-	option speed_seconds '1'
+	option speed_url '$URL'
+	option speed_seconds '$SECS'
 	option speed_mbps '$1'
 	option speed_min_pct '50'
 
@@ -235,4 +237,43 @@ ok = int(v["SpeedTests"]) >= 12 and int(v["SpeedTestsLow"]) >= 2 and int(v["Earl
 sys.exit(0 if ok else 1)
 EOF
 agctl care | grep "last day"
+
+echo "== no speed test server and no line speed: said so; the ISP's own download test, or a person's, teaches it"
+stop_agd
+rm -f "$T/state.json"
+config 0 "" 1
+start_agd
+spj() { agctl -j care | python3 -c "import json,sys; print(json.load(sys.stdin)['speed'].get(sys.argv[1], ''))" "$1"; }
+agctl care > "$T/care3.txt"
+grep -q "line      its speed isn't known" "$T/care3.txt" && grep -q "agctl care --speed http://" "$T/care3.txt" &&
+	[ "$(spj line)" = unknown ] || fail "an unknown line speed should be said, with how to fix it: $(cat "$T/care3.txt")"
+agctl care --speed 2> "$T/nourl.txt" && fail "agctl care --speed with no server should fail"
+grep -q "agctl care --speed http://" "$T/nourl.txt" || fail "the error should say how to give a server: $(cat "$T/nourl.txt")"
+# the ISP's DownloadDiagnostics (USP, TR-069): too short is no line speed; 3 s is
+agctl -j dm do "Device.IP.Diagnostics.DownloadDiagnostics()" DownloadURL="http://127.0.0.1:$HTTP/speed" TimeBasedTestDuration=1 > /dev/null ||
+	fail "a 1 s DownloadDiagnostics"
+[ "$(spj line)" = unknown ] || fail "a 1 s download isn't the line's speed: $(agctl care)"
+agctl -j dm do "Device.IP.Diagnostics.DownloadDiagnostics()" DownloadURL="http://127.0.0.1:$HTTP/speed" TimeBasedTestDuration=3 > /dev/null ||
+	fail "a 3 s DownloadDiagnostics"
+[ "$(spj line)" = tested ] && [ "$(spj by)" = "the ISP" ] || fail "the ISP's 3 s download should be the line's speed: $(agctl -j care)"
+agctl care | grep -q "speed     [0-9.]* Mbit/s, .*a test by the ISP" || fail "agctl care should say the ISP tested it: $(agctl care)"
+agctl care | grep -q "its speed isn't known" && fail "no more 'not known' once tested"
+# a person's own server: 1 s (care.speed_seconds) doesn't count, said why; 3 s does
+agctl care --speed "http://127.0.0.1:$HTTP/speed" > /dev/null || fail "agctl care --speed <url>"
+i=0
+until [ -n "$(spj asked_why)" ]; do
+	i=$((i + 1)); [ $i -gt 20 ] && fail "the short test asked for should say why it didn't count: $(agctl -j care)"; sleep 0.5
+done
+agctl care | grep -q "the test you asked for didn't count: it ran for less than 2 s" || fail "why it didn't count: $(agctl care)"
+stop_agd
+config 0 "" 3
+start_agd
+b=$(last)
+agctl care --speed "http://127.0.0.1:$HTTP/speed" > /dev/null || fail "agctl care --speed <url>, 3 s"
+i=0
+while [ "$(last)" = "$b" ]; do
+	i=$((i + 1)); [ $i -gt 20 ] && fail "the test asked for did not count: $(agctl -j care)"; sleep 0.5
+done
+[ "$(spj by)" = "a person" ] && [ "$(spj line)" = tested ] || fail "a person's test should be the line's speed: $(agctl -j care)"
+echo "   $(agctl care | grep 'speed     ')"
 echo "WARN TEST OK"

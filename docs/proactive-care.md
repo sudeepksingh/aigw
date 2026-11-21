@@ -85,6 +85,32 @@ the morning), for `care.speed_seconds` (8) at most.
   night; it isn't counted as a slow line.
 - `agctl care --speed` runs a test now.
 
+### Other speed tests count too (v0.44.1)
+
+The line's speed is what the timeline ([why-slow.md](why-slow.md)), smart
+queueing and the ISP signals measure "full" against. Without a nightly test
+it used to stay unknown, and they could only guess it from the most they had
+seen, which on a quiet home is far below the line. Now these also teach it:
+
+- **The ISP's own test.** A TR-143 `DownloadDiagnostics` the ISP runs over USP
+  or TR-069 ([tr143.md](tr143.md)), when it completes and runs for 2 s or more
+  (shorter ones are still in TCP's slow start). `agctl care` says "a test by
+  the ISP".
+- **A person's test.** `agctl care --speed http://<server>/<big file>` runs one
+  test against a server of their own, for `care.speed_seconds`. It doesn't set
+  up a nightly test. A test that is too short, or fails, is said and doesn't
+  count.
+
+These count toward the day's speed numbers and the learned normal. Only the
+nightly test raises `LINE_SLOW_SPEED`. A home with none of these, and no
+`care.speed_mbps`, gets a line in `agctl care` that says so and how to fix it:
+
+```
+  line      its speed isn't known: the timeline and smart queueing guess it from the most seen.
+            Set what was sold (care.speed_mbps), a speed test server (care.speed_url), or
+            test once now: agctl care --speed http://<server>/<big file>
+```
+
 ## Seeing it
 
 At home:
