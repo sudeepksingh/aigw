@@ -311,16 +311,16 @@ config proactive 'proactive'
 
 config mesh 'mesh'
 	# smarter mesh Wi-Fi (agctl mesh, Device.X_AIGW_.Mesh., docs/mesh.md): AIGW
-	# reads a standard EasyMesh controller (prplMesh) through its Data Elements
-	# model, moves struggling devices to a better access point, plans channels
+	# reads a standard EasyMesh controller through its Data Elements model
+	# (TR-181 Device.WiFi.DataElements.), moves struggling devices to a better access point, plans channels
 	# across the gateway and its extenders, and finds a weak backhaul. Every
 	# change goes through act.mode (enforce applies, advise proposes) and is a
 	# trial: kept when the device does clearly better, else taken back.
 	# Nothing happens where no EasyMesh controller runs.
 	option enabled '1'
-	# the controller: the handler program (default /usr/libexec/aigw/mesh-prplmesh),
+	# the controller: the handler program (default /usr/libexec/aigw/mesh-dataelements),
 	# or a Data Elements snapshot to read instead (JSON or path=value lines)
-	# option handler '/usr/libexec/aigw/mesh-prplmesh'
+	# option handler '/usr/libexec/aigw/mesh-dataelements'
 	# option source '/tmp/de.json'
 	option poll '30'
 	option steer '1'

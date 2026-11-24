@@ -1,20 +1,22 @@
 #!/bin/sh
-# Smarter mesh Wi-Fi, end to end, over a simulated EasyMesh network: agd reads
-# a fake controller (tests/mesh/fakectl.py, the mesh handler) that answers
-# with the Data Elements model the way prplMesh's controller does over ubus,
-# simulates where each device hears each access point, and records the
-# steering and channel requests AIGW sends it.
+# Smarter mesh Wi-Fi, end to end, over a simulated EasyMesh network: agd and
+# its standard handler (mesh-dataelements) read a fake controller
+# (tests/mesh/fakectl.py, run as ubus and as obuspa) that publishes the Data
+# Elements model and its TR-181 commands, simulates where each device hears
+# each access point, and records the commands AIGW sends it.
 #
 # The home: the gateway (2.4 GHz ch 1, 5 GHz ch 36/80) and the extender
 # "bedroom" on a wireless 5 GHz backhaul (2.4 GHz ch 1, 5 GHz ch 36/80).
 #
+#   the handler   on its own: the model and the commands over ubus and over a
+#                 local USP agent; refused; no controller; bad arguments
 #   read          two access points, the extender by its name, the backhaul, the
 #                 devices with their 802.11v/k support; the channel plan seen
 #   advise mode   the laptop struggles on the gateway's 2.4 GHz (-80 dBm), the
 #                 extender's 5 GHz hears it at -58: AIGW only proposes the move
 #                 (nothing sent to the controller), MeshDecision! Proposed; the
 #                 TV, as weak, is protected (act.protect): never moved
-#   approved      the move goes to the controller (ClientSteering: btm), lands,
+#   approved      the move goes to the controller (ClientSteer()), lands,
 #                 is measured and kept (much better); the timeline has it
 #   enforce mode  the phone gets weak on the extender; the gateway hears it at
 #                 -60 but its link there is slower and resends more: moved,
@@ -22,7 +24,7 @@
 #   a miss        a tablet the controller doesn't move: missed, not moved back
 #   the controller's own steering   a device it just steered is left alone
 #   channels      the extender's 2.4 GHz on the gateway's channel: moved to 6
-#                 through the controller, kept
+#                 through the controller (ChannelSelectionRequest()), kept
 #   backhaul      the extender's backhaul turns weak (-78 dBm, 54 Mbit/s) with
 #                 the phone behind it: found, "hurts more than it helps", in the
 #                 data model, a proactive ticket for the ISP, the help-desk brief
@@ -65,8 +67,12 @@ TV=aa:00:00:00:00:03
 TABLET=aa:00:00:00:00:04
 
 echo "== the simulated home and its fake controller"
+H="$REPO/platform/openwrt/aigw/files/mesh-dataelements"
 cp "$REPO/tests/mesh/fakectl.py" "$T/fakectl"
 chmod 755 "$T/fakectl"
+mkdir -p "$T/bin"
+ln -s "$T/fakectl" "$T/bin/ubus"
+ln -s "$T/fakectl" "$T/bin/obuspa"
 cat > "$T/world.json" <<EOF
 {"network": "home-1", "controller": "$GW",
  "agents": [
@@ -98,9 +104,9 @@ os.replace(p + ".t", p)
 EOF
 }
 
-config() {   # config <act mode> <channel plan 0|1> [mesh.source: then no handler to act through]
+config() {   # config <act mode> <channel plan 0|1> [mesh.source: then no handler to act through] [mesh.handler]
 	mkdir -p "$T/config"
-	if [ -n "${3:-}" ]; then HANDLER="$T/no-handler"; else HANDLER="$T/fakectl"; fi
+	if [ -n "${4:-}" ]; then HANDLER=$4; elif [ -n "${3:-}" ]; then HANDLER="$T/no-handler"; else HANDLER="$H"; fi
 	cat > "$T/config/aigw" <<EOF
 config aigw 'main'
 	option log_level 'debug'
@@ -224,6 +230,47 @@ ev = [json.loads(l) for l in open('$T/events.log').read().splitlines() if 'MeshD
 print(ev[-1].get('ag.dm.event', ev[-1])['args']['$1'] if ev else '')"
 }
 
+echo "== the handler on its own: the model and the commands over ubus, then over a local USP agent"
+# the fake controller's ubus and obuspa, for the handler (and agd's handler) only
+PATH="$T/bin:$PATH"
+export PATH
+flag() { touch "$T/$1"; }
+unflag() { rm -f "$T/$1"; }
+"$H" get "$T/h.json" || fail "get over ubus"
+grep -q '"Device.WiFi.DataElements.Network.Device.2.MultiAPDevice.Backhaul.": {' "$T/h.json" || fail "the model: $(head -c 400 "$T/h.json")"
+"$H" steer "$PHONE" "$EXT5" btm > "$T/h.out" || fail "steer over ubus: $(cat "$T/h.out")"
+[ "$(requests "steer $PHONE $EXT5 Steering_Mandate imminent=true")" = 1 ] || fail "ClientSteer() over ubus"
+"$H" channel "$EXT24R" 1 81 1 20 > "$T/h.out" || fail "channel over ubus: $(cat "$T/h.out")"
+[ "$(requests "channel $EXT24R 81 1 others=2,3,4,5,6,7,8,9,10,11,12,13")" = 1 ] || fail "ChannelSelectionRequest() over ubus"
+"$H" channel 02:00:00:00:04:00 36 128 42 80 > "$T/h.out" || fail "an 80 MHz channel: $(cat "$T/h.out")"
+[ "$(requests "channel 02:00:00:00:04:00 128 42 others=58,106,122,138,155,171")" = 1 ] || fail "80 MHz: the centre channel"
+flag nobus
+"$H" get "$T/h.txt" || fail "get over the USP agent"
+grep -q "^Device.WiFi.DataElements.Network.Device.2.ID => $EXT\$" "$T/h.txt" || fail "the lines: $(head -n 3 "$T/h.txt")"
+"$H" steer "$PHONE" "$EXT5" mandate > "$T/h.out" || fail "steer over the USP agent: $(cat "$T/h.out")"
+[ "$(requests "steer $PHONE $EXT5 Steering_Mandate imminent=false")" = 1 ] || fail "ClientSteer() over the USP agent"
+"$H" channel "$EXT24R" 1 81 1 20 > "$T/h.out" || fail "channel over the USP agent: $(cat "$T/h.out")"
+[ "$(requests "channel $EXT24R 81 1 others=")" = 2 ] || fail "ChannelSelectionRequest() over the USP agent"
+unflag nobus
+flag refuse
+rc=0; "$H" steer "$PHONE" "$EXT5" btm > "$T/h.out" || rc=$?
+[ $rc = 1 ] && tail -n 1 "$T/h.out" | grep -q 'ClientSteer: Error_Other' || fail "refused: exit $rc, $(cat "$T/h.out")"
+unflag refuse
+rc=0; "$H" steer aa:00:00:00:00:99 "$EXT5" btm > "$T/h.out" || rc=$?
+[ $rc = 1 ] && grep -q 'does not have' "$T/h.out" || fail "an unknown station: exit $rc, $(cat "$T/h.out")"
+flag nobus; flag noagent
+rc=0; "$H" get "$T/h.json" > "$T/h.out" || rc=$?
+[ $rc = 3 ] && grep -q 'no EasyMesh controller' "$T/h.out" || fail "no controller: exit $rc, $(cat "$T/h.out")"
+unflag nobus; unflag noagent
+for bad in "" "x" "get" "steer zz $EXT5 btm" "steer $PHONE $EXT5 fast" "channel $EXT24R 6 81 6" "channel $EXT24R 6x 81 6 20"; do
+	rc=0
+	# shellcheck disable=SC2086
+	"$H" $bad > /dev/null 2>&1 || rc=$?
+	[ $rc = 2 ] || fail "usage for '$bad': exit $rc"
+done
+rm -f "$T/requests.log"
+world "st['$PHONE'].pop('ctl_steered', None); st['$PHONE'].pop('joined', None)"   # as it was
+
 config advise 0
 start_agd
 
@@ -259,7 +306,7 @@ decision meshsteer "$TV" | grep -q '"id"' && fail "a decision about the protecte
 echo "== approved: the controller moves it (BTM), the trial keeps it"
 ID=$(decision meshsteer "$LAPTOP" | js "print(d['id'])")
 agctl approve "$ID" > /dev/null || fail "approve $ID"
-[ "$(requests "steer $LAPTOP $EXT5 btm")" = 1 ] || fail "ClientSteering for the laptop"
+[ "$(requests "steer $LAPTOP $EXT5 Steering_Mandate imminent=true")" = 1 ] || fail "ClientSteer() for the laptop"
 wait_decision 20 meshsteer "$LAPTOP" kept
 decision meshsteer "$LAPTOP" | js "sys.exit(0 if d['note'].startswith('kept: clearly better') and '-80 -> -58 dBm' in d['note'] else 1)" ||
 	fail "kept, and why: $(decision meshsteer $LAPTOP)"
@@ -314,7 +361,7 @@ stop_agd
 config enforce 1
 start_agd
 wait_decision 40 meshchan "$EXT24R" kept
-[ "$(requests "channel $EXT24R 6 81 6 20")" = 1 ] || fail "the channel request: $(cat "$T/requests.log")"
+[ "$(requests "channel $EXT24R 81 6 others=1,2,3,4,5,7,8,9,10,11,12,13")" = 1 ] || fail "the channel request: $(cat "$T/requests.log")"
 mesh "sys.exit(0 if m['counts']['channel_changes'] == 1 and m['counts']['channels_kept'] == 1 and not m['plan'] else 1)" ||
 	fail "after the channel change: $(agctl mesh)"
 [ "$(last_event Kind)" = Channel ] && [ "$(last_event State)" = Kept ] || fail "MeshDecision! Channel Kept"
@@ -349,7 +396,7 @@ start_agd
 wait_mesh 20 "m['status'] == 'Ok' and m['counts']['steers'] == 3 and m['counts']['undone'] == 1 and m['counts']['misses'] == 1"
 mesh "p = $(sta $PHONE); sys.exit(0 if p['undone'] == 1 else 1)" || fail "the phone's history after a restart"
 
-echo "== a snapshot instead of a handler: path=value lines (as ubus-cli prints them)"
+echo "== a snapshot instead of a handler: path=value lines"
 touch "$T/lines"
 "$T/fakectl" get "$T/snapshot.txt"
 rm -f "$T/lines"
@@ -368,6 +415,17 @@ config advise 0 "$T/missing.json"
 start_agd
 wait_mesh 10 "m['status'] == 'NoController'"
 agctl mesh | grep -q "EasyMesh controller" || fail "agctl mesh without a controller: $(agctl mesh)"
+
+echo "== upgraded from 0.46: mesh.handler still names mesh-prplmesh: read as the platform's handler"
+stop_agd
+config advise 0 "" /usr/libexec/aigw/mesh-prplmesh
+start_agd
+wait_mesh 10 "m['status'] == 'NoController'"
+if [ -x /usr/libexec/aigw/mesh-dataelements ] || [ -x /usr/local/libexec/aigw/mesh-dataelements ]; then
+	echo "   (the platform's handler is installed here: not checked)"
+else
+	agctl mesh | grep -q "no mesh handler (mesh-dataelements)" || fail "the old handler's path: $(agctl mesh)"
+fi
 
 grep -a -i 'segfault\|AddressSanitizer' "$T/agd.log" && fail "agd crashed"
 echo "MESH TEST PASS"

@@ -613,6 +613,9 @@ void ag_config_load(struct ag_config *c)
 		if (v)
 			c->mesh = atoi(v) != 0;
 		copy(c->mesh_handler, sizeof(c->mesh_handler), opt(ctx, p, "mesh", "handler"));
+		if (!strcmp(c->mesh_handler, "/usr/libexec/aigw/" MESH_HANDLER_OLD) ||
+		    !strcmp(c->mesh_handler, "/usr/local/libexec/aigw/" MESH_HANDLER_OLD))
+			c->mesh_handler[0] = '\0';      /* upgraded from 0.46 or older: the platform's handler now */
 		copy(c->mesh_source, sizeof(c->mesh_source), opt(ctx, p, "mesh", "source"));
 		v = opt(ctx, p, "mesh", "poll");
 		if (v && atoi(v) >= 1 && atoi(v) <= 3600)

@@ -1,0 +1,157 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# mesh-dataelements: AIGW OS's mesh handler for any Wi-Fi Alliance EasyMesh
+# controller with a Data Elements northbound (TR-181 Device.WiFi.DataElements.)
+# on this gateway. agd reads the mesh and acts through it; it checks every
+# value before it calls this.
+#
+#   mesh-dataelements get <file>
+#       the controller's Device.WiFi.DataElements.Network. into <file>: JSON
+#       from ubus (_get), else "path => value" lines from the local USP agent
+#   mesh-dataelements steer <station MAC> <target BSSID> <btm|mandate>
+#       ...BSS.{i}.STA.{i}.ClientSteer() (TR-181 2.17): a steering mandate;
+#       the controller picks how (802.11v BTM, or its blocklist)
+#   mesh-dataelements channel <radio RUID> <channel> <opclass> <centre> <width MHz>
+#       ...Device.{i}.Radio.{i}.ChannelSelectionRequest() (TR-181 2.19): the
+#       target at preference 15, the class's other channels at 1
+#
+# The local bus: ubus, where the controller publishes its TR-181 objects; or
+# the local USP agent or broker (obuspa -c), where the controller is a USP
+# service. Commands go to the instance (the station, the radio) found in the
+# model by its MAC address or RUID.
+#
+# Exit 0 done, 2 usage, 3 no controller here, 1 the controller refused (the
+# last line says why).
+#
+# A controller without these commands plugs in with its own program with the
+# same interface: mesh.handler in /etc/config/aigw.
+set -u
+
+DE=Device.WiFi.DataElements.Network
+DEV="$DE\\.Device\\.[^.]+"
+
+usage() { echo "usage: mesh-dataelements get <file> | steer <sta> <bssid> <btm|mandate> | channel <ruid> <ch> <opclass> <centre> <width>" >&2; exit 2; }
+mac_ok() { echo "$1" | grep -Eq '^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$'; }
+num_ok() { for v in "$@"; do case "$v" in ''|*[!0-9]*) return 1 ;; esac; done; return 0; }
+on_ubus() { command -v ubus >/dev/null 2>&1 && ubus -S list "$DE" 2>/dev/null | grep -q .; }
+on_usp() { command -v obuspa >/dev/null 2>&1; }
+
+# the model into $1; the bus it came from in $BUS
+read_model() {
+	if on_ubus && ubus -t 10 call "$DE" _get '{"depth":"10"}' > "$1" 2>/dev/null && [ -s "$1" ]; then
+		BUS=ubus
+		return 0
+	fi
+	if on_usp && obuspa -c get "$DE." 2>/dev/null | grep "^$DE\\." > "$1" && [ -s "$1" ]; then
+		BUS=usp
+		return 0
+	fi
+	return 1
+}
+
+# find <model file> <object ERE> <parameter> <value>: the object (no last dot)
+# whose parameter has that value, case-insensitive. Reads path-keyed JSON (one
+# key a line, as ubus prints it) and "path=value" or "path => value" lines.
+find_obj() {
+	awk -v re="^$2\$" -v p="$3" -v v="$4" '
+	BEGIN { v = tolower(v) }
+	function val(s) { gsub(/^[ \t"]+|[ \t",]+$/, "", s); return tolower(s) }
+	match($0, /"Device\.WiFi\.DataElements\.[^"]*\.":/) { o = substr($0, RSTART + 1, RLENGTH - 4); next }
+	o != "" && match($0, "^[ \t]*\"" p "\":") { if (o ~ re && val(substr($0, RLENGTH + 1)) == v) { print o; exit } next }
+	/^Device\./ {
+		i = index($0, "=")
+		if (!i) next
+		k = substr($0, 1, i - 1); sub(/[ \t]+$/, "", k)
+		s = substr($0, i + 1); sub(/^>/, "", s)
+		n = length(k) - length(p) - 1
+		if (n > 0 && substr(k, n + 1) == "." p && substr(k, 1, n) ~ re && val(s) == v) { print substr(k, 1, n); exit }
+	}' "$1"
+}
+
+# call <object> <command> <name=value ...>: the controller's command; numbers
+# and true/false as JSON numbers and booleans on ubus
+call() {
+	obj=$1 cmd=$2
+	shift 2
+	if [ "$BUS" = ubus ]; then
+		args="" sep=""
+		for a in "$@"; do
+			k=${a%%=*} v=${a#*=}
+			case "$v" in true|false|[0-9]|[1-9]*[0-9]) ;; *) v="\"$v\"" ;; esac
+			args="$args$sep\"$k\":$v" sep=","
+		done
+		out=$(ubus -t 30 call "$obj" "$cmd" "{$args}" 2>&1) || { echo "$cmd: ${out:-failed}"; return 1; }
+	else
+		args=$(echo "$*" | tr ' ' ',')
+		out=$(obuspa -c operate "$obj.$cmd($args)" 2>&1) || { echo "$cmd: ${out:-failed}"; return 1; }
+		echo "$out" | grep -qi 'error' && { echo "$cmd: $(echo "$out" | grep -i error | tail -n 1)"; return 1; }
+	fi
+	# the command's own answer (Status): Success, or Error_Invalid_Input, Error_Timeout, Error_Other
+	echo "$out" | grep -q 'Error_' && { echo "$cmd: $(echo "$out" | grep -o 'Error_[A-Za-z_]*' | head -n 1)"; return 1; }
+	return 0
+}
+
+# the channels of an operating class (802.11 Table E-4) AIGW plans on
+class_channels() {
+	case "$1" in
+	81) echo 1 2 3 4 5 6 7 8 9 10 11 12 13 ;;
+	115) echo 36 40 44 48 ;;
+	118) echo 52 56 60 64 ;;
+	121) echo 100 104 108 112 116 120 124 128 132 136 140 144 ;;
+	124) echo 149 153 157 161 ;;
+	125) echo 149 153 157 161 165 169 173 177 ;;
+	128) echo 42 58 106 122 138 155 171 ;;
+	129) echo 50 114 163 ;;
+	esac
+}
+
+TMP=""
+trap '[ -n "$TMP" ] && rm -f "$TMP"' EXIT
+model() {
+	TMP=$(mktemp /tmp/aigw-de.XXXXXX) || { echo "no room for the model"; exit 1; }
+	read_model "$TMP" || { echo "no EasyMesh controller: $DE is not on ubus or the local USP agent"; exit 3; }
+}
+
+case "${1:-}" in
+get)
+	[ $# -eq 2 ] || usage
+	read_model "$2" && exit 0
+	echo "no EasyMesh controller: $DE is not on ubus or the local USP agent"
+	exit 3
+	;;
+steer)
+	[ $# -eq 4 ] && mac_ok "$2" && mac_ok "$3" || usage
+	case "$4" in btm|mandate) ;; *) usage ;; esac
+	model
+	sta=$(find_obj "$TMP" "$DEV\\.Radio\\.[^.]+\\.BSS\\.[^.]+\\.STA\\.[^.]+" MACAddress "$2")
+	[ -n "$sta" ] || { echo "the controller does not have $2"; exit 1; }
+	imminent=false
+	[ "$4" = btm ] && imminent=true
+	call "$sta" ClientSteer "TargetBSSID=$3" RequestMode=Steering_Mandate "BTMDisassociationImminent=$imminent" || exit 1
+	echo "asked the controller to steer $2 to $3"
+	;;
+channel)
+	[ $# -eq 6 ] && mac_ok "$2" && num_ok "$3" "$4" "$5" "$6" || usage
+	model
+	radio=$(find_obj "$TMP" "$DEV\\.Radio\\.[^.]+" ID "$2")
+	[ -n "$radio" ] || { echo "the controller does not have radio $2"; exit 1; }
+	# 80 and 160 MHz classes list centre channels; the others, primary ones
+	c=$3
+	case "$4" in 128|129|130) c=$5 ;; esac
+	set -- "$2" "$c" "$4" "$6"
+	args="Class.1.OpClass=$3 Class.1.Channel.1.Channel=$2 Class.1.Channel.1.Preference=15"
+	i=1
+	for o in $(class_channels "$3"); do
+		[ "$o" = "$2" ] && continue
+		i=$((i + 1))
+		args="$args Class.1.Channel.$i.Channel=$o Class.1.Channel.$i.Preference=1"
+	done
+	# shellcheck disable=SC2086
+	call "$radio" ChannelSelectionRequest $args || exit 1
+	echo "asked the controller to move radio $1 to channel $2 ($4 MHz, class $3)"
+	;;
+*)
+	usage
+	;;
+esac
+exit 0

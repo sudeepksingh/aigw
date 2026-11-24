@@ -1082,7 +1082,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   <div class="tbl"><table>
     <thead><tr><th>Adopter</th><th>How they use AIGW</th><th>Value</th></tr></thead>
     <tbody>
-      <tr><td>Internet providers</td><td>White-label AI gateway on their OpenWRT-based CPE (including prplOS-style stacks)</td><td>Fewer support calls, premium security tier, lower churn</td></tr>
+      <tr><td>Internet providers</td><td>White-label AI gateway on their OpenWRT-based CPE</td><td>Fewer support calls, premium security tier, lower churn</td></tr>
       <tr><td>Router makers</td><td>Ship AIGW as the "smart" feature set</td><td>Differentiation without building an AI stack</td></tr>
       <tr><td>Security vendors</td><td>Deliver models and threat feeds as signed plug-ins</td><td>Reach millions of gateways through one SDK</td></tr>
       <tr><td>IoT makers</td><td>Publish verified device profiles and MUD files</td><td>Safer devices, fewer returns, "works with AIGW" label</td></tr>
@@ -1310,7 +1310,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
     <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
     <tbody>
       <tr><td>One data model</td><td>In agd (<code>ag.dm</code>): TR-181 devices and Wi-Fi, plus AIGW OS's alerts and decisions, with commands and events. USP and TR-069 both use it; the protocol clients only translate.</td></tr>
-      <tr><td>USP</td><td>The Broadband Forum's own agent, OB-USP-Agent (as in prplWare and RDK-B), unmodified, with AIGW OS's plug-in <code>aigw-usp</code>. Over MQTT 5 with TLS.</td></tr>
+      <tr><td>USP</td><td>The Broadband Forum's own agent, OB-USP-Agent, unmodified, with AIGW OS's plug-in <code>aigw-usp</code>. Over MQTT 5 with TLS.</td></tr>
       <tr><td>The home decides</td><td>Off by default. An ISP may read, and approve, reject or undo AIGW's proposals; quarantine, block and the mode only with <code>mgmt.actions 1</code>; the names devices looked up only with <code>mgmt.alert_details 1</code>. Guardrails always hold.</td></tr>
       <tr><td>Proof</td><td>A real USP controller over MQTT: reads devices, receives an alert as a USP event, approves a quarantine that lands in the firewall and undoes it, is refused what the settings forbid and a protected device. The published data model file is checked against what the gateway serves.</td></tr>
       <tr><td>Limits</td><td>Wi-Fi settings are read-only; no firmware upgrade or WebSocket transport yet.</td></tr>
@@ -1353,15 +1353,6 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>On OpenWRT itself</td><td>In QEMU, after the self-test: the USP agent answers from AIGW's data model and icwmp reports to an ACS, on all three architectures. On x86-64 the ACS upgrades the firmware for real (<code>sysupgrade</code>, reboot, settings kept, <code>TransferComplete</code>).</td></tr>
       <tr><td>Client certificates</td><td>The gateway presents its TLS certificate to the USP broker and to the ACS, as carrier networks often require.</td></tr>
       <tr><td>Reboot, factory reset</td><td>They now really reboot and reset (USP, and TR-069 on OpenWRT), through agd: the home decides whether an ISP may (<code>mgmt.reset</code>), and agd logs who asked.</td></tr>
-    </tbody>
-  </table></div>
-  <h3 style="margin-top:18px">As built in v0.23: a native prplOS component</h3>
-  <div class="tbl"><table>
-    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
-    <tbody>
-      <tr><td>aigw-amx</td><td>An Ambiorix plug-in for <code>amxrt</code>, prplOS's component runtime. It publishes AIGW's alerts, decisions, mode, commands and events on prplOS's bus, built from agd's schema at start. prplOS's own USP agent, TR-069 client, CLI and web UI see AIGW like any other part of the device.</td></tr>
-      <tr><td>The home decides</td><td>prplOS's agents ask as <code>prplos</code>: the same rules as any management system, with amxd's own error codes (permission denied, invalid value).</td></tr>
-      <tr><td>Proof</td><td>In CI with Ambiorix itself (pinned, built from source): reads, instances that follow agd, the <code>Alert!</code> signal, refused and allowed writes, a block and its undo.</td></tr>
     </tbody>
   </table></div>
   <h3 style="margin-top:18px">As built in v0.24: AIGW Self-Healing Wi-Fi, part 1</h3>
@@ -1484,7 +1475,7 @@ agctl plugin add ag-sensor-zigbee</code></pre>
   <div class="tbl"><table>
     <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
     <tbody>
-      <tr><td>Over a standard controller</td><td>AIGW reads a Wi-Fi Alliance EasyMesh controller (prplMesh, the reference) through its Data Elements model (<code>Device.WiFi.DataElements.</code>) and acts through the controller&rsquo;s own requests: not another 1905.1 stack. Another vendor&rsquo;s controller plugs in with its own handler.</td></tr>
+      <tr><td>Over a standard controller</td><td>AIGW reads any certified Wi-Fi Alliance EasyMesh controller through its Data Elements model (<code>Device.WiFi.DataElements.</code>) and acts through the controller&rsquo;s own requests: not another 1905.1 stack. It asks for moves and channels with the standard TR-181 commands (<code>ClientSteer()</code>, <code>ChannelSelectionRequest()</code>). A controller without them plugs in with its own handler.</td></tr>
       <tr><td>Steering</td><td>A device struggling (a weak signal, or losing traffic at a good one) moves to an access point measured to hear it clearly better, with hysteresis. Never in a call, never a protected device, never right after the controller moved it; a device whose steers don&rsquo;t land is left alone, doubling.</td></tr>
       <tr><td>Trials</td><td>Each move is measured against just before: kept when clearly better, else moved back and avoided for a day. Advise proposes, enforce applies, as for every AIGW decision.</td></tr>
       <tr><td>Channels and backhaul</td><td>No extender on the gateway&rsquo;s air where it is avoidable. An extender whose weak or slow backhaul slows the devices behind it &ldquo;hurts more than it helps&rdquo;: in the help-desk brief, a proactive ticket, and cortex&rsquo;s fleet dashboard.</td></tr>
@@ -1511,6 +1502,14 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Three kinds of weak</td><td>A device that moves into a far room, one that lives there, and one whose own radio is weak (compared with the others: it loses little, or the rate to it stays high).</td></tr>
       <tr><td>Spots, no floor plan</td><td>Weak looks grouped by their signature (what each access point hears, 2.4 GHz in 5 GHz terms) and the time of day, named by the devices seen there. A spot two or more devices share: move the gateway toward it, or an extender about halfway. With a mesh: which access point hears it best.</td></tr>
       <tr><td>Shown everywhere</td><td>Proactive tickets and their customer notes, the help-desk brief, the timeline, Diagnose, <code>agctl coverage</code>, data model 1.21 (<code>Device.X_AIGW_.Coverage.</code>), cortex&rsquo;s count of the homes that need an extender. Device kinds for the ISP unless <code>brief.names</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <h3 style="margin-top:18px">As built in v0.47: one standard way to the mesh, and more room in flash</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>The mesh handler</td><td><code>mesh-dataelements</code> reads the Data Elements model on the gateway&rsquo;s bus (ubus, or the local USP agent) and asks with the standard commands, <code>ClientSteer()</code> and <code>ChannelSelectionRequest()</code>. Any certified EasyMesh controller that has them works. A config that names the old handler gets the new one.</td></tr>
+      <tr><td>Smaller, same features</td><td>Link-time optimisation, and on aarch64 and MIPS programs aligned to the kernel&rsquo;s 4 KB pages instead of 64 KB. Installed flash, of the 1024 KB budget: x86-64 980 &rarr; 948 KB, aarch64 980 &rarr; 940 KB, mipsel 960 &rarr; 788 KB.</td></tr>
     </tbody>
   </table></div>
 </section>

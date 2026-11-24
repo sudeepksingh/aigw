@@ -3,9 +3,9 @@
 Most homes an ISP serves now have an extender or two. The Wi-Fi Alliance's
 **EasyMesh** standard makes the gateway and the extenders one network: an
 EasyMesh **controller** (on the gateway) runs **agents** (the gateway itself
-and each extender) over IEEE 1905.1. **prplMesh** is the reference controller
-and ships in prplOS, which is where an ISP compares AIGW OS with prplOS and
-RDK-B most directly.
+and each extender) over IEEE 1905.1. A certified controller tells the rest of
+the gateway about the mesh through the standard Wi-Fi Alliance **Data
+Elements** model, and takes requests the same way.
 
 AIGW OS does not bring another 1905.1 stack. It is the **intelligence over a
 standard controller**:
@@ -77,10 +77,10 @@ Every `mesh.poll` seconds (30), agd reads `Device.WiFi.DataElements.Network.`
 from a backend:
 
 - **The mesh handler** (`mesh.handler`, default
-  `/usr/libexec/aigw/mesh-prplmesh`): `get <file>` writes the model as JSON,
+  `/usr/libexec/aigw/mesh-dataelements`): `get <file>` writes the model as JSON,
   either path-keyed (`ubus call Device.WiFi.DataElements.Network _get
-  '{"depth":"10"}'`, the way prplMesh's own tools read it) or nested. It can also
-  write `path=value` lines (`ubus-cli`, `ba-cli`, obuspa).
+  '{"depth":"10"}'`) or nested. It can also write `path=value` or `path => value`
+  lines (a USP agent's CLI: `obuspa -c get Device.WiFi.DataElements.Network.`).
 - **A snapshot** (`mesh.source`): a file in either form. This is for tests, and for a
   controller whose northbound is elsewhere: anything that can write the file can feed
   AIGW. AIGW can't act without a handler.
@@ -125,9 +125,8 @@ Otherwise the target is the BSS of the same network that:
 The target counts 6 dB less when it is behind a weak backhaul, and 3 dB more on 5 or 6 GHz.
 
 The move is the decision `meshsteer <device>@<BSSID>`. The handler's `steer <device>
-<BSSID> <btm|mandate>` carries it out. With prplMesh that is
-`Network.ClientSteering()`, which sends a BTM request, or uses prplMesh's
-blocklist for a device without 802.11v.
+<BSSID> <btm|mandate>` carries it out: the standard `STA.{i}.ClientSteer()`. The
+controller sends a BTM request, or uses its blocklist for a device without 802.11v.
 
 ### The trial
 
@@ -212,7 +211,7 @@ better extender.
 | Option | Default | |
 |---|---|---|
 | `enabled` | 1 | Read the controller and decide. With no controller nothing happens: AIGW looks every 5 minutes |
-| `handler` | `/usr/libexec/aigw/mesh-prplmesh` | The controller's handler (see [Another controller](#another-controller)) |
+| `handler` | `/usr/libexec/aigw/mesh-dataelements` | The controller's handler (see [The handler](#the-handler)). A config from 0.46 or older that names `mesh-prplmesh` gets this one |
 | `source` | — | A Data Elements snapshot to read instead (JSON or `path=value`) |
 | `poll` | 30 | Seconds between reads |
 | `steer` | 1 | Move struggling devices (as `act.mode` allows) |
@@ -229,41 +228,38 @@ better extender.
 `act.mode` stays as it is: advise by default, so every move is only proposed
 until a person or the ISP says yes.
 
-## Pairing it with prplMesh on OpenWRT
+## Setting it up with an EasyMesh controller
 
-1. **Run prplMesh's controller on the gateway.** prplOS ships it. On OpenWRT, build
-   prplMesh from its feed (`https://gitlab.com/prpl-foundation/prplmesh/prplMesh`, with
-   Ambiorix on ubus), then start the controller and the local agent. The extenders
-   run prplMesh's agent, or any certified EasyMesh agent.
-2. **Check its northbound is on ubus:**
+AIGW works with any certified EasyMesh controller that has a Data Elements
+northbound on the gateway: the TR-181 objects `Device.WiFi.DataElements.` with the
+commands `ClientSteer()` (TR-181 2.17) and `ChannelSelectionRequest()` (2.19).
+
+1. **Run the controller on the gateway.** The router maker or the ISP's firmware
+   provides it. The extenders run any certified EasyMesh agent.
+2. **Check that its northbound is on the gateway's bus.** On ubus:
    ```sh
    ubus list Device.WiFi.DataElements.Network
-   /usr/libexec/aigw/mesh-prplmesh get /tmp/de.json && head -c 600 /tmp/de.json
+   /usr/libexec/aigw/mesh-dataelements get /tmp/de.json && head -c 600 /tmp/de.json
    ```
+   Where the controller is a USP service of the local USP agent instead,
+   `obuspa -c get Device.WiFi.DataElements.Network.` shows the same model.
 3. **Read it from AIGW:** `agctl mesh --run`. Expect `status Ok`, the access points,
    each extender's backhaul and the devices.
-4. **Decide who steers what.** prplMesh steers too: its optimal-path task, and its
-   channel selection tasks (`X_PRPLWARE-COM_Controller.Configuration.ChannelSelectionTaskEnabled`,
-   `DynamicChannelSelectionTaskEnabled`). AIGW never fights them: a device the controller just moved is left
-   alone. But one owner per job is clearer:
-   - leave prplMesh's own steering on (AIGW only adds moves it can prove);
-   - give channels to one side: turn prplMesh's dynamic channel selection off and keep
-     `mesh.channel 1`, or set `mesh.channel 0`.
+4. **Decide who steers what.** The controller steers too, and picks channels by
+   itself. AIGW never fights it: a device the controller just moved is left alone.
+   But one owner per job is clearer:
+   - leave the controller's own steering on (AIGW only adds moves it can prove);
+   - give channels to one side: turn the controller's dynamic channel selection off
+     and keep `mesh.channel 1`, or set `mesh.channel 0`.
 5. **Turn off AIGW's single-AP Wi-Fi features** on radios the controller manages:
    `wifi.steer 0` (band steering through hostapd) and `wifi.chan_heal 0`. Self-Healing
    Wi-Fi's measuring (`wifi.heal`) stays useful: it gives AIGW each device's loss.
 6. **Name the extenders:** `uci add_list aigw.mesh.name='<AL MAC>=bedroom'; uci commit
    aigw`, then restart agd.
 
-prplMesh takes channel requests only through its BML (`beerocks_cli -c
-"bml_trigger_channel_selection <RUID> <channel> <MHz>"`); its northbound has no
-channel request yet. The handler uses BML, so it needs `beerocks_cli` on the
-gateway.
+### The handler
 
-### Another controller
-
-A vendor's controller plugs in with its own handler, with the same three commands.
-Point `mesh.handler` at it:
+agd reaches the controller through a handler program with three commands:
 
 ```
 <handler> get <file>                                      the Data Elements model, JSON or path=value
@@ -281,13 +277,25 @@ Exit codes:
 | 1 | refused |
 
 The last line printed says why. agd checks every value before calling the handler: MAC
-addresses, channels AIGW uses, numbers. A controller with the TR-181 2.17+ commands
-maps directly:
+addresses, channels AIGW uses, numbers.
 
-- `steer` is `Device.WiFi.DataElements.Network.Device.{i}.Radio.{i}.BSS.{i}.STA.{i}.ClientSteer(TargetBSSID,
-  RequestMode=Steering_Mandate, ...)`.
+The platform's handler, `mesh-dataelements`, speaks the standard model on the gateway's
+own bus: ubus first, then the local USP agent (`obuspa -c`). It finds the instance by
+its address in the model, then calls the command on it:
+
+- `steer` is `Device.WiFi.DataElements.Network.Device.{i}.Radio.{i}.BSS.{i}.STA.{i}.ClientSteer()`
+  with `TargetBSSID`, `RequestMode` `Steering_Mandate`, and `BTMDisassociationImminent`
+  for a device with 802.11v. The station is the one whose `MACAddress` matches.
 - `channel` is `Device.WiFi.DataElements.Network.Device.{i}.Radio.{i}.ChannelSelectionRequest()`
-  (2.19), with the target as preference 15 and the others lower.
+  for the radio whose `ID` is the RUID. It has one `Class.{i}.` (the operating class),
+  the target channel at preference 15 and the class's other channels at 1. For 80 and
+  160 MHz classes the channel is the centre channel, as 802.11 Table E-4 lists them.
+- A command's `Status` other than `Success` is a refusal (exit 1).
+
+### Another controller
+
+A controller without these commands plugs in with its own handler, with the same three
+commands. Point `mesh.handler` at it.
 
 ## Testing
 
@@ -298,21 +306,22 @@ maps directly:
   the channel plan (a wired or wireless extender, a tied radio, unavoidable clashes); and
   each backhaul finding. The brief and proactive care have their own cases
   (`test_brief.c`, `test_proactive.c`).
-- **End to end** (`tests/mesh-test.sh`, in CI): agd against
-  **`tests/mesh/fakectl.py`**, a fake controller that answers like prplMesh's ubus
-  `_get`, simulates where each device hears each access point, and records every
-  request. It covers advise mode (proposed, approved, kept), enforce mode (moved, worse,
+- **End to end** (`tests/mesh-test.sh`, in CI): agd and `mesh-dataelements` against
+  **`tests/mesh/fakectl.py`**, a fake controller. It runs as `ubus` and as `obuspa`,
+  publishes the Data Elements model and its TR-181 commands, simulates where each
+  device hears each access point, and records every command. It covers the handler
+  on its own (both buses, a refusal, no controller, bad arguments), advise mode (proposed, approved, kept), enforce mode (moved, worse,
   moved back), a miss, the controller's own steering left alone, the channel plan, a
   weak backhaul (the timeline, the data model, a proactive ticket, the brief), state
-  over a restart, a `path=value` snapshot, and no controller. Run it with
-  `sudo tests/mesh-test.sh build`.
-- **prplMesh's own simulation** (Docker containers exchanging real 1905.1 frames) is
+  over a restart, a `path=value` snapshot, no controller, and a config from before
+  0.47 that names the old handler. Run it with `sudo tests/mesh-test.sh build`.
+- **A real controller's simulation** (containers exchanging real 1905.1 frames) is
   too heavy for CI, which is why the fake controller exists.
 
 ### The real multi-AP check (on hardware)
 
 This can't be simulated faithfully: real radios, real BTM behaviour. With a
-gateway and one extender running prplMesh:
+gateway and one extender running a certified EasyMesh controller and agent:
 
 1. Do steps 1–5 above. `agctl mesh` lists both access points and the extender's
    backhaul (Wi-Fi or Ethernet, signal and rate for Wi-Fi).
@@ -324,12 +333,12 @@ gateway and one extender running prplMesh:
    `tried` (moved back), with the before and after in its note. `agctl watch decisions`
    follows it live.
 4. Repeat with a device that ignores BTM requests: two misses, then "left alone".
-5. Put the extender's 2.4 GHz on the gateway's channel (in prplMesh), with `mesh.channel
+5. Put the extender's 2.4 GHz on the gateway's channel (in the controller), with `mesh.channel
    1`: AIGW proposes another channel.
 6. Move the extender far away (or behind walls) so its backhaul drops below −72 dBm
    with a device on it. `agctl mesh` shows the weak backhaul, `agctl brief --no-check`
    names it, and `agctl care proactive` raises `MESH_BACKHAUL`.
-7. Report anything that differs, especially whether prplMesh's `ClientSteering()`
+7. Report anything that differs, especially whether the controller's `ClientSteer()`
    lands, and how long it takes, on your devices.
 
 ## Follow-ups
@@ -351,6 +360,8 @@ advice. Still to come:
   moves.
 - **The ISP's view per extender**: `Device.X_AIGW_.Mesh.Extender.{i}.` with each
   backhaul, beyond the counts.
-- **prplMesh channel requests through its northbound**, once it has one (today: BML).
-- **The handler's `ubus-cli`/`ba-cli` fallback** is untested on prplOS hardware. The
-  ubus `_get` path is the one prplMesh's own tools use.
+- **`mesh-dataelements` on real controllers.** It is tested against the fake
+  controller only. Two things to check on hardware: how each controller's ubus
+  objects take a command's arguments (flat `Class.1.OpClass` names are what USP
+  uses), and whether the local USP agent's CLI takes `ClientSteer()`, an
+  asynchronous command, from a USP service.

@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.46.0
+PKG_VERSION:=0.47.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -152,10 +152,11 @@ endef
 
 CMAKE_OPTIONS += -DAIGW_TESTS=OFF
 
-# aarch64: binutils aligns segments to 64 KB pages by default, which pads each
-# program with up to 60 KB of zeros in flash (agd crossed one such line in
-# v0.40). OpenWRT's arm64 kernels use 4 KB pages, so link for those.
-ifeq ($(ARCH),aarch64)
+# aarch64 and MIPS: binutils aligns segments to 64 KB pages by default, which
+# pads each program with up to 60 KB of zeros in flash (agd crossed one such
+# line in v0.40; on mipsel, agdns and each plug-in carried 35 to 50 KB of
+# them). OpenWRT's arm64 and MIPS kernels use 4 KB pages, so link for those.
+ifneq ($(filter aarch64 mips mipsel,$(ARCH)),)
   TARGET_LDFLAGS += -Wl,-z,max-page-size=4096
 endif
 
@@ -183,8 +184,8 @@ define Package/aigw/install
 	# platform handlers: Wi-Fi settings and firmware, as a management system changes them
 	$(INSTALL_BIN) ./files/wifi-config $(1)/usr/libexec/aigw/wifi-config
 	$(INSTALL_BIN) ./files/firmware $(1)/usr/libexec/aigw/firmware
-	# the mesh handler: prplMesh's EasyMesh controller (Data Elements), when it runs here
-	$(INSTALL_BIN) ./files/mesh-prplmesh $(1)/usr/libexec/aigw/mesh-prplmesh
+	# the mesh handler: an EasyMesh controller's Data Elements northbound (TR-181), when one runs here
+	$(INSTALL_BIN) ./files/mesh-dataelements $(1)/usr/libexec/aigw/mesh-dataelements
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
 		$(1)/usr/share/aigw/plugins/iot-guard/
 	# per-device Wi-Fi keys, your plug-ins, trusted keys, model updates and

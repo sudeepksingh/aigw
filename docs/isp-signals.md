@@ -75,7 +75,7 @@ when someone asks.
 - **The data model** (version 1.12):
   - `Device.X_AIGW_.Offers.`: `Enable`, `Shared`, `Signals` (the active codes, comma-separated; value change notified);
   - `PlanUpgrade.`, `SmartQueue.`, `MeshWiFi.`, `Retention.` and `LineRepair.`, each with `Active`, `Confidence`, `Days`, `Since` and `Evidence`.
-  - It reaches USP, TR-069 and prplOS (aigw-amx) like the rest.
+  - It reaches USP and TR-069 like the rest.
 - **An event:** `Device.X_AIGW_.OfferFound!` (Code, Kind, Product, Confidence,
   Evidence), once when a signal starts. It isn't sent again while the signal
   holds, and not after a restart either. It is sent again if the signal ends

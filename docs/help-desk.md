@@ -113,7 +113,6 @@ named: it is a person's own action.
 - **The ISP, over TR-069:** the same command through
   `Device.X_AIGW_.Request.` (`Command` = `Device.X_AIGW_.SupportBrief()`).
   An ISP's own ACS gets it with no cortex.
-- **prplOS:** the same command through aigw-amx.
 
 `SupportBrief()` reads, and at most proposes, so a management system may run
 it without `mgmt.actions`. One brief is made at a time; another one asked

@@ -10,6 +10,13 @@ if ! uci -q get firewall.aigw >/dev/null; then
 	uci commit firewall
 fi
 
+# 0.47: the mesh handler is mesh-dataelements (any EasyMesh controller with a
+# Data Elements northbound); a config that names the old one gets the new one
+if [ "$(uci -q get aigw.mesh.handler)" = /usr/libexec/aigw/mesh-prplmesh ]; then
+	uci set aigw.mesh.handler='/usr/libexec/aigw/mesh-dataelements'
+	uci commit aigw
+fi
+
 mkdir -p /etc/aigw
 [ -f /etc/aigw/aigw.nft ] || echo "# aigw is stopped" > /etc/aigw/aigw.nft
 

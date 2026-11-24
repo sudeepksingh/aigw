@@ -143,8 +143,8 @@ data) and serves the dashboard until Ctrl+C.
 4. **Manage it as an ISP**: USP (TR-369) or TR-069 with your controller or
    ACS, under your vendor prefix and names (`mgmt.vendor_prefix`,
    `mgmt.manufacturer`, ...): [Device management](device-management.md).
-5. **Build it into your firmware**: the same packages go into an OpenWRT or
-   prplOS image; [ARCHITECTURE.md](ARCHITECTURE.md) has the parts and
+5. **Build it into your firmware**: the same packages go into your OpenWRT-based
+   image; [ARCHITECTURE.md](ARCHITECTURE.md) has the parts and
    their budgets.
 
 ## If something goes wrong
