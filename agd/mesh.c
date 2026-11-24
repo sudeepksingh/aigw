@@ -1,16 +1,16 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
  * Smarter mesh Wi-Fi (v0.44.0): AIGW as the intelligence over a standard
- * Wi-Fi Alliance EasyMesh controller (prplMesh is the reference), not another
- * 1905.1 stack. The rules are pure (core/libag/mesh.c, ag/mesh.h); this reads
+ * Wi-Fi Alliance EasyMesh controller with a Data Elements northbound, not
+ * another 1905.1 stack. The rules are pure (core/libag/mesh.c, ag/mesh.h); this reads
  * the controller, keeps each device's history and acts through the controller.
  *
  *   read     every mesh.poll seconds, the controller's Data Elements model
  *            (TR-181 Device.WiFi.DataElements.Network.) from a backend:
  *              - the mesh handler (mesh.handler; the platform's is
- *                /usr/libexec/aigw/mesh-prplmesh): "get <file>" writes the
+ *                /usr/libexec/aigw/mesh-dataelements): "get <file>" writes the
  *                model as JSON (ubus _get, path-keyed or nested) or as
- *                "path=value" lines (ubus-cli, ba-cli, obuspa)
+ *                "path=value" lines (a USP agent's CLI)
  *              - a snapshot file (mesh.source): tests, and controllers whose
  *                northbound is elsewhere
  *            Another vendor's controller plugs in with its own handler: the
@@ -29,10 +29,11 @@
  *            applies it (within the hourly limit), advise proposes it and a
  *            person says yes. Never during an area outage (area.c).
  *
- *   act      "meshsteer <station>@<BSSID>": the handler's "steer" (prplMesh:
- *            Network.ClientSteering(): a BTM request, or its blocklist for a
- *            device without 802.11v). "meshchan <RUID>:<channel>": the handler's
- *            "channel" (prplMesh: its on-demand channel selection).
+ *   act      "meshsteer <station>@<BSSID>": the handler's "steer" (TR-181
+ *            STA.{i}.ClientSteer(): the controller sends a BTM request, or uses
+ *            its blocklist for a device without 802.11v). "meshchan
+ *            <RUID>:<channel>": the handler's "channel" (TR-181
+ *            Radio.{i}.ChannelSelectionRequest()).
  *
  *   trial    measured mesh.trial seconds after it took effect, against just
  *            before: kept when clearly better, else taken back (moved back,
@@ -470,10 +471,10 @@ int mesh_run(void)
 	}
 	if (busy && now_s() - busy_since < 120)
 		return 0;               /* the last read is still going */
-	h = handler_path(cfg.mesh_handler, "mesh-prplmesh");
+	h = handler_path(cfg.mesh_handler, MESH_HANDLER);
 	if (!h) {
 		read_failed(1, cfg.mesh_handler[0] ? "mesh.handler is not an executable program" :
-			    "no mesh handler (mesh-prplmesh): no EasyMesh controller on this platform");
+			    "no mesh handler (" MESH_HANDLER "): no EasyMesh controller on this platform");
 		return 0;
 	}
 	{
@@ -533,7 +534,7 @@ static void schedule(long s)
 
 static int handler_cmd(char *const argv[], char *err, size_t en)
 {
-	const char *h = handler_path(cfg.mesh_handler, "mesh-prplmesh");
+	const char *h = handler_path(cfg.mesh_handler, MESH_HANDLER);
 	char out[600], *l, *lastl = NULL, *save = NULL, *av[10];
 	int rc, i;
 

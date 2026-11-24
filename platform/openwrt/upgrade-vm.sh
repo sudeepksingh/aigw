@@ -5,7 +5,8 @@
 #   upgrade-vm.sh setup          a home on the old release: settings that aren't the
 #                                defaults, a policy of its own and a default one removed,
 #                                devices (one in a zone), a block in effect, a care
-#                                check, remote access with a phone
+#                                check, remote access with a phone, the mesh handler
+#                                named by its path before 0.47 (mesh-prplmesh)
 #   upgrade-vm.sh snap <name> <url>   what must survive, as files, posted to <url>
 #                                as /tmp/snap-<name>.tgz (the host compares them)
 set -u
@@ -45,6 +46,8 @@ setup)
 		set aigw.bridge=plugin
 		set aigw.bridge.url='https://cortex.example.net'
 		set aigw.bridge.token='upgrade-test-token-0123456789'
+		set aigw.mesh=mesh
+		set aigw.mesh.handler='/usr/libexec/aigw/mesh-prplmesh'
 		commit aigw
 	EOF
 	/etc/init.d/aigw restart

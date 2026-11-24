@@ -57,6 +57,17 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.47:** **One standard way to the mesh, and more room in flash.** The mesh
+> handler is now `mesh-dataelements`: it speaks the standard Data Elements
+> commands (`ClientSteer()`, `ChannelSelectionRequest()`) on the gateway's bus,
+> ubus or the local USP agent, so it works with any certified EasyMesh
+> controller that has them. A config that names the old handler gets the new
+> one. The vendor-specific mesh handler and data model component are gone. The
+> packages are smaller with the same features: link-time optimisation, and on
+> MIPS no more 64 KB padding in each program. Installed flash (`aigw-selftest`,
+> budget 1024 KB): x86-64 980 → 948 KB, aarch64 980 → 940 KB, mipsel 960 →
+> 788 KB; see [docs/mesh.md](docs/mesh.md).
+>
 > **v0.46:** **Coverage placement advice.** Instead of "move it closer, or an
 > extender would help", AIGW says which device is weak, when, where in the
 > home, and what fixes it. It learns each Wi-Fi device's coverage from what it
@@ -82,9 +93,9 @@ illustrated version.
 > `ChannelPlan!`); see [docs/neighbour-channels.md](docs/neighbour-channels.md).
 >
 > **v0.44:** **Smarter mesh Wi-Fi over EasyMesh.** AIGW is the intelligence over
-> a standard Wi-Fi Alliance EasyMesh controller (prplMesh, the one in prplOS),
-> not another 1905.1 stack: it reads the mesh through the Data Elements model
-> (`Device.WiFi.DataElements.`) and acts through the controller. A device that
+> a standard Wi-Fi Alliance EasyMesh controller, not another 1905.1 stack: it
+> reads the mesh through the Data Elements model (`Device.WiFi.DataElements.`)
+> and acts through the controller. A device that
 > struggles (a weak signal, or losing traffic at a good one) moves to an access
 > point measured to hear it clearly better, never in a call and never right
 > after the controller moved it; each move is a trial, kept when the device does
@@ -92,7 +103,7 @@ illustrated version.
 > extenders, and the extenders whose weak backhaul hurts more than it helps: in
 > the help-desk brief, a proactive ticket and cortex's fleet dashboard.
 > `agctl mesh`, data model 1.19 (`Device.X_AIGW_.Mesh.`, `MeshDecision!`); see
-> [docs/mesh.md](docs/mesh.md), with how to pair it with prplMesh on OpenWRT.
+> [docs/mesh.md](docs/mesh.md), with how to set it up with a controller.
 >
 > **v0.43:** **Hardened before others try it.** A security review of every way
 > into a gateway and into cortex, written up as a threat model
@@ -327,12 +338,6 @@ illustrated version.
 > any radio. On the PC access point it found, by itself, the weak coverage we
 > had traced by hand.
 >
-> **v0.23:** **a native prplOS component.** `aigw-amx` publishes AIGW OS's data
-> model (alerts, decisions, mode, commands, events) on prplOS's bus as an
-> Ambiorix component. prplOS's own USP agent, TR-069 client, CLI and web UI see
-> it like any other part of the device, and the home's rules still apply. It is
-> tested in CI with Ambiorix itself.
->
 > **v0.22:** **ready for a carrier network.** A real firmware upgrade from an ACS
 > is now tested on OpenWRT itself (in QEMU): icwmp downloads the image, AIGW checks
 > it, `sysupgrade` writes it, and after the reboot the ACS gets its
@@ -361,8 +366,8 @@ illustrated version.
 > commands), and gets alerts as active notifications. One data layer serves both
 > protocols, so the home's rules apply alike, and both can run side by side.
 >
-> **v0.18:** **managed by your ISP over USP (TR-369)**, the protocol operators
-> use for prplOS and RDK-B gateways. The ISP's USP controller talks to the
+> **v0.18:** **managed by your ISP over USP (TR-369)**, the Broadband Forum's
+> protocol for managing gateways. The ISP's USP controller talks to the
 > Broadband Forum's own OB-USP-Agent, which serves AIGW OS's data model through
 > a plug-in. The ISP sees devices, alerts and decisions, approves AIGW OS's
 > proposals, and gets alerts as USP events. How much it may do, and see, is the
@@ -754,7 +759,7 @@ sign-plugin <folder>`, or usign) get their privileged capabilities without
 
 An ISP can manage AIGW OS with the system it already runs:
 - **A USP controller** goes through the Broadband Forum's own agent,
-  OB-USP-Agent, the one prplWare and RDK-B use. It runs unmodified with AIGW
+  OB-USP-Agent, the reference agent many gateways use. It runs unmodified with AIGW
   OS's data model plug-in, `aigw-usp`.
 - **A TR-069 ACS** goes through iopsys's icwmp client. It also runs unmodified,
   with AIGW OS's data model daemon, `aigw-cwmp`.

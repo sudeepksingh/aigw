@@ -216,7 +216,7 @@ function renderMesh(r) {
   const m = r.mesh || {};
   if (!m.homes) {
     $("mesh").replaceChildren(el("p", { class: "empty" },
-      "No mesh Wi-Fi reported. Gateways report it from AIGW OS 0.44 on, where an EasyMesh controller (prplMesh) runs."));
+      "No mesh Wi-Fi reported. Gateways report it from AIGW OS 0.44 on, where an EasyMesh controller runs."));
     return;
   }
   const c = m.counts || {};

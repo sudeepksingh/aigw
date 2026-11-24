@@ -4,8 +4,8 @@
     python3 -m aigw_cortex fleet          its "mesh" lines
     dashboard: "Mesh Wi-Fi", the homes whose extenders hurt more than they help
 
-Each gateway reads its home's EasyMesh controller (prplMesh) through the Data
-Elements model (agd/mesh.c): the access points, each extender's backhaul, the
+Each gateway reads its home's EasyMesh controller through the Data Elements
+model (agd/mesh.c): the access points, each extender's backhaul, the
 devices, and what AIGW did about them (devices moved to a better access point,
 kept or moved back, channel changes). The bridge sends counts only: how many
 access points and extenders, how many backhauls are wireless, weak, or "hurt

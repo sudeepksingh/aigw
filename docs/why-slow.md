@@ -139,7 +139,6 @@ The rules are pure and unit-tested (`core/libag/why.c`,
   most 24 hours.
 - **The ISP, over TR-069:** the same command through `Device.X_AIGW_.Request.`
   (`Command` = `Device.X_AIGW_.WhySlow()`, `Start`, `End`, `Host`).
-- **prplOS:** the same command through aigw-amx.
 - **What is kept:** `Device.X_AIGW_.Timeline.` (`Enable`, `Hours`,
   `RecordedSince`, `Samples`, `Events`).
 

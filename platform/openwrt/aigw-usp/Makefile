@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw-usp
-PKG_VERSION:=0.46.0
+PKG_VERSION:=0.47.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -44,11 +44,19 @@ endef
 define Build/Configure
 endef
 
+# small in flash, as for the aigw package: unused functions dropped, and on
+# aarch64 and MIPS segments aligned to the kernels' 4 KB pages, not 64 KB
+USP_LDFLAGS:=-Wl,--gc-sections
+ifneq ($(filter aarch64 mips mipsel,$(ARCH)),)
+  USP_LDFLAGS += -Wl,-z,max-page-size=4096
+endif
+
 define Build/Compile
 	$(TARGET_CC) $(TARGET_CFLAGS) $(TARGET_CPPFLAGS) -fPIC -shared -Wall $(USP_DEFS) \
+		-ffunction-sections -fdata-sections \
 		-I$(STAGING_DIR)/usr/include/obuspa \
 		-o $(PKG_BUILD_DIR)/aigw-usp.so $(PKG_BUILD_DIR)/aigw_usp.c \
-		$(TARGET_LDFLAGS) -lubus -lubox -lpthread
+		$(TARGET_LDFLAGS) $(USP_LDFLAGS) -lubus -lubox -lpthread
 endef
 
 define Package/aigw-usp/install

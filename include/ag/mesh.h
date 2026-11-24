@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
  * AIGW smarter mesh Wi-Fi (v0.44.0): the intelligence over a standard
- * Wi-Fi Alliance EasyMesh controller (prplMesh is the reference).
+ * Wi-Fi Alliance EasyMesh controller with a Data Elements northbound.
  *
  * AIGW is not another 1905.1 stack. The controller runs the mesh (onboarding,
  * backhaul, its own steering); AIGW reads it through the standard northbound,

@@ -2,7 +2,7 @@
 
 A firmware upgrade is where an ISP's fleet is most at risk. When an image breaks
 something, it breaks it in every home it reaches, and the help desk hears about
-it first. A firmware handler, on prplOS, RDK-B or a plain OpenWRT, knows one
+it first. A firmware handler, on an ISP's own firmware or a plain OpenWRT, knows one
 thing about the new image: whether it booted. If it doesn't, the boot loader
 goes back to the old one. If it boots but the home works worse on it, nothing
 notices until the calls come in.

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.46.0 LANGUAGES C)
+project(aigw VERSION 0.47.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -18,6 +18,19 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_compile_options(-ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables -fno-unwind-tables)
   add_link_options(-Wl,--gc-sections)
+  # link-time optimisation: the whole program at once, so code used once is
+  # inlined and duplicates go. Where the compiler supports it (OpenWRT's SDK
+  # does, with gcc-ar)
+  option(AIGW_LTO "Link-time optimisation in release builds" ON)
+  if(AIGW_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT AIGW_IPO OUTPUT AIGW_IPO_WHY LANGUAGES C)
+    if(AIGW_IPO)
+      set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    else()
+      message(STATUS "no link-time optimisation: ${AIGW_IPO_WHY}")
+    endif()
+  endif()
 endif()
 add_compile_definitions(AG_VERSION="${PROJECT_VERSION}"
   AG_DATADIR="${CMAKE_INSTALL_PREFIX}/share/aigw")
@@ -65,15 +78,6 @@ endif()
 
 # TR-069: the data model daemon for icwmp (needs nothing from icwmp to build)
 add_subdirectory(cwmp)
-
-# prplOS: an Ambiorix component (amxrt plug-in) publishing AIGW's subtree on
-# prplOS's bus. Built when Ambiorix is found: on prplOS / an SDK with it, or
-# AIGW_AMX_ROOT from scripts/build-ambiorix.sh
-set(AIGW_AMX_ROOT "" CACHE PATH "Ambiorix install root (scripts/build-ambiorix.sh)")
-find_path(AMXD_INCLUDE amxd/amxd_dm.h HINTS ${AIGW_AMX_ROOT}/include)
-if(AMXD_INCLUDE)
-  add_subdirectory(amx)
-endif()
 
 install(PROGRAMS scripts/aigw-nft scripts/aigw-sqm scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)

@@ -2341,8 +2341,8 @@ static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
 	if (strcmp(fstr(m, "status"), "Ok")) {
 		printf("  status    %s%s%s\n", fstr(m, "status"), *fstr(m, "error") ? ": " : "", fstr(m, "error"));
 		if (!strcmp(fstr(m, "status"), "NoController"))
-			printf("  AIGW reads a standard EasyMesh controller (prplMesh, or another through mesh.handler);\n"
-			       "  see docs/mesh.md for pairing it with prplMesh on OpenWRT.\n");
+			printf("  AIGW reads a standard EasyMesh controller through its Data Elements model;\n"
+			       "  see docs/mesh.md for setting one up, or another through mesh.handler.\n");
 	}
 	if (field(m, "read"))
 		printf("  read      %s from the controller %s (%s; steering %s, channel plan %s, act.mode %s)\n",

@@ -25,6 +25,10 @@
 #define AG_EV_CALL "ag.call"       /* a call or game noticed, and over (with how it went) */
 #define AG_EV_TICKET "ag.ticket"   /* proactive care, before the call: a ticket raised, fixed, over */
 #define AG_EV_MESH "ag.mesh"       /* mesh Wi-Fi: the controller found or lost, a device moved, a backhaul, a trial */
+/* the platform's mesh handler (in /usr/libexec/aigw), and the one before 0.47,
+ * which a config may still name: read as the platform's */
+#define MESH_HANDLER "mesh-dataelements"
+#define MESH_HANDLER_OLD "mesh-prplmesh"
 #define AG_EV_DM "ag.dm.event"     /* a data model event (TR-181 path ending in '!'), for USP / TR-069 */
 
 /* Action modes, weakest first: a policy never acts beyond the global mode. */
@@ -209,7 +213,7 @@ struct ag_config {
 	int pro_max_per_day;      /* new tickets to the ISP in 24 hours */
 	/* smarter mesh Wi-Fi over a standard EasyMesh controller (agd/mesh.c) */
 	int mesh;                 /* read the controller's Data Elements, decide, act through the controller */
-	char mesh_handler[128];   /* the controller's handler; "" the platform's (mesh-prplmesh) */
+	char mesh_handler[128];   /* the controller's handler; "" the platform's (MESH_HANDLER) */
 	char mesh_source[256];    /* read this Data Elements snapshot (JSON or path=value) instead; "" the handler */
 	int mesh_poll;            /* s between reads */
 	int mesh_steer;           /* move struggling devices to a better access point (as act.mode allows) */

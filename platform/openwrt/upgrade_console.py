@@ -157,6 +157,20 @@ def remote(snap):
             "peers": sorted((p.get("name"), p.get("ip")) for p in r.get("peers", []))}
 
 
+# settings an upgrade changes on purpose: (the version that does it, the old line, the new line)
+MIGRATIONS = [
+    ((0, 47), "aigw.mesh.handler='/usr/libexec/aigw/mesh-prplmesh'",
+     "aigw.mesh.handler='/usr/libexec/aigw/mesh-dataelements'"),
+]
+
+
+def version(v):
+    try:
+        return tuple(int(x) for x in str(v).split("-")[0].split(".")[:2])
+    except ValueError:
+        return (0, 0)
+
+
 def compare(before, after, to_version, what, pc=False):
     """The checks, one line each: (ok, name, message). pc: a PC as AP (no fw4)."""
     out = []
@@ -164,6 +178,14 @@ def compare(before, after, to_version, what, pc=False):
     out.append((st.get("version") == to_version, "version", f"agd runs {st.get('version')} (want {to_version})"))
     out.append((after.get("service.txt", "").strip() == "enabled", "service", "aigw enabled at boot"))
     ub, ua = lines(before.get("uci.txt")), lines(after.get("uci.txt"))
+    for since, old, new in MIGRATIONS:
+        if old in ub and version(to_version) >= since:
+            # OpenWRT's package rewrites it; elsewhere agd reads the old line as the new one
+            ok = new in ua or (pc and old in ua)
+            out.append((ok, "migrated " + old.split("=")[0], f"{old} -> {new}" if ok else f"not migrated: {old}"))
+            ub = [new if ln == old else ln for ln in ub]
+            if pc:
+                ua = [new if ln == old else ln for ln in ua]
     gone, new = sorted(set(ub) - set(ua)), sorted(set(ua) - set(ub))
     out.append((not gone and not new, "settings",
                 "kept word for word" if not gone and not new else f"lost {gone[:6]}, new {new[:6]}"))

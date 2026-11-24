@@ -33,7 +33,7 @@ you in it unless you prefer otherwise.
 ## Scope
 
 In scope: everything in this repository: `agd`, `agdns`, `agctl`, the data
-model and its USP, TR-069 and prplOS daemons, the platform handlers
+model and its USP and TR-069 daemons, the platform handlers
 (firmware, Wi-Fi, `aigw-sqm`, `aigw-nft`, `aigw-remote`), the plug-ins, cortex
 (fleet API, dashboard, MCP server), LuCI's pages and ACL, the installers, the
 OpenWRT packages and the try-it demo image. For example: parsing bugs in
