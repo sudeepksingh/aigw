@@ -8,7 +8,8 @@ on:
 
 jobs:
   linux:
-    name: Linux build, tests, smoke test (${{ matrix.profile }} profile)
+    # the full profile keeps the bare name: branch protection requires that check
+    name: Linux build, tests, smoke test${{ matrix.profile != 'full' && format(' ({0} profile)', matrix.profile) || '' }}
     runs-on: ubuntu-24.04
     # a stalled runner (it happened in the package download) fails in time
     timeout-minutes: 120
