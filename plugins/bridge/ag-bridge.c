@@ -628,6 +628,9 @@ static void report(void)
 	if ((d = query("channels")) && (d = field(d, "channels")) && field(d, "radios") &&
 	    blobmsg_data_len(field(d, "radios")))
 		copy_attr(&r, "channels", d);
+	/* coverage advice: the verdict (a home that needs an extender), counts, spots by kind (coverage.share) */
+	if ((d = query("coverage")) && (d = field(d, "coverage")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
+		copy_attr(&r, "coverage", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))

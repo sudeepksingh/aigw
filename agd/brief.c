@@ -297,6 +297,19 @@ static void gather(struct brief_in *in, const struct brief_ask *a, long now)
 
 		in->chan_plan = cfg.chan_plan && chan_plan_words(cw, sizeof(cw)) ? cw : NULL;
 	}
+	/* coverage advice: the device asked about (when it is the weak one), else the home's */
+	{
+		static char ca[600], cl[400], cn[400];
+		const char *k = in->host_target ? coverage_kind_of(in->host_target) : "";
+		int dev_weak = !strcmp(k, "Sometimes") || !strcmp(k, "Always") || !strcmp(k, "WeakTransmitter");
+
+		if ((!in->host_target || dev_weak) &&
+		    coverage_words(in->host_target, ca, sizeof(ca), cl, sizeof(cl), cn, sizeof(cn)) >= 0) {
+			in->coverage = ca;
+			in->coverage_line = cl[0] ? cl : NULL;
+			in->coverage_note = cn[0] ? cn : NULL;
+		}
+	}
 	/* smart queueing, the last upgrade */
 	if (cfg.sqm && sqm_field("Status", sqm_state, sizeof(sqm_state)) == 0) {
 		uint32_t id;

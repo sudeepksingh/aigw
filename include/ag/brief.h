@@ -37,7 +37,7 @@
 #include <stdint.h>
 
 #define BRIEF_LINES 12
-#define BRIEF_TEXT  280
+#define BRIEF_TEXT  420
 
 enum brief_fault { BF_NONE, BF_LINE, BF_HOME_WIFI, BF_DEVICE, BF_OUTSIDE, BF_UNKNOWN, BF_N };
 enum brief_visit { BV_NO, BV_IF_PERSISTS, BV_YES };
@@ -123,6 +123,9 @@ struct brief_in {
 	int nmesh;
 	/* neighbour-aware channels (ag/chanplan.h): what was learned of the channels by hour, in words; NULL none */
 	const char *chan_plan;
+	/* coverage advice (ag/coverage.h), from the devices' history: what to do about weak Wi-Fi (which device, when,
+	   where, an extender or not), the device's history in a line, the customer's words; NULL none (yet) */
+	const char *coverage, *coverage_line, *coverage_note;
 };
 
 struct brief_line {

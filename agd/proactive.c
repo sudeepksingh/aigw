@@ -454,7 +454,8 @@ static void own_words(struct pro_ticket *t, long now)
 			 "drop stops what it was doing for a few seconds (WIFI_DROPS).", who, DROPS_MIN);
 	else
 		snprintf(t->summary, sizeof(t->summary), "%s for %s, on %s. %s", t->code, for_,
-			 t->devices == 1 ? "one device" : "the whole home", diag_advice(t->code));
+			 t->devices == 1 ? "one device" : "the whole home",
+			 coverage_advice(t->code, is_mac(t->target) ? t->target : NULL, 0));
 }
 
 /* the brief, the evidence and the customer's note */
@@ -491,6 +492,16 @@ static void describe(struct pro_ticket *t, long now, struct brief *b)
 	brief_scrub_isp(t->summary, sizeof(t->summary));
 	brief_scrub_isp(t->evidence, sizeof(t->evidence));
 	pro_note(t->code, 0, local_hour(t->since), t->note, sizeof(t->note));
+	/* weak Wi-Fi: the customer hears where, and whether an extender would fix it (coverage advice) */
+	if (!strcmp(t->code, "WIFI_COVERAGE") ||
+	    (!strcmp(t->code, "WIFI_DROPS") && (!strcmp(coverage_kind_of(t->target), "Sometimes") ||
+						!strcmp(coverage_kind_of(t->target), "Always")))) {
+		char note[PRO_TEXT];
+
+		coverage_words(is_mac(t->target) ? t->target : NULL, NULL, 0, NULL, 0, note, sizeof(note));
+		if (note[0])
+			snprintf(t->note, sizeof(t->note), "%s", note);
+	}
 }
 
 static int watched_by_healing(const char *code)
@@ -502,7 +513,7 @@ static int watched_by_healing(const char *code)
 static void raise_it(struct pro_ticket *t, long now, const struct brief *b, const char *why_now)
 {
 	t->status = PS_RAISED;
-	snprintf(t->next_step, sizeof(t->next_step), "%s%.250s%s%.300s", why_now ? why_now : "",
+	snprintf(t->next_step, sizeof(t->next_step), "%s%.420s%s%.200s", why_now ? why_now : "",
 		 b && b->fix.text[0] ? b->fix.text : "Check it from the ISP's side.",
 		 b && b->visit_why[0] ? " Technician: " : "", b && b->visit_why[0] ? b->visit_why : "");
 	brief_scrub_isp(t->next_step, sizeof(t->next_step));

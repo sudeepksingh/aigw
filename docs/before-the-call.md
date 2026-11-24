@@ -133,6 +133,14 @@ acronyms: no DNS, SQM, MAC, dBm or ms, and no "packet loss", "latency",
 "channel", "band" or "router". The unit test checks every note, for every code,
 fixed or not, at every hour (`pro_plain()` in `core/libag/proactive.c`).
 
+For weak Wi-Fi (`WIFI_COVERAGE`, and `WIFI_DROPS` of a device that drops when it
+is weak), the note comes from [coverage advice](coverage.md) once a device's
+coverage is learned (v0.46). It says where, in plain words ("in one part of
+your home, where several of your devices are in the evening"), and what fixes
+it: a device used a little closer, or a Wi-Fi extender about halfway between
+the gateway and that spot. The ticket's next step names the spot by the
+devices seen there (by kind for the ISP).
+
 ## Where to see it
 
 | | |

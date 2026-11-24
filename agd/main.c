@@ -67,8 +67,10 @@ void agd_emit_from(const char *type, struct blob_buf *msg, const void *from)
 	if (conn.ctx.sock.fd >= 0)
 		ubus_send_event(&conn.ctx, type, msg->head);
 	why_on_emit(type, msg->head);           /* the home's timeline */
-	if (!strcmp(type, AG_EV_WIFI))
+	if (!strcmp(type, AG_EV_WIFI)) {
 		proactive_on_wifi(msg->head);   /* a device that keeps dropping off Wi-Fi */
+		coverage_on_wifi(msg->head);    /* ... and its coverage history */
+	}
 	plugin_dispatch(type, msg->head, from);
 }
 
@@ -1260,10 +1262,24 @@ static int m_channels(struct ubus_context *ctx, struct ubus_object *obj, struct 
 	return 0;
 }
 
+/* ag coverage: coverage placement advice: the verdict, what to do, the home's weak spots, each device's history.
+   At home: devices by name */
+static int m_coverage(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		      const char *method, struct blob_attr *msg)
+{
+	(void)obj;
+	(void)method;
+	(void)msg;
+	blob_buf_init(&b, 0);
+	coverage_blob(&b, 1);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
 	UBUS_METHOD("channels", m_channels, chan_policy),
 	UBUS_METHOD("mesh", m_mesh, mesh_policy),
+	UBUS_METHOD_NOARG("coverage", m_coverage),
 	UBUS_METHOD("proactive", m_proactive, proactive_policy),
 	UBUS_METHOD("brief", m_brief, brief_policy),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
@@ -1385,6 +1401,7 @@ int main(int argc, char **argv)
 	calls_init();                   /* calls and games first, inside it */
 	proactive_init();               /* before the call: after care, the timeline, SQM and calls */
 	mesh_init();                    /* mesh Wi-Fi over the EasyMesh controller: after the state and act */
+	coverage_init();                /* coverage placement advice: after the state */
 	keys_init();
 	plugin_init();
 

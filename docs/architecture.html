@@ -1502,10 +1502,20 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Explained</td><td><code>agctl channels</code> (a per-channel, per-hour view), the why timeline, the help-desk brief, data model 1.20 (<code>Device.X_AIGW_.ChannelPlan.</code>, <code>ChannelPlan!</code>), cortex&rsquo;s fleet report.</td></tr>
     </tbody>
   </table></div>
+
+  <h3 style="margin-top:18px">As built in v0.46: coverage placement advice</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>A history per device</td><td>From what agd already measures: the signal and band, the rate, the loss Self-Healing Wi-Fi sees, with a mesh the resends and what the other access points hear. Its usual signal, its weak hours, how often, how much it loses then.</td></tr>
+      <tr><td>Three kinds of weak</td><td>A device that moves into a far room, one that lives there, and one whose own radio is weak (compared with the others: it loses little, or the rate to it stays high).</td></tr>
+      <tr><td>Spots, no floor plan</td><td>Weak looks grouped by their signature (what each access point hears, 2.4 GHz in 5 GHz terms) and the time of day, named by the devices seen there. A spot two or more devices share: move the gateway toward it, or an extender about halfway. With a mesh: which access point hears it best.</td></tr>
+      <tr><td>Shown everywhere</td><td>Proactive tickets and their customer notes, the help-desk brief, the timeline, Diagnose, <code>agctl coverage</code>, data model 1.21 (<code>Device.X_AIGW_.Coverage.</code>), cortex&rsquo;s count of the homes that need an extender. Device kinds for the ISP unless <code>brief.names</code>.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
-<!-- 17 -->
-<section id="risks">
+<!-- 17 --><section id="risks">
   <h2><span class="num">17</span>Status and risks</h2>
   <p class="sub">Development PC checked on 2026-11-06 (WSL2 kernel 6.18.54, RTL8821CU adapter).</p>
   <div class="tbl"><table>

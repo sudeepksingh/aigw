@@ -57,6 +57,19 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.46:** **Coverage placement advice.** Instead of "move it closer, or an
+> extender would help", AIGW says which device is weak, when, where in the
+> home, and what fixes it. It learns each Wi-Fi device's coverage from what it
+> already measures: its usual signal, its weak hours, how much it loses then.
+> It tells apart a device that moves into a far room, one that lives there, and
+> one whose own radio is weak (a cheap plug). Weak spots are named by the
+> devices seen there ("where the TV and the phone are, at night"). A spot two or
+> more devices share means the gateway is badly placed: move it toward the
+> spot, or an extender about halfway. With a mesh, AIGW says which access point
+> hears the spot best. In proactive tickets, the help-desk brief, the timeline,
+> `agctl coverage`, data model 1.21 (`Device.X_AIGW_.Coverage.`) and cortex's
+> count of the homes that need an extender; see [docs/coverage.md](docs/coverage.md).
+>
 > **v0.45:** **Neighbour-aware channels.** AIGW learns how crowded each Wi-Fi
 > channel is, hour by hour of the day: the air others use (the radio's survey),
 > the neighbouring networks (scan results, rare scans of its own only when the
