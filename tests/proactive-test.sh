@@ -26,6 +26,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+. "$(dirname "$0")/feature-lib.sh"
+needs "$BIN" proactive
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 chmod 755 "$T"         # the test plug-in runs as nobody
@@ -314,8 +316,8 @@ ok = ok and v[p + 'Ticket.$TID.Status'] == 'Raised' and v[p + 'Ticket.$TID.Fault
 ok = ok and v[p + 'Ticket.$TID.CustomerNote'].startswith('We noticed') and v[p + 'Ticket.$TID.Opened'].endswith('Z')
 sys.exit(0 if ok else 1)" < "$T/dm.json" || fail "TR-181 Device.X_AIGW_.Proactive.: $(cat "$T/dm.json")"
 "$UBUS" -s "$AIGW_UBUS" call ag.dm schema > "$T/schema.json"
-js "sys.exit(0 if d['version'] == '1.21' and 'Device.X_AIGW_.ProactiveTicket!' in [e['path'] for e in d['events']] else 1)" \
-	< "$T/schema.json" || fail "data model 1.21 with ProactiveTicket!: $(head -c 400 "$T/schema.json")"
+js "sys.exit(0 if d['version'] == '1.22' and 'Device.X_AIGW_.ProactiveTicket!' in [e['path'] for e in d['events']] else 1)" \
+	< "$T/schema.json" || fail "data model 1.22 with ProactiveTicket!: $(head -c 400 "$T/schema.json")"
 
 echo "== seen again and again: still one ticket, one event"
 sleep 6
@@ -432,6 +434,7 @@ sleep 1
 pro | js "c = d['counts']; sys.exit(0 if c['suppressed'] >= 1 else 1)" || fail "counted as kept at home: $(agctl care proactive)"
 agctl care proactive
 
+if has area plugins; then    # cortex's notice comes through a plug-in
 echo "== a known area outage: no tickets, no notes, not a word to the ISP"
 EV=$(events)
 N0=$(pro | js "print(d['counts']['tickets'])")
@@ -455,6 +458,7 @@ wait_pro 20 "d['area_outage'] in (0, False)"
 wait_pro 30 "[t for t in d['tickets'] if t['code'] in ('ISP_DOWN', 'LINE_DOWN') and t['open'] in (1, True)]"
 echo "   the notice lapsed, the line still down: its ticket again"
 ip -n "$ISP" addr add 10.98.0.1/32 dev lo
+fi
 
 echo "== the help desk is asked: open tickets were not in time"
 agctl brief --no-check > /dev/null

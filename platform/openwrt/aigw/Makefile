@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.47.0
+PKG_VERSION:=0.48.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -54,7 +54,7 @@ define Package/aigw-mqtt
   SECTION:=net
   CATEGORY:=Network
   TITLE:=AIGW OS plug-in: MQTT connector with Home Assistant discovery
-  DEPENDS:=+aigw +libubox +libblobmsg-json
+  DEPENDS:=+aigw +libubox +libblobmsg-json @AIGW_FEATURE_PLUGINS
 endef
 
 define Package/aigw-mqtt/description
@@ -72,7 +72,7 @@ define Package/aigw-bridge
   # curl (TLS, certificate checks) is needed at run time; the plug-in waits
   # until it is installed. It is not a build dependency, so the package
   # builds from the base feed alone.
-  DEPENDS:=+aigw +libubox +libblobmsg-json +libuci
+  DEPENDS:=+aigw +libubox +libblobmsg-json +libuci @AIGW_FEATURE_PLUGINS
 endef
 
 define Package/aigw-bridge/description
@@ -87,7 +87,7 @@ define Package/aigw-remote
   SECTION:=net
   CATEGORY:=Network
   TITLE:=AIGW OS remote access over WireGuard (peers with QR codes)
-  DEPENDS:=+aigw +wireguard-tools +kmod-wireguard
+  DEPENDS:=+aigw +wireguard-tools +kmod-wireguard @AIGW_FEATURE_REMOTE
   PKGARCH:=all
 endef
 
@@ -140,7 +140,7 @@ define Package/aigw-demo
   TITLE:=AIGW OS demo image only: a simulated home and fleet (QEMU virtual machines only)
   # only in the demo image (platform/openwrt/build-demo-image.sh), which adds
   # python3 for cortex and curl for the bridge; never released as a package
-  DEPENDS:=+aigw +aigw-bridge +luci-app-aigw
+  DEPENDS:=+aigw +aigw-bridge +luci-app-aigw @AIGW_PROFILE_FULL
 endef
 
 define Package/aigw-demo/description
@@ -150,7 +150,99 @@ define Package/aigw-demo/description
   virtual machine, and labels everything as demo data. Not for routers.
 endef
 
-CMAKE_OPTIONS += -DAIGW_TESTS=OFF
+# the features (cmake/features.cmake, docs/features.md): make menuconfig, Network > aigw
+AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA FED PLUGINS SNI METER FASTPATH REMOTE KEYS
+PKG_CONFIG_DEPENDS:=$(foreach f,$(AIGW_FEATURES),CONFIG_AIGW_FEATURE_$(f))
+
+define Package/aigw/config
+  menu "AIGW OS features"
+  choice
+    prompt "Profile"
+    default AIGW_PROFILE_FULL
+    help
+      Which features AIGW OS is built with (docs/features.md). A feature that
+      is not built in takes no flash, and its commands say so.
+  config AIGW_PROFILE_FULL
+    bool "Full: every feature"
+  config AIGW_PROFILE_SMALL
+    bool "Small: for 8 or 16 MB of flash (what an ISP needs most)"
+  config AIGW_PROFILE_MINIMAL
+    bool "Minimal: the core only"
+  config AIGW_PROFILE_CUSTOM
+    bool "Custom: pick the features below"
+  endchoice
+  config AIGW_FEATURE_WIFI_HEAL
+    bool "Self-Healing Wi-Fi, band steering, channel healing, neighbour-aware channels" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_MESH
+    bool "Smarter mesh Wi-Fi over an EasyMesh controller" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_COVERAGE
+    bool "Coverage placement advice" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_WHY
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_TR143
+    bool "TR-143 diagnostics (IPPing, TraceRoute, Download, Upload, NSLookup)" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_CARE
+    bool "Proactive care, checks, early warning, the experience score, the speed test" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_TR143
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_UPGRADE
+    bool "Firmware upgrades that check themselves and roll back" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_CARE
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_WHY
+    bool "Why was it slow, the home's timeline" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_OFFERS
+    bool "Signals for the ISP (a faster plan, mesh Wi-Fi, and more)" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_WHY && AIGW_FEATURE_CARE
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_SQM
+    bool "Self-tuning smart queueing" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_WHY
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_CALLS
+    bool "Calls and games first" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_SQM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_BRIEF
+    bool "The help-desk brief" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_CARE && AIGW_FEATURE_WHY
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_PROACTIVE
+    bool "Proactive care before the call, tickets to the ISP" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_BRIEF
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+  config AIGW_FEATURE_AREA
+    bool "Area outages, fixes held while many homes fail at once" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_FED
+    bool "Federated learning" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_PLUGINS
+    bool "Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_SNI
+    bool "Connection names from TLS and QUIC handshakes" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_METER
+    bool "Per-device traffic meter (eBPF)" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_FASTPATH
+    bool "Kernel fast path (flowtable)" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_REMOTE
+    bool "Remote access over WireGuard" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_KEYS
+    bool "Per-device Wi-Fi keys" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  endmenu
+endef
+
+CMAKE_OPTIONS += -DAIGW_TESTS=OFF $(foreach f,$(AIGW_FEATURES),-DAIGW_FEATURE_$(f)=$(if $(CONFIG_AIGW_FEATURE_$(f)),ON,OFF))
 
 # aarch64 and MIPS: binutils aligns segments to 64 KB pages by default, which
 # pads each program with up to 60 KB of zeros in flash (agd crossed one such
@@ -162,7 +254,7 @@ endif
 
 define Build/Prepare
 	mkdir -p $(PKG_BUILD_DIR)
-	$(CP) $(AIGW_SRC)/CMakeLists.txt $(AIGW_SRC)/include $(AIGW_SRC)/core \
+	$(CP) $(AIGW_SRC)/CMakeLists.txt $(AIGW_SRC)/cmake $(AIGW_SRC)/include $(AIGW_SRC)/core \
 		$(AIGW_SRC)/agd $(AIGW_SRC)/agdns $(AIGW_SRC)/agctl $(AIGW_SRC)/plugins $(AIGW_SRC)/cwmp \
 		$(AIGW_SRC)/demo $(AIGW_SRC)/scripts $(AIGW_SRC)/tests $(AIGW_SRC)/models $(AIGW_SRC)/LICENSE \
 		$(PKG_BUILD_DIR)/
@@ -178,23 +270,24 @@ endef
 
 define Package/aigw/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/usr/bin $(1)/etc/init.d $(1)/etc/config $(1)/etc/uci-defaults \
-		$(1)/etc/hotplug.d/dhcp $(1)/usr/share/aigw/models $(1)/usr/share/aigw/plugins/iot-guard \
+		$(1)/etc/hotplug.d/dhcp $(1)/usr/share/aigw/models \
 		$(1)/lib/upgrade/keep.d $(1)/usr/lib/aigw/backends $(1)/usr/libexec/aigw
 	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/models/domain-risk.agm $(1)/usr/share/aigw/models/
 	# platform handlers: Wi-Fi settings and firmware, as a management system changes them
 	$(INSTALL_BIN) ./files/wifi-config $(1)/usr/libexec/aigw/wifi-config
 	$(INSTALL_BIN) ./files/firmware $(1)/usr/libexec/aigw/firmware
 	# the mesh handler: an EasyMesh controller's Data Elements northbound (TR-181), when one runs here
-	$(INSTALL_BIN) ./files/mesh-dataelements $(1)/usr/libexec/aigw/mesh-dataelements
-	$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
-		$(1)/usr/share/aigw/plugins/iot-guard/
+	$(if $(CONFIG_AIGW_FEATURE_MESH),$(INSTALL_BIN) ./files/mesh-dataelements $(1)/usr/libexec/aigw/mesh-dataelements)
+	$(if $(CONFIG_AIGW_FEATURE_PLUGINS),$(INSTALL_DIR) $(1)/usr/share/aigw/plugins/iot-guard)
+	$(if $(CONFIG_AIGW_FEATURE_PLUGINS),$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
+		$(1)/usr/share/aigw/plugins/iot-guard/)
 	# per-device Wi-Fi keys, your plug-ins, trusted keys, model updates and
 	# device history survive a firmware upgrade
 	echo /etc/aigw/ > $(1)/lib/upgrade/keep.d/aigw
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agd $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/agdns $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-nft $(1)/usr/sbin/
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-sqm $(1)/usr/sbin/
+	$(if $(CONFIG_AIGW_FEATURE_SQM),$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-sqm $(1)/usr/sbin/)
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-dhcp-event $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-selftest $(1)/usr/sbin/
 	$(INSTALL_DATA) ./files/aigw.hotplug-dhcp $(1)/etc/hotplug.d/dhcp/90-aigw
@@ -309,8 +402,16 @@ define Package/luci-app-aigw/install
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d $(1)/usr/share/rpcd/acl.d \
 		$(1)/www/luci-static/resources/view/aigw $(1)/www/luci-static/resources/aigw
 	$(INSTALL_DATA) $(LUCI_SRC)/root/usr/share/luci/menu.d/luci-app-aigw.json $(1)/usr/share/luci/menu.d/
+	# Wi-Fi keys and remote access: with either
+	$(if $(CONFIG_AIGW_FEATURE_KEYS)$(CONFIG_AIGW_FEATURE_REMOTE),$(INSTALL_DATA) \
+		$(LUCI_SRC)/root/usr/share/luci/menu.d/luci-app-aigw-access.json $(1)/usr/share/luci/menu.d/)
 	$(INSTALL_DATA) $(LUCI_SRC)/root/usr/share/rpcd/acl.d/luci-app-aigw.json $(1)/usr/share/rpcd/acl.d/
-	$(INSTALL_DATA) $(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/*.js $(1)/www/luci-static/resources/view/aigw/
+	$(INSTALL_DATA) $(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/overview.js \
+		$(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/devices.js \
+		$(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/decisions.js \
+		$(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/plugins.js $(1)/www/luci-static/resources/view/aigw/
+	$(if $(CONFIG_AIGW_FEATURE_KEYS)$(CONFIG_AIGW_FEATURE_REMOTE),$(INSTALL_DATA) \
+		$(LUCI_SRC)/htdocs/luci-static/resources/view/aigw/access.js $(1)/www/luci-static/resources/view/aigw/)
 	$(INSTALL_DATA) $(LUCI_SRC)/htdocs/luci-static/resources/aigw/logo-mark.svg $(1)/www/luci-static/resources/aigw/
 endef
 

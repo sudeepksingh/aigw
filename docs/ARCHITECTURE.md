@@ -524,7 +524,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `agdns` | ~150 KB | ~3 MB |
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
-| *measured v0.47, installed (QEMU)* | *948 KB x86-64, 940 KB aarch64, 788 KB mipsel* | — |
+| *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |
@@ -1189,6 +1189,27 @@ Installed flash, as `aigw-selftest` counts it in CI's QEMU jobs (budget 1024 KB)
 | `mipsel_24kc` | 960 KB | 788 KB | 172 KB |
 
 Verified by `tests/mesh-test.sh` (the handler on its own over a fake ubus and a fake local USP agent, then everything before through it; a config with the old handler's path), the upgrade test (`MIGRATIONS` in `upgrade_console.py`), and the full suite on the LTO build.
+
+**As built in v0.48: features chosen when it is built.** The full build does what v0.47 did; whoever builds AIGW OS can leave features out ([features.md](features.md)).
+
+| Piece | As built |
+|-------|----------|
+| Features (`cmake/features.cmake`) | 20 `AIGW_FEATURE_*` options, on by default, each with what it needs (checked: a missing need stops the build); `AIGW_PROFILE` full, small or minimal. A generated `ag/features.h` (`AIGW_FEATURE_X` 1/0, `AG_FEATURES`), included by `ag/ag.h`. A feature that is off isn't compiled: its agd and libag sources, its unit test, its plug-ins |
+| The core | Devices, DNS and connection sensing, alerts and the domain-risk model, decisions, models, the data model with USP and TR-069, Wi-Fi settings and firmware, Diagnose, and taking the home's names out of what the ISP sees (moved into `agd/scrub.c`, `core/libag/scrub.c`; Wi-Fi health names into `core/libag/diag.c`) |
+| Hook points | `agd/agd.h`: each feature's functions inside `#if`, with inline stubs under `#else` only for what the core or an optional partner calls (the compiler drops them). `main.c` (ubus methods, objects, inits, ticks), `dm.c` (parameters, instance tables, getters, commands; events by name, `EVT_*`), `plugin.c` and agctl (a `features[]` table: "not built in (AIGW_FEATURE_X)") inside the same `#if` |
+| Saying what it has | `agd --features`, `agctl version`, `Device.X_AIGW_.Features` (1.22), the `features` field of `ag status`; a log line for config sections of features not built in |
+| OpenWRT | `make menuconfig`: a profile, or Custom with each feature (Kconfig `depends on` its needs), passed to CMake; only the built features' files shipped (`aigw-sqm`, the mesh handler, plug-in manifests, LuCI's access page); `aigw-mqtt`, `aigw-bridge` need `PLUGINS`, `aigw-remote` `REMOTE`. `AIGW_PROFILE=small build-sdk.sh` |
+| CI | The Linux job for full, small and minimal (a test for a feature not built says SKIP; dm, cwmp, usp and proactive guard their feature parts); the OpenWRT 24.10 jobs also build small and minimal and print each profile's installed KB (`flash-kb.py`) |
+
+Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
+
+| Profile | `x86_64` | `aarch64_cortex-a53` | `mipsel_24kc` |
+|---------|----------|----------------------|---------------|
+| full | 952 KB | 940 KB | 788 KB |
+| small | 664 KB | 668 KB | 564 KB |
+| minimal | 392 KB | 384 KB | 340 KB |
+
+Verified by the full local suite on each profile, every feature built alone with what it needs, and the full build without each feature (each with no warnings).
 
 ---
 

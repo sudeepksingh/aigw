@@ -1512,6 +1512,14 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Smaller, same features</td><td>Link-time optimisation, and on aarch64 and MIPS programs aligned to the kernel&rsquo;s 4 KB pages instead of 64 KB. Installed flash, of the 1024 KB budget: x86-64 980 &rarr; 948 KB, aarch64 980 &rarr; 940 KB, mipsel 960 &rarr; 788 KB.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.48: choose the features</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Features chosen when it is built</td><td>20 features, each a CMake option and a <code>make menuconfig</code> choice, with full, small and minimal profiles. A feature that is not built in takes no flash, its commands say so, and the data model has only what exists (<code>Device.X_AIGW_.Features</code>). See <a href="features.md">features.md</a>.</td></tr>
+      <tr><td>Installed flash</td><td>Of the 1024 KB budget (x86-64, aarch64, mipsel): full 952, 940, 788 KB; small 664, 668, 564 KB; minimal 392, 384, 340 KB.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 --><section id="risks">

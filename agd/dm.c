@@ -45,7 +45,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.21"
+#define DM_VERSION "1.22"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -148,8 +148,20 @@ static const char *vx_path(const char *s)
 
 /* ---------- tables ---------- */
 
-enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW, TB_HEAL, TB_HOP, TB_NSRES, TB_TICKET,
-       TB_CHAN, TB_SPOT, TB_N };
+enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, TB_FW,
+#if AIGW_FEATURE_WIFI_HEAL
+       TB_HEAL, TB_CHAN,
+#endif
+#if AIGW_FEATURE_TR143
+       TB_HOP, TB_NSRES,
+#endif
+#if AIGW_FEATURE_PROACTIVE
+       TB_TICKET,
+#endif
+#if AIGW_FEATURE_COVERAGE
+       TB_SPOT,
+#endif
+       TB_N };
 
 static int host_listed(const struct device *d)
 {
@@ -192,6 +204,7 @@ static int list_fw(uint32_t *out, int max)
 	return n;
 }
 
+#if AIGW_FEATURE_TR143
 /* the last TraceRoute's hops and NSLookup's results: 1..n */
 static int list_rows(int kind, uint32_t *out, int max)
 {
@@ -203,6 +216,7 @@ static int list_rows(int kind, uint32_t *out, int max)
 }
 static int list_hops(uint32_t *out, int max) { return list_rows(TK_TRACE, out, max); }
 static int list_nsres(uint32_t *out, int max) { return list_rows(TK_NSLOOKUP, out, max); }
+#endif
 
 /*
  * One access point = one radio, one SSID, one AccessPoint, with one instance
@@ -219,12 +233,20 @@ static struct {
 	[TB_RADIO]    = { "Device.WiFi.Radio.{i}.", list_ssids },
 	[TB_AP]       = { "Device.WiFi.AccessPoint.{i}.", list_ssids },
 	[TB_FW]       = { "Device.DeviceInfo.FirmwareImage.{i}.", list_fw },
+#if AIGW_FEATURE_WIFI_HEAL
 	[TB_HEAL]     = { "Device.X_AIGW_.WiFiHealth.{i}.", list_ssids },
+	[TB_CHAN]     = { "Device.X_AIGW_.ChannelPlan.Radio.{i}.", list_ssids },
+#endif
+#if AIGW_FEATURE_TR143
 	[TB_HOP]      = { "Device.IP.Diagnostics.TraceRoute.RouteHops.{i}.", list_hops },
 	[TB_NSRES]    = { "Device.DNS.Diagnostics.NSLookupDiagnostics.Result.{i}.", list_nsres },
+#endif
+#if AIGW_FEATURE_PROACTIVE
 	[TB_TICKET]   = { "Device.X_AIGW_.Proactive.Ticket.{i}.", proactive_ids },
-	[TB_CHAN]     = { "Device.X_AIGW_.ChannelPlan.Radio.{i}.", list_ssids },
+#endif
+#if AIGW_FEATURE_COVERAGE
 	[TB_SPOT]     = { "Device.X_AIGW_.Coverage.Spot.{i}.", coverage_spot_ids },
+#endif
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -258,8 +280,10 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 	case TB_SSID:
 	case TB_RADIO:
 	case TB_AP:
+#if AIGW_FEATURE_WIFI_HEAL
 	case TB_HEAL:
 	case TB_CHAN:
+#endif
 		k = imap_key(&ssid_map, inst);
 		for (i = 0; k && i < wifi_n_aps; i++)
 			if (!strcmp(wifi_aps[i].iface, k))
@@ -269,14 +293,20 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 		return alerts_field(inst, "kind", tmp, sizeof(tmp));
 	case TB_DECISION:
 		return act_field(inst, "action", tmp, sizeof(tmp));
+#if AIGW_FEATURE_TR143
 	case TB_HOP:
 		return inst >= 1 && inst <= (uint32_t)tr143_rows(TK_TRACE) ? 0 : -1;
 	case TB_NSRES:
 		return inst >= 1 && inst <= (uint32_t)tr143_rows(TK_NSLOOKUP) ? 0 : -1;
+#endif
+#if AIGW_FEATURE_PROACTIVE
 	case TB_TICKET:
 		return proactive_field(inst, "Code", tmp, sizeof(tmp)) < 0 ? -1 : 0;
+#endif
+#if AIGW_FEATURE_COVERAGE
 	case TB_SPOT:
 		return coverage_spot_field(inst, "Devices", tmp, sizeof(tmp));
+#endif
 	}
 	return -1;
 }
@@ -448,8 +478,10 @@ GET(g_h_ip) { snprintf(buf, n, "%s", c->dev->ip); return 0; }
 GET(g_h_name) { snprintf(buf, n, "%s", c->dev->hostname); return 0; }
 GET(g_h_active) { snprintf(buf, n, "%s", c->dev->present || c->dev->wifi_connected ? "true" : "false"); return 0; }
 GET(g_h_type) { snprintf(buf, n, "%s", c->dev->type); return 0; }
+#if AIGW_FEATURE_COVERAGE
 GET(g_h_cov) { snprintf(buf, n, "%s", coverage_kind_of(c->dev->mac)); return 0; }
 GET(g_h_usual) { snprintf(buf, n, "%d", coverage_usual_of(c->dev->mac)); return 0; }
+#endif
 GET(g_h_zone) { snprintf(buf, n, "%s", c->dev->zone); return 0; }
 GET(g_h_rdown) { snprintf(buf, n, "%llu", (unsigned long long)c->dev->rate_down); return 0; }
 GET(g_h_rup) { snprintf(buf, n, "%llu", (unsigned long long)c->dev->rate_up); return 0; }
@@ -465,6 +497,8 @@ GET(g_h_first) { fmt_time(c->dev->first_seen, buf, n); return 0; }
 GET(g_h_last) { fmt_time(c->dev->last_seen, buf, n); return 0; }
 
 GET(g_mode) { (void)c; snprintf(buf, n, "%s", ag_mode_str(cfg.act_mode)); return 0; }
+/* what this build of AIGW OS can do: its features, comma-separated (docs/features.md) */
+GET(g_features) { (void)c; snprintf(buf, n, "%s", AG_FEATURES); return 0; }
 GET(g_alert_n) { (void)c; snprintf(buf, n, "%d", count(TB_ALERT)); return 0; }
 GET(g_dec_n) { (void)c; snprintf(buf, n, "%d", count(TB_DECISION)); return 0; }
 GET(g_actions) { (void)c; snprintf(buf, n, "%s", cfg.mgmt_actions ? "true" : "false"); return 0; }
@@ -651,6 +685,7 @@ GET(g_ap_mode)
 }
 GET(g_ap_key) { (void)c; snprintf(buf, n, "%s", ""); return 0; }      /* TR-181: always reads empty */
 
+#if AIGW_FEATURE_WIFI_HEAL
 /* Self-Healing Wi-Fi: what each radio's devices feel, and why */
 GET(g_heal_n) { (void)c; snprintf(buf, n, "%d", count(TB_HEAL)); return 0; }
 /* neighbour-aware channels (Device.X_AIGW_.ChannelPlan.) */
@@ -716,6 +751,7 @@ GET(g_heal_hosts)
 	}
 	return 0;
 }
+#endif
 
 GET(g_fw_n) { (void)c; snprintf(buf, n, "%d", count(TB_FW)); return 0; }
 static void fw_ref(int which, char *buf, size_t n)
@@ -817,6 +853,7 @@ GET(g_ld_findings)
 	return 0;
 }
 
+#if AIGW_FEATURE_CARE
 /* proactive care (Device.X_AIGW_.Care.): the open problem, and the experience score per period */
 static const struct care_state *cs_open(void) { return care_open(); }
 GET(g_care_en) { (void)c; snprintf(buf, n, "%s", cfg.care ? "true" : "false"); return 0; }
@@ -879,7 +916,9 @@ GET(g_sp_status) { (void)c; snprintf(buf, n, "%s", care_speed_status()); return 
 GET(g_sp_last) { (void)c; fmt_time(care_speed_last(NULL), buf, n); return 0; }
 GET(g_sp_mbps) { double v = 0; (void)c; care_speed_last(&v); snprintf(buf, n, "%.1f", v); return 0; }
 GET(g_sp_expect) { (void)c; snprintf(buf, n, "%d", cfg.care_speed_mbps); return 0; }
+#endif
 
+#if AIGW_FEATURE_UPGRADE
 /* firmware upgrades that check themselves (Device.X_AIGW_.Upgrade.) */
 GET(g_up_en) { (void)c; snprintf(buf, n, "%s", cfg.upgrade_check ? "true" : "false"); return 0; }
 GET(g_up_rb) { (void)c; snprintf(buf, n, "%s", cfg.upgrade_rollback ? "true" : "false"); return 0; }
@@ -902,7 +941,9 @@ UPF(g_up_held, "HeldVersion")
 UPT(g_up_until, "HeldUntil")
 UPF(g_up_rbm, "RollbackMethod")
 UPF(g_up_rbn, "RollbackNote")
+#endif
 
+#if AIGW_FEATURE_WHY
 /* "why was it slow?": the home's timeline (Device.X_AIGW_.Timeline.) */
 #define WYF(fn, f) GET(fn) { (void)c; return why_field(f, buf, n); }
 WYF(g_wy_en, "Enable")
@@ -910,7 +951,9 @@ WYF(g_wy_hours, "Hours")
 WYF(g_wy_samples, "Samples")
 WYF(g_wy_events, "Events")
 GET(g_wy_since) { char v[24] = "0"; (void)c; why_field("RecordedSince", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+#endif
 
+#if AIGW_FEATURE_OFFERS
 /* signals for the ISP (Device.X_AIGW_.Offers.) */
 #define OFF(fn, f) GET(fn) { (void)c; return offers_field(f, buf, n); }
 #define OFT(fn, f) GET(fn) { char v[24] = "0"; (void)c; offers_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
@@ -924,7 +967,9 @@ OFFERS("SmartQueue", sqm)
 OFFERS("MeshWiFi", mesh)
 OFFERS("Retention", ret)
 OFFERS("LineRepair", rep)
+#endif
 
+#if AIGW_FEATURE_SQM
 /* self-tuning smart queueing (Device.X_AIGW_.SQM.) */
 #define SQF(fn, f) GET(fn) { (void)c; return sqm_field(f, buf, n); }
 SQF(g_sq_en, "Enable")
@@ -936,7 +981,9 @@ SQF(g_sq_bef, "LatencyBeforeMs")
 SQF(g_sq_aft, "LatencyAfterMs")
 SQF(g_sq_sum, "Summary")
 GET(g_sq_since) { char v[24] = "0"; (void)c; sqm_field("Since", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+#endif
 
+#if AIGW_FEATURE_CALLS
 /* calls and games first (Device.X_AIGW_.CallsFirst.) */
 #define CFF(fn, f) GET(fn) { (void)c; return calls_field(f, buf, n); }
 CFF(g_cf_en, "Enable")
@@ -959,7 +1006,9 @@ CFF(g_cf_l_first, "Last.Prioritized")
 CFF(g_cf_l_verdict, "Last.Verdict")
 CFF(g_cf_l_sum, "Last.Summary")
 GET(g_cf_l_start) { char v[24] = "0"; (void)c; calls_field("Last.Start", v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+#endif
 
+#if AIGW_FEATURE_MESH
 /* mesh Wi-Fi over the EasyMesh controller (Device.X_AIGW_.Mesh.) */
 #define MSF(fn, f) GET(fn) { (void)c; return mesh_field(f, buf, n); }
 #define MST(fn, f) GET(fn) { char v[24] = "0"; (void)c; mesh_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
@@ -987,11 +1036,15 @@ MSF(g_ms_lsum, "LastSummary")
 MSF(g_ms_sum, "Summary")
 MST(g_ms_ltime, "LastTime")
 MST(g_ms_read, "ReadTime")
+#endif
 
+#if AIGW_FEATURE_COVERAGE
 /* coverage placement advice (Device.X_AIGW_.Coverage.): by the parameter's own name, a spot's too */
 GET(g_cov) { const char *d = strrchr(c->ppath, '.'); return coverage_field(d ? d + 1 : c->ppath, buf, n); }
 GET(g_cov_spot) { const char *d = strrchr(c->ppath, '.'); return coverage_spot_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
+#endif
 
+#if AIGW_FEATURE_AREA
 /* area outages (Device.X_AIGW_.AreaOutage.): cortex found many homes of this uplink down at once */
 #define AOF(fn, f) GET(fn) { (void)c; return area_field(f, buf, n); }
 #define AOT(fn, f) GET(fn) { char v[24] = "0"; (void)c; area_field(f, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
@@ -1027,7 +1080,9 @@ static int s_ao_up(const struct ictx *c, const char *v, int apply, char *err, si
 	AG_INFO("dm: area uplink id set to '%s' by %s", v, req_origin);
 	return E_OK;
 }
+#endif
 
+#if AIGW_FEATURE_PROACTIVE
 /* proactive care, before the call (Device.X_AIGW_.Proactive.): two getters for all of it, by the
    parameter's own name; booleans and times by name (a ticket's ToldISP is a boolean, the count isn't) */
 static const char *pr_name(const char *path) { const char *d = strrchr(path, '.'); return d ? d + 1 : path; }
@@ -1067,7 +1122,9 @@ GET(g_pr)
 }
 
 GET(g_pt) { return pr_get(1, c->inst, pr_name(c->ppath), buf, n); }
+#endif
 
+#if AIGW_FEATURE_TR143
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
 {
@@ -1114,6 +1171,7 @@ GET(g_tr_cap)
 	}
 	return 0;
 }
+#endif
 
 /* ---------- the schema ---------- */
 
@@ -1150,8 +1208,10 @@ static struct dm_param {
 	{ "Device.Hosts.Host.{i}.Active", T_BOOL, N, TB_HOST, g_h_active, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_Type", T_STR, 0, TB_HOST, g_h_type, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_Zone", T_STR, 0, TB_HOST, g_h_zone, NULL },
+#if AIGW_FEATURE_COVERAGE
 	{ "Device.Hosts.Host.{i}.X_AIGW_Coverage", T_STR, 0, TB_HOST, g_h_cov, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_UsualSignal", T_INT, 0, TB_HOST, g_h_usual, NULL },
+#endif
 	{ "Device.Hosts.Host.{i}.X_AIGW_FirstSeen", T_TIME, 0, TB_HOST, g_h_first, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_LastSeen", T_TIME, 0, TB_HOST, g_h_last, NULL },
 	{ "Device.Hosts.Host.{i}.X_AIGW_RateDown", T_ULONG, 0, TB_HOST, g_h_rdown, NULL },
@@ -1187,6 +1247,7 @@ static struct dm_param {
 	{ "Device.WiFi.AccessPoint.{i}.Security.KeyPassphrase", T_STR, W, TB_AP, g_ap_key, s_key },
 
 	{ "Device.X_AIGW_.Mode", T_STR, W | N, TB_NONE, g_mode, s_mode },
+	{ "Device.X_AIGW_.Features", T_STR, 0, TB_NONE, g_features, NULL },
 	{ "Device.X_AIGW_.ActionsAllowed", T_BOOL, 0, TB_NONE, g_actions, NULL },
 	{ "Device.X_AIGW_.AlertDetails", T_BOOL, 0, TB_NONE, g_details, NULL },
 	{ "Device.X_AIGW_.AlertNumberOfEntries", T_UINT, N, TB_NONE, g_alert_n, NULL },
@@ -1212,6 +1273,7 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Decision.{i}.Created", T_TIME, 0, TB_DECISION, g_d_created, NULL },
 	{ "Device.X_AIGW_.Decision.{i}.Expires", T_TIME, 0, TB_DECISION, g_d_expires, NULL },
 
+#if AIGW_FEATURE_WIFI_HEAL
 #define CP "Device.X_AIGW_.ChannelPlan."
 	{ CP "Enable", T_BOOL, 0, TB_NONE, g_cp_en, NULL },
 	{ CP "RadioNumberOfEntries", T_UINT, 0, TB_NONE, g_cp_n, NULL },
@@ -1229,6 +1291,8 @@ static struct dm_param {
 	{ CP "Radio.{i}.MovedBack", T_UINT, 0, TB_CHAN, g_cp, NULL },
 	{ CP "Radio.{i}.LastResult", T_STR, 0, TB_CHAN, g_cp, NULL },
 #undef CP
+#endif
+#if AIGW_FEATURE_WIFI_HEAL
 	{ "Device.X_AIGW_.WiFiHealthNumberOfEntries", T_UINT, 0, TB_NONE, g_heal_n, NULL },
 	{ "Device.X_AIGW_.WiFiHealth.{i}.Radio", T_STR, 0, TB_HEAL, g_heal_radio, NULL },
 	{ "Device.X_AIGW_.WiFiHealth.{i}.Status", T_STR, N, TB_HEAL, g_heal_status, NULL },
@@ -1261,6 +1325,7 @@ static struct dm_param {
 	HROWS("Week", week)
 	HROWS("Month", month)
 #undef HROWS
+#endif
 
 	{ "Device.X_AIGW_.LastDiagnosis.Time", T_TIME, 0, TB_NONE, g_ld_time, NULL },
 	{ "Device.X_AIGW_.LastDiagnosis.Host", T_STR, 0, TB_NONE, g_ld_host, NULL },
@@ -1270,6 +1335,7 @@ static struct dm_param {
 	{ "Device.X_AIGW_.LastDiagnosis.Advice", T_STR, 0, TB_NONE, g_ld_advice, NULL },
 	{ "Device.X_AIGW_.LastDiagnosis.Findings", T_STR, 0, TB_NONE, g_ld_findings, NULL },
 
+#if AIGW_FEATURE_CARE
 	{ "Device.X_AIGW_.Care.Enable", T_BOOL, 0, TB_NONE, g_care_en, NULL },
 	{ "Device.X_AIGW_.Care.Status", T_STR, N, TB_NONE, g_care_status, NULL },
 	{ "Device.X_AIGW_.Care.LastCheck", T_TIME, 0, TB_NONE, g_care_last, NULL },
@@ -1322,6 +1388,8 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Care.Speed.LastTest", T_TIME, 0, TB_NONE, g_sp_last, NULL },
 	{ "Device.X_AIGW_.Care.Speed.LastMbps", T_DEC, 0, TB_NONE, g_sp_mbps, NULL },
 	{ "Device.X_AIGW_.Care.Speed.ExpectedMbps", T_UINT, 0, TB_NONE, g_sp_expect, NULL },
+#endif
+#if AIGW_FEATURE_UPGRADE
 	{ "Device.X_AIGW_.Upgrade.Enable", T_BOOL, 0, TB_NONE, g_up_en, NULL },
 	{ "Device.X_AIGW_.Upgrade.AutoRollback", T_BOOL, 0, TB_NONE, g_up_rb, NULL },
 	{ "Device.X_AIGW_.Upgrade.WatchSeconds", T_UINT, 0, TB_NONE, g_up_watch, NULL },
@@ -1341,11 +1409,15 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Upgrade.HeldUntil", T_TIME, 0, TB_NONE, g_up_until, NULL },
 	{ "Device.X_AIGW_.Upgrade.RollbackMethod", T_STR, 0, TB_NONE, g_up_rbm, NULL },
 	{ "Device.X_AIGW_.Upgrade.RollbackNote", T_STR, 0, TB_NONE, g_up_rbn, NULL },
+#endif
+#if AIGW_FEATURE_WHY
 	{ "Device.X_AIGW_.Timeline.Enable", T_BOOL, 0, TB_NONE, g_wy_en, NULL },
 	{ "Device.X_AIGW_.Timeline.Hours", T_UINT, 0, TB_NONE, g_wy_hours, NULL },
 	{ "Device.X_AIGW_.Timeline.RecordedSince", T_TIME, 0, TB_NONE, g_wy_since, NULL },
 	{ "Device.X_AIGW_.Timeline.Samples", T_UINT, 0, TB_NONE, g_wy_samples, NULL },
 	{ "Device.X_AIGW_.Timeline.Events", T_UINT, 0, TB_NONE, g_wy_events, NULL },
+#endif
+#if AIGW_FEATURE_OFFERS
 	{ "Device.X_AIGW_.Offers.Enable", T_BOOL, 0, TB_NONE, g_of_en, NULL },
 	{ "Device.X_AIGW_.Offers.Shared", T_BOOL, 0, TB_NONE, g_of_sh, NULL },
 	{ "Device.X_AIGW_.Offers.Signals", T_STR, N, TB_NONE, g_of_sig, NULL },
@@ -1357,6 +1429,8 @@ static struct dm_param {
 	{ "Device.X_AIGW_.Offers." P ".Evidence", T_STR, 0, TB_NONE, g_of_##N##_e, NULL }
 	OFP("PlanUpgrade", plan), OFP("SmartQueue", sqm), OFP("MeshWiFi", mesh), OFP("Retention", ret),
 	OFP("LineRepair", rep),
+#endif
+#if AIGW_FEATURE_SQM
 	{ "Device.X_AIGW_.SQM.Enable", T_BOOL, 0, TB_NONE, g_sq_en, NULL },
 	{ "Device.X_AIGW_.SQM.Status", T_STR, N, TB_NONE, g_sq_st, NULL },
 	{ "Device.X_AIGW_.SQM.Interface", T_STR, 0, TB_NONE, g_sq_if, NULL },
@@ -1366,6 +1440,8 @@ static struct dm_param {
 	{ "Device.X_AIGW_.SQM.LatencyBeforeMs", T_UINT, 0, TB_NONE, g_sq_bef, NULL },
 	{ "Device.X_AIGW_.SQM.LatencyAfterMs", T_UINT, 0, TB_NONE, g_sq_aft, NULL },
 	{ "Device.X_AIGW_.SQM.Summary", T_STR, 0, TB_NONE, g_sq_sum, NULL },
+#endif
+#if AIGW_FEATURE_CALLS
 #define CF "Device.X_AIGW_.CallsFirst."
 	{ CF "Enable", T_BOOL, 0, TB_NONE, g_cf_en, NULL },
 	{ CF "Shared", T_BOOL, 0, TB_NONE, g_cf_sh, NULL },
@@ -1388,6 +1464,8 @@ static struct dm_param {
 	{ CF "Last.Verdict", T_STR, 0, TB_NONE, g_cf_l_verdict, NULL },
 	{ CF "Last.Summary", T_STR, 0, TB_NONE, g_cf_l_sum, NULL },
 #undef CF
+#endif
+#if AIGW_FEATURE_MESH
 #define MS "Device.X_AIGW_.Mesh."
 	{ MS "Enable", T_BOOL, 0, TB_NONE, g_ms_en, NULL },
 	{ MS "Status", T_STR, N, TB_NONE, g_ms_st, NULL },
@@ -1414,6 +1492,8 @@ static struct dm_param {
 	{ MS "LastSummary", T_STR, 0, TB_NONE, g_ms_lsum, NULL },
 	{ MS "Summary", T_STR, 0, TB_NONE, g_ms_sum, NULL },
 #undef MS
+#endif
+#if AIGW_FEATURE_COVERAGE
 #define CV "Device.X_AIGW_.Coverage."
 	{ CV "Enable", T_BOOL, 0, TB_NONE, g_cov, NULL },
 	{ CV "Status", T_STR, N, TB_NONE, g_cov, NULL },
@@ -1433,6 +1513,8 @@ static struct dm_param {
 	{ CV "Spot.{i}.Signal", T_INT, 0, TB_SPOT, g_cov_spot, NULL },
 	{ CV "Spot.{i}.HeardBestBy", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
 #undef CV
+#endif
+#if AIGW_FEATURE_AREA
 #define AO "Device.X_AIGW_.AreaOutage."
 	{ AO "Enable", T_BOOL, 0, TB_NONE, g_ao_en, NULL },
 	{ AO "UplinkID", T_STR, W, TB_NONE, g_ao_up, s_ao_up },
@@ -1449,6 +1531,8 @@ static struct dm_param {
 	{ AO "LastIncident", T_UINT, 0, TB_NONE, g_ao_last, NULL },
 	{ AO "LastEnded", T_TIME, 0, TB_NONE, g_ao_ended, NULL },
 #undef AO
+#endif
+#if AIGW_FEATURE_PROACTIVE
 #define PR "Device.X_AIGW_.Proactive."
 	{ PR "Enable", T_BOOL, 0, TB_NONE, g_pr, NULL },
 	{ PR "Fix", T_BOOL, 0, TB_NONE, g_pr, NULL },
@@ -1487,6 +1571,8 @@ static struct dm_param {
 	{ PR "Ticket.{i}.NextStep", T_STR, 0, TB_TICKET, g_pt, NULL },
 	{ PR "Ticket.{i}.CustomerNote", T_STR, 0, TB_TICKET, g_pt, NULL },
 #undef PR
+#endif
+#if AIGW_FEATURE_TR143
 	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
 #define TD "Device.IP.Diagnostics."
 #define TCAP(P) { TD P, T_BOOL, 0, TB_NONE, g_tr_cap, NULL }
@@ -1547,6 +1633,7 @@ static struct dm_param {
 #undef TIN
 #undef TOUT
 #undef TCAP
+#endif
 };
 #define N_PARAMS ((int)(sizeof(params) / sizeof(params[0])))
 
@@ -1774,6 +1861,7 @@ static int r_fw_activate(const struct ictx *c, struct blob_attr *a, struct blob_
 		E_REFUSED : E_PENDING;
 }
 
+#if AIGW_FEATURE_UPGRADE
 /* Upgrade.Forget(): a version AIGW rolled back may be installed again */
 static int r_up_forget(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
 {
@@ -1784,6 +1872,7 @@ static int r_up_forget(const struct ictx *c, struct blob_attr *a, struct blob_bu
 	blobmsg_add_string(o, "Forgotten", upgrade_forget() ? "true" : "false");
 	return E_OK;
 }
+#endif
 
 /* ---------- Diagnose (asynchronous: about 3 s of measuring) ---------- */
 
@@ -1844,6 +1933,7 @@ static int r_diagnose(const struct ictx *c, struct blob_attr *a, struct blob_buf
 	return diag_start(h, diag_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
 }
 
+#if AIGW_FEATURE_WHY || AIGW_FEATURE_BRIEF
 /* ---------- WhySlow(): a stretch of the home's timeline explained (synchronous: it is all in memory) ---------- */
 
 /* days since 1970-01-01 of a civil date (H. Hinnant's algorithm) */
@@ -1888,6 +1978,9 @@ static long parse_time(const char *v)
 	return *p ? -1 : t;                     /* no zone: taken as UTC */
 }
 
+#endif
+
+#if AIGW_FEATURE_WHY
 static int r_whyslow(const struct ictx *c, struct blob_attr *a, struct blob_buf *o, char *e, size_t n)
 {
 	static struct why_result r;
@@ -1946,7 +2039,9 @@ static int r_whyslow(const struct ictx *c, struct blob_attr *a, struct blob_buf 
 	blobmsg_add_string(o, "RecordedPercent", num);
 	return E_OK;
 }
+#endif
 
+#if AIGW_FEATURE_BRIEF
 /* ---------- SupportBrief(): the help desk's answer (asynchronous: a fresh check first) ---------- */
 
 static void brief_lines(char *out, size_t n, const struct brief_line *l, int k, long to)
@@ -2044,6 +2139,9 @@ static int r_brief(const struct ictx *c, struct blob_attr *a, struct blob_buf *o
 	return brief_start(&q, brief_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
 }
 
+#endif
+
+#if AIGW_FEATURE_TR143
 /* ---------- TR-143 (asynchronous: seconds to minutes) ---------- */
 
 static void tr_done(void *ctx, int kind, const struct tr143_out *o)
@@ -2052,8 +2150,10 @@ static void tr_done(void *ctx, int kind, const struct tr143_out *o)
 	struct blob_buf rb = { 0 };
 	void *t;
 
+#if AIGW_FEATURE_CARE
 	if (kind == TK_DOWNLOAD)
 		care_speed_seen(o, a->who);     /* the ISP's download test teaches the line's speed (v0.44.1) */
+#endif
 	blob_buf_init(&rb, 0);
 	t = blobmsg_open_table(&rb, "out");
 	tr143_out_blob(&rb, kind, o);
@@ -2081,6 +2181,7 @@ static int r_tr143(const struct ictx *c, struct blob_attr *a, struct blob_buf *o
 	}
 	return tr143_start(kind, &in, req_origin, tr_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
 }
+#endif
 
 static struct dm_cmd {
 	const char *path;
@@ -2098,15 +2199,22 @@ static struct dm_cmd {
 	{ "Device.DeviceInfo.FirmwareImage.{i}.Download()", TB_FW,
 	  "URL,AutoActivate,Username,Password,FileSize,CheckSumAlgorithm,CheckSum", "", r_fw_download, 0, 1 },
 	{ "Device.DeviceInfo.FirmwareImage.{i}.Activate()", TB_FW, "", "", r_fw_activate, 0, 1 },
+#if AIGW_FEATURE_UPGRADE
 	{ "Device.X_AIGW_.Upgrade.Forget()", TB_NONE, "", "Forgotten", r_up_forget, 0, 0 },
+#endif
 	{ "Device.X_AIGW_.Diagnose()", TB_NONE, "Host",
 	  "Code,Area,Severity,Summary,Advice,Findings,InternetLossPercent,InternetLatencyMs,NextHopLatencyMs,DNSLatencyMs",
 	  r_diagnose, 0, 1 },
+#if AIGW_FEATURE_WHY
 	{ "Device.X_AIGW_.WhySlow()", TB_NONE, "Start,End,Host",
 	  "Code,Area,Severity,Summary,Advice,Findings,Story,Start,End,RecordedPercent", r_whyslow, 0, 0 },
+#endif
+#if AIGW_FEATURE_BRIEF
 	{ "Device.X_AIGW_.SupportBrief()", TB_NONE, "Period,Start,End,Host,Fresh,SpeedTest,Propose",
 	  "Fault,Code,Confidence,Verdict,Evidence,Done,Tell,RemoteFix,Fix,FixDecision,Visit,VisitReason,Checked,Start,End,"
 	  "DataAgeSeconds", r_brief, 0, 1 },
+#endif
+#if AIGW_FEATURE_TR143
 	{ "Device.IP.Diagnostics.IPPing()", TB_NONE, "Interface,ProtocolVersion,Host,NumberOfRepetitions,Timeout,DataBlockSize,DSCP",
 	  "Status,IPAddressUsed,SuccessCount,FailureCount,AverageResponseTime,MinimumResponseTime,MaximumResponseTime,"
 	  "AverageResponseTimeDetailed,MinimumResponseTimeDetailed,MaximumResponseTimeDetailed", r_tr143, 0, 1 },
@@ -2129,31 +2237,105 @@ static struct dm_cmd {
 	{ "Device.DNS.Diagnostics.NSLookupDiagnostics()", TB_NONE, "Interface,HostName,DNSServer,Timeout,NumberOfRepetitions",
 	  "Status,SuccessCount,Result.{i}.Status,Result.{i}.AnswerType,Result.{i}.HostNameReturned,Result.{i}.IPAddresses,"
 	  "Result.{i}.DNSServerIP,Result.{i}.ResponseTime", r_tr143, 0, 1 },
+#endif
 };
 #define N_CMDS ((int)(sizeof(cmds) / sizeof(cmds[0])))
+
+/* the events, each with the feature it belongs to */
+enum {
+	EVT_ALERT,
+	EVT_DECISION,
+#if AIGW_FEATURE_WIFI_HEAL
+	EVT_HEAL,
+#endif
+	EVT_DIAG,
+#if AIGW_FEATURE_CARE
+	EVT_PROBLEM,
+#endif
+#if AIGW_FEATURE_CARE
+	EVT_PROBLEM_CLEARED,
+#endif
+#if AIGW_FEATURE_CARE
+	EVT_WARNING,
+#endif
+#if AIGW_FEATURE_CARE
+	EVT_WARNING_CLEARED,
+#endif
+#if AIGW_FEATURE_UPGRADE
+	EVT_UPGRADE,
+#endif
+#if AIGW_FEATURE_OFFERS
+	EVT_OFFER,
+#endif
+#if AIGW_FEATURE_CALLS
+	EVT_CALL,
+#endif
+#if AIGW_FEATURE_AREA
+	EVT_AREA,
+#endif
+#if AIGW_FEATURE_AREA
+	EVT_AREA_CLEARED,
+#endif
+#if AIGW_FEATURE_PROACTIVE
+	EVT_TICKET,
+#endif
+#if AIGW_FEATURE_MESH
+	EVT_MESH,
+#endif
+#if AIGW_FEATURE_WIFI_HEAL
+	EVT_CHANPLAN,
+#endif
+	EVT_N
+};
 
 static struct {
 	const char *path;
 	const char *args;
-} events[] = {
-	{ "Device.X_AIGW_.Alert!", "Alert,Kind,Severity,Host,Subject,Reason" },
-	{ "Device.X_AIGW_.DecisionChanged!", "Decision,Action,State,Host" },
-	{ "Device.X_AIGW_.WiFiHealthChanged!", "WiFiHealth,Radio,Status,Cause,Explanation" },
-	{ "Device.X_AIGW_.DiagnosisDone!", "Host,Code,Severity,Summary" },
-	{ "Device.X_AIGW_.ProblemDetected!", "Code,Area,Severity,Summary,Advice,Since" },
-	{ "Device.X_AIGW_.ProblemCleared!", "Code,Area,Since,DurationSeconds" },
-	{ "Device.X_AIGW_.EarlyWarning!", "Metric,Area,Kind,Summary,Advice,Normal,Current,PredictedFaultDays,Since" },
-	{ "Device.X_AIGW_.EarlyWarningCleared!", "Metric,Area,Since,DurationSeconds,BecameProblem" },
-	{ "Device.X_AIGW_.UpgradeChecked!", "Result,FromVersion,ToVersion,Reasons,Summary" },
-	{ "Device.X_AIGW_.OfferFound!", "Code,Kind,Product,Confidence,Evidence" },
-	{ "Device.X_AIGW_.CallReport!",
+} events[EVT_N] = {
+	[EVT_ALERT] = { "Device.X_AIGW_.Alert!", "Alert,Kind,Severity,Host,Subject,Reason" },
+	[EVT_DECISION] = { "Device.X_AIGW_.DecisionChanged!", "Decision,Action,State,Host" },
+#if AIGW_FEATURE_WIFI_HEAL
+	[EVT_HEAL] = { "Device.X_AIGW_.WiFiHealthChanged!", "WiFiHealth,Radio,Status,Cause,Explanation" },
+#endif
+	[EVT_DIAG] = { "Device.X_AIGW_.DiagnosisDone!", "Host,Code,Severity,Summary" },
+#if AIGW_FEATURE_CARE
+	[EVT_PROBLEM] = { "Device.X_AIGW_.ProblemDetected!", "Code,Area,Severity,Summary,Advice,Since" },
+#endif
+#if AIGW_FEATURE_CARE
+	[EVT_PROBLEM_CLEARED] = { "Device.X_AIGW_.ProblemCleared!", "Code,Area,Since,DurationSeconds" },
+#endif
+#if AIGW_FEATURE_CARE
+	[EVT_WARNING] = { "Device.X_AIGW_.EarlyWarning!", "Metric,Area,Kind,Summary,Advice,Normal,Current,PredictedFaultDays,Since" },
+#endif
+#if AIGW_FEATURE_CARE
+	[EVT_WARNING_CLEARED] = { "Device.X_AIGW_.EarlyWarningCleared!", "Metric,Area,Since,DurationSeconds,BecameProblem" },
+#endif
+#if AIGW_FEATURE_UPGRADE
+	[EVT_UPGRADE] = { "Device.X_AIGW_.UpgradeChecked!", "Result,FromVersion,ToVersion,Reasons,Summary" },
+#endif
+#if AIGW_FEATURE_OFFERS
+	[EVT_OFFER] = { "Device.X_AIGW_.OfferFound!", "Code,Kind,Product,Confidence,Evidence" },
+#endif
+#if AIGW_FEATURE_CALLS
+	[EVT_CALL] = { "Device.X_AIGW_.CallReport!",
 	  "Kind,Verdict,DurationSeconds,FullLineSeconds,LineKbps,LatencyMs,JitterMs,LossPercent,Prioritized,Summary" },
-	{ "Device.X_AIGW_.AreaOutage!", "Incident,Kind,Since,Homes,HomesInArea,Confidence,Uplink" },
-	{ "Device.X_AIGW_.AreaOutageCleared!", "Incident,Kind,Since,DurationSeconds,HeldFixes,Reason" },
-	{ "Device.X_AIGW_.ProactiveTicket!",
+#endif
+#if AIGW_FEATURE_AREA
+	[EVT_AREA] = { "Device.X_AIGW_.AreaOutage!", "Incident,Kind,Since,Homes,HomesInArea,Confidence,Uplink" },
+#endif
+#if AIGW_FEATURE_AREA
+	[EVT_AREA_CLEARED] = { "Device.X_AIGW_.AreaOutageCleared!", "Incident,Kind,Since,DurationSeconds,HeldFixes,Reason" },
+#endif
+#if AIGW_FEATURE_PROACTIVE
+	[EVT_TICKET] = { "Device.X_AIGW_.ProactiveTicket!",
 	  "Ticket,Status,Code,Fault,Severity,Points,Reason,Devices,Since,Summary,Evidence,NextStep,CustomerNote,Decision" },
-	{ "Device.X_AIGW_.MeshDecision!", "Decision,Kind,State,Station,From,To,Reason,Before,After" },
-	{ "Device.X_AIGW_.ChannelPlan!", "Radio,FromChannel,ToChannel,State,Reason,Before,After" },
+#endif
+#if AIGW_FEATURE_MESH
+	[EVT_MESH] = { "Device.X_AIGW_.MeshDecision!", "Decision,Kind,State,Station,From,To,Reason,Before,After" },
+#endif
+#if AIGW_FEATURE_WIFI_HEAL
+	[EVT_CHANPLAN] = { "Device.X_AIGW_.ChannelPlan!", "Radio,FromChannel,ToChannel,State,Reason,Before,After" },
+#endif
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
 
@@ -2633,7 +2815,7 @@ void dm_on_alert(uint32_t id)
 		const char *kv[] = { "Alert", ref, "Kind", kind, "Severity", sev, "Host", host,
 				     "Subject", subj, "Reason", reason, NULL };
 
-		emit(events[0].path, kv);   /* Alert! */
+		emit(events[EVT_ALERT].path, kv);   /* Alert! */
 	}
 }
 
@@ -2651,10 +2833,11 @@ void dm_on_decision(uint32_t id, const char *state)
 	{
 		const char *kv[] = { "Decision", ref, "Action", action, "State", state, "Host", host, NULL };
 
-		emit(events[1].path, kv);   /* DecisionChanged! */
+		emit(events[EVT_DECISION].path, kv);   /* DecisionChanged! */
 	}
 }
 
+#if AIGW_FEATURE_WIFI_HEAL
 void dm_on_heal(const char *iface)
 {
 	const struct heal_radio *r = heal_for(iface);
@@ -2669,9 +2852,10 @@ void dm_on_heal(const char *iface)
 		const char *kv[] = { "WiFiHealth", ref, "Radio", radio, "Status", heal_status_name(r->status),
 				     "Cause", heal_cause_name(r->cause), "Explanation", r->explanation, NULL };
 
-		emit(events[2].path, kv);   /* WiFiHealthChanged! */
+		emit(events[EVT_HEAL].path, kv);   /* WiFiHealthChanged! */
 	}
 }
+#endif
 
 /* diag.c: a diagnosis is done (asked from anywhere): DiagnosisDone! */
 void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const char *mac)
@@ -2682,9 +2866,10 @@ void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const 
 
 	if (in->host.found && mac && *mac)
 		host_ref(mac, ref, sizeof(ref));
-	emit(events[3].path, kv);           /* DiagnosisDone! */
+	emit(events[EVT_DIAG].path, kv);           /* DiagnosisDone! */
 }
 
+#if AIGW_FEATURE_CARE
 /* care.c: a problem the ISP must hear of (ProblemDetected!), and its end (ProblemCleared!) */
 void dm_on_care(const struct care_state *s, int detected)
 {
@@ -2696,14 +2881,16 @@ void dm_on_care(const struct care_state *s, int detected)
 		const char *kv[] = { "Code", s->code, "Area", s->area, "Severity", diag_sev_name(s->sev),
 				     "Summary", s->text, "Advice", coverage_advice(s->code, NULL, 1), "Since", since, NULL };
 
-		emit(events[4].path, kv);   /* ProblemDetected! */
+		emit(events[EVT_PROBLEM].path, kv);   /* ProblemDetected! */
 	} else {
 		const char *kv[] = { "Code", s->code, "Area", s->area, "Since", since, "DurationSeconds", dur, NULL };
 
-		emit(events[5].path, kv);   /* ProblemCleared! */
+		emit(events[EVT_PROBLEM_CLEARED].path, kv);   /* ProblemCleared! */
 	}
 }
+#endif
 
+#if AIGW_FEATURE_CARE
 /* care.c: an early warning (EarlyWarning!), and its end (EarlyWarningCleared!) */
 void dm_on_warning(int opened)
 {
@@ -2723,7 +2910,7 @@ void dm_on_warning(int opened)
 					     "Advice", care_warning_advice(w->metric), "Normal", normal, "Current", cur,
 					     "PredictedFaultDays", pred, "Since", since, NULL };
 
-			emit(events[6].path, kv);   /* EarlyWarning! */
+			emit(events[EVT_WARNING].path, kv);   /* EarlyWarning! */
 		}
 	} else {
 		const char *kv[] = { "Metric", care_metric_name(w->metric), "Area", care_area_name(care_metric_area(w->metric)),
@@ -2731,28 +2918,34 @@ void dm_on_warning(int opened)
 				     NULL };
 
 		snprintf(dur, sizeof(dur), "%ld", w->duration);
-		emit(events[7].path, kv);   /* EarlyWarningCleared! */
+		emit(events[EVT_WARNING_CLEARED].path, kv);   /* EarlyWarningCleared! */
 	}
 }
+#endif
 
+#if AIGW_FEATURE_UPGRADE
 /* upgrade.c: a firmware upgrade's verdict, and whether going back put it right (UpgradeChecked!) */
 void dm_on_upgrade(const char *result, const char *from, const char *to, const char *reasons, const char *summary)
 {
 	const char *kv[] = { "Result", result, "FromVersion", from, "ToVersion", to, "Reasons", reasons,
 			     "Summary", summary, NULL };
 
-	emit(events[8].path, kv);           /* UpgradeChecked! */
+	emit(events[EVT_UPGRADE].path, kv);           /* UpgradeChecked! */
 }
+#endif
 
+#if AIGW_FEATURE_OFFERS
 /* offers.c: a signal for the ISP that started (OfferFound!) */
 void dm_on_offer(const char *code, const char *kind, const char *product, const char *confidence, const char *evidence)
 {
 	const char *kv[] = { "Code", code, "Kind", kind, "Product", product, "Confidence", confidence, "Evidence", evidence,
 			     NULL };
 
-	emit(events[9].path, kv);           /* OfferFound! */
+	emit(events[EVT_OFFER].path, kv);           /* OfferFound! */
 }
+#endif
 
+#if AIGW_FEATURE_CALLS
 /* calls.c: how a call or game went (CallReport!), without names */
 void dm_on_call(const char *kind, const char *verdict, long duration, long full_s, uint32_t line_kbps, int ms,
 		int jitter, int loss10, int prioritized, const char *summary)
@@ -2770,10 +2963,12 @@ void dm_on_call(const char *kind, const char *verdict, long duration, long full_
 				     "LineKbps", k, "LatencyMs", m, "JitterMs", j, "LossPercent", l,
 				     "Prioritized", prioritized ? "true" : "false", "Summary", summary, NULL };
 
-		emit(events[10].path, kv);  /* CallReport! */
+		emit(events[EVT_CALL].path, kv);  /* CallReport! */
 	}
 }
+#endif
 
+#if AIGW_FEATURE_AREA
 /* area.c: an area outage this home is part of (AreaOutage!), and its end for this home (AreaOutageCleared!) */
 void dm_on_area(int started, uint32_t incident, const char *kind, long since, long duration, int homes, int of,
 		const char *confidence, const char *uplink, const char *held, const char *why)
@@ -2789,15 +2984,17 @@ void dm_on_area(int started, uint32_t incident, const char *kind, long since, lo
 		const char *kv[] = { "Incident", inc, "Kind", kind, "Since", s, "Homes", h, "HomesInArea", o,
 				     "Confidence", confidence, "Uplink", uplink, NULL };
 
-		emit(events[11].path, kv);  /* AreaOutage! */
+		emit(events[EVT_AREA].path, kv);  /* AreaOutage! */
 	} else {
 		const char *kv[] = { "Incident", inc, "Kind", kind, "Since", s, "DurationSeconds", d, "HeldFixes", held,
 				     "Reason", why, NULL };
 
-		emit(events[12].path, kv);  /* AreaOutageCleared! */
+		emit(events[EVT_AREA_CLEARED].path, kv);  /* AreaOutageCleared! */
 	}
 }
+#endif
 
+#if AIGW_FEATURE_PROACTIVE
 /* proactive.c: a ticket raised, fixed by AIGW, or over (ProactiveTicket!), with names only by brief.names */
 void dm_on_ticket(uint32_t id)
 {
@@ -2823,9 +3020,11 @@ void dm_on_ticket(uint32_t id)
 		kv[k++] = v[i];
 	}
 	kv[k] = NULL;
-	emit(events[13].path, kv);          /* ProactiveTicket! */
+	emit(events[EVT_TICKET].path, kv);          /* ProactiveTicket! */
 }
+#endif
 
+#if AIGW_FEATURE_MESH
 /* mesh.c: a mesh decision proposed, applied, kept, undone or missed (MeshDecision!); names only by brief.names */
 void dm_on_mesh(uint32_t id, const char *kind, const char *state, const char *station, const char *from,
 		const char *to, const char *reason, const char *before, const char *after)
@@ -2841,10 +3040,12 @@ void dm_on_mesh(uint32_t id, const char *kind, const char *state, const char *st
 				     "From", from ? from : "", "To", to ? to : "", "Reason", r, "Before", before ? before : "",
 				     "After", after ? after : "", NULL };
 
-		emit(events[14].path, kv);  /* MeshDecision! */
+		emit(events[EVT_MESH].path, kv);  /* MeshDecision! */
 	}
 }
+#endif
 
+#if AIGW_FEATURE_WIFI_HEAL
 /* chan.c: a planned channel move proposed, applied, kept or moved back (ChannelPlan!) */
 void dm_on_chanplan(const char *iface, int from, int to, const char *state, const char *reason, const char *before,
 		    const char *after)
@@ -2862,9 +3063,10 @@ void dm_on_chanplan(const char *iface, int from, int to, const char *state, cons
 		const char *kv[] = { "Radio", radio, "FromChannel", f, "ToChannel", t, "State", state, "Reason",
 				     reason ? reason : "", "Before", before ? before : "", "After", after ? after : "", NULL };
 
-		emit(events[15].path, kv);  /* ChannelPlan! */
+		emit(events[EVT_CHANPLAN].path, kv);  /* ChannelPlan! */
 	}
 }
+#endif
 
 /* ---------- state ---------- */
 

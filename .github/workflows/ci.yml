@@ -8,10 +8,15 @@ on:
 
 jobs:
   linux:
-    name: Linux build, tests, smoke test
+    name: Linux build, tests, smoke test (${{ matrix.profile }} profile)
     runs-on: ubuntu-24.04
     # a stalled runner (it happened in the package download) fails in time
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # the features built (docs/features.md): every test runs; one for a feature not built says SKIP
+        profile: [full, small, minimal]
     steps:
       - uses: actions/checkout@v5
       - name: Packages
@@ -36,7 +41,7 @@ jobs:
         run: echo "ICWMPD=$(scripts/build-icwmp.sh | tail -1)" >> "$GITHUB_ENV"
       - name: Build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAIGW_OBUSPA_SRC="$OBUSPA_SRC"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAIGW_OBUSPA_SRC="$OBUSPA_SRC" -DAIGW_PROFILE=${{ matrix.profile }}
           cmake --build build -j
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure
@@ -138,7 +143,7 @@ jobs:
           modinfo -F filename mac80211_hwsim
           sudo AIGW_REQUIRE_HWSIM=1 PATH="/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH" tests/hwsim-test.sh build
       - name: Shell syntax
-        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh platform/pc-ap/uninstall.sh tests/*.sh plugins/examples/*/run.sh usp/aigw-usp-run scripts/build-obuspa.sh scripts/build-icwmp.sh cwmp/aigw-cwmp-run platform/openwrt/aigw/files/aigw-cwmp.init scripts/dm-xml tests/cwmp/acs.py tests/usp/uspc.py platform/pc-ap/wifi-config platform/openwrt/aigw/files/wifi-config platform/openwrt/aigw/files/firmware platform/openwrt/aigw/files/mesh-dataelements tests/mesh/fakectl.py tests/fw/firmware cwmp/defaultreset platform/openwrt/qemu_console.py scripts/try-aigw.sh platform/openwrt/build-demo-image.sh platform/openwrt/aigw/files/aigw-demo.init platform/openwrt/upgrade-test.sh platform/openwrt/upgrade-vm.sh platform/openwrt/upgrade_console.py; do case "$f" in *dm-xml|*.py) python3 -m py_compile "$f" ;; *) sh -n "$f" ;; esac; done
+        run: for f in scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest platform/openwrt/qemu-test.sh platform/pc-ap/aigw-ap platform/pc-ap/install.sh platform/pc-ap/uninstall.sh tests/*.sh plugins/examples/*/run.sh usp/aigw-usp-run scripts/build-obuspa.sh scripts/build-icwmp.sh cwmp/aigw-cwmp-run platform/openwrt/aigw/files/aigw-cwmp.init scripts/dm-xml tests/cwmp/acs.py tests/usp/uspc.py platform/pc-ap/wifi-config platform/openwrt/aigw/files/wifi-config platform/openwrt/aigw/files/firmware platform/openwrt/aigw/files/mesh-dataelements tests/mesh/fakectl.py tests/fw/firmware cwmp/defaultreset platform/openwrt/qemu_console.py platform/openwrt/flash-kb.py scripts/try-aigw.sh platform/openwrt/build-demo-image.sh platform/openwrt/aigw/files/aigw-demo.init platform/openwrt/upgrade-test.sh platform/openwrt/upgrade-vm.sh platform/openwrt/upgrade_console.py; do case "$f" in *dm-xml|*.py) python3 -m py_compile "$f" ;; *) sh -n "$f" ;; esac; done
 
   openwrt:
     name: OpenWRT ${{ matrix.version }} ${{ matrix.target }}
@@ -173,6 +178,14 @@ jobs:
         with:
           name: ${{ steps.name.outputs.name }}
           path: dist/openwrt/
+      - name: "Small and minimal profiles: built, and the installed flash of each (docs/features.md)"
+        if: matrix.version == '24.10'
+        env:
+          VERSION: ${{ matrix.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          for p in small minimal; do AIGW_PROFILE=$p platform/openwrt/build-sdk.sh; done
+          python3 platform/openwrt/flash-kb.py dist/openwrt dist/openwrt-small dist/openwrt-minimal | tee -a "$GITHUB_STEP_SUMMARY"
 
   openwrt-qemu:
     name: OpenWRT 24.10 in QEMU, ${{ matrix.arch }} (install, aigw-selftest --full, LuCI)

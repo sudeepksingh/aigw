@@ -14,6 +14,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+. "$(dirname "$0")/feature-lib.sh"
+needs "$BIN" wifi-heal
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 PIDS=""

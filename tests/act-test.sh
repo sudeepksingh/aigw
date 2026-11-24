@@ -26,6 +26,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+. "$(dirname "$0")/feature-lib.sh"
+features_of "$BIN"
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 R=$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')

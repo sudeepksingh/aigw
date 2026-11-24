@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.13)
-project(aigw VERSION 0.47.0 LANGUAGES C)
+project(aigw VERSION 0.48.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -60,14 +60,24 @@ foreach(v NFCT_INCLUDE_DIR NFCT_LIBRARY NFNETLINK_LIBRARY)
   endif()
 endforeach()
 
-include_directories(${PROJECT_SOURCE_DIR}/include ${UBOX_INCLUDE_DIR} ${UBUS_INCLUDE_DIR} ${UCI_INCLUDE_DIR} ${NFCT_INCLUDE_DIR})
+# the features this build has (cmake/features.cmake, docs/features.md)
+include(${PROJECT_SOURCE_DIR}/cmake/features.cmake)
+
+include_directories(${PROJECT_BINARY_DIR}/include ${PROJECT_SOURCE_DIR}/include ${UBOX_INCLUDE_DIR} ${UBUS_INCLUDE_DIR} ${UCI_INCLUDE_DIR} ${NFCT_INCLUDE_DIR})
 
 add_subdirectory(core/libag)
 add_subdirectory(agd)
 add_subdirectory(agdns)
 add_subdirectory(agctl)
-add_subdirectory(plugins)
-add_subdirectory(demo)
+if(AIGW_FEATURE_PLUGINS)
+  add_subdirectory(plugins)
+endif()
+# the demo image's simulated home shows every feature: only with all of them
+list(LENGTH AIGW_FEATURES_ON n_on)
+list(LENGTH AIGW_FEATURE_NAMES n_all)
+if(n_on EQUAL n_all)
+  add_subdirectory(demo)
+endif()
 
 # USP (TR-369): the plug-in for OB-USP-Agent, built against the obuspa source
 # tree the agent is built from (scripts/build-obuspa.sh fetches the pinned one)
@@ -79,7 +89,13 @@ endif()
 # TR-069: the data model daemon for icwmp (needs nothing from icwmp to build)
 add_subdirectory(cwmp)
 
-install(PROGRAMS scripts/aigw-nft scripts/aigw-sqm scripts/aigw-dhcp-event scripts/aigw-remote scripts/aigw-selftest DESTINATION sbin)
+install(PROGRAMS scripts/aigw-nft scripts/aigw-dhcp-event scripts/aigw-selftest DESTINATION sbin)
+if(AIGW_FEATURE_SQM)
+  install(PROGRAMS scripts/aigw-sqm DESTINATION sbin)
+endif()
+if(AIGW_FEATURE_REMOTE)
+  install(PROGRAMS scripts/aigw-remote DESTINATION sbin)
+endif()
 install(FILES models/domain-risk.agm DESTINATION share/aigw/models)
 
 if(AIGW_TESTS)

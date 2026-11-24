@@ -21,6 +21,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" 2>/dev/null && pwd || echo "")
+. "$(dirname "$0")/feature-lib.sh"
+needs "$BIN" upgrade
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 FW=$REPO/platform/openwrt/aigw/files/firmware
 T=$(mktemp -d)

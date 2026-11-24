@@ -5,6 +5,7 @@
 
 #include <netinet/in.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include <libubox/blobmsg.h>
 
@@ -168,10 +169,14 @@ void flow_named(const char *client, const char *dst, uint8_t proto, uint16_t spo
 		const struct ag_sni *s);
 extern uint64_t flows_total, flows_no_dns_total, flows_sni_total;
 
+#if AIGW_FEATURE_SNI
 /* sni.c: TLS / QUIC handshakes copied by the kernel (NFLOG) */
 int sni_init(void);
 int sni_active(void);
 void sni_blob(struct blob_buf *b);
+#else
+static inline int sni_active(void) { return 0; }
+#endif
 
 /* alerts.c */
 int alerts_init(void);
@@ -200,6 +205,7 @@ void alerts_model_use(struct ag_model *m);
 double alerts_tree_score(const char *qname, char *label, size_t n, float *features);
 int alerts_subject(uint32_t id, char *kind, size_t kn, char *subject, size_t sn);
 
+#if AIGW_FEATURE_FED
 /* fed.c: federated learning: examples from your answers, local training, the shared layer */
 #define FED_W 14                    /* tree logit, 12 features, bias */
 struct fed_round {
@@ -224,12 +230,24 @@ double fed_epsilon(double rho);
 void fed_blob(struct blob_buf *b, int names);
 void fed_save(struct blob_buf *b);
 void fed_load(struct blob_attr *tbl);
+#else
+struct fed_round;
+static inline double fed_adjust(double p, const float *features) { (void)features; return p; }
+static inline void fed_on_answer(uint32_t alert_id, int label) { (void)alert_id; (void)label; }
+static inline void fed_save(struct blob_buf *b) { (void)b; }
+static inline void fed_load(struct blob_attr *tbl) { (void)tbl; }
+#endif
 
+#if AIGW_FEATURE_FASTPATH
 /* fastpath.c: established connections through the kernel flowtable; back to the rules on an action */
 int fastpath_release(const char *ip, const char *why);
 int fastpath_release_mac(const char *mac, const char *why);
 void fastpath_tick(void);
 void fastpath_blob(struct blob_buf *b);
+#else
+static inline int fastpath_release(const char *ip, const char *why) { (void)ip; (void)why; return 0; }
+static inline int fastpath_release_mac(const char *mac, const char *why) { (void)mac; (void)why; return 0; }
+#endif
 
 /* backend.c: who computes model scores (built in, or an NPU library), checked against the reference */
 void backend_select(const struct ag_model *m);
@@ -237,11 +255,15 @@ double backend_prob(const struct ag_model *m, const float *x);
 const char *backend_name(void);
 void backend_blob(struct blob_buf *b);
 
+#if AIGW_FEATURE_METER
 /* meter.c: per-device traffic counted in the kernel by an eBPF program (tcx) */
 void meter_init(void);
 void meter_tick(void);
 int meter_active(void);
 void meter_blob(struct blob_buf *b);
+#else
+static inline int meter_active(void) { return 0; }
+#endif
 
 /* intel.c: shared threat intelligence, a signed list delivered like a model */
 void *intel_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);
@@ -290,6 +312,7 @@ void act_plugin_started(const char *plugin);
 void act_plugin_gone(const char *plugin);
 struct device *act_find_device(const char *q);
 
+#if AIGW_FEATURE_PLUGINS
 /* plugin.c: plug-in host (discovery, checks, wiring, supervision) */
 void plugin_init(void);
 void plugin_tick(void);
@@ -304,7 +327,19 @@ void plugin_blob(struct blob_buf *b, const char *name, const char *only);
 int plugin_set(const char *name, const char *what, int on, char *err, size_t errlen);
 int plugin_config(const char *name, const char *key, const char *value, char *err, size_t errlen);
 void plugin_rescan(void);
+#else
+static inline int plugin_action(const char *action, int *device_subject, char *err, size_t errlen)
+{ (void)action; (void)device_subject; (void)err; (void)errlen; return -1; }
+static inline int plugin_act(const char *action, uint32_t id, const char *target, const struct device *dv, int ttl,
+			     const char *reason, int undo, char *err, size_t errlen)
+{ (void)action; (void)id; (void)target; (void)dv; (void)ttl; (void)reason; (void)undo;
+  snprintf(err, errlen, "plug-ins are not built in (AIGW_FEATURE_PLUGINS)"); return -1; }
+static inline const struct ag_policy *plugin_policy_for(const char *kind, const char *zone, char *origin, size_t n,
+							int *cap_mode)
+{ (void)kind; (void)zone; (void)origin; (void)n; (void)cap_mode; return NULL; }
+#endif
 
+#if AIGW_FEATURE_KEYS
 /* keys.c: per-device Wi-Fi keys (hostapd wpa_psk_file) and QR onboarding */
 void keys_init(void);
 void keys_tick(void);
@@ -313,10 +348,14 @@ int keys_add(const char *name, const char *zone, int ttl, struct blob_buf *reply
 int keys_revoke(const char *name, char *err, size_t errlen);
 void keys_blob(struct blob_buf *b, const char *only, int secret);
 int keys_count(void);
+#else
+static inline void keys_seen(struct device *d, const char *keyid) { (void)d; (void)keyid; }
+#endif
 
 /* main.c: a QR code as rows of '1'/'0' under field (for LuCI) */
 void agd_qr_rows(struct blob_buf *b, const char *field, const char *text);
 
+#if AIGW_FEATURE_REMOTE
 /* remote.c: remote access over WireGuard (peers with QR codes) */
 void remote_init(void);
 void remote_tick(void);
@@ -325,6 +364,9 @@ int remote_add(const char *name, struct blob_buf *reply, char *err, size_t n);
 int remote_revoke(const char *name, char *err, size_t n);
 int remote_count(int online);
 void remote_blob(struct blob_buf *b);
+#else
+
+#endif
 
 /* baseline.c */
 void baseline_domain(struct device *d, const char *qname);
@@ -379,7 +421,10 @@ extern int wifi_n_aps;
 /* one command to one access point; reply length or -1 */
 int wifi_cmd(const char *iface, const char *cmd, char *reply, size_t n);
 const struct wifi_ap *wifi_ap_find(const char *iface);
+/* a channel AIGW may use on a band (2: 1-13; 5: the ones outside DFS) */
+int chan_valid(int band, int ch);
 
+#if AIGW_FEATURE_WIFI_HEAL
 /* steer.c: band steering */
 void steer_tick(void);
 int steer_ready(const struct wifi_ap **a2, const struct wifi_ap **a5);
@@ -389,7 +434,6 @@ extern uint64_t steer_total, steer_ok_total;
 /* chan.c: channel self-healing */
 void chan_tick(void);
 void chan_blob(struct blob_buf *b, const char *iface);
-int chan_valid(int band, int ch);
 int chan_parse(const char *target, const struct wifi_ap **ap, int *ch);
 int chan_switch(const char *iface, int ch, char *err, size_t errlen);
 /* the other channels AIGW would use on this access point (allowed here, not avoided), quietest known first */
@@ -404,8 +448,23 @@ void chan_load(struct blob_attr *t);
 /* dm.c: ChannelPlan! (State: Proposed, Applied, Kept, MovedBack) */
 void dm_on_chanplan(const char *iface, int from, int to, const char *state, const char *reason, const char *before,
 		    const char *after);
+#else
+static inline void steer_tick(void) { }
+static inline void chan_tick(void) { }
+static inline int chan_parse(const char *target, const struct wifi_ap **ap, int *ch) { (void)target; (void)ap; (void)ch; return -1; }
+static inline int chan_switch(const char *iface, int ch, char *err, size_t errlen)
+{ (void)iface; (void)ch; snprintf(err, errlen, "Self-Healing Wi-Fi is not built in (AIGW_FEATURE_WIFI_HEAL)"); return -1; }
+static inline int chan_plan_words(char *buf, size_t n) { (void)buf; (void)n; return 0; }
+static inline void chan_save(struct blob_buf *b) { (void)b; }
+static inline void chan_load(struct blob_attr *t) { (void)t; }
+#endif
+
+#if AIGW_FEATURE_CALLS
 /* calls.c: a call or game is on now, anywhere in the home */
 int calls_live(void);
+#else
+static inline int calls_live(void) { return 0; }
+#endif
 
 /* presence: arrivals and departures */
 void presence_tick(void);
@@ -426,7 +485,7 @@ int act_active(const char *action, const char *target);
 int wifi_all(const char *cmd, char *reply, size_t n);
 int wifi_kick(const char *mac);
 
-/* heal.c: Self-Healing Wi-Fi (measure, diagnose, report) */
+/* heal.c: Self-Healing Wi-Fi (measure, diagnose, report): a radio's verdict (Diagnose reads it when built) */
 struct heal_radio {
 	char iface[24];
 	int status, cause;              /* enum heal_status / heal_cause (ag/heal.h) */
@@ -438,6 +497,7 @@ struct heal_radio {
 	char affected[256];             /* MACs, comma-separated */
 	int pend_status, pend_cause, pend_n;
 };
+#if AIGW_FEATURE_WIFI_HEAL
 void heal_init(void);
 /* wifi.c: it moved to another access point; its band and signal before */
 void heal_roamed(const struct device *d, int old_band, int old_signal);
@@ -451,6 +511,16 @@ void heal_on_band_rule(const char *mac, uint32_t decision_id);
 struct heal_day;
 int heal_report_of(const char *iface, int days, struct heal_day *out);
 void heal_device(const struct device *d, int *loss_pct, int *rtt_ms, int *samples);
+#else
+struct heal_day;
+static inline void heal_roamed(const struct device *d, int old_band, int old_signal) { (void)d; (void)old_band; (void)old_signal; }
+static inline int heal_hopping(const struct device *d) { (void)d; return 0; }
+static inline const struct heal_radio *heal_for(const char *iface) { (void)iface; return NULL; }
+static inline void heal_on_band_rule(const char *mac, uint32_t decision_id) { (void)mac; (void)decision_id; }
+static inline int heal_report_of(const char *iface, int days, struct heal_day *out) { (void)iface; (void)days; (void)out; return -1; }
+static inline void heal_device(const struct device *d, int *loss_pct, int *rtt_ms, int *samples)
+{ (void)d; *loss_pct = 0; *rtt_ms = -1; *samples = 0; }
+#endif
 
 /* diag.c: Diagnose ("my internet is slow"): measures for a few seconds, then
    calls back with the verdict (ag/diag.h); one at a time, others wait for it */
@@ -463,11 +533,17 @@ void diag_blob(struct blob_buf *b, const struct diag_result *r, const struct dia
 int64_t diag_last(const struct diag_result **r, const struct diag_input **in, const char **host);
 /* dm.c: DiagnosisDone! (mac: the device asked about, "" none) */
 void dm_on_diag(const struct diag_result *r, const struct diag_input *in, const char *mac);
+#if AIGW_FEATURE_WIFI_HEAL
 void heal_save(struct blob_buf *b);
 void heal_load(struct blob_attr *t);
+#else
+static inline void heal_save(struct blob_buf *b) { (void)b; }
+static inline void heal_load(struct blob_attr *t) { (void)t; }
+#endif
 /* the same, quietly, for proactive care: no LastDiagnosis, no DiagnosisDone!; -1 busy */
 int diag_check(diag_cb cb, void *ctx);
 
+#if AIGW_FEATURE_CARE
 /* care.c: proactive care (checks by itself, tells the ISP, the experience score) */
 struct care_state;
 struct care_day;
@@ -500,7 +576,19 @@ long care_speed_last(double *mbps);     /* when the last speed test ran (wall s)
 /* dm.c: ProblemDetected! (1) or ProblemCleared! (0); EarlyWarning! (1) or EarlyWarningCleared! (0) */
 void dm_on_care(const struct care_state *s, int detected);
 void dm_on_warning(int opened);
+#else
+struct care_state;
+struct tr143_out;
+static inline void care_on_heal(int status) { (void)status; }
+static inline void care_on_acted(const char *what) { (void)what; }
+static inline void care_blob(struct blob_buf *b) { (void)b; }
+static inline void care_save(struct blob_buf *b) { (void)b; }
+static inline void care_load(struct blob_attr *t) { (void)t; }
+static inline void care_days_blob(struct blob_buf *b, int days) { (void)b; (void)days; }
+static inline long care_speed_last(double *mbps) { if (mbps) *mbps = 0; return 0; }
+#endif
 
+#if AIGW_FEATURE_TR143
 /* tr143.c: TR-143 diagnostics (ag/tr143.h): one test of each kind at a time, in a child process */
 struct tr143_in;
 struct tr143_out;
@@ -518,6 +606,9 @@ int tr143_set(int kind, const char *name, const char *v, int apply, char *err, s
 int tr143_value(int kind, const char *name, uint32_t inst, char *buf, size_t n);
 int tr143_rows(int kind);
 void tr143_out_blob(struct blob_buf *b, int kind, const struct tr143_out *o);
+#else
+
+#endif
 
 /* manage.c: Wi-Fi settings and firmware, as a management system changes them */
 enum { WS_SSID, WS_KEY, WS_MODE, WS_CHANNEL, WS_WIDTH, WS_N };
@@ -560,6 +651,7 @@ int fw_system(const char *action, const char *who, char *err, size_t en);
    "TwoBanks", "KeptCopy", "None" or "Unknown", and in words into text */
 const char *fw_rollback(char *text, size_t n);
 
+#if AIGW_FEATURE_UPGRADE
 /* upgrade.c: firmware upgrades that check themselves (ag/upgrade.h) */
 #define UPGRADE_WHO "upgrade check"     /* the rollback's own activation: not watched */
 struct care_sample;
@@ -580,11 +672,31 @@ void upgrade_blob(struct blob_buf *b, int devices);     /* devices 0: no address
 int upgrade_field(const char *f, char *buf, size_t n);  /* the data model's Upgrade. values; -1 unknown */
 /* dm.c: UpgradeChecked! (Kept, RolledBack, Worse, NotBooted, RollbackConfirmed, RollbackNotConfirmed) */
 void dm_on_upgrade(const char *result, const char *from, const char *to, const char *reasons, const char *summary);
+#else
+struct care_sample;
+static inline void upgrade_on_activated(uint32_t to_id, const char *to_ver, uint32_t from_id, const char *from_ver, const char *who)
+{ (void)to_id; (void)to_ver; (void)from_id; (void)from_ver; (void)who; }
+static inline void upgrade_on_activate_failed(const char *who) { (void)who; }
+static inline int upgrade_refused(const char *version, char *err, size_t n) { (void)version; (void)err; (void)n; return 0; }
+static inline const char *upgrade_file(void) { return ""; }
+static inline void upgrade_on_check(const struct care_sample *s, const struct care_sample *normal, int online, int problem, long max_gap)
+{ (void)s; (void)normal; (void)online; (void)problem; (void)max_gap; }
+static inline void upgrade_on_speed(float mbps) { (void)mbps; }
+static inline int upgrade_quick(void) { return 0; }
+static inline void upgrade_blob(struct blob_buf *b, int devices) { (void)b; (void)devices; }
+static inline int upgrade_field(const char *f, char *buf, size_t n) { (void)f; (void)buf; (void)n; return -1; }
+#endif
+
+#if AIGW_FEATURE_CARE
 /* care.c: did the internet answer on the last check: 1, 0, -1 not checked yet */
 int care_online(void);
 /* care.c: the normal of a metric (enum care_metric) at a local hour; -1 not known */
 int care_normal_hour(int metric, int hour, float *v);
+#else
+static inline int care_normal_hour(int metric, int hour, float *v) { (void)metric; (void)hour; (void)v; return -1; }
+#endif
 
+#if AIGW_FEATURE_WHY
 /* why.c: "why was it slow?": the home's timeline (ag/why.h) */
 struct why_result;
 struct why_in;
@@ -596,7 +708,14 @@ void why_on_dns(int rcode, uint32_t latency_us);
 int why_ask(long from, long to, const char *host, struct why_result *r, struct why_in *in, char *err, size_t en);
 void why_blob(struct blob_buf *b, long from, long to, const char *host, int raw);
 int why_field(const char *f, char *buf, size_t n);      /* Device.X_AIGW_.Timeline.; -1 unknown */
+/* a call or game on the timeline (mac: the device); WhySlow() from the ISP with calls.share 0 (dm.c) */
+void why_note_call(const char *mac, int verdict, const char *text);
+void why_hide_calls(int on);
+#else
 
+#endif
+
+#if AIGW_FEATURE_OFFERS
 /* offers.c: signals for the ISP (ag/offer.h), counted from the timeline's samples */
 struct why_min;
 void offers_init(void);                 /* after the state */
@@ -611,12 +730,29 @@ void offers_save(struct blob_buf *b);
 void offers_load(struct blob_attr *t);
 /* dm.c: OfferFound! */
 void dm_on_offer(const char *code, const char *kind, const char *product, const char *confidence, const char *evidence);
+#else
+struct why_min;
+static inline void offers_tick(void) { }
+static inline void offers_on_sample(const struct why_min *m, long secs, float peak_down_mbps, float peak_up_mbps)
+{ (void)m; (void)secs; (void)peak_down_mbps; (void)peak_up_mbps; }
+static inline void offers_on_weak(const char *mac, long secs) { (void)mac; (void)secs; }
+static inline void offers_on_wifi(const char *mac, int joined) { (void)mac; (void)joined; }
+static inline void offers_care_blob(struct blob_buf *b) { (void)b; }
+static inline void offers_save(struct blob_buf *b) { (void)b; }
+static inline void offers_load(struct blob_attr *t) { (void)t; }
+#endif
+
+#if AIGW_FEATURE_WHY
 /* why.c, for smart queueing: the WAN sampled, the samples [from, to) oldest first, the line now */
 struct sqm_line;
 const char *why_wan(void);
 int why_samples(long from, long to, struct why_min *out, int max);
 void why_line_now(struct sqm_line *l);
+#else
 
+#endif
+
+#if AIGW_FEATURE_SQM
 /* sqm.c: self-tuning smart queueing (ag/sqm.h) */
 void sqm_init(void);
 void sqm_on_sample(void);               /* every sample of the timeline */
@@ -631,7 +767,18 @@ void sqm_save(struct blob_buf *b);
 void sqm_load(struct blob_attr *t);
 int sqm_shaping(char *ifc, size_t n);   /* the WAN AIGW's smart queueing shapes now; -1 none */
 int sqm_prio(const char *ifc, const char *const *eps, int n, char *out, size_t on);
+#else
+static inline void sqm_on_sample(void) { }
+static inline int sqm_target_ok(const char *target, char *words, size_t wn) { (void)target; (void)words; (void)wn; return -1; }
+static inline int sqm_apply(const char *target, char *err, size_t en) { (void)target; snprintf(err, en, "smart queueing is not built in (AIGW_FEATURE_SQM)"); return -1; }
+static inline void sqm_remove(const char *target) { (void)target; }
+static inline int sqm_on(void) { return 0; }
+static inline int sqm_field(const char *f, char *buf, size_t n) { (void)f; (void)buf; (void)n; return -1; }
+static inline void sqm_save(struct blob_buf *b) { (void)b; }
+static inline void sqm_load(struct blob_attr *t) { (void)t; }
+#endif
 
+#if AIGW_FEATURE_CALLS
 /* calls.c: calls and games first (ag/calls.h) */
 void calls_init(void);
 void calls_counters(uint32_t id, const char *client, const char *dst, const char *domain, uint8_t proto,
@@ -643,16 +790,29 @@ void calls_blob(struct blob_buf *b);
 int calls_field(const char *f, char *buf, size_t n);    /* Device.X_AIGW_.CallsFirst.; -1 unknown */
 void calls_save(struct blob_buf *b);
 void calls_load(struct blob_attr *t);
-/* why.c: a call or game on the timeline (mac: the device) */
-void why_note_call(const char *mac, int verdict, const char *text);
-void why_hide_calls(int on);            /* dm.c: WhySlow() from the ISP with calls.share 0 */
 /* dm.c: CallReport! */
 void dm_on_call(const char *kind, const char *verdict, long duration, long full_s, uint32_t line_kbps, int ms,
 		int jitter, int loss10, int prioritized, const char *summary);
+#else
+static inline void calls_counters(uint32_t id, const char *client, const char *dst, const char *domain, uint8_t proto,
+				  uint16_t dport, uint64_t up_b, uint64_t down_b, uint64_t up_pk, uint64_t down_pk)
+{ (void)id; (void)client; (void)dst; (void)domain; (void)proto; (void)dport; (void)up_b; (void)down_b; (void)up_pk; (void)down_pk; }
+static inline void calls_flow_end(uint32_t id) { (void)id; }
+static inline void calls_dump_done(void) { }
+static inline void calls_sqm_changed(void) { }
+static inline void calls_save(struct blob_buf *b) { (void)b; }
+static inline void calls_load(struct blob_attr *t) { (void)t; }
+#endif
 
+#if AIGW_FEATURE_SQM
 /* sqm.c: smart queueing proposed on the line as it is now (waits for a yes) */
 int sqm_propose(const char *origin, const char *reason, uint32_t *id, char *err, size_t en);
+#else
+static inline int sqm_propose(const char *origin, const char *reason, uint32_t *id, char *err, size_t en)
+{ (void)origin; (void)reason; (void)id; snprintf(err, en, "smart queueing is not built in (AIGW_FEATURE_SQM)"); return -1; }
+#endif
 
+#if AIGW_FEATURE_BRIEF
 /* brief.c: the help-desk assistant (ag/brief.h): asks the home if wanted, then answers once */
 struct brief;
 struct brief_ask {
@@ -679,11 +839,17 @@ void brief_blob(struct blob_buf *b, const struct brief *r, const struct brief_me
 void brief_report_blob(struct blob_buf *b);     /* the bridge: the last hour, no fresh check, the ISP's names rule */
 void brief_save(struct blob_buf *b);
 void brief_load(struct blob_attr *t);
-void dm_serial(char *buf, size_t n);    /* dm.c: Device.DeviceInfo.SerialNumber */
 /* main.c / dm.c: a period in words ("tonight 20:00-22:00") or Start/End */
 int brief_parse_period(const char *words, long *from, long *to, char *err, size_t en);
+#else
+struct brief;
+static inline void brief_report_blob(struct blob_buf *b) { (void)b; }
+static inline void brief_save(struct blob_buf *b) { (void)b; }
+static inline void brief_load(struct blob_attr *t) { (void)t; }
+#endif
 
-/* area.c: an area outage cortex told of (many homes of this uplink at once): fixes held meanwhile */
+void dm_serial(char *buf, size_t n);    /* dm.c: Device.DeviceInfo.SerialNumber */
+
 enum { AH_SQM, AH_SQM_JUDGE, AH_STEER, AH_CHANNEL, AH_STAY24, AH_N };
 struct area_now {
 	uint32_t incident;              /* 0: none */
@@ -692,6 +858,8 @@ struct area_now {
 	int homes, of;
 	unsigned held;                  /* bits of AH_*: what was held so far */
 };
+#if AIGW_FEATURE_AREA
+/* area.c: an area outage cortex told of (many homes of this uplink at once): fixes held meanwhile */
 int area_notice(struct blob_attr *a, const char *who, char *err, size_t en);  /* {incident, kind, ...}; 0 */
 int area_hold(int what);                /* 1: hold it (an area outage is on), 0: go ahead */
 int area_holds_action(const char *action);      /* sqm, channel, stay24: area_hold; others never */
@@ -705,11 +873,27 @@ void area_blob(struct blob_buf *b);
 /* dm.c: AreaOutage! (started 1) or AreaOutageCleared! (0) */
 void dm_on_area(int started, uint32_t incident, const char *kind, long since, long duration, int homes, int of,
 		const char *confidence, const char *uplink, const char *held, const char *why);
-/* brief.c, for proactive care: a brief from what is known (no fresh check, the ISP's names rule);
-   a text with the home's names taken out for the ISP */
-int brief_quick(long from, long to, const char *host, struct brief *out);
-void brief_scrub_isp(char *text, size_t n);
+#else
+static inline int area_notice(struct blob_attr *a, const char *who, char *err, size_t en)
+{ (void)a; (void)who; snprintf(err, en, "area outages are not built in (AIGW_FEATURE_AREA)"); return -1; }
+static inline int area_hold(int what) { (void)what; return 0; }
+static inline int area_holds_action(const char *action) { (void)action; return 0; }
+static inline int area_get(struct area_now *o) { (void)o; return 0; }
+static inline void area_held_words(char *buf, size_t n) { if (n) buf[0] = '\0'; }
+static inline void area_status_blob(struct blob_buf *b) { (void)b; }
+#endif
 
+#if AIGW_FEATURE_BRIEF
+/* brief.c, for proactive care: a brief from what is known (no fresh check, the ISP's names rule) */
+int brief_quick(long from, long to, const char *host, struct brief *out);
+#endif
+/* scrub.c (the core): a text for the ISP with the home's names taken out (unless brief.names); the names themselves,
+   then a text scrubbed of them */
+void brief_scrub_isp(char *text, size_t n);
+void scrub_names(void);
+void scrub_text(char *s, size_t n);
+
+#if AIGW_FEATURE_PROACTIVE
 /* proactive.c: proactive care, before the call (ag/proactive.h) */
 void proactive_init(void);              /* after the state, proactive care and the timeline */
 void proactive_on_acted(const char *action, const char *target, uint32_t id);  /* act.c: a fix took effect */
@@ -725,14 +909,41 @@ void proactive_save(struct blob_buf *b);
 void proactive_load(struct blob_attr *t);
 /* dm.c: ProactiveTicket! */
 void dm_on_ticket(uint32_t id);
+#else
+static inline void proactive_on_acted(const char *action, const char *target, uint32_t id) { (void)action; (void)target; (void)id; }
+static inline void proactive_on_called(void) { }
+static inline void proactive_report_blob(struct blob_buf *b) { (void)b; }
+static inline void proactive_save(struct blob_buf *b) { (void)b; }
+static inline void proactive_load(struct blob_attr *t) { (void)t; }
+#endif
+
+#if AIGW_FEATURE_SQM
 int sqm_auto(const char *origin, const char *reason, uint32_t *id, int *applied, char *err, size_t en);
+#else
+static inline int sqm_auto(const char *origin, const char *reason, uint32_t *id, int *applied, char *err, size_t en)
+{ (void)origin; (void)reason; (void)id; *applied = 0; snprintf(err, en, "smart queueing is not built in (AIGW_FEATURE_SQM)"); return -1; }
+#endif
 /* act.c: a fix by proactive care, as act.mode allows (enforce applies, advise proposes) */
 int act_auto(const char *action, const char *what, int ttl, const char *origin, const char *reason, uint32_t *id,
 	     int *applied, char *err, size_t errlen);
 
+#if AIGW_FEATURE_CALLS
 /* calls.c, for mesh steering: a call or game is on for this device now */
 int calls_live_on(const char *mac);
+#else
+static inline int calls_live_on(const char *mac) { (void)mac; return 0; }
+#endif
 
+struct mesh_issue {
+	char code[24];                  /* MESH_BACKHAUL */
+	char target[18];                /* the extender (its AL MAC) */
+	char kind[8];                   /* Weak, Slow, Busy, On24, Try6 */
+	char text[400];                 /* in words, with the advice */
+	long since;
+	int stations;                   /* devices behind it */
+	int hurts;                      /* weak or slow with devices behind it */
+};
+#if AIGW_FEATURE_MESH
 /* mesh.c: smarter mesh Wi-Fi over a standard EasyMesh controller (ag/mesh.h) */
 void mesh_init(void);                   /* after the state and act */
 int mesh_run(void);                     /* read the controller now; -1 off */
@@ -749,28 +960,36 @@ int mesh_field(const char *f, char *buf, size_t n);    /* Device.X_AIGW_.Mesh.; 
 void mesh_save(struct blob_buf *b);
 void mesh_load(struct blob_attr *t);
 /* brief.c, proactive.c: what is wrong in the mesh now (an extender's weak backhaul) */
-struct mesh_issue {
-	char code[24];                  /* MESH_BACKHAUL */
-	char target[18];                /* the extender (its AL MAC) */
-	char kind[8];                   /* Weak, Slow, Busy, On24, Try6 */
-	char text[400];                 /* in words, with the advice */
-	long since;
-	int stations;                   /* devices behind it */
-	int hurts;                      /* weak or slow with devices behind it */
-};
 int mesh_issues(struct mesh_issue *out, int max);
 /* dm.c: MeshDecision! */
 void dm_on_mesh(uint32_t id, const char *kind, const char *state, const char *station, const char *from,
 		const char *to, const char *reason, const char *before, const char *after);
+#else
+static inline int mesh_guard(const char *action, const char *what, char *target, size_t tn, char *scope, size_t sn,
+			     char *device, size_t dn, char *err, size_t en)
+{ (void)action; (void)what; (void)target; (void)tn; (void)scope; (void)sn; (void)device; (void)dn;
+  snprintf(err, en, "mesh Wi-Fi is not built in (AIGW_FEATURE_MESH)"); return -1; }
+static inline int mesh_target_ok(const char *action, const char *target) { (void)action; (void)target; return 0; }
+static inline int mesh_apply(uint32_t id, const char *action, const char *target, const char *scope, int undo, char *err, size_t en)
+{ (void)id; (void)action; (void)target; (void)scope; (void)undo; snprintf(err, en, "mesh Wi-Fi is not built in (AIGW_FEATURE_MESH)"); return -1; }
+static inline void mesh_report_blob(struct blob_buf *b) { (void)b; }
+static inline void mesh_save(struct blob_buf *b) { (void)b; }
+static inline void mesh_load(struct blob_attr *t) { (void)t; }
+static inline int mesh_issues(struct mesh_issue *out, int max) { (void)out; (void)max; return 0; }
+#endif
 
 /* act.c: the live decision of an action (state 0 proposed, 1 active, 2 kept); -1 none */
 int act_find_action(const char *action, uint32_t *id, int *state, char *target, size_t tn, int64_t *applied,
 		    char *origin, size_t on);
 int act_recent(const char *action, int64_t since);     /* one made since, in any state */
 
+#if AIGW_FEATURE_CARE
 /* care.c: proactive care's days (for the signals); how many */
 struct care_day;
 int care_days_get(struct care_day *out, int max);
+#else
+
+#endif
 
 /* mesh.c, for coverage advice: the devices the mesh sees, one by one (i from 0): -1 past the last (or no mesh) */
 struct mesh_seen {
@@ -781,9 +1000,15 @@ struct mesh_seen {
 	char id[4][18];
 	int heard[4];                   /* dBm */
 };
+#if AIGW_FEATURE_MESH
 int mesh_seen_at(int i, struct mesh_seen *o);
 void mesh_agent_words(const char *id, char *buf, size_t n);    /* "the extender 'bedroom'" */
+#else
+static inline int mesh_seen_at(int i, struct mesh_seen *o) { (void)i; (void)o; return -1; }
+static inline void mesh_agent_words(const char *id, char *buf, size_t n) { (void)id; if (n) buf[0] = '\0'; }
+#endif
 
+#if AIGW_FEATURE_COVERAGE
 /* coverage.c: coverage placement advice (ag/coverage.h): which device is weak, when, where, what fixes it */
 void coverage_init(void);               /* after the state */
 void coverage_on_wifi(struct blob_attr *msg);  /* main.c: an ag.wifi event (drops, roams) */
@@ -802,6 +1027,29 @@ int coverage_spot_field(uint32_t id, const char *f, char *buf, size_t n);
 int coverage_field(const char *f, char *buf, size_t n);        /* Device.X_AIGW_.Coverage.; -1 unknown */
 void coverage_save(struct blob_buf *b);
 void coverage_load(struct blob_attr *t);
+#else
+/* without coverage advice: the timeline's advice, else Diagnose's */
+#include "ag/diag.h"
+#if AIGW_FEATURE_WHY
+#include "ag/why.h"
+#endif
+static inline const char *coverage_advice(const char *code, const char *mac, int isp)
+{
+	(void)mac;
+	(void)isp;
+#if AIGW_FEATURE_WHY
+	return why_advice(code);
+#else
+	return diag_advice(code);
+#endif
+}
+static inline int coverage_words(const char *mac, char *advice, size_t an, char *line, size_t ln, char *note, size_t nn)
+{ (void)mac; (void)advice; (void)an; (void)line; (void)ln; (void)note; (void)nn; return -1; }
+static inline const char *coverage_kind_of(const char *mac) { (void)mac; return ""; }
+static inline void coverage_report_blob(struct blob_buf *b) { (void)b; }
+static inline void coverage_save(struct blob_buf *b) { (void)b; }
+static inline void coverage_load(struct blob_attr *t) { (void)t; }
+#endif
 
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
 typedef void (*handler_done_t)(void *ctx, int code, const char *msg);

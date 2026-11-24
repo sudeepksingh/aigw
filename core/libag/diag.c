@@ -279,6 +279,22 @@ const char *diag_advice(const char *code)
 	return "";
 }
 
+/* a radio's Wi-Fi health by name (ag/heal.h): Diagnose, the brief and the data model say it,
+   with or without Self-Healing Wi-Fi built in */
+const char *heal_status_name(enum heal_status st)
+{
+	static const char *const n[] = { "Unknown", "Good", "Degraded", "Poor" };
+
+	return st <= HEAL_POOR ? n[st] : "Unknown";
+}
+
+const char *heal_cause_name(enum heal_cause c)
+{
+	static const char *const n[] = { "None", "Congestion", "WeakCoverage", "BandHopping", "Device", "Radio" };
+
+	return c <= HC_RADIO ? n[c] : "None";
+}
+
 const char *diag_sev_name(int sev)
 {
 	static const char *const n[] = { "ok", "info", "warning", "problem" };

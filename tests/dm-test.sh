@@ -17,6 +17,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+. "$(dirname "$0")/feature-lib.sh"
+features_of "$BIN"
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 PIDS=""
@@ -91,11 +93,13 @@ js() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 
 echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
+if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys; then   # the full build: every command and event, and the published file
 js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 16 and len(d['events']) == 16 and
          [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()', 'Device.X_AIGW_.Diagnose()',
           'Device.X_AIGW_.SupportBrief()', 'Device.IP.Diagnostics.IPPing()', 'Device.IP.Diagnostics.TraceRoute()', 'Device.IP.Diagnostics.DownloadDiagnostics()',
           'Device.IP.Diagnostics.UploadDiagnostics()', 'Device.DNS.Diagnostics.NSLookupDiagnostics()'] else 1)" < "$T/schema.json" ||
 	fail "schema: $(head -c 300 "$T/schema.json")"
+fi
 python3 "$REPO/scripts/dm-xml" "$T/schema.json" > "$T/dm.xml"
 python3 - "$T/dm.xml" "$T/schema.json" <<'EOF' || fail "dm-xml output"
 import json, sys, xml.etree.ElementTree as ET
@@ -105,11 +109,14 @@ names = {o.get("name") + p.get("name") for o in root.iter("object") for p in o.f
 missing = [p["path"] for p in s["params"] if p["path"] not in names]
 sys.exit("missing in XML: %s" % missing[:5] if missing else 0)
 EOF
+if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys; then
 [ "${AIGW_UPDATE_DM_XML:-0}" = 1 ] && cp "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml"   # after changing the data model
 cmp -s "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml" ||
 	fail "docs/datamodel/aigw-dm.xml is out of date: agctl -j dm schema | scripts/dm-xml > docs/datamodel/aigw-dm.xml"
+fi
 echo "   $(js "print(len(d['params']), 'parameters,', len(d['commands']), 'commands,', len(d['events']), 'events')" < "$T/schema.json")"
 
+if has care; then
 echo "== proactive care: its object"
 call get '{"paths":["Device.X_AIGW_.Care."]}' > "$T/care.json"
 js "v = d['values']; sys.exit(0 if v['Device.X_AIGW_.Care.Enable'] == 'true' and v['Device.X_AIGW_.Care.Status'] in ('OK', 'Problem') and
@@ -119,7 +126,9 @@ js "v = d['values']; sys.exit(0 if v['Device.X_AIGW_.Care.Enable'] == 'true' and
 	fail "Device.X_AIGW_.Care.: $(cat "$T/care.json")"
 agctl -j care | js "sys.exit(0 if d['enabled'] in (1, True) and d['status'] in ('ok', 'problem') and 'week' in d['report'] else 1)" ||
 	fail "agctl care: $(agctl -j care)"
+fi
 
+if has area; then
 echo "== area outages: its object (none now), the uplink id writable (v0.39)"
 call get '{"paths":["Device.X_AIGW_.AreaOutage."]}' > "$T/area.json"
 js "v = d['values']; sys.exit(0 if v['Device.X_AIGW_.AreaOutage.Enable'] == 'true' and v['Device.X_AIGW_.AreaOutage.Status'] == 'None' and
@@ -128,6 +137,17 @@ js "v = d['values']; sys.exit(0 if v['Device.X_AIGW_.AreaOutage.Enable'] == 'tru
 js "sys.exit(0 if [e for e in d['events'] if e['path'] == 'Device.X_AIGW_.AreaOutage!'] and
     [p for p in d['params'] if p['path'] == 'Device.X_AIGW_.AreaOutage.UplinkID' and p['writable']] else 1)" < "$T/schema.json" ||
 	fail "AreaOutage! and a writable UplinkID in the schema"
+fi
+
+echo "== the features built in (docs/features.md): said the same everywhere; a missing one's command says so"
+F=$("$BIN/agd/agd" --features)
+[ "$(agctl dm get Device.X_AIGW_.Features | sed 's/^[^=]*= *//')" = "$F" ] || fail "Device.X_AIGW_.Features: $(agctl dm get Device.X_AIGW_.Features), agd --features: $F"
+agctl version | grep -qx "features: ${F:-the core only}" || fail "agctl version: $(agctl version)"
+if ! has mesh; then
+	agctl mesh > "$T/nb.out" 2>&1 && fail "agctl mesh without mesh Wi-Fi built in"
+	grep -q 'agctl mesh: not built in (AIGW_FEATURE_MESH)' "$T/nb.out" || fail "agctl mesh: $(cat "$T/nb.out")"
+fi
+echo "   ${F:-the core only}"
 
 echo "== get"
 call get '{"paths":["Device.Hosts."]}' > "$T/hosts.json"
