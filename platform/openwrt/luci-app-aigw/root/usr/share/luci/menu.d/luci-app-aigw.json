@@ -20,11 +20,6 @@
 		"order": 30,
 		"action": { "type": "view", "path": "aigw/decisions" }
 	},
-	"admin/aigw/access": {
-		"title": "Wi-Fi keys and remote access",
-		"order": 40,
-		"action": { "type": "view", "path": "aigw/access" }
-	},
 	"admin/aigw/plugins": {
 		"title": "Plug-ins and models",
 		"order": 50,

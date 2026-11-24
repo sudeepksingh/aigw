@@ -176,19 +176,6 @@ static const int *candidates(int band, int width, int *n)
 	return c5_20;
 }
 
-int chan_valid(int band, int ch)
-{
-	int n, i;
-	const int *c = candidates(band, 20, &n);
-
-	if (band == 2)
-		return ch >= 1 && ch <= 13;
-	for (i = 0; i < n; i++)
-		if (c[i] == ch)
-			return 1;
-	return 0;
-}
-
 static int local_hour(int64_t t)
 {
 	time_t tt = (time_t)t;

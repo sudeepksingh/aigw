@@ -57,6 +57,15 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.48:** **Choose the features.** Whoever builds AIGW OS picks its
+> features: 20 of them, each a CMake option and a `make menuconfig` choice, with
+> full, small and minimal profiles. A feature that is not built in takes no
+> flash, its commands say so, and the data model has only what exists
+> (`Device.X_AIGW_.Features`, data model 1.22). New features come as options,
+> so they don't grow every image. Installed flash (`aigw-selftest`, KB,
+> x86-64/aarch64/mipsel): full 952/940/788, small 664/668/564, minimal
+> 392/384/340; see [docs/features.md](docs/features.md).
+>
 > **v0.47:** **One standard way to the mesh, and more room in flash.** The mesh
 > handler is now `mesh-dataelements`: it speaks the standard Data Elements
 > commands (`ClientSteer()`, `ChannelSelectionRequest()`) on the gateway's bus,

@@ -22,6 +22,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+. "$(dirname "$0")/feature-lib.sh"
+features_of "$BIN"
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 R=$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')
@@ -286,6 +288,7 @@ uspc get "$FW.2.Version" "$FW.2.Status" | js "sys.exit(0 if d['$FW.2.Version'] =
 	fail "the new image over USP"
 echo "   a wrong checksum refused; downloaded over HTTP, checked, activated, rebooted into 3.1"
 
+if has tr143; then   # TR-143 built in (the threads below use its asynchronous IPPing())
 echo "== TR-143 over USP: IPPing() and TraceRoute(), asynchronous commands with TR-181's outputs"
 uspc supported Device.IP.Diagnostics. | js "sys.exit(0 if 'Device.IP.Diagnostics.IPPing()' in d['commands'] and 'Device.IP.Diagnostics.TraceRoute()' in d['commands'] else 'got %s' % d)" ||
 	fail "TR-143 commands not listed"
@@ -315,6 +318,7 @@ js "o = d.get('out', {}); sys.exit(0 if d['ok'] and o.get('SuccessCount') == '4'
 	fail "IPPing() with events and reads at the same time: $(cat "$T/ping2.json")"
 grep -q 'Segmentation' "$T/obuspa.log" && fail "the agent crashed"
 echo "   5 reads and IPPing 4 of 4 while events flowed"
+fi
 
 echo "== TLS with a client certificate; Device.Reboot() reboots (through agd and the handler)"
 grep -Eq "New client connected .* on port 18832" "$T/mosquitto.log" ||

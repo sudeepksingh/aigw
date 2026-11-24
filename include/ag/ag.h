@@ -6,6 +6,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "ag/features.h"        /* the features this build has (generated: cmake/features.cmake) */
+
 #ifndef AG_VERSION
 #define AG_VERSION "0.0.0"
 #endif
@@ -213,6 +215,7 @@ struct ag_config {
 	int pro_max_per_day;      /* new tickets to the ISP in 24 hours */
 	/* smarter mesh Wi-Fi over a standard EasyMesh controller (agd/mesh.c) */
 	int mesh;                 /* read the controller's Data Elements, decide, act through the controller */
+	char unbuilt[320];        /* sections of features this build doesn't have, ignored: "mesh (AIGW_FEATURE_MESH), ..." */
 	char mesh_handler[128];   /* the controller's handler; "" the platform's (MESH_HANDLER) */
 	char mesh_source[256];    /* read this Data Elements snapshot (JSON or path=value) instead; "" the handler */
 	int mesh_poll;            /* s between reads */

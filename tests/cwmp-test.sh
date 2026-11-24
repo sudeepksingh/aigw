@@ -27,6 +27,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+. "$(dirname "$0")/feature-lib.sh"
+features_of "$BIN"
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 R=$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')
@@ -320,6 +322,7 @@ sleep 4
 rm -rf "$T/fw"          # part 2 starts from bank 1 again
 echo "   banks listed; a bad image fault 9010; downloaded, set to boot next; no reboot by agd"
 
+if has tr143; then   # TR-143 built in
 echo "== part 1: TR-143, as icwmp runs it (the object's inputs, then bbfdm operate)"
 [ "$(setv Device.X_EXAMPLE-COM_.Request.Command IPPing)" = 9007 ] || fail "TR-143 isn't a Request. command"
 [ "$(setv Device.IP.Diagnostics.IPPing.Host 10.98.0.2)" = ok ] && [ "$(setv Device.IP.Diagnostics.IPPing.DiagnosticsState Requested)" = ok ] ||
@@ -333,6 +336,7 @@ bb operate '{"path":"Device.IP.Diagnostics.IPPing()","input":{"Host":"10.98.0.2"
 bb get '{"path":"Device.IP.Diagnostics.IPPing.SuccessCount"}' | js "sys.exit(0 if d['results'][0]['type'] == 'xsd:unsignedInt' else 1)" ||
 	fail "SuccessCount's type"
 echo "   IPPing to the ACS: 2 of 2, Complete in the object"
+fi
 
 ICWMPD=${AIGW_ICWMPD:-$(command -v icwmpd || true)}
 if [ -z "$ICWMPD" ] || [ ! -x "$ICWMPD" ]; then
@@ -493,6 +497,7 @@ js "v = d['results'][1]['values']; sys.exit(0 if v['Device.X_EXAMPLE-COM_.Reques
 gw nft list set inet ag quarantine 2>/dev/null | grep -qi '02:00:00:00:96:04' || fail "the phone should be quarantined in nft"
 echo "   $DEC2 active, approved by acs"
 
+if has tr143; then   # TR-143 built in
 echo "== part 2: TR-143 from the ACS (DiagnosticsState, 8 DIAGNOSTICS COMPLETE, the results)"
 diag() { # diag <object> <name=value...>: requested in one session, read after 8 DIAGNOSTICS COMPLETE
 	o=$1; shift
@@ -520,6 +525,7 @@ js "v = d['results'][0]['values']; p = 'Device.IP.Diagnostics.DownloadDiagnostic
 sys.exit(0 if v[p + 'DiagnosticsState'] == 'Complete' and int(v[p + 'TestBytesReceived']) > 2000000 and v[p + 'EOMTime'] > v[p + 'BOMTime'] else 'got %s' % v)" \
 	< "$T/rr.json" || fail "DownloadDiagnostics from the ACS: $(cat "$T/rr.json")"
 echo "   IPPing 3 of 3 and a 2 MB DownloadDiagnostics, each Requested, run at the session's end, read after 8 DIAGNOSTICS COMPLETE"
+fi
 
 echo "== part 2: a firmware upgrade from the ACS (Download, reboot, TransferComplete)"
 printf 'AIGW-TEST-FIRMWARE 2.5\n' > "$T/acs/files/fw.img"

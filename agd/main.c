@@ -66,12 +66,22 @@ void agd_emit_from(const char *type, struct blob_buf *msg, const void *from)
 {
 	if (conn.ctx.sock.fd >= 0)
 		ubus_send_event(&conn.ctx, type, msg->head);
+#if AIGW_FEATURE_WHY
 	why_on_emit(type, msg->head);           /* the home's timeline */
-	if (!strcmp(type, AG_EV_WIFI)) {
+#endif
+#if AIGW_FEATURE_PROACTIVE
+	if (!strcmp(type, AG_EV_WIFI))
 		proactive_on_wifi(msg->head);   /* a device that keeps dropping off Wi-Fi */
+#endif
+#if AIGW_FEATURE_COVERAGE
+	if (!strcmp(type, AG_EV_WIFI))
 		coverage_on_wifi(msg->head);    /* ... and its coverage history */
-	}
+#endif
+#if AIGW_FEATURE_PLUGINS
 	plugin_dispatch(type, msg->head, from);
+#else
+	(void)from;
+#endif
 }
 
 void agd_emit(const char *type, struct blob_buf *msg)
@@ -121,8 +131,10 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 
 	dns_total++;
 	last_dns_event = ag_wall_s();
+#if AIGW_FEATURE_WHY
 	if (!(tb[EV_BLOCKED] && blobmsg_get_u8(tb[EV_BLOCKED])))
 		why_on_dns((int)rcode, tb[EV_LAT] ? blobmsg_get_u32(tb[EV_LAT]) : 0);
+#endif
 
 	/* what the answer says about the name: it doesn't exist, or it works. Not
 	 * counted: names AIGW blocked, 0.0.0.0 from a filtering resolver, empty answers */
@@ -181,7 +193,9 @@ static void on_dns_event(struct ubus_context *ctx, struct ubus_event_handler *ev
 	/* ... and many failed lookups of never-used names is behaviour, whatever the names look like */
 	if (d)
 		burst_dns(d, qname, outcome, s >= cfg.dga_threshold);
+#if AIGW_FEATURE_PLUGINS
 	plugin_dispatch(AG_EV_DNS, msg, NULL);
+#endif
 }
 
 /* from aigw-dhcp-event (dnsmasq hook): richer identity than the leases file */
@@ -215,7 +229,9 @@ static void on_dhcp_event(struct ubus_context *ctx, struct ubus_event_handler *e
 		snprintf(d->dhcp_options, sizeof(d->dhcp_options), "%s", blobmsg_get_string(tb[DH_OPTS]));
 	d->last_seen = ag_wall_s();
 	dev_guess_type(d);
+#if AIGW_FEATURE_PLUGINS
 	plugin_dispatch(AG_EV_DHCP, msg, NULL);
+#endif
 }
 
 /* a QR code as rows of '1' (dark) and '0', for screens that draw it (LuCI) */
@@ -250,6 +266,7 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_string(&b, "version", AG_VERSION);
 	blobmsg_add_string(&b, "host", cfg.host);
 	blobmsg_add_string(&b, "phase", "advanced");
+	blobmsg_add_string(&b, "features", AG_FEATURES);       /* what this build has (docs/features.md) */
 	if (ag_demo())
 		blobmsg_add_u8(&b, "demo", 1);  /* the demo image's simulated home */
 	blobmsg_add_u64(&b, "uptime_s", (uint64_t)(ag_wall_s() - started));
@@ -257,7 +274,9 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u32(&b, "wifi_stations", (uint32_t)wifi_station_count());
 	blobmsg_add_u32(&b, "home", (uint32_t)presence_count());
 	blobmsg_add_u32(&b, "radios", (uint32_t)wifi_n_aps);
+#if AIGW_FEATURE_WIFI_HEAL
 	blobmsg_add_u64(&b, "steered", steer_ok_total);
+#endif
 	blobmsg_add_u64(&b, "dns_queries", dns_total);
 	blobmsg_add_u64(&b, "dns_last_event", (uint64_t)last_dns_event);
 	blobmsg_add_u64(&b, "flows", flows_total);
@@ -273,16 +292,22 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	blobmsg_add_u64(&b, "applied", act_applied_total());
 	blobmsg_add_u32(&b, "policies", (uint32_t)cfg.n_policies);
 	blobmsg_close_table(&b, s);
+#if AIGW_FEATURE_PLUGINS
 	s = blobmsg_open_table(&b, "plugins");
 	blobmsg_add_u32(&b, "found", (uint32_t)plugin_count(0));
 	blobmsg_add_u32(&b, "working", (uint32_t)plugin_count(1));
 	blobmsg_close_table(&b, s);
+#endif
+#if AIGW_FEATURE_KEYS
 	blobmsg_add_u32(&b, "wifi_keys", (uint32_t)keys_count());
+#endif
+#if AIGW_FEATURE_REMOTE
 	s = blobmsg_open_table(&b, "remote");
 	blobmsg_add_u8(&b, "enabled", (uint8_t)cfg.remote_enabled);
 	blobmsg_add_u32(&b, "peers", (uint32_t)remote_count(0));
 	blobmsg_add_u32(&b, "online", (uint32_t)remote_count(1));
 	blobmsg_close_table(&b, s);
+#endif
 	s = blobmsg_open_table(&b, "models");
 	if (alerts_model_trees())
 		blobmsg_add_u32(&b, alerts_model_name(), (uint32_t)alerts_model_trees());
@@ -294,13 +319,23 @@ static int m_status(struct ubus_context *ctx, struct ubus_object *obj,
 	s = blobmsg_open_table(&b, "sensors");
 	blobmsg_add_u8(&b, "dns", last_dns_event ? 1 : 0);
 	blobmsg_add_u8(&b, "flow", flow_active() ? 1 : 0);
+#if AIGW_FEATURE_SNI
 	blobmsg_add_u8(&b, "sni", sni_active() ? 1 : 0);
+#endif
 	blobmsg_add_u8(&b, "wifi", wifi_station_count() > 0 ? 1 : 0);
 	blobmsg_close_table(&b, s);
+#if AIGW_FEATURE_SNI
 	sni_blob(&b);
+#endif
+#if AIGW_FEATURE_FASTPATH
 	fastpath_blob(&b);
+#endif
+#if AIGW_FEATURE_METER
 	meter_blob(&b);
+#endif
+#if AIGW_FEATURE_AREA
 	area_blob(&b);                  /* an area outage cortex told of, and the uplink it groups this home by */
+#endif
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
@@ -519,6 +554,7 @@ static struct ubus_object decision_obj = {
 	.n_methods = ARRAY_SIZE(decision_methods),
 };
 
+#if AIGW_FEATURE_PLUGINS
 /* ---------- plug-ins ---------- */
 
 enum { PL_NAME, PL_ALLOW, PL_ENABLED, PL_KEY, PL_VALUE, __PL_MAX };
@@ -598,6 +634,7 @@ static struct ubus_object_type plugin_type = UBUS_OBJECT_TYPE("ag.plugin", plugi
 static struct ubus_object plugin_obj = {
 	.name = "ag.plugin", .type = &plugin_type, .methods = plugin_methods, .n_methods = ARRAY_SIZE(plugin_methods),
 };
+#endif
 
 /* ---------- models: signed updates, rollback ---------- */
 
@@ -658,6 +695,7 @@ static struct ubus_object model_obj = {
 	.name = "ag.model", .type = &model_type, .methods = model_methods, .n_methods = ARRAY_SIZE(model_methods),
 };
 
+#if AIGW_FEATURE_FED
 /* ---------- federated learning: your examples, rounds, privacy spent ---------- */
 
 enum { FD_NAME, FD_LABEL, __FD_MAX };
@@ -706,7 +744,9 @@ static struct ubus_object_type fed_type = UBUS_OBJECT_TYPE("ag.fed", fed_methods
 static struct ubus_object fed_obj = {
 	.name = "ag.fed", .type = &fed_type, .methods = fed_methods, .n_methods = ARRAY_SIZE(fed_methods),
 };
+#endif
 
+#if AIGW_FEATURE_REMOTE
 /* ---------- remote access ---------- */
 
 enum { RM_NAME, RM_ENDPOINT, __RM_MAX };
@@ -761,9 +801,11 @@ static struct ubus_object_type remote_type = UBUS_OBJECT_TYPE("ag.remote", remot
 static struct ubus_object remote_obj = {
 	.name = "ag.remote", .type = &remote_type, .methods = remote_methods, .n_methods = ARRAY_SIZE(remote_methods),
 };
+#endif
 
 /* ---------- per-device Wi-Fi keys ---------- */
 
+#if AIGW_FEATURE_KEYS
 enum { WK_NAME, WK_ZONE, WK_TTL, __WK_MAX };
 static const struct blobmsg_policy key_policy[__WK_MAX] = {
 	[WK_NAME] = { .name = "name", .type = BLOBMSG_TYPE_STRING },
@@ -808,6 +850,7 @@ static int m_wifi_key_change(struct ubus_context *ctx, struct ubus_object *obj,
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
 /* ubus ag.wifi radios: access points, their stations, band steering */
 static int m_wifi_radios(struct ubus_context *ctx, struct ubus_object *obj,
@@ -829,8 +872,10 @@ static int m_wifi_radios(struct ubus_context *ctx, struct ubus_object *obj,
 		blobmsg_add_u32(&b, "channel", (uint32_t)a->channel);
 		blobmsg_add_u32(&b, "freq", (uint32_t)a->freq);
 		blobmsg_add_u32(&b, "width", (uint32_t)a->width);
+#if AIGW_FEATURE_WIFI_HEAL
 		chan_blob(&b, a->iface);
 		heal_blob(&b, a->iface);
+#endif
 		sa = blobmsg_open_array(&b, "stations");
 		for (j = 0; j < DEV_MAX; j++) {
 			const struct device *d = &devs[j];
@@ -855,17 +900,21 @@ static int m_wifi_radios(struct ubus_context *ctx, struct ubus_object *obj,
 		blobmsg_close_table(&b, t);
 	}
 	blobmsg_close_array(&b, arr);
+#if AIGW_FEATURE_WIFI_HEAL
 	steer_blob(&b);
+#endif
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
 
 static struct ubus_method wifi_methods[] = {
 	UBUS_METHOD_NOARG("radios", m_wifi_radios),
+#if AIGW_FEATURE_KEYS
 	UBUS_METHOD("keys", m_wifi_keys, key_policy),
 	UBUS_METHOD("key_show", m_wifi_keys, key_policy),
 	UBUS_METHOD("key_add", m_wifi_key_change, key_policy),
 	UBUS_METHOD("key_revoke", m_wifi_key_change, key_policy),
+#endif
 };
 static struct ubus_object_type wifi_type = UBUS_OBJECT_TYPE("ag.wifi", wifi_methods);
 static struct ubus_object wifi_obj = {
@@ -974,6 +1023,7 @@ static int m_diagnose(struct ubus_context *ctx, struct ubus_object *obj, struct 
 	return 0;
 }
 
+#if AIGW_FEATURE_CARE
 /* ag care {check}: proactive care's state and report; check: run one now */
 enum { CR_CHECK, CR_SPEED, CR_URL, __CR_MAX };
 static const struct blobmsg_policy care_policy[__CR_MAX] = {
@@ -1005,7 +1055,9 @@ static int m_care(struct ubus_context *ctx, struct ubus_object *obj, struct ubus
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_UPGRADE
 /* ag upgrade {forget}: the last firmware upgrade's check; forget: lift the hold on a version rolled back */
 enum { UG_FORGET, __UG_MAX };
 static const struct blobmsg_policy upgrade_policy[__UG_MAX] = {
@@ -1027,7 +1079,9 @@ static int m_upgrade(struct ubus_context *ctx, struct ubus_object *obj, struct u
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_WHY
 /* ag why {from, to, minutes, host, raw}: a stretch of the home's timeline explained.
    from/to: wall s (to: now); or minutes: the last so many (60) */
 enum { WY_FROM, WY_TO, WY_MINUTES, WY_HOST, WY_RAW, __WY_MAX };
@@ -1038,7 +1092,9 @@ static const struct blobmsg_policy why_policy[__WY_MAX] = {
 	[WY_HOST] = { "host", BLOBMSG_TYPE_STRING },
 	[WY_RAW] = { "raw", BLOBMSG_TYPE_BOOL },
 };
+#endif
 
+#if AIGW_FEATURE_WHY || AIGW_FEATURE_BRIEF
 static long num_of(struct blob_attr *a, long dflt)
 {
 	if (!a)
@@ -1050,7 +1106,9 @@ static long num_of(struct blob_attr *a, long dflt)
 	}
 	return dflt;
 }
+#endif
 
+#if AIGW_FEATURE_WHY
 static int m_why(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
 		 const char *method, struct blob_attr *msg)
 {
@@ -1068,7 +1126,9 @@ static int m_why(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_OFFERS
 /* ag offers: signals for the ISP, with the devices by name (this is the home's own view) */
 static int m_offers(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
 		    const char *method, struct blob_attr *msg)
@@ -1081,7 +1141,9 @@ static int m_offers(struct ubus_context *ctx, struct ubus_object *obj, struct ub
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_SQM
 /* ag sqm {on}: smart queueing: what it does; on true: ask for it, false: end it */
 enum { SQ_ON, __SQ_MAX };
 static const struct blobmsg_policy sqm_policy[__SQ_MAX] = {
@@ -1110,7 +1172,9 @@ static int m_sqm(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_CALLS
 /* ag calls: calls and games now (first in the queue or not), the last one's report, the counts */
 static int m_calls(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
 		   const char *method, struct blob_attr *msg)
@@ -1123,7 +1187,9 @@ static int m_calls(struct ubus_context *ctx, struct ubus_object *obj, struct ubu
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_BRIEF
 /* ag brief {period | from, to, host, check, speed, propose}: the help desk's answer about a
    period (deferred: a fresh check takes a few seconds). At home: devices by name */
 enum { BR_PERIOD, BR_FROM, BR_TO, BR_HOST, BR_CHECK, BR_SPEED, BR_PROPOSE, __BR_MAX };
@@ -1191,7 +1257,9 @@ refuse:
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_PROACTIVE
 /* ag proactive {run}: proactive care before the call: its tickets and counts; run: look now. At home: devices too */
 enum { PR_RUN, __PR_MAX };
 static const struct blobmsg_policy proactive_policy[__PR_MAX] = {
@@ -1216,7 +1284,9 @@ static int m_proactive(struct ubus_context *ctx, struct ubus_object *obj, struct
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_MESH
 /* ag mesh {run}: mesh Wi-Fi over the EasyMesh controller: the topology, each device's access point and link, the
    backhaul, the channel plan, the trial, the counts; run: read the controller now. At home: devices by name */
 enum { MS_RUN, __MS_MAX };
@@ -1239,7 +1309,9 @@ static int m_mesh(struct ubus_context *ctx, struct ubus_object *obj, struct ubus
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_WIFI_HEAL
 /* ag channels {brief}: neighbour-aware channels: each access point's channels by hour of day (the air others use,
    the neighbours), the home's busy hours, the verdict, a planned move's trial, the counts; brief: no table */
 enum { CH_BRIEF, __CH_MAX };
@@ -1261,7 +1333,9 @@ static int m_channels(struct ubus_context *ctx, struct ubus_object *obj, struct 
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
 
+#if AIGW_FEATURE_COVERAGE
 /* ag coverage: coverage placement advice: the verdict, what to do, the home's weak spots, each device's history.
    At home: devices by name */
 static int m_coverage(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
@@ -1275,20 +1349,44 @@ static int m_coverage(struct ubus_context *ctx, struct ubus_object *obj, struct 
 	ubus_send_reply(ctx, req, b.head);
 	return 0;
 }
+#endif
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
-	UBUS_METHOD("channels", m_channels, chan_policy),
-	UBUS_METHOD("mesh", m_mesh, mesh_policy),
-	UBUS_METHOD_NOARG("coverage", m_coverage),
-	UBUS_METHOD("proactive", m_proactive, proactive_policy),
-	UBUS_METHOD("brief", m_brief, brief_policy),
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
+#if AIGW_FEATURE_WIFI_HEAL
+	UBUS_METHOD("channels", m_channels, chan_policy),
+#endif
+#if AIGW_FEATURE_MESH
+	UBUS_METHOD("mesh", m_mesh, mesh_policy),
+#endif
+#if AIGW_FEATURE_COVERAGE
+	UBUS_METHOD_NOARG("coverage", m_coverage),
+#endif
+#if AIGW_FEATURE_PROACTIVE
+	UBUS_METHOD("proactive", m_proactive, proactive_policy),
+#endif
+#if AIGW_FEATURE_BRIEF
+	UBUS_METHOD("brief", m_brief, brief_policy),
+#endif
+#if AIGW_FEATURE_CARE
 	UBUS_METHOD("care", m_care, care_policy),
+#endif
+#if AIGW_FEATURE_UPGRADE
 	UBUS_METHOD("upgrade", m_upgrade, upgrade_policy),
+#endif
+#if AIGW_FEATURE_WHY
 	UBUS_METHOD("why", m_why, why_policy),
+#endif
+#if AIGW_FEATURE_OFFERS
 	UBUS_METHOD_NOARG("offers", m_offers),
+#endif
+#if AIGW_FEATURE_SQM
 	UBUS_METHOD("sqm", m_sqm, sqm_policy),
+#endif
+#if AIGW_FEATURE_CALLS
 	UBUS_METHOD_NOARG("calls", m_calls),
+#endif
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1322,13 +1420,24 @@ static struct ubus_object flow_obj = {
 
 static void on_ubus_connect(struct ubus_context *ctx)
 {
-	if (ubus_add_object(ctx, &ag_obj) || ubus_add_object(ctx, &dev_obj) ||
-	    ubus_add_object(ctx, &dns_obj) || ubus_add_object(ctx, &flow_obj) ||
-	    ubus_add_object(ctx, &alert_obj) || ubus_add_object(ctx, &domain_obj) ||
-	    ubus_add_object(ctx, &decision_obj) || ubus_add_object(ctx, &plugin_obj) ||
-	    ubus_add_object(ctx, &wifi_obj) || ubus_add_object(ctx, &model_obj) || ubus_add_object(ctx, &remote_obj) ||
-	    ubus_add_object(ctx, &fed_obj) || ubus_add_object(ctx, dm_ubus_object()))
-		AG_ERR("failed to publish ubus objects");
+	struct ubus_object *objs[] = {
+		&ag_obj, &dev_obj, &dns_obj, &flow_obj, &alert_obj, &domain_obj, &decision_obj, &wifi_obj, &model_obj,
+#if AIGW_FEATURE_PLUGINS
+		&plugin_obj,
+#endif
+#if AIGW_FEATURE_REMOTE
+		&remote_obj,
+#endif
+#if AIGW_FEATURE_FED
+		&fed_obj,
+#endif
+		dm_ubus_object(),
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(objs); i++)
+		if (ubus_add_object(ctx, objs[i]))
+			AG_ERR("failed to publish ubus object %s", objs[i]->name);
 	dns_ev.cb = on_dns_event;
 	dhcp_ev.cb = on_dhcp_event;
 	if (ubus_register_event_handler(ctx, &dns_ev, AG_EV_DNS) ||
@@ -1351,13 +1460,23 @@ static void poll_cb(struct uloop_timeout *t)
 	dev_poll_arp();
 	wifi_poll();
 	presence_tick();
+#if AIGW_FEATURE_FASTPATH
 	fastpath_tick();
+#endif
 	baseline_tick();
 	act_tick();
+#if AIGW_FEATURE_UPGRADE
 	upgrade_tick();
+#endif
+#if AIGW_FEATURE_KEYS
 	keys_tick();
+#endif
+#if AIGW_FEATURE_REMOTE
 	remote_tick();
+#endif
+#if AIGW_FEATURE_PLUGINS
 	plugin_tick();
+#endif
 	uloop_timeout_set(t, POLL_MS);
 }
 
@@ -1373,10 +1492,16 @@ int main(int argc, char **argv)
 		printf("agd %s\n", AG_VERSION);
 		return 0;
 	}
+	if (argc > 1 && !strcmp(argv[1], "--features")) {
+		printf("%s\n", AG_FEATURES);   /* the features this build has, comma-separated */
+		return 0;
+	}
 
 	ag_config_load(&cfg);
 	ag_log_init("agd", ag_log_level_parse(cfg.log_level));
 	started = ag_wall_s();
+	if (cfg.unbuilt[0])
+		AG_INFO("config: %s: not built in, ignored", cfg.unbuilt);
 
 	uloop_init();
 	signal(SIGPIPE, SIG_IGN);       /* a plug-in that went away must not take the brain with it */
@@ -1386,24 +1511,56 @@ int main(int argc, char **argv)
 	dm_init();                      /* before the state: it holds the data model's instance numbers */
 	dev_state_load();
 	act_init();
+#if AIGW_FEATURE_REMOTE
 	remote_init();                  /* before the flow sensor: tunnel clients are part of the home */
+#endif
 	flow_init();
+#if AIGW_FEATURE_SNI
 	sni_init();                     /* after the flow sensor: it names its connections */
+#endif
+#if AIGW_FEATURE_METER
 	meter_init();
+#endif
 	wifi_init();
+#if AIGW_FEATURE_WIFI_HEAL
 	heal_init();
+#endif
+#if AIGW_FEATURE_TR143
 	tr143_init();
+#endif
+#if AIGW_FEATURE_CARE
 	care_init();
+#endif
+#if AIGW_FEATURE_UPGRADE
 	upgrade_init();                 /* after the state and proactive care: a watch may go on */
+#endif
+#if AIGW_FEATURE_WHY
 	why_init();                     /* the home's timeline: after proactive care (its speed test) */
+#endif
+#if AIGW_FEATURE_OFFERS
 	offers_init();                  /* signals for the ISP, counted from the timeline */
+#endif
+#if AIGW_FEATURE_SQM
 	sqm_init();                     /* smart queueing on bufferbloat, judged on the timeline */
+#endif
+#if AIGW_FEATURE_CALLS
 	calls_init();                   /* calls and games first, inside it */
+#endif
+#if AIGW_FEATURE_PROACTIVE
 	proactive_init();               /* before the call: after care, the timeline, SQM and calls */
+#endif
+#if AIGW_FEATURE_MESH
 	mesh_init();                    /* mesh Wi-Fi over the EasyMesh controller: after the state and act */
+#endif
+#if AIGW_FEATURE_COVERAGE
 	coverage_init();                /* coverage placement advice: after the state */
+#endif
+#if AIGW_FEATURE_KEYS
 	keys_init();
+#endif
+#if AIGW_FEATURE_PLUGINS
 	plugin_init();
+#endif
 
 	conn.path = ag_ubus_path();
 	conn.cb = on_ubus_connect;
@@ -1415,10 +1572,14 @@ int main(int argc, char **argv)
 	save_timer.cb = save_cb;
 	uloop_timeout_set(&save_timer, cfg.state_interval * 1000);
 
-	AG_INFO("agd %s started (host %s)", AG_VERSION, cfg.host);
+	AG_INFO("agd %s started (host %s; features: %s)", AG_VERSION, cfg.host, *AG_FEATURES ? AG_FEATURES : "the core only");
 	uloop_run();     /* returns on SIGTERM / SIGINT */
+#if AIGW_FEATURE_WHY
 	why_save();
+#endif
+#if AIGW_FEATURE_PLUGINS
 	plugin_stop_all();
+#endif
 	dev_state_save();
 	AG_INFO("stopped, state saved");
 	uloop_done();

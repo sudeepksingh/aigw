@@ -17,6 +17,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+. "$(dirname "$0")/feature-lib.sh"
+needs "$BIN" upgrade
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 PIDS=""

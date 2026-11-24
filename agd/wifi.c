@@ -138,6 +138,20 @@ const struct wifi_ap *wifi_ap_find(const char *iface)
 	return NULL;
 }
 
+/* a channel AIGW may use: 2.4 GHz 1-13; 5 GHz the 20 MHz channels outside DFS */
+int chan_valid(int band, int ch)
+{
+	static const int c5[] = { 36, 40, 44, 48, 149, 153, 157, 161, 165 };
+	size_t i;
+
+	if (band == 2)
+		return ch >= 1 && ch <= 13;
+	for (i = 0; i < sizeof(c5) / sizeof(c5[0]); i++)
+		if (c5[i] == ch)
+			return 1;
+	return 0;
+}
+
 static long kv(const char *text, const char *key, long dflt)
 {
 	char pat[48];

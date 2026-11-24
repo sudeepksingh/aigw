@@ -88,7 +88,15 @@ if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install $DEPS $PKGS; } 
 fi
 
 echo "==> building"
+# the features (docs/features.md): AIGW_PROFILE=full (default), small or minimal, as make menuconfig's profile
+PROFILE=${AIGW_PROFILE:-full}
+case $PROFILE in full|small|minimal) ;; *) die "AIGW_PROFILE is full, small or minimal" ;; esac
+[ -f .config ] && sed -i '/^CONFIG_AIGW_PROFILE_/d; /^# CONFIG_AIGW_PROFILE_/d; /CONFIG_AIGW_FEATURE_/d' .config
+echo "CONFIG_AIGW_PROFILE_$(echo "$PROFILE" | tr a-z A-Z)=y" >> .config
 make defconfig > /dev/null 2>&1
+grep -q "^CONFIG_AIGW_PROFILE_$(echo "$PROFILE" | tr a-z A-Z)=y" .config || die "the $PROFILE profile did not take (make defconfig)"
+# a profile without plug-ins makes no aigw-mqtt: none left from the last build either
+[ -d bin/packages ] && find bin/packages \( -name 'aigw*' -o -name 'luci-app-aigw*' \) -type f -delete
 BUILD="aigw"
 [ "$USP" = 1 ] && BUILD="icwmp aigw obuspa aigw-usp"
 for p in $BUILD; do
@@ -104,6 +112,8 @@ done
 
 ARCH=$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\(.*\)"/\1/p' .config)
 OUT="$REPO/dist/openwrt/$VERSION/$ARCH"
+[ "$PROFILE" = full ] || OUT="$REPO/dist/openwrt-$PROFILE/$VERSION/$ARCH"
+rm -f "$OUT"/aigw*_"$(sed -n 's/^PKG_VERSION:=//p' "$REPO/platform/openwrt/aigw/Makefile")"-r* 2>/dev/null
 mkdir -p "$OUT"
 find bin/packages -type f \( -name 'aigw*.ipk' -o -name 'aigw*.apk' -o -name 'luci-app-aigw*.ipk' \
 	-o -name 'luci-app-aigw*.apk' -o -name 'obuspa*.ipk' -o -name 'obuspa*.apk' \

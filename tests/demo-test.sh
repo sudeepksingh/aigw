@@ -19,6 +19,8 @@
 set -eu
 
 BIN=$(cd "${1:-build}" && pwd)
+# the demo home is built with every feature only
+[ -x "$BIN/demo/aigw-demo" ] || { echo "DEMO TEST SKIP: the demo is built with every feature only"; exit 0; }
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 T=$(mktemp -d)
 PIDS=""

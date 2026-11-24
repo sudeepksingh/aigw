@@ -507,6 +507,7 @@ static void on_model(struct plugin *p, struct blob_attr *a)
 	}
 }
 
+#if AIGW_FEATURE_FED
 /* a federated learning round: train here, hand back only the noisy change */
 static void on_fed(struct plugin *p, struct blob_attr *a)
 {
@@ -544,6 +545,7 @@ static void on_fed(struct plugin *p, struct blob_attr *a)
 	reply(p, (int)gnum(a, "id", 0), &d, err);
 	blob_buf_free(&d);
 }
+#endif
 
 static void fw_offer_done(void *ctx, int ok, const char *msg)
 {
@@ -654,11 +656,13 @@ static void on_query(struct plugin *p, const char *what, int id)
 		proactive_report_blob(&d);      /* tickets before the call and their counts: no devices */
 	} else if (!strcmp(what, "mesh")) {
 		mesh_report_blob(&d);           /* mesh Wi-Fi: access points, backhaul findings, AIGW's moves: counts, no names */
+#if AIGW_FEATURE_WIFI_HEAL
 	} else if (!strcmp(what, "channels")) {
 		void *t = blobmsg_open_table(&d, "channels");   /* neighbour-aware channels: verdicts and counts, no table */
 
 		chan_plan_blob(&d, 0);
 		blobmsg_close_table(&d, t);
+#endif
 	} else if (!strcmp(what, "coverage")) {
 		coverage_report_blob(&d);       /* coverage advice: the verdict and counts, spots by kind: no names */
 	} else if (!has_cap(p, "devices.read")) {
@@ -722,8 +726,10 @@ static void handle_line(struct plugin *p, char *line)
 			on_query(p, blobmsg_get_string(cur), (int)gnum(b.head, "id", 0));
 		else if (!strcmp(key, "model") && body)
 			on_model(p, body);
+#if AIGW_FEATURE_FED
 		else if (!strcmp(key, "fed") && body)
 			on_fed(p, body);
+#endif
 		else if (!strcmp(key, "firmware") && body)
 			on_firmware(p, body);
 		else if (!strcmp(key, "area") && body)

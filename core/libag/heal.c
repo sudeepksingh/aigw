@@ -140,20 +140,6 @@ void heal_diagnose(const struct heal_sta *s, int n, const struct heal_params *p,
 		r->cause = HC_CONGESTION;       /* fine signal, still losing: the air is busy */
 }
 
-const char *heal_status_name(enum heal_status st)
-{
-	static const char *const n[] = { "Unknown", "Good", "Degraded", "Poor" };
-
-	return st <= HEAL_POOR ? n[st] : "Unknown";
-}
-
-const char *heal_cause_name(enum heal_cause c)
-{
-	static const char *const n[] = { "None", "Congestion", "WeakCoverage", "BandHopping", "Device", "Radio" };
-
-	return c <= HC_RADIO ? n[c] : "None";
-}
-
 /* ---------- the healing report ---------- */
 
 static long day_of(long wall_s)

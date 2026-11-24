@@ -79,10 +79,12 @@ static const struct ops agm_ops = {
 static const struct ops list_ops = {
 	".list", "list", "entries", intel_parse, intel_check, intel_use, intel_free, intel_version, intel_size,
 };
+#if AIGW_FEATURE_FED
 static const struct ops adapter_ops = {
 	".adapter", "layer", "weights", fed_adapter_parse, fed_adapter_check, fed_adapter_use, fed_adapter_free,
 	fed_adapter_version, fed_adapter_size,
 };
+#endif
 
 static const struct ops *ops_for(const uint8_t *data, size_t len)
 {
@@ -90,8 +92,10 @@ static const struct ops *ops_for(const uint8_t *data, size_t len)
 		return &agm_ops;
 	if (len >= 12 && !memcmp(data, "# aigw-list ", 12))
 		return &list_ops;
+#if AIGW_FEATURE_FED
 	if (len >= 15 && !memcmp(data, "# aigw-adapter ", 15))
-		return &adapter_ops;
+		return &adapter_ops;    /* federated learning's shared layer */
+#endif
 	return NULL;
 }
 
@@ -115,7 +119,9 @@ struct slot {
 static struct slot slots[] = {
 	{ .name = "domain-risk", .ops = &agm_ops },
 	{ .name = "threat-intel", .ops = &list_ops },     /* no packaged version: only from cortex */
+#if AIGW_FEATURE_FED
 	{ .name = "domain-adapter", .ops = &adapter_ops }, /* the layer homes learn together (fed.c) */
+#endif
 };
 #define NSLOTS ((int)(sizeof(slots) / sizeof(slots[0])))
 

@@ -301,6 +301,7 @@ static void show_radios(struct ubus_request *req, int type, struct blob_attr *ms
 	}
 }
 
+#if AIGW_FEATURE_CARE || AIGW_FEATURE_PROACTIVE || AIGW_FEATURE_WIFI_HEAL || AIGW_FEATURE_UPGRADE
 static const char *dur_short(unsigned long long s, char *out, size_t n)
 {
 	if (s >= 86400)
@@ -313,6 +314,7 @@ static const char *dur_short(unsigned long long s, char *out, size_t n)
 		snprintf(out, n, "%llus", s);
 	return out;
 }
+#endif
 
 /* agctl diagnose [device]: "my internet is slow", answered */
 static int diag_failed;
@@ -373,8 +375,11 @@ static void show_diag(struct ubus_request *req, int type, struct blob_attr *msg)
 }
 
 /* agctl care [--check]: proactive care, what it found and the experience score */
+#if AIGW_FEATURE_CARE
 static int care_asked_check;
+#endif
 
+#if AIGW_FEATURE_PROACTIVE
 /* agctl care proactive [--run]: before the call: the tickets, what AIGW fixed, what the ISP was told */
 static void show_proactive(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -430,7 +435,9 @@ static void show_proactive(struct ubus_request *req, int type, struct blob_attr 
 	if (!k)
 		printf("  tickets   none: nothing a customer would notice\n");
 }
+#endif
 
+#if AIGW_FEATURE_CARE
 static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	static const char *const per[] = { "day", "week", "month" };
@@ -573,11 +580,15 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 		printf("\n");
 	}
 }
+#endif
 
 /* agctl test ...: a TR-143 test's outputs, in words */
+#if AIGW_FEATURE_TR143
 static int test_kind;                   /* 0 ping, 1 trace, 2 download, 3 upload, 4 dns */
+#endif
 #define TR_HOPS_SHOWN 64
 
+#if AIGW_FEATURE_TR143
 /* a TR-106 dateTime (with microseconds) as seconds; 0 unknown */
 static double dt_s(const char *s)
 {
@@ -592,7 +603,9 @@ static double dt_s(const char *s)
 		frac = strtod(rest, NULL);
 	return (double)timegm(&tm) + frac;
 }
+#endif
 
+#if AIGW_FEATURE_TR143
 static void show_test(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	struct blob_attr *o = field(msg, "out"), *cur;
@@ -669,7 +682,9 @@ static void show_test(struct ubus_request *req, int type, struct blob_attr *msg)
 		}
 	}
 }
+#endif
 
+#if AIGW_FEATURE_WIFI_HEAL
 /* agctl wifi --report: what Self-Healing Wi-Fi found and fixed, per access point */
 static void show_report(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -728,6 +743,7 @@ static void show_report(struct ubus_request *req, int type, struct blob_attr *ms
 	if (!any)
 		printf("No healing report yet (Self-Healing Wi-Fi off, or no access point measured).\n");
 }
+#endif
 
 static void show_dnscache(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -1247,6 +1263,7 @@ static void print_qr(const char *text)
 
 /* ---------- plug-ins ---------- */
 
+#if AIGW_FEATURE_PLUGINS
 static void list_line(const char *label, struct blob_attr *arr)
 {
 	struct blob_attr *e;
@@ -1331,6 +1348,7 @@ static void show_plugins(struct ubus_request *req, int type, struct blob_attr *m
 		       "No plug-ins yet. Packages add them to %s; agctl plugin add <folder> adds your own.\n",
 		       device_filter ? device_filter : fstr(msg, "dir"));
 }
+#endif
 
 static void show_ok(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -1487,13 +1505,16 @@ static void show_models(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("  none: model updates are refused until you trust a key (agctl trust <key.pub>)\n");
 }
 
+#if AIGW_FEATURE_FED || AIGW_FEATURE_UPGRADE
 static double fdbl(struct blob_attr *tbl, const char *name)
 {
 	struct blob_attr *a = field(tbl, name);
 
 	return a && blobmsg_type(a) == BLOBMSG_TYPE_DOUBLE ? blobmsg_get_double(a) : (double)fnum(tbl, name);
 }
+#endif
 
+#if AIGW_FEATURE_FED
 static void show_fed(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	struct blob_attr *list = field(msg, "list"), *ad = field(msg, "adapter"), *e = field(msg, "epsilon"), *x;
@@ -1527,9 +1548,13 @@ static void show_fed(struct ubus_request *req, int type, struct blob_attr *msg)
 			       ago(fnum(x, "at"), t, sizeof(t)));
 		}
 }
+#endif
 
+#if AIGW_FEATURE_REMOTE
 static int remote_conf;
+#endif
 
+#if AIGW_FEATURE_REMOTE
 static void show_remote(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	struct blob_attr *arr = field(msg, "peers"), *e;
@@ -1580,6 +1605,7 @@ static void show_remote_added(struct ubus_request *req, int type, struct blob_at
 	if (!fnum(msg, "ok"))
 		change_failed = 1;
 }
+#endif
 
 static void show_model_change(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -1646,6 +1672,7 @@ static int untrust(const char *fph)
 	return 0;
 }
 
+#if AIGW_FEATURE_PLUGINS
 static int plugin_config(const char *name, const char *key, const char *value)
 {
 	struct blob_buf a = { 0 };
@@ -1775,9 +1802,11 @@ static int plugin_remove(const char *name)
 	printf("removed %s\n", name);
 	return call("ag.plugin", "rescan", NULL, NULL);
 }
+#endif
 
 /* ---------- Wi-Fi keys ---------- */
 
+#if AIGW_FEATURE_KEYS
 static void show_keys(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	struct blob_attr *arr = field(msg, "keys"), *k;
@@ -1838,6 +1867,7 @@ static void show_key_added(struct ubus_request *req, int type, struct blob_attr 
 	if (*fstr(msg, "error"))
 		printf("\nnote: %s\n", fstr(msg, "error"));
 }
+#endif
 
 /* "90", "90s", "30m", "2h", "1d" -> seconds; -1 when unreadable */
 static int parse_time(const char *s)
@@ -1876,6 +1906,7 @@ static int parse_rate(const char *s)
 	return -1;
 }
 
+#if AIGW_FEATURE_UPGRADE
 /* agctl upgrade [--forget]: the last firmware upgrade, as AIGW checked it */
 static void show_upgrade(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -1964,7 +1995,9 @@ static void show_upgrade(struct ubus_request *req, int type, struct blob_attr *m
 	if (*fstr(msg, "confirmed"))
 		printf("  confirmed %s\n", fstr(msg, "confirmed"));
 }
+#endif
 
+#if AIGW_FEATURE_WHY || AIGW_FEATURE_BRIEF
 /* "20:00" -> the last time it was 20:00 (today, else yesterday); "yesterday 20:00"; seconds since 1970.
    -1 when unreadable */
 static long parse_clock(const char *s)
@@ -1992,7 +2025,9 @@ static long parse_clock(const char *s)
 		t -= 86400;
 	return (long)t;
 }
+#endif
 
+#if AIGW_FEATURE_WHY || AIGW_FEATURE_BRIEF || AIGW_FEATURE_CALLS || AIGW_FEATURE_OFFERS
 static void clock_of(unsigned long long t, char *buf, size_t n)
 {
 	time_t tt = (time_t)t, now = time(NULL);
@@ -2002,11 +2037,15 @@ static void clock_of(unsigned long long t, char *buf, size_t n)
 	localtime_r(&now, &b);
 	strftime(buf, n, a.tm_yday == b.tm_yday && a.tm_year == b.tm_year ? "%H:%M" : "%a %H:%M", &a);
 }
+#endif
 
+#if AIGW_FEATURE_WHY
 static int why_failed;
+#endif
 
 /* agctl why [device] [--at HH:MM | --from HH:MM --to HH:MM | --last 2h] [--raw]: a stretch of the
    home's timeline explained */
+#if AIGW_FEATURE_WHY
 static void show_why(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	struct blob_attr *f, *nm = field(msg, "normal");
@@ -2055,9 +2094,13 @@ static void show_why(struct ubus_request *req, int type, struct blob_attr *msg)
 	blobmsg_for_each_attr(f, field(msg, "findings"), rem)
 		printf("    %-8s %-16s %s\n", fstr(f, "severity"), fstr(f, "code"), fstr(f, "text"));
 }
+#endif
 
+#if AIGW_FEATURE_BRIEF
 static int brief_failed;
+#endif
 
+#if AIGW_FEATURE_BRIEF
 /* agctl brief [device] [period] [--no-check] [--speed] [--propose]: the help desk's answer */
 static void show_brief(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2105,9 +2148,13 @@ static void show_brief(struct ubus_request *req, int type, struct blob_attr *msg
 	}
 	printf("  visit     %s\n", fstr(msg, "visit_reason"));
 }
+#endif
 
+#if AIGW_FEATURE_SQM
 static int sqm_failed;
+#endif
 
+#if AIGW_FEATURE_SQM
 /* agctl sqm [--on|--off]: self-tuning smart queueing */
 static void show_sqm(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2158,7 +2205,9 @@ static void show_sqm(struct ubus_request *req, int type, struct blob_attr *msg)
 			printf("  verdict   %s\n", fstr(t, "summary"));
 	}
 }
+#endif
 
+#if AIGW_FEATURE_CALLS
 /* agctl calls: calls and games now, first in the queue or not; the last one's report; the counts */
 static void show_calls(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2213,7 +2262,9 @@ static void show_calls(struct ubus_request *req, int type, struct blob_attr *msg
 	printf("  the ISP   %s\n", fnum(msg, "shared") ? "sees the reports, without device or app names" :
 	       "sees nothing (calls.share 0)");
 }
+#endif
 
+#if AIGW_FEATURE_WIFI_HEAL
 /* an hour's value from an array of 24 (-1: not known) */
 static int hour_val(struct blob_attr *arr, int h)
 {
@@ -2227,7 +2278,9 @@ static int hour_val(struct blob_attr *arr, int h)
 				return (int32_t)blobmsg_get_u32(v);
 	return -1;
 }
+#endif
 
+#if AIGW_FEATURE_WIFI_HEAL
 /* agctl channels: neighbour-aware channels, each access point's channels by hour of day */
 static void show_channels(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2318,9 +2371,11 @@ static void show_channels(struct ubus_request *req, int type, struct blob_attr *
 			printf("  Last: %s\n", fstr(r, "last"));
 	}
 }
+#endif
 
 /* agctl mesh: the EasyMesh network as AIGW sees it: access points and their backhaul, each device's access point
    and link (and why AIGW left it there), the channel plan, the trial now, the counts */
+#if AIGW_FEATURE_MESH
 static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
 {
 	struct blob_attr *m = field(msg, "mesh"), *a, *r, *s, *x;
@@ -2429,7 +2484,9 @@ static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
 		       (unsigned long long)fnum(x, "proposed"), (unsigned long long)fnum(x, "roams"),
 		       fnum(x, "roams") == 1 ? "" : "s");
 }
+#endif
 
+#if AIGW_FEATURE_COVERAGE
 /* agctl coverage: where Wi-Fi is weak, which device, when, and what fixes it */
 static void show_coverage(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2471,7 +2528,9 @@ static void show_coverage(struct ubus_request *req, int type, struct blob_attr *
 			printf("      -> %s\n", fstr(s, "advice"));
 	}
 }
+#endif
 
+#if AIGW_FEATURE_OFFERS
 /* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */
 static void show_offers(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -2512,6 +2571,7 @@ static void show_offers(struct ubus_request *req, int type, struct blob_attr *ms
 	printf("  %-20s %s\n", "the ISP", fnum(msg, "shared") ? "sees them as counts and words, without names (offers.share)" :
 	       "doesn't see them (offers.share 0)");
 }
+#endif
 
 /* ---------- calls ---------- */
 
@@ -2673,6 +2733,50 @@ static int watch(const char *what)
 	return rc;
 }
 
+/* the commands of features (docs/features.md): a build without one says so */
+static const struct { const char *cmd, *sub, *feature; int built; } features[] = {
+	{ "care", "proactive", "PROACTIVE", AIGW_FEATURE_PROACTIVE },
+	{ "care", NULL, "CARE", AIGW_FEATURE_CARE },
+	{ "upgrade", NULL, "UPGRADE", AIGW_FEATURE_UPGRADE },
+	{ "sqm", NULL, "SQM", AIGW_FEATURE_SQM },
+	{ "calls", NULL, "CALLS", AIGW_FEATURE_CALLS },
+	{ "channels", NULL, "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
+	{ "channel", NULL, "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
+	{ "wifi", "report", "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
+	{ "wifi", "--report", "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
+	{ "mesh", NULL, "MESH", AIGW_FEATURE_MESH },
+	{ "coverage", NULL, "COVERAGE", AIGW_FEATURE_COVERAGE },
+	{ "offers", NULL, "OFFERS", AIGW_FEATURE_OFFERS },
+	{ "brief", NULL, "BRIEF", AIGW_FEATURE_BRIEF },
+	{ "why", NULL, "WHY", AIGW_FEATURE_WHY },
+	{ "test", NULL, "TR143", AIGW_FEATURE_TR143 },
+	{ "plugins", NULL, "PLUGINS", AIGW_FEATURE_PLUGINS },
+	{ "plugin", NULL, "PLUGINS", AIGW_FEATURE_PLUGINS },
+	{ "bridge", NULL, "PLUGINS", AIGW_FEATURE_PLUGINS },
+	{ "remote", NULL, "REMOTE", AIGW_FEATURE_REMOTE },
+	{ "fed", NULL, "FED", AIGW_FEATURE_FED },
+	{ "label", NULL, "FED", AIGW_FEATURE_FED },
+	{ "keys", NULL, "KEYS", AIGW_FEATURE_KEYS },
+	{ "key", NULL, "KEYS", AIGW_FEATURE_KEYS },
+};
+
+/* 1 (and says why) when cmd [sub] belongs to a feature this build does not have */
+static int not_built(const char *cmd, const char *sub)
+{
+	size_t k;
+
+	for (k = 0; k < sizeof(features) / sizeof(features[0]); k++) {
+		if (strcmp(features[k].cmd, cmd) || (features[k].sub && (!sub || strcmp(features[k].sub, sub))))
+			continue;
+		if (features[k].built)
+			return 0;
+		fprintf(stderr, "agctl %s%s%s: not built in (AIGW_FEATURE_%s)\n", cmd, features[k].sub ? " " : "",
+			features[k].sub ? features[k].sub : "", features[k].feature);
+		return 1;
+	}
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	struct blob_buf args = { 0 };
@@ -2689,9 +2793,11 @@ int main(int argc, char **argv)
 	}
 	cmd = argv[i++];
 	if (!strcmp(cmd, "version")) {
-		printf("agctl %s\n", AG_VERSION);
+		printf("agctl %s\nfeatures: %s\n", AG_VERSION, *AG_FEATURES ? AG_FEATURES : "the core only");
 		return 0;
 	}
+	if (not_built(cmd, i < argc ? argv[i] : NULL))
+		return 1;
 	if (!strcmp(cmd, "help") || !strcmp(cmd, "-h") || !strcmp(cmd, "--help")) {
 		usage();
 		return 0;
@@ -2743,6 +2849,7 @@ int main(int argc, char **argv)
 		rc = call("ag", "diagnose", args.head, show_diag);
 		blob_buf_free(&args);
 		rc = rc || diag_failed;
+#if AIGW_FEATURE_CARE
 	} else if (!strcmp(cmd, "care")) {
 		blob_buf_init(&args, 0);
 		if (i < argc && (!strcmp(argv[i], "--check") || !strcmp(argv[i], "check"))) {
@@ -2754,20 +2861,26 @@ int main(int argc, char **argv)
 				blobmsg_add_string(&args, "speed_url", argv[i + 1]);   /* a server of one's own */
 			care_asked_check = 2;
 		}
+#if AIGW_FEATURE_PROACTIVE
 		if (i < argc && !strcmp(argv[i], "proactive")) {
 			if (i + 1 < argc && (!strcmp(argv[i + 1], "--run") || !strcmp(argv[i + 1], "run")))
 				blobmsg_add_u8(&args, "run", 1);
 			rc = call("ag", "proactive", args.head, show_proactive);
 		} else
+#endif
 			rc = call("ag", "care", args.head, show_care);
 		blob_buf_free(&args);
 		rc = rc || diag_failed;
+#endif
+#if AIGW_FEATURE_UPGRADE
 	} else if (!strcmp(cmd, "upgrade")) {
 		blob_buf_init(&args, 0);
 		if (i < argc && (!strcmp(argv[i], "--forget") || !strcmp(argv[i], "forget")))
 			blobmsg_add_u8(&args, "forget", 1);
 		rc = call("ag", "upgrade", args.head, show_upgrade);
 		blob_buf_free(&args);
+#endif
+#if AIGW_FEATURE_SQM
 	} else if (!strcmp(cmd, "sqm")) {
 		blob_buf_init(&args, 0);
 		if (i < argc && (!strcmp(argv[i], "--on") || !strcmp(argv[i], "on")))
@@ -2777,10 +2890,16 @@ int main(int argc, char **argv)
 		rc = call("ag", "sqm", args.head, show_sqm);
 		blob_buf_free(&args);
 		rc = rc || sqm_failed;
+#endif
+#if AIGW_FEATURE_CALLS
 	} else if (!strcmp(cmd, "calls")) {
 		rc = call("ag", "calls", NULL, show_calls);
+#endif
+#if AIGW_FEATURE_WIFI_HEAL
 	} else if (!strcmp(cmd, "channels")) {
 		rc = call("ag", "channels", NULL, show_channels);
+#endif
+#if AIGW_FEATURE_MESH
 	} else if (!strcmp(cmd, "mesh") && i + 2 < argc && (!strcmp(argv[i], "steer") || !strcmp(argv[i], "channel"))) {
 		char target[128];
 		int ttl = i + 3 < argc ? parse_time(argv[i + 3]) : 0;
@@ -2804,10 +2923,16 @@ int main(int argc, char **argv)
 			blobmsg_add_u8(&args, "run", 1);
 		rc = call("ag", "mesh", args.head, show_mesh);
 		blob_buf_free(&args);
+#endif
+#if AIGW_FEATURE_COVERAGE
 	} else if (!strcmp(cmd, "coverage")) {
 		rc = call("ag", "coverage", NULL, show_coverage);
+#endif
+#if AIGW_FEATURE_OFFERS
 	} else if (!strcmp(cmd, "offers")) {
 		rc = call("ag", "offers", NULL, show_offers);
+#endif
+#if AIGW_FEATURE_BRIEF
 	} else if (!strcmp(cmd, "brief")) {
 		char period[96] = "";
 		const char *host = NULL;
@@ -2848,6 +2973,8 @@ int main(int argc, char **argv)
 		rc = call("ag", "brief", args.head, show_brief);
 		blob_buf_free(&args);
 		rc = rc || brief_failed;
+#endif
+#if AIGW_FEATURE_WHY
 	} else if (!strcmp(cmd, "why")) {
 		long from = 0, to = 0, at = 0, last = 0, now = (long)time(NULL);
 		const char *host = NULL;
@@ -2900,6 +3027,8 @@ int main(int argc, char **argv)
 		rc = call("ag", "why", args.head, show_why);
 		blob_buf_free(&args);
 		rc = rc || why_failed;
+#endif
+#if AIGW_FEATURE_TR143
 	} else if (!strcmp(cmd, "test") && i + 1 < argc) {
 		static const struct { const char *what, *cmd, *arg, *extra; } T[] = {
 			{ "ping", "Device.IP.Diagnostics.IPPing()", "Host", "NumberOfRepetitions" },
@@ -2941,9 +3070,14 @@ int main(int argc, char **argv)
 			fprintf(stderr, "running %s (this can take a while)...\n", T[k].cmd);
 		rc = call("ag.dm", "operate", args.head, show_test) || diag_failed;
 		blob_buf_free(&args);
+#endif
 	} else if (!strcmp(cmd, "wifi")) {
+#if AIGW_FEATURE_WIFI_HEAL
 		rc = call("ag.wifi", "radios", NULL,
 			  i < argc && (!strcmp(argv[i], "--report") || !strcmp(argv[i], "report")) ? show_report : show_radios);
+#else
+		rc = call("ag.wifi", "radios", NULL, show_radios);
+#endif
 	} else if (!strcmp(cmd, "dns") && i < argc && !strcmp(argv[i], "cache")) {
 		rc = call("ag.dnscache", "stats", NULL, show_dnscache);
 	} else if (!strcmp(cmd, "dns") || !strcmp(cmd, "flows")) {
@@ -2961,6 +3095,7 @@ int main(int argc, char **argv)
 		blobmsg_add_u32(&args, "limit", i < argc ? (uint32_t)atoi(argv[i]) : 20);
 		rc = call("ag.decision", "list", args.head, show_decisions);
 		blob_buf_free(&args);
+#if AIGW_FEATURE_WIFI_HEAL
 	} else if (!strcmp(cmd, "channel") && i + 1 < argc) {
 		char target[64];
 		int ttl = i + 2 < argc ? parse_time(argv[i + 2]) : 0;
@@ -2978,6 +3113,7 @@ int main(int argc, char **argv)
 			rc = call("ag.decision", "request", args.head, show_change) || change_failed;
 			blob_buf_free(&args);
 		}
+#endif
 	} else if ((!strcmp(cmd, "quarantine") || !strcmp(cmd, "prioritize") || !strcmp(cmd, "block") ||
 		    !strcmp(cmd, "deprioritize") || !strcmp(cmd, "throttle") || !strcmp(cmd, "disconnect") ||
 		    (!strcmp(cmd, "do") && i + 1 < argc)) && i < argc) {
@@ -3026,6 +3162,7 @@ int main(int argc, char **argv)
 			     change_failed;
 			blob_buf_free(&args);
 		}
+#if AIGW_FEATURE_PLUGINS
 	} else if (!strcmp(cmd, "plugins")) {
 		rc = call("ag.plugin", "list", NULL, show_plugins);
 	} else if (!strcmp(cmd, "plugin") && i < argc) {
@@ -3056,6 +3193,7 @@ int main(int argc, char **argv)
 			usage();
 			rc = 1;
 		}
+#endif
 	} else if (!strcmp(cmd, "models")) {
 		rc = call("ag.model", "list", NULL, show_models);
 	} else if (!strcmp(cmd, "model") && i < argc) {
@@ -3099,6 +3237,7 @@ int main(int argc, char **argv)
 			rc = 1;
 		}
 		blob_buf_free(&args);
+#if AIGW_FEATURE_PLUGINS
 	} else if (!strcmp(cmd, "bridge")) {
 		if (i == argc) {
 			device_filter = "bridge";
@@ -3111,6 +3250,8 @@ int main(int argc, char **argv)
 		} else {
 			rc = plugin_config("bridge", "url", argv[i]);
 		}
+#endif
+#if AIGW_FEATURE_REMOTE
 	} else if (!strcmp(cmd, "remote")) {
 		const char *sub = i < argc ? argv[i++] : "";
 
@@ -3130,6 +3271,8 @@ int main(int argc, char **argv)
 			rc = 1;
 		}
 		blob_buf_free(&args);
+#endif
+#if AIGW_FEATURE_FED
 	} else if (!strcmp(cmd, "fed") && (i == argc || !strcmp(argv[i], "forget"))) {
 		if (i == argc) {
 			rc = call("ag.fed", "status", NULL, show_fed);
@@ -3151,6 +3294,7 @@ int main(int argc, char **argv)
 			rc = call("ag.fed", "label", args.head, show_ok) || change_failed;
 			blob_buf_free(&args);
 		}
+#endif
 	} else if (!strcmp(cmd, "dm") && i < argc) {
 		const char *sub = argv[i++];
 		void *t;
@@ -3190,6 +3334,7 @@ int main(int argc, char **argv)
 			rc = 1;
 		}
 		blob_buf_free(&args);
+#if AIGW_FEATURE_KEYS
 	} else if (!strcmp(cmd, "keys")) {
 		rc = call("ag.wifi", "keys", NULL, show_keys);
 	} else if (!strcmp(cmd, "key") && i + 1 < argc) {
@@ -3225,6 +3370,7 @@ int main(int argc, char **argv)
 			rc = 1;
 		}
 		blob_buf_free(&args);
+#endif
 	} else if (!strcmp(cmd, "zone") && i + 1 < argc) {
 		blob_buf_init(&args, 0);
 		blobmsg_add_string(&args, "device", argv[i]);

@@ -119,6 +119,36 @@ static void add_policy(struct ag_config *c, const char *name, const char *alert,
 	p->mode = mode;
 }
 
+/* the sections of features this build may not have (brief: brief.names also rules the core's name scrubbing) */
+static const struct { const char *section, *feature; int built; } feature_sections[] = {
+	{ "meter", "METER", AIGW_FEATURE_METER }, { "fastpath", "FASTPATH", AIGW_FEATURE_FASTPATH },
+	{ "care", "CARE", AIGW_FEATURE_CARE }, { "upgrade", "UPGRADE", AIGW_FEATURE_UPGRADE },
+	{ "why", "WHY", AIGW_FEATURE_WHY }, { "sqm", "SQM", AIGW_FEATURE_SQM }, { "calls", "CALLS", AIGW_FEATURE_CALLS },
+	{ "offers", "OFFERS", AIGW_FEATURE_OFFERS }, { "area", "AREA", AIGW_FEATURE_AREA },
+	{ "proactive", "PROACTIVE", AIGW_FEATURE_PROACTIVE }, { "mesh", "MESH", AIGW_FEATURE_MESH },
+	{ "coverage", "COVERAGE", AIGW_FEATURE_COVERAGE }, { "plugins", "PLUGINS", AIGW_FEATURE_PLUGINS },
+	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE },
+};
+
+/* "mesh (AIGW_FEATURE_MESH), ..." for each such section the config has */
+static void note_unbuilt(struct ag_config *c, struct uci_context *ctx, struct uci_package *p)
+{
+	size_t k, len = 0;
+
+	c->unbuilt[0] = '\0';
+	for (k = 0; k < sizeof(feature_sections) / sizeof(feature_sections[0]); k++) {
+		int w;
+
+		if (feature_sections[k].built || !uci_lookup_section(ctx, p, feature_sections[k].section))
+			continue;
+		w = snprintf(c->unbuilt + len, sizeof(c->unbuilt) - len, "%s%s (AIGW_FEATURE_%s)", len ? ", " : "",
+			     feature_sections[k].section, feature_sections[k].feature);
+		if (w < 0 || (size_t)w >= sizeof(c->unbuilt) - len)
+			break;
+		len += (size_t)w;
+	}
+}
+
 void ag_config_load(struct ag_config *c)
 {
 	struct uci_context *ctx;
@@ -293,6 +323,7 @@ void ag_config_load(struct ag_config *c)
 	if (confdir)
 		uci_set_confdir(ctx, confdir);
 	if (uci_load(ctx, "aigw", &p) == UCI_OK && p) {
+		note_unbuilt(c, ctx, p);
 		copy(c->log_level, sizeof(c->log_level), opt(ctx, p, "main", "log_level"));
 		copy(c->leases, sizeof(c->leases), opt(ctx, p, "main", "leases"));
 		copy(c->dns_listen, sizeof(c->dns_listen), opt(ctx, p, "dns", "listen"));

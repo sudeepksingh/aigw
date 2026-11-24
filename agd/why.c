@@ -1181,6 +1181,7 @@ void why_blob(struct blob_buf *b, long from, long to, const char *host, int raw)
 				blobmsg_add_string(b, j ? "top2" : "top", mac);
 				blobmsg_add_u32(b, j ? "top2_kbps" : "top_kbps", m->top[j].kbps);
 			}
+#if AIGW_FEATURE_WIFI_HEAL
 		for (j = 0; j < WHY_RADIOS; j++)
 			if (m->r[j].used) {
 				char k[40];
@@ -1188,6 +1189,7 @@ void why_blob(struct blob_buf *b, long from, long to, const char *host, int raw)
 				snprintf(k, sizeof(k), "wifi_%.23s", radio_if[j]);
 				blobmsg_add_string(b, k, heal_status_name((enum heal_status)m->r[j].status));
 			}
+#endif
 		blobmsg_close_table(b, t);
 	}
 	blobmsg_close_array(b, a);
