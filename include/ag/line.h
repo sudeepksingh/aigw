@@ -62,6 +62,9 @@ struct line_trend {
 	int32_t onset;          /* the day it began (a change point, else the first of the trend); 0 */
 	int days_left;          /* to the fault at this rate; 0 there; -1 not known */
 	int conf;               /* 0-100 */
+	/* the last 7 days alone, significant or not (0 with fewer): Kendall's tau, + when worse, and the slope.
+	   Weak for one home; cortex pools them across the homes of a cabinet */
+	float tau7, slope7;
 };
 
 void line_params_default(struct line_params *p);

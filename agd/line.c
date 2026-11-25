@@ -582,6 +582,10 @@ static void trend_blob(struct blob_buf *b, int m, int isp)
 	blobmsg_add_u32(b, "onset", (uint32_t)t->onset);
 	blobmsg_add_u32(b, "days_left", (uint32_t)t->days_left);
 	blobmsg_add_u32(b, "conf", (uint32_t)t->conf);
+	if (t->ndays >= 7) {
+		add_num(b, "tau7", t->tau7);
+		add_num(b, "slope7", t->slope7);
+	}
 	if (!isp) {
 		blobmsg_add_string(b, "name", line_metric_name(m));
 		blobmsg_add_string(b, "unit", line_metric_unit(m));

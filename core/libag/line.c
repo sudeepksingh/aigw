@@ -18,7 +18,7 @@ static const struct {
 	{ "OpticalPower", "optical", "dBm", 1, 0, -27, 1, 0 },
 	{ "FECErrors", "fec", "/h", 0, 10, 1000, 100, 0.5f },
 	{ "CRCErrors", "crc", "/h", 0, 5, 60, 5, 0.5f },
-	{ "Drops", "drops", "/day", 0, 1, 4, 1, 0 },
+	{ "Drops", "drops", "/day", 0, 1, 4, 2, 0 },
 	{ "NextHopLatency", "latency", "ms", 0, 1, 30, 3, 0.2f },
 	{ "NextHopLoss", "loss", "%", 0, 1, 2, 0.3f, 0 },
 	{ "DownloadSpeed", "speed", "Mbit/s", 1, 0.7f, 0, 1, 0.05f },
@@ -108,7 +108,7 @@ void line_analyse(const struct line_day *d, int n, long today, int m, const stru
 {
 	struct line_day w[LINE_DAYS];
 	float x[LINE_DAYS], z[LINE_DAYS], r[LINE_DAYS], sg = line_lower_worse(m) ? -1.0f : 1.0f;
-	float best = 0, step = 0, slope = 0, tau = 0, base, floor_, fault, lz, fz, cs = 0, cd = 0;
+	float best = 0, step = 0, slope = 0, tau = 0, base, floor_, fault, lz, fz, cs = 0, cd = 0, sig;
 	int i, k = 0, cp = 0, from = 0, nseg, drift = 0, win = p->window < LINE_DAYS ? p->window : LINE_DAYS;
 
 	memset(o, 0, sizeof(*o));
@@ -136,15 +136,28 @@ void line_analyse(const struct line_day *d, int n, long today, int m, const stru
 	/* the base, roughly, for the floor: the first third */
 	base = sg * median(z, k / 3 > 3 ? k / 3 : 3);
 	floor_ = fmaxf(M[m].floor_abs, M[m].floor_rel * fabsf(base));
-	/* the change point: the strongest split, each side 3 days or more */
+	/* the day-to-day noise: from the differences of neighbouring days (a step is one of them, a trend a little) */
+	for (i = 1; i < k; i++)
+		r[i - 1] = fabsf(z[i] - z[i - 1]);
+	sig = fmaxf(1.4826f * median(r, k - 1) / 1.4142f, 0.25f * floor_);
+	/* the last 7 days on their own, proven or not: weak for one home, telling when many share it (cortex) */
+	if (k >= 7) {
+		theil_sen(x + k - 7, z + k - 7, 7, &o->slope7, &o->tau7);
+		o->slope7 *= sg;
+	}
+	/* the change point: the strongest split, each side 3 days or more, and most days of each side on its side
+	   (two bad days at the end are not a step) */
 	for (i = 3; i <= k - 3; i++) {
-		float a = median(z, i), b = median(z + i, k - i), mad, st;
-		int j;
+		float a = median(z, i), b = median(z + i, k - i), mid = (a + b) / 2, st;
+		int j, lo = 0, hi = 0;
 
-		for (j = 0; j < k; j++)
-			r[j] = fabsf(z[j] - (j < i ? a : b));
-		mad = fmaxf(1.4826f * median(r, k), 0.25f * floor_);
-		st = (b - a) / mad * sqrtf((float)i * (float)(k - i) / (float)k);
+		for (j = 0; j < k; j++) {
+			lo += j < i && z[j] < mid;
+			hi += j >= i && z[j] > mid;
+		}
+		if (4 * lo < 3 * i || 4 * hi < 3 * (k - i))
+			continue;
+		st = (b - a) / sig * sqrtf((float)i * (float)(k - i) / (float)k);
 		if (st > best) {
 			best = st;
 			step = b - a;
@@ -159,7 +172,9 @@ void line_analyse(const struct line_day *d, int n, long today, int m, const stru
 	nseg = k - from;
 	if (nseg >= 4) {
 		theil_sen(x + from, z + from, nseg, &slope, &tau);
-		drift = slope > 0 && tau >= p->tau && slope * (x[k - 1] - x[from]) >= floor_;
+		/* steady enough (tau), and not by chance: Kendall's test, one-sided p < 0.01 */
+		drift = slope > 0 && tau >= p->tau && slope * (x[k - 1] - x[from]) >= floor_ &&
+			3 * tau * sqrtf((float)nseg * (float)(nseg - 1)) / sqrtf(2.0f * (float)(2 * nseg + 5)) >= 2.33f;
 	}
 	if (drift) {
 		for (i = from; i < k; i++)
