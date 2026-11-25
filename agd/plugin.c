@@ -665,6 +665,8 @@ static void on_query(struct plugin *p, const char *what, int id)
 #endif
 	} else if (!strcmp(what, "coverage")) {
 		coverage_report_blob(&d);       /* coverage advice: the verdict and counts, spots by kind: no names */
+		home_report_blob(&d);           /* the home model: status, counts, the best option's kind: no places, no names */
+		/* Wi-Fi sensing: never in the report */
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :
@@ -1869,7 +1871,8 @@ void plugin_dispatch(const char *type, struct blob_attr *msg, const void *from)
 			continue;
 		for (j = 0; j < p->n_subs && !want; j++)
 			want = type_match(p->subs[j], type) && (!priv_sub(p->subs[j]) || trusted(p)) &&
-			       ((strcmp(type, AG_EV_DNS) && strcmp(type, AG_EV_FLOW)) || trusted(p));
+			       ((strcmp(type, AG_EV_DNS) && strcmp(type, AG_EV_FLOW) && strcmp(type, AG_EV_SENSE)) ||
+				trusted(p));    /* Wi-Fi sensing: only plug-ins you trust */
 		if (!want)
 			continue;
 		if (!built) {

@@ -307,6 +307,7 @@ static void poll_iface(const char *dir, const char *iface)
 		if (d->wifi_signal)
 			d->wifi_sig_avg = d->wifi_sig_avg ? 0.7 * d->wifi_sig_avg + 0.3 * d->wifi_signal : d->wifi_signal;
 		station_abilities(d, reply);
+		sense_on_station(d, kv(reply, "rx_packets", -1));       /* Wi-Fi sensing, when the home opted in */
 		if (ap)
 			((struct wifi_ap *)ap)->stations++;
 		/* tx_rate_info is in units of 100 kbit/s */

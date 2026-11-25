@@ -33,6 +33,8 @@ set(AIGW_FEATURE_TABLE
   "FASTPATH|Kernel fast path (flowtable)|"
   "REMOTE|Remote access over WireGuard|"
   "KEYS|Per-device Wi-Fi keys|"
+  "HOMEMODEL|The home Wi-Fi model, what an extender or a move would fix|COVERAGE"
+  "SENSING|Wi-Fi sensing, presence, movement and a care check-in (opt-in)|"
 )
 
 # profiles: full (everything, the default) | small (8/16 MB flash: what an ISP

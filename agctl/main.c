@@ -69,6 +69,11 @@ static void usage(void)
 		"  mesh channel <radio> <ch> [time]     move a mesh radio to another channel (trials both)\n"
 		"  coverage            where Wi-Fi is weak: which device, when, where in the home (spots named\n"
 		"                      by the devices seen there), and what fixes it (move it, or an extender)\n"
+		"  home                the home Wi-Fi model: its places, and what an extender, moving the\n"
+		"                      gateway or another band would fix of the last 30 days' problems\n"
+		"  home name <device|N> <zone>   call the place a device is at (or place N) e.g. \"bedroom\"\n"
+		"  sense               Wi-Fi sensing (opt-in): what is sensed, someone home, movement by zone\n"
+		"  sense on --i-agree  turn it on with the home's consent; sense off: off, and forget it all\n"
 		"  offers              signals for the ISP from the last week: a faster plan, smart queueing,\n"
 		"                      mesh Wi-Fi, a customer at risk, a line to repair; with the evidence\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
@@ -2530,6 +2535,108 @@ static void show_coverage(struct ubus_request *req, int type, struct blob_attr *
 }
 #endif
 
+#if AIGW_FEATURE_HOMEMODEL
+/* agctl home: the home Wi-Fi model: places, what-if options, before you buy */
+static void show_home(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s, *x;
+	size_t rem, r2;
+	int k = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (*fstr(msg, "error"))
+		fprintf(stderr, "agctl home: %s\n", fstr(msg, "error"));
+	if (fnum(msg, "named"))
+		printf("Place %llu named.\n", (unsigned long long)fnum(msg, "named"));
+	if (!fnum(msg, "enabled")) {
+		printf("The home model is off (home.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Home model: %s (%llu looks, %llu place%s, %llu access point%s; %llu coverage problem%s in the last 30 days)\n",
+	       fstr(msg, "status"), (unsigned long long)fnum(msg, "looks"), (unsigned long long)fnum(msg, "places"),
+	       fnum(msg, "places") == 1 ? "" : "s", (unsigned long long)fnum(msg, "access_points"),
+	       fnum(msg, "access_points") == 1 ? "" : "s", (unsigned long long)fnum(msg, "problems"),
+	       fnum(msg, "problems") == 1 ? "" : "s");
+	if (!strcmp(fstr(msg, "status"), "Learning"))
+		printf("  learning  %llu of %llu looks so far (a look at each device per coverage.interval)\n",
+		       (unsigned long long)fnum(msg, "looks"), (unsigned long long)fnum(msg, "learn"));
+	if (*fstr(msg, "advice"))
+		printf("  advice    %s\n", fstr(msg, "advice"));
+	printf("  extender  worth buying: %s\n", fstr(msg, "extender_helps"));
+	if (*fstr(msg, "proof"))
+		printf("  proof     %s\n", fstr(msg, "proof"));
+	blobmsg_for_each_attr(s, field(msg, "options"), rem) {
+		printf("%s  %d. %-15s %-4s fixes %llu of %llu, %s confidence\n     %s\n", k ? "" : "\n  what if (best first)\n",
+		       k + 1, fstr(s, "kind"), fstr(s, "cost"), (unsigned long long)fnum(s, "fixed"),
+		       (unsigned long long)fnum(s, "of"), fstr(s, "confidence_name"), fstr(s, "text"));
+		k++;
+	}
+	k = 0;
+	blobmsg_for_each_attr(s, field(msg, "list"), rem) {
+		char nb[64] = "";
+		size_t l = 0;
+
+		blobmsg_for_each_attr(x, field(s, "next_to"), r2)
+			if (l < sizeof(nb))
+				l += (size_t)snprintf(nb + l, sizeof(nb) - l, "%s%u", l ? "," : "", blobmsg_get_u32(x));
+		printf("%s  place %llu  %-28s %4d dBm (gateway, 5 GHz terms), path loss %llu/%llu dB (2.4/5 GHz), "
+		       "like %llu m; %llu problem%s%s%s\n", k++ ? "" : "\n  places\n", (unsigned long long)fnum(s, "place"),
+		       *fstr(s, "name") ? fstr(s, "name") : fstr(s, "where"), (int)fnum(s, "signal"),
+		       (unsigned long long)fnum(s, "path_loss_24"), (unsigned long long)fnum(s, "path_loss_5"),
+		       (unsigned long long)fnum(s, "distance_like_m"), (unsigned long long)fnum(s, "problems"),
+		       fnum(s, "problems") == 1 ? "" : "s", *nb ? "; next to " : "", nb);
+	}
+}
+#endif
+
+#if AIGW_FEATURE_SENSING
+/* agctl sense: Wi-Fi sensing (opt-in) */
+static int sense_what;
+
+static void show_sense(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s;
+	size_t rem;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (*fstr(msg, "error"))
+		fprintf(stderr, "agctl sense: %s\n", fstr(msg, "error"));
+	if (sense_what || !fnum(msg, "enabled")) {
+		printf("Wi-Fi sensing is %s. What it senses, when on:\n", fnum(msg, "enabled") ? "on" : "off (opt-in)");
+		blobmsg_for_each_attr(s, field(msg, "sensed"), rem)
+			printf("  - %s\n", blobmsg_get_string(s));
+		printf("Everything stays on this gateway%s. Turn it on: agctl sense on --i-agree; off (and forget it all):\n"
+		       "agctl sense off. Details: docs/wifi-sensing.md.\n", fnum(msg, "share_events") ?
+		       ", except coarse events to the ISP (sensing.share_events)" : "");
+		if (!fnum(msg, "enabled"))
+			return;
+	}
+	printf("Wi-Fi sensing: on (%s); a window every %llu s, %llu device link%s\n", fstr(msg, "agreed"),
+	       (unsigned long long)fnum(msg, "window_s"), (unsigned long long)fnum(msg, "links"),
+	       fnum(msg, "links") == 1 ? "" : "s");
+	printf("  presence  %s (%llu%%; %s) since %s\n", !strcmp(fstr(msg, "presence"), "home") ? "someone is home" :
+	       "nobody seems to be home", (unsigned long long)fnum(msg, "home_pct"), *fstr(msg, "reason") ?
+	       fstr(msg, "reason") : "learning", fstr(msg, "since"));
+	blobmsg_for_each_attr(s, field(msg, "zones"), rem) {
+		if (field(s, "last_motion_s_ago"))
+			printf("  zone      %-16s %s (movement %llu s ago)\n", fstr(s, "zone"), fnum(s, "moving") ? "moving" :
+			       "still", (unsigned long long)fnum(s, "last_motion_s_ago"));
+		else
+			printf("  zone      %-16s %s\n", fstr(s, "zone"), fnum(s, "moving") ? "moving" : "still");
+	}
+	if (*fstr(msg, "activity"))
+		printf("  check-in  %s: %s\n", fstr(msg, "activity"), fstr(msg, "activity_text"));
+	printf("  shared    %s\n", fnum(msg, "share_events") ? "coarse events with the ISP (PresenceChanged!, "
+	       "UnusualInactivity!)" : "nothing: it all stays home");
+}
+#endif
+
 #if AIGW_FEATURE_OFFERS
 /* agctl offers: signals for the ISP, with the evidence (and here, the devices by name) */
 static void show_offers(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -2758,6 +2865,8 @@ static const struct { const char *cmd, *sub, *feature; int built; } features[] =
 	{ "label", NULL, "FED", AIGW_FEATURE_FED },
 	{ "keys", NULL, "KEYS", AIGW_FEATURE_KEYS },
 	{ "key", NULL, "KEYS", AIGW_FEATURE_KEYS },
+	{ "home", NULL, "HOMEMODEL", AIGW_FEATURE_HOMEMODEL },
+	{ "sense", NULL, "SENSING", AIGW_FEATURE_SENSING },
 };
 
 /* 1 (and says why) when cmd [sub] belongs to a feature this build does not have */
@@ -2927,6 +3036,47 @@ int main(int argc, char **argv)
 #if AIGW_FEATURE_COVERAGE
 	} else if (!strcmp(cmd, "coverage")) {
 		rc = call("ag", "coverage", NULL, show_coverage);
+#endif
+#if AIGW_FEATURE_HOMEMODEL
+	} else if (!strcmp(cmd, "home")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && !strcmp(argv[i], "name")) {
+			if (i + 2 >= argc) {
+				fprintf(stderr, "agctl home name <device|place number> <zone> (\"\" clears)\n");
+				return 1;
+			}
+			blobmsg_add_string(&args, "name", argv[i + 1]);
+			blobmsg_add_string(&args, "zone", argv[i + 2]);
+		}
+		rc = call("ag", "home", args.head, show_home);
+		blob_buf_free(&args);
+#endif
+#if AIGW_FEATURE_SENSING
+	} else if (!strcmp(cmd, "sense")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && !strcmp(argv[i], "on")) {
+			char consent[96];
+			time_t now = time(NULL);
+			struct tm tm;
+
+			if (i + 1 >= argc || strcmp(argv[i + 1], "--i-agree")) {
+				printf("Wi-Fi sensing tells from the Wi-Fi signals whether someone is home and moving, by zone,\n"
+				       "and (with the check-in) whether today's activity is as usual. It stays on this\n"
+				       "gateway; the ISP gets nothing unless sensing.share_events is set, and then only\n"
+				       "'home / away' and 'unusual inactivity'. Everyone who lives here should agree.\n"
+				       "To turn it on: agctl sense on --i-agree   (off, and forget it all: agctl sense off)\n");
+				blob_buf_free(&args);
+				return 1;
+			}
+			gmtime_r(&now, &tm);
+			strftime(consent, sizeof(consent), "agreed with agctl on %Y-%m-%d %H:%M UTC", &tm);
+			blobmsg_add_u8(&args, "on", 1);
+			blobmsg_add_string(&args, "consent", consent);
+		} else if (i < argc && !strcmp(argv[i], "off"))
+			blobmsg_add_u8(&args, "on", 0);
+		sense_what = i < argc && !strcmp(argv[i], "what");
+		rc = call("ag", "sense", args.head, show_sense);
+		blob_buf_free(&args);
 #endif
 #if AIGW_FEATURE_OFFERS
 	} else if (!strcmp(cmd, "offers")) {

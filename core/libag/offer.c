@@ -241,6 +241,12 @@ static void mesh(const struct offer_in *in, const struct offer_params *p, const 
 	}
 	if (k < p->mesh_days)
 		return;
+	/* the home model says an extender would not fix it (a free change would, or nothing to fix): no sale */
+	if (in->extender < 0) {
+		snprintf(o->evidence, sizeof(o->evidence), "Held: %s.", in->extender_why ? in->extender_why : "the home model "
+			 "expects no extender to help");
+		return;
+	}
 	o->active = 1;
 	o->days = k;
 	o->of_days = n;
@@ -251,6 +257,12 @@ static void mesh(const struct offer_in *in, const struct offer_params *p, const 
 		 "On %d of the last %d days, %d device%s spent a long time on a weak Wi-Fi signal (%s of device time a day)%s"
 		 "%ld short drop%s off Wi-Fi a day: the access point doesn't reach every room.", k, n, ns, ns == 1 ? "" : "s",
 		 d1, drops ? "; " : ", and ", drops / k, drops / k == 1 ? "" : "s");
+	if (in->extender == 1 && in->extender_why && *in->extender_why) {
+		size_t e = strlen(o->evidence);
+
+		snprintf(o->evidence + e, sizeof(o->evidence) - e, " Before you buy: %s.", in->extender_why);
+		o->confidence = OC_HIGH;
+	}
 	(void)devs;
 	/* the weakest, by name, for the home's own view */
 	for (i = 0; i < ns; i++)

@@ -14,6 +14,8 @@ aigw_feature_sources(AG_SOURCES CALLS calls.c)
 aigw_feature_sources(AG_SOURCES BRIEF brief.c)
 aigw_feature_sources(AG_SOURCES PROACTIVE proactive.c)
 aigw_feature_sources(AG_SOURCES SNI sni.c)
+aigw_feature_sources(AG_SOURCES HOMEMODEL home.c)
+aigw_feature_sources(AG_SOURCES SENSING sense.c)
 
 add_library(ag STATIC ${AG_SOURCES})
 target_link_libraries(ag ${UCI_LIBRARY} ${UBOX_LIBRARY} m)

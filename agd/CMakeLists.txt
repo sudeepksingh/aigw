@@ -22,6 +22,8 @@ aigw_feature_sources(AGD_SOURCES METER meter.c)
 aigw_feature_sources(AGD_SOURCES FASTPATH fastpath.c)
 aigw_feature_sources(AGD_SOURCES REMOTE remote.c)
 aigw_feature_sources(AGD_SOURCES KEYS keys.c)
+aigw_feature_sources(AGD_SOURCES HOMEMODEL home.c)
+aigw_feature_sources(AGD_SOURCES SENSING sense.c)
 
 add_executable(agd ${AGD_SOURCES})
 target_link_libraries(agd ag ${UBUS_LIBRARY} ${BLOBMSG_JSON_LIBRARY} ${UBOX_LIBRARY} ${UCI_LIBRARY}

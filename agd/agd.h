@@ -1051,6 +1051,61 @@ static inline void coverage_save(struct blob_buf *b) { (void)b; }
 static inline void coverage_load(struct blob_attr *t) { (void)t; }
 #endif
 
+struct cov_sample;
+#if AIGW_FEATURE_HOMEMODEL
+/* home.c: the home Wi-Fi model (ag/home.h): places, path loss, problems, what an extender or a move would fix */
+void home_init(void);                   /* after the state */
+void home_on_look(const char *mac, const struct cov_sample *s, int dual);      /* coverage.c: each look */
+void home_tick(void);                   /* coverage.c: after each round of looks */
+/* offers.c: is an extender worth selling: -1 not known yet, 0 no, 1 yes; why in words, no names */
+int home_extender_helps(char *why, size_t n);
+void home_advice_line(char *buf, size_t n);     /* coverage.c: the best option, "before you buy"; "" none */
+const char *home_zone_of(const char *mac);      /* sensing: the device's place ("bedroom", "place 2"), "" not known */
+int home_name_zone(const char *who, const char *zone, char *err, size_t en);  /* the place number, -1 */
+void home_blob(struct blob_buf *b);
+void home_report_blob(struct blob_buf *b);      /* the bridge: status, counts, the best option's kind */
+int home_field(const char *f, char *buf, size_t n);    /* Device.X_AIGW_.HomeModel.; -1 unknown */
+int home_place_ids(uint32_t *out, int max);
+int home_place_field(uint32_t id, const char *f, char *buf, size_t n);
+int home_option_ids(uint32_t *out, int max);
+int home_option_field(uint32_t id, const char *f, char *buf, size_t n);
+void home_save(struct blob_buf *b);
+void home_load(struct blob_attr *t);
+/* dm.c: HomeAdvice! */
+void dm_on_home(const char *kind, const char *fixed, const char *of, const char *gain, const char *confidence,
+		const char *summary);
+#else
+static inline void home_on_look(const char *mac, const struct cov_sample *s, int dual) { (void)mac; (void)s; (void)dual; }
+static inline void home_tick(void) { }
+static inline int home_extender_helps(char *why, size_t n) { if (why && n) why[0] = '\0'; return -1; }
+static inline void home_advice_line(char *buf, size_t n) { if (n) buf[0] = '\0'; }
+static inline const char *home_zone_of(const char *mac) { (void)mac; return ""; }
+static inline void home_report_blob(struct blob_buf *b) { (void)b; }
+static inline void home_save(struct blob_buf *b) { (void)b; }
+static inline void home_load(struct blob_attr *t) { (void)t; }
+#endif
+
+#if AIGW_FEATURE_SENSING
+/* sense.c: Wi-Fi sensing (ag/sense.h): opt-in; nothing runs or is kept unless sensing.enabled and consent */
+void sense_init(void);
+void sense_on_station(const struct device *d, long rx_packets);        /* wifi.c: each station, each poll */
+void sense_tick(void);                  /* main.c: after each poll */
+void sense_blob(struct blob_buf *b);
+int sense_set(int on, const char *consent, char *err, size_t en);     /* agctl sense on / off */
+int sense_field(const char *f, char *buf, size_t n);   /* Device.X_AIGW_.Sensing.; -1 unknown */
+void sense_save(struct blob_buf *b);
+void sense_load(struct blob_attr *t);
+int sense_bench(void);                  /* agd --sense-bench: CPU and RAM on this machine */
+/* dm.c: PresenceChanged!, UnusualInactivity! (only with sensing.share_events) */
+void dm_on_presence(const char *presence, const char *since, const char *reason);
+void dm_on_inactivity(const char *state, const char *since, const char *quiet, const char *usual, const char *summary);
+#else
+static inline void sense_on_station(const struct device *d, long rx_packets) { (void)d; (void)rx_packets; }
+static inline void sense_tick(void) { }
+static inline void sense_save(struct blob_buf *b) { (void)b; }
+static inline void sense_load(struct blob_attr *t) { (void)t; }
+#endif
+
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */
 typedef void (*handler_done_t)(void *ctx, int code, const char *msg);
 const char *handler_path(const char *configured, const char *name);

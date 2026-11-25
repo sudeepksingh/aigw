@@ -173,6 +173,13 @@ static void judge(long now)
 	in.line_mbps = line_mbps(&in.line_sold);
 	in.name = name_cb;
 	in.sqm_on = sqm_on();
+	{
+		static char why[200];
+		int h = home_extender_helps(why, sizeof(why));     /* the home model: is an extender worth selling */
+
+		in.extender = h < 0 ? 0 : h ? 1 : -1;
+		in.extender_why = why;
+	}
 	offer_params_default(&p);
 	offer_judge(&in, &p, &res);
 	judged_at = now;

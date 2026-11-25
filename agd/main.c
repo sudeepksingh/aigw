@@ -1335,6 +1335,69 @@ static int m_channels(struct ubus_context *ctx, struct ubus_object *obj, struct 
 }
 #endif
 
+#if AIGW_FEATURE_HOMEMODEL
+/* ag home {name, zone}: the home Wi-Fi model: places, problems, what-if options; name: a device (or a place
+   number) whose place is to be called zone ("" clears) */
+enum { HM_NAME_ARG, HM_ZONE_ARG, __HM_MAX };
+static const struct blobmsg_policy home_policy[__HM_MAX] = {
+	[HM_NAME_ARG] = { "name", BLOBMSG_TYPE_STRING },
+	[HM_ZONE_ARG] = { "zone", BLOBMSG_TYPE_STRING },
+};
+
+static int m_home(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		  const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__HM_MAX];
+	char err[160] = "";
+	int k = 0;
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(home_policy, __HM_MAX, tb, blob_data(msg), blob_len(msg));
+	if (tb[HM_NAME_ARG] && tb[HM_ZONE_ARG])
+		k = home_name_zone(blobmsg_get_string(tb[HM_NAME_ARG]), blobmsg_get_string(tb[HM_ZONE_ARG]), err, sizeof(err));
+	blob_buf_init(&b, 0);
+	if (k < 0)
+		blobmsg_add_string(&b, "error", err);
+	else if (k > 0)
+		blobmsg_add_u32(&b, "named", (uint32_t)k);
+	home_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+#endif
+
+#if AIGW_FEATURE_SENSING
+/* ag sense {on, consent}: Wi-Fi sensing (opt-in): what is sensed, presence, zones, the check-in; on true needs the
+   home's consent (who and when), on false withdraws it and forgets everything */
+enum { SN_ON_ARG, SN_CONSENT_ARG, __SN_MAX };
+static const struct blobmsg_policy sense_policy[__SN_MAX] = {
+	[SN_ON_ARG] = { "on", BLOBMSG_TYPE_BOOL },
+	[SN_CONSENT_ARG] = { "consent", BLOBMSG_TYPE_STRING },
+};
+
+static int m_sense(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		   const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__SN_MAX];
+	char err[160] = "";
+	int rc = 0;
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(sense_policy, __SN_MAX, tb, blob_data(msg), blob_len(msg));
+	if (tb[SN_ON_ARG])
+		rc = sense_set(blobmsg_get_bool(tb[SN_ON_ARG]), tb[SN_CONSENT_ARG] ? blobmsg_get_string(tb[SN_CONSENT_ARG]) : NULL,
+			       err, sizeof(err));
+	blob_buf_init(&b, 0);
+	if (rc < 0)
+		blobmsg_add_string(&b, "error", err);
+	sense_blob(&b);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+#endif
+
 #if AIGW_FEATURE_COVERAGE
 /* ag coverage: coverage placement advice: the verdict, what to do, the home's weak spots, each device's history.
    At home: devices by name */
@@ -1362,6 +1425,12 @@ static struct ubus_method ag_methods[] = {
 #endif
 #if AIGW_FEATURE_COVERAGE
 	UBUS_METHOD_NOARG("coverage", m_coverage),
+#endif
+#if AIGW_FEATURE_HOMEMODEL
+	UBUS_METHOD("home", m_home, home_policy),
+#endif
+#if AIGW_FEATURE_SENSING
+	UBUS_METHOD("sense", m_sense, sense_policy),
 #endif
 #if AIGW_FEATURE_PROACTIVE
 	UBUS_METHOD("proactive", m_proactive, proactive_policy),
@@ -1459,6 +1528,7 @@ static void poll_cb(struct uloop_timeout *t)
 	dev_poll_leases();
 	dev_poll_arp();
 	wifi_poll();
+	sense_tick();                   /* Wi-Fi sensing, when the home opted in */
 	presence_tick();
 #if AIGW_FEATURE_FASTPATH
 	fastpath_tick();
@@ -1477,7 +1547,8 @@ static void poll_cb(struct uloop_timeout *t)
 #if AIGW_FEATURE_PLUGINS
 	plugin_tick();
 #endif
-	uloop_timeout_set(t, POLL_MS);
+	/* the tests may poll faster (AIGW_TEST_POLL_MS) */
+	uloop_timeout_set(t, getenv("AIGW_TEST_POLL_MS") ? atoi(getenv("AIGW_TEST_POLL_MS")) : POLL_MS);
 }
 
 static void save_cb(struct uloop_timeout *t)
@@ -1496,6 +1567,10 @@ int main(int argc, char **argv)
 		printf("%s\n", AG_FEATURES);   /* the features this build has, comma-separated */
 		return 0;
 	}
+#if AIGW_FEATURE_SENSING
+	if (argc > 1 && !strcmp(argv[1], "--sense-bench"))
+		return sense_bench();   /* what Wi-Fi sensing costs on this CPU (aigw-selftest) */
+#endif
 
 	ag_config_load(&cfg);
 	ag_log_init("agd", ag_log_level_parse(cfg.log_level));
@@ -1554,6 +1629,12 @@ int main(int argc, char **argv)
 #endif
 #if AIGW_FEATURE_COVERAGE
 	coverage_init();                /* coverage placement advice: after the state */
+#endif
+#if AIGW_FEATURE_HOMEMODEL
+	home_init();                    /* the home Wi-Fi model: after the state */
+#endif
+#if AIGW_FEATURE_SENSING
+	sense_init();                   /* Wi-Fi sensing (opt-in): after the state */
 #endif
 #if AIGW_FEATURE_KEYS
 	keys_init();
