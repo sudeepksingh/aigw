@@ -2530,8 +2530,13 @@ static void show_line(struct ubus_request *req, int type, struct blob_attr *msg)
 		if (fdbl(s, "slope") != 0)
 			snprintf(slope, sizeof(slope), "%+g", fdbl(s, "slope"));
 		if ((int)fnum(s, "days_left") >= 0)
-			snprintf(left, sizeof(left), fnum(s, "days_left") == 0 ? "now" : "%d day%s", (int)fnum(s, "days_left"),
-				 fnum(s, "days_left") == 1 ? "" : "s");
+		{
+			if (fnum(s, "days_left") == 0)
+				snprintf(left, sizeof(left), "now");
+			else
+				snprintf(left, sizeof(left), "%d day%s", (int)fnum(s, "days_left"),
+					 fnum(s, "days_left") == 1 ? "" : "s");
+		}
 		printf("  %-15s %-9s %10s %10s %11s %5d  %s  (%s)\n", fstr(s, "name"),
 		       *fstr(s, "state") ? fstr(s, "state") : "-", now, base, slope, (int)fnum(s, "days"), left, fstr(s, "unit"));
 		if (!strcmp(fstr(s, "state"), "Stepped") || !strcmp(fstr(s, "state"), "Drifting") ||
