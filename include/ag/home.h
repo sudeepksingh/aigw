@@ -110,6 +110,7 @@ struct hm_dev {
 	long last;
 	/* the problem going on now */
 	int8_t ep_place, ep_band, ep_ear, ep_kind;      /* kind 0: weak, 1: lossy with a strong signal */
+	int8_t ep_rec;                  /* its record once long enough (it goes on growing), -1 none yet */
 	uint16_t ep_n, ep_miss;
 	int32_t ep_dbm;
 	long ep_start;

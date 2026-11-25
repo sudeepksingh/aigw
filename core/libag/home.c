@@ -41,7 +41,7 @@ void hm_init(struct hm_model *m)
 	m->chk_place = m->ext_place = -1;
 	m->chk_measured = NO_PROOF;
 	for (i = 0; i < HM_DEVS; i++)
-		m->d[i].place = m->d[i].ep_place = -1;
+		m->d[i].place = m->d[i].ep_place = m->d[i].ep_rec = -1;
 }
 
 const char *hm_kind_name(int k)
@@ -230,16 +230,23 @@ static void halve(struct hm_model *m)
 	}
 }
 
-static void end_problem(struct hm_model *m, int di, const struct hm_params *p)
+/* the problem going on, as a record: made once it is long enough, then kept up to date */
+static void record_problem(struct hm_model *m, int di, const struct hm_params *p)
 {
 	struct hm_dev *d = &m->d[di];
 	struct hm_prob *slot = NULL;
 	int k;
 
 	if (d->ep_n >= p->min_problem && d->ep_place >= 0) {
-		for (k = 0; k < HM_PROBS; k++)
-			if (!slot || !m->pr[k].t || (slot->t && m->pr[k].t < slot->t))
-				slot = &m->pr[k];
+		if (d->ep_rec >= 0 && d->ep_rec < HM_PROBS && m->pr[d->ep_rec].t == d->ep_start &&
+		    m->pr[d->ep_rec].dev == di)
+			slot = &m->pr[d->ep_rec];
+		if (!slot) {            /* a free record, else the oldest gives way */
+			for (k = 0; k < HM_PROBS; k++)
+				if (!slot || !m->pr[k].t || (slot->t && m->pr[k].t < slot->t))
+					slot = &m->pr[k];
+		}
+		d->ep_rec = (int8_t)(slot - m->pr);
 		slot->t = d->ep_start;
 		k = (int)d->ep_n * (p->interval_s > 0 ? p->interval_s : 60) / 60;
 		slot->minutes = (uint16_t)(k < 1 ? 1 : k > 65535 ? 65535 : k);
@@ -250,9 +257,17 @@ static void end_problem(struct hm_model *m, int di, const struct hm_params *p)
 		slot->kind = d->ep_kind;
 		slot->dbm = (int8_t)(d->ep_dbm / (int32_t)d->ep_n);
 	}
+}
+
+static void end_problem(struct hm_model *m, int di, const struct hm_params *p)
+{
+	struct hm_dev *d = &m->d[di];
+
+	record_problem(m, di, p);
 	d->ep_n = d->ep_miss = 0;
 	d->ep_dbm = 0;
 	d->ep_place = -1;
+	d->ep_rec = -1;
 }
 
 static int dev_slot(struct hm_model *m, const char *mac, const struct hm_params *p)
@@ -280,7 +295,7 @@ static int dev_slot(struct hm_model *m, const char *mac, const struct hm_params 
 	}
 	memset(&m->d[free_k], 0, sizeof(m->d[free_k]));
 	snprintf(m->d[free_k].mac, sizeof(m->d[free_k].mac), "%s", mac);
-	m->d[free_k].place = m->d[free_k].ep_place = -1;
+	m->d[free_k].place = m->d[free_k].ep_place = m->d[free_k].ep_rec = -1;
 	return free_k;
 }
 
@@ -380,7 +395,8 @@ void hm_add(struct hm_model *m, const struct hm_look *l, const struct hm_params 
 		problem = 1, kind = 1;
 	if (problem) {
 		c->prob = sat16((uint32_t)c->prob + 1);
-		if (d->ep_n && (d->ep_kind != kind || d->ep_band != s->band))
+		/* another kind or band is another problem; one that goes on all day is one a day */
+		if (d->ep_n && (d->ep_kind != kind || d->ep_band != s->band || s->t - d->ep_start >= 86400))
 			end_problem(m, di, p);
 		if (!d->ep_n) {
 			d->ep_place = (int8_t)k;
@@ -392,6 +408,7 @@ void hm_add(struct hm_model *m, const struct hm_look *l, const struct hm_params 
 		d->ep_n++;
 		d->ep_dbm += s->dbm;
 		d->ep_miss = 0;
+		record_problem(m, di, p);
 	} else if (d->ep_n && ++d->ep_miss >= 2)
 		end_problem(m, di, p);
 }
