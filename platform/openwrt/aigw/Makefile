@@ -233,7 +233,8 @@ define Package/aigw/config
       by itself: act.mode and the policies decide. Sharing this home's
       summary is opt-in (fleet.share). Needs federated learning (FED);
       uses the bridge (PLUGINS) to reach cortex. About 20 KB of flash.
-      See docs/fleet-learning.md.  config AIGW_FEATURE_PLUGINS
+      See docs/fleet-learning.md.
+  config AIGW_FEATURE_PLUGINS
     bool "Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_SNI
