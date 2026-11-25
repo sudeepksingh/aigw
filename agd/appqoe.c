@@ -434,7 +434,7 @@ static void look_rate(struct se *s, uint32_t pps, uint32_t ms, uint64_t pk)
 		s->dip_n++;
 		s->dip_ms += ms;
 		s->dip_pk += pk;
-		if (s->dip_n > 3) {
+		if (s->dip_ms > 30000) {
 			/* not a stall: it changed (the camera off, on hold); its new usual */
 			if (pps >= 4)
 				s->ref_pps = pps;
@@ -936,14 +936,16 @@ void appqoe_dump_done(void)
 			f->kind = (uint8_t)k;   /* it is something else now */
 			f->conf = (uint8_t)c;
 			f->miss = 0;
-		} else if (k == AK_NONE && realtime(f->kind) && !on(f) && ++f->miss >= 3)
-			f->kind = AK_NONE;      /* a call that ended keeps its connection open for a while */
+		} else if (k == AK_NONE && realtime(f->kind) && !on(f) && ++f->miss * cfg.apps_poll >= END_S)
+			f->kind = AK_NONE;      /* a call that ended keeps its connection open for a while (a stall is shorter) */
 		if (f->kind == AK_NONE || !(s = se_of(f->ip, f->kind, on(f))))
 			continue;
 		s->l_alive = 1;
+		if (f->iv[f->n - 1].ms > s->l_ms)
+			s->l_ms = f->iv[f->n - 1].ms;  /* a real-time one that went silent: a look of nothing (a stall?) */
 		if (!on(f))
 			continue;
-		if (f->fam >= 0 && s->fam < 0)
+		if (f->fam >= 0 && s->fam < 0 && app_family_has(&rules, f->fam, s->kind))
 			s->fam = f->fam;
 		if (f->conf > s->conf)
 			s->conf = f->conf;
@@ -952,8 +954,6 @@ void appqoe_dump_done(void)
 		s->l_db += f->iv[f->n - 1].down_b;
 		s->l_ub += f->iv[f->n - 1].up_b;
 		s->l_dp += f->iv[f->n - 1].down_pk;
-		if (f->iv[f->n - 1].ms > s->l_ms)
-			s->l_ms = f->iv[f->n - 1].ms;
 		s->l_on = 1;
 	}
 	/* browsing: a device opening web connections */
@@ -1003,7 +1003,9 @@ void appqoe_dump_done(void)
 				look_rate(s, (uint32_t)(s->l_dp * 1000 / s->l_ms), s->l_ms, s->l_dp);
 		} else {
 			s->w_looks++;
-			s->w_ms += (uint32_t)cfg.apps_poll * 1000;
+			s->w_ms += s->l_ms ? s->l_ms : (uint32_t)cfg.apps_poll * 1000;
+			if (realtime(s->kind) && s->l_alive && s->l_ms)
+				look_rate(s, 0, s->l_ms, 0);    /* its connection still there, nothing on it */
 		}
 		if (now - s->last >= idle) {
 			se_end(s);
@@ -1477,7 +1479,7 @@ void appqoe_save(struct blob_buf *b)
 	blobmsg_add_u32(b, "seq_mo", seq_mo);
 	blobmsg_add_u32(b, "seq_se", seq_se);
 	blobmsg_add_u32(b, "sessions", total_sess);
-	blobmsg_add_u32(b, "moments", total_mo);
+	blobmsg_add_u32(b, "moments_total", total_mo);
 	a = blobmsg_open_array(b, "days");
 	for (i = 0; i < DAYS; i++) {
 		if (!days[i].day)
@@ -1580,7 +1582,7 @@ void appqoe_load(struct blob_attr *t)
 		if (!strcmp(k, "seq_mo")) seq_mo = (uint32_t)jnum(c);
 		else if (!strcmp(k, "seq_se")) seq_se = (uint32_t)jnum(c);
 		else if (!strcmp(k, "sessions")) total_sess = (uint32_t)jnum(c);
-		else if (!strcmp(k, "moments") && blobmsg_type(c) == BLOBMSG_TYPE_INT32) total_mo = (uint32_t)jnum(c);
+		else if (!strcmp(k, "moments_total")) total_mo = (uint32_t)jnum(c);
 		else if (!strcmp(k, "days") && blobmsg_type(c) == BLOBMSG_TYPE_ARRAY) {
 			int i = 0;
 

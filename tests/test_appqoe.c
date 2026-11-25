@@ -138,6 +138,11 @@ static void test_kinds(void)
 	f = flow(17, 50000, 3, 136, 1100, 170, 1100);
 	CHECK(kind(&f, &c) == AK_VIDEO && c == 55, "video call by its traits alone: a port of its own, 1.5 Mbit/s each way (%s %d%%)",
 	      app_kind_name(kind(&f, NULL)), c);
+	f.fam = fam("secret.nflxvideo.net (nearby)");
+	CHECK(kind(&f, &c) == AK_VIDEO && !app_family_has(&R, f.fam, AK_VIDEO),
+	      "... named after a Netflix server nearby: still a video call, and Netflix is not its app");
+	f.n = 1;
+	CHECK(kind(&f, &c) == AK_NONE, "... its first look, with that name: nothing yet (a name alone makes no UDP stream)");
 	f = flow(17, 50000, 3, 200, 1200, 30, 400);
 	CHECK(kind(&f, &c) == AK_SCREEN, "screen share: 1.9 Mbit/s up, 100 kbit/s down (%s)", app_kind_name(kind(&f, NULL)));
 	f = flow(17, 49005, 3, 150, 200, 1900, 1300);

@@ -101,6 +101,8 @@ const char *app_rules_default(void);
 int app_rules_parse(struct app_rules *r, const char *text);
 /* the family a server name belongs to (longest suffix, on a label boundary; "x.zoom.us (nearby)" too); -1 none */
 int app_family_of(const struct app_rules *r, const char *name);
+/* the family is one of the kind's (a Netflix name on a call's connection is not the call's app) */
+int app_family_has(const struct app_rules *r, int fam, int kind);
 
 /* one look at a connection: what it did since the look before */
 struct app_iv {

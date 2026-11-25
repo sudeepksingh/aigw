@@ -510,6 +510,11 @@ static int fam_has(const struct app_family *fa, int kind)
 	return 0;
 }
 
+int app_family_has(const struct app_rules *r, int fam, int kind)
+{
+	return fam >= 0 && fam < r->nfam && fam_has(&r->fam[fam], kind);
+}
+
 /* kinds a name alone may give (not real time: a call app's name on a web connection is not a call) */
 static int passive(int kind)
 {
@@ -547,8 +552,8 @@ int app_classify(const struct app_rules *r, const struct app_flow *f, int *conf)
 			return u->kind;
 		}
 	/* the name alone: a stream, a download, a smart-home device whose rule doesn't match now (idle while its
-	   buffer is full, say) */
-	if (fa)
+	   buffer is full, say); over TCP or QUIC, once it has a few looks (plain UDP is real time or nothing) */
+	if (fa && proto_bit(f) != AP_UDP && f->n >= 3)
 		for (i = 0; i < APP_FAM_KINDS && fa->kinds[i]; i++)
 			if (passive(fa->kinds[i])) {
 				*conf = 60;
