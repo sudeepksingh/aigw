@@ -113,7 +113,7 @@ static float day_value(int m, int *n)
 		return (float)T.drops;
 	}
 	if (!gauge(m)) {
-		*n = (int)(T.secs[m] / 3600);
+		*n = T.secs[m] > 0 ? (T.secs[m] >= 7200 ? (int)(T.secs[m] / 3600) : 1) : 0;    /* hours counted */
 		return T.secs[m] > 0 ? (float)(T.sum[m] * 3600 / T.secs[m]) : 0;
 	}
 	*n = T.ns[m];

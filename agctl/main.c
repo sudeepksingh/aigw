@@ -2507,7 +2507,9 @@ static void show_line(struct ubus_request *req, int type, struct blob_attr *msg)
 	printf("Line: %s (%s)%s\n", *fstr(msg, "status") ? fstr(msg, "status") : "Learning", fstr(msg, "tech"),
 	       fnum(msg, "shared") ? "" : "; not shared with the ISP (line.share 0)");
 	printf("  %s\n", fstr(msg, "summary"));
-	if ((int)fnum(msg, "days_left") >= 0 && *fstr(msg, "worst"))
+	if ((int)fnum(msg, "days_left") == 0 && *fstr(msg, "worst"))
+		printf("  fault     now (%s confidence)\n", fnum(msg, "conf") >= 70 ? "high" : fnum(msg, "conf") >= 40 ? "medium" : "low");
+	else if ((int)fnum(msg, "days_left") > 0 && *fstr(msg, "worst"))
 		printf("  fault     in about %d day%s at this rate (%s confidence)\n", (int)fnum(msg, "days_left"),
 		       fnum(msg, "days_left") == 1 ? "" : "s", fnum(msg, "conf") >= 70 ? "high" : fnum(msg, "conf") >= 40 ?
 		       "medium" : "low");
@@ -2528,7 +2530,8 @@ static void show_line(struct ubus_request *req, int type, struct blob_attr *msg)
 		if (fdbl(s, "slope") != 0)
 			snprintf(slope, sizeof(slope), "%+g", fdbl(s, "slope"));
 		if ((int)fnum(s, "days_left") >= 0)
-			snprintf(left, sizeof(left), "%d day%s", (int)fnum(s, "days_left"), fnum(s, "days_left") == 1 ? "" : "s");
+			snprintf(left, sizeof(left), fnum(s, "days_left") == 0 ? "now" : "%d day%s", (int)fnum(s, "days_left"),
+				 fnum(s, "days_left") == 1 ? "" : "s");
 		printf("  %-15s %-9s %10s %10s %11s %5d  %s  (%s)\n", fstr(s, "name"),
 		       *fstr(s, "state") ? fstr(s, "state") : "-", now, base, slope, (int)fnum(s, "days"), left, fstr(s, "unit"));
 		if (!strcmp(fstr(s, "state"), "Stepped") || !strcmp(fstr(s, "state"), "Drifting") ||
