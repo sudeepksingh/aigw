@@ -10,6 +10,9 @@
     python3 -m aigw_cortex outages settings [--window S --min-homes N --share F --recovered F]
     python3 -m aigw_cortex outages declare <uplink> [--kind DOWN] [--note text] | end <number>
                                                       an outage the NOC knows of: its homes are tagged
+    python3 -m aigw_cortex predict [--json] | settings [...] | simulate [--seeds N] | backtest
+                                                      area fault prediction: the shared plant (a cabinet,
+                                                      an OLT) degrading before it fails (areapredict.py)
     python3 -m aigw_cortex rollout new|list|status|pause|resume|abort|homes|result ...
                                                       staged firmware rollouts that stop themselves
                                                       (rollout.py; --help for each)
@@ -335,6 +338,17 @@ def main(argv=None):
     p.add_argument("--recovered", type=float, help="over when this share of its homes recovered (0.8)")
     p.add_argument("--silent-after", type=int, help="s without a report before a home counts as dropped (900)")
     p.add_argument("--hold", type=int, help="s a gateway holds its fixes after the last notice (1800)")
+    p = sub.add_parser("predict", help="area fault prediction: the shared plant degrading (areapredict.py)")
+    p.add_argument("what", nargs="?", default="list", choices=("list", "settings", "simulate", "backtest"))
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--min-homes", type=int, help="never fewer homes than this make a shared plant (3)")
+    p.add_argument("--share", type=float, help="nor fewer than this share of the node's homes (0.15)")
+    p.add_argument("--align", type=int, help="days: their trends began this close together (3)")
+    p.add_argument("--alpha", type=float, help="chance alone this unlikely, or less (0.001)")
+    p.add_argument("--seeds", type=int, default=20, help="simulate: runs")
+    p.add_argument("--homes", type=int, default=60, help="simulate: homes a run")
+    p.add_argument("--cabinets", type=int, default=3, help="simulate: cabinets a run")
+    p.add_argument("--sim-days", type=int, default=32, help="simulate: days a run")
     p = sub.add_parser("fleet")
     p.add_argument("--days", type=int, default=7)
     p.add_argument("--group")
@@ -455,6 +469,26 @@ def main(argv=None):
             outage.update(store)
             rows = outage.incidents(store, open_only=not a.all, since=int(time.time()) - max(1, a.days) * 86400)
             show(rows) if a.json else print(outage.text(rows))
+    elif a.cmd == "predict":
+        from . import areapredict
+        if a.what == "settings":
+            try:
+                show(areapredict.set_settings(store, min_homes=a.min_homes, share=a.share, align=a.align,
+                                              alpha=a.alpha))
+            except ValueError as e:
+                sys.exit(str(e))
+        elif a.what == "simulate":
+            from . import areasim
+            e = areasim.evaluate(max(1, a.seeds), max(10, a.homes), max(1, a.cabinets), max(16, a.sim_days),
+                                 areapredict.settings(store))
+            show(e) if a.json else print(areasim.text(e))
+        elif a.what == "backtest":
+            b = areapredict.backtest(store)
+            show(b) if a.json else print(areapredict.backtest_text(b))
+        else:
+            areapredict.update(store)
+            s = areapredict.summary(store)
+            show(s) if a.json else print(areapredict.text(s))
     elif a.cmd == "brief":
         from . import brief
         try:

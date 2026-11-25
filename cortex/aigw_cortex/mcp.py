@@ -54,6 +54,13 @@ TOOLS = [
          "in those homes are held.",
          {"all": {"type": "boolean", "description": "Also those over in the last days (default: open ones)"},
           "uplink": {"type": "string", "description": "Only this uplink (area)"}}),
+    tool("plant_predictions",
+         "Area fault prediction: shared plant (a street cabinet, an OLT port, a feeder) whose homes' lines degrade "
+         "together, found before it fails. Each: the node, the metric (noise margin, CRC errors, sync rate...), how "
+         "many of its homes, since when, first calls likely in how many days, how unlikely by chance, confidence, "
+         "its rank (homes x urgency), its ISP ticket; and the lines degrading on their own (this home's line, not "
+         "the plant). Read only.",
+         {"lines": {"type": "boolean", "description": "Also each line degrading on its own (default true)"}}),
     tool("rollout_status",
          "Staged firmware rollouts: each one's state (running, paused, stopped by itself, aborted, done), its "
          "waves, how many homes kept the firmware or got worse (rolled back, didn't boot), the experience score "
@@ -140,6 +147,16 @@ class Server:
             for o in rows:
                 o["isp_ticket"] = isp.get(f"outage:{o['id']}")
             return rows
+        if name == "plant_predictions":
+            from . import areapredict, tickets
+            areapredict.update(s)
+            r = areapredict.summary(s)
+            isp = tickets.isp_of(s)
+            for p in r["open"]:
+                p["isp_ticket"] = isp.get(f"plant:{p['id']}")
+            if args.get("lines") is False:
+                r.pop("lines", None)
+            return r
         if name == "rollout_status":
             from . import rollout
             if args.get("name"):

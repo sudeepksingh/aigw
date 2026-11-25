@@ -36,6 +36,8 @@ if(AIGW_FEATURE_AREAPREDICT)
   add_executable(test_line test_line.c)
   target_link_libraries(test_line ag m)
   add_test(NAME line_health COMMAND test_line)
+  add_executable(line_dump line_dump.c)
+  target_link_libraries(line_dump ag m)
 endif()
 
 if(AIGW_FEATURE_UPGRADE)
@@ -118,6 +120,12 @@ if(Python3_FOUND)
   add_test(NAME staged_rollout COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_rollout.py)
   # v0.42: ISP ticketing against a local mock TMF621 server (tests/tmf621_mock.py, 127.0.0.1 only)
   add_test(NAME isp_tickets COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_tickets.py)
+  # v0.53: area fault prediction: the trend rules (the same as the gateway's, line_dump), the correlation, a
+  # simulated fleet of 60 homes on 3 cabinets, tickets for the plant and none for the homes it explains
+  if(AIGW_FEATURE_AREAPREDICT)
+    add_test(NAME area_prediction COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_areapredict.py)
+    set_tests_properties(area_prediction PROPERTIES ENVIRONMENT "AIGW_LINE_DUMP=$<TARGET_FILE:line_dump>")
+  endif()
 endif()
 
 # example model back-ends (plugins/examples/backend): one that agrees with the reference, one that doesn't

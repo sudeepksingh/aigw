@@ -226,6 +226,9 @@ class Store:
                     (gw,))
         if up and (up[0]["grp"] or up[0]["reported"]):
             outage.update(self, now, up[0]["grp"] or up[0]["reported"])
+        from . import areapredict             # v0.53: its line health vector; a new one: correlate again
+        if areapredict.on_report(self, gw, rep, now):
+            areapredict.update(self, now)
         return learned
 
     # ---------- proactive care (the fleet report) ----------

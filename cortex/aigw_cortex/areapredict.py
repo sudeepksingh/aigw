@@ -587,6 +587,65 @@ def notice(store, gw):
             "hold_s": HOLD_S}
 
 
+# ---------- back-test: on this cortex's own history ----------
+
+def backtest(store, now=None):
+    """Replay the kept vectors day by day, as correlate() would have seen them, and compare
+    each plant it would have found with the first line problem its homes had after (proactive
+    care's, from the reports): how many days early it would have warned."""
+    _table(store)
+    now = int(now or time.time())
+    s = settings(store)
+    nodes = _nodes(store)
+    names = {g["id"]: g["name"] for g in store.gateways()}
+    rows = store.q("SELECT gateway, day, vec FROM line_vectors ORDER BY day")
+    if not rows:
+        return {"days": 0, "plants": [], "note": "no line health vectors kept yet (gateways send them from 0.53)"}
+    by_day = defaultdict(dict)
+    for r in rows:
+        by_day[r["day"]][r["gateway"]] = json.loads(r["vec"])
+    first, last = min(by_day), max(by_day)
+    latest, known, found = {}, [], {}
+    for day in range(first, last + 1):
+        for g, v in by_day.get(day, {}).items():
+            latest[g] = v
+        vecs = {g: v for g, v in latest.items() if g in nodes and int(v.get("day") or 0) >= day - s["fresh_days"]}
+        out = correlate(vecs, nodes, s, known)
+        known = [{"node": p["node"], "metric": p["metric"], "onset": p["onset"], "members": set(p["members"])}
+                 for p in out["plants"]]
+        for p in out["plants"]:
+            f = found.setdefault((p["node"], p["metric"]), {"node": p["node"], "metric": p["metric"], "day": day,
+                                                            "members": set()})
+            f["members"] |= set(p["members"])
+    plants = []
+    for f in found.values():
+        ids = sorted(f["members"])
+        e = store.q("SELECT MIN(since) t FROM care_events WHERE kind = 'problem' AND area = 'Internet' AND since >= ? "
+                    "AND gateway IN (" + ",".join("?" * len(ids)) + ")", [f["day"] * 86400] + ids)
+        t = e[0]["t"] if e and e[0]["t"] else 0
+        plants.append({"node": f["node"], "metric": f["metric"], "found": day_text(f["day"]), "homes": len(ids),
+                       "first_problem": time.strftime("%Y-%m-%d %H:%M", time.gmtime(t)) if t else None,
+                       "lead_days": round(t / 86400 - f["day"], 1) if t else None,
+                       "home_names": [names.get(g, g) for g in ids][:20]})
+    leads = [p["lead_days"] for p in plants if p["lead_days"] is not None]
+    return {"days": last - first + 1, "from": day_text(first), "to": day_text(last), "plants": plants,
+            "followed_by_a_problem": len(leads), "median_lead_days": linehealth.median(leads) if leads else None}
+
+
+def backtest_text(b):
+    if not b["days"]:
+        return b["note"]
+    out = [f"Back-test over {b['days']} days ({b['from']} to {b['to']}): {len(b['plants'])} shared plant fault"
+           f"{'' if len(b['plants']) == 1 else 's'} would have been found; {b['followed_by_a_problem']} followed by a "
+           "line problem in its homes" + (f", a median {b['median_lead_days']} days after the warning" if
+                                           b["median_lead_days"] is not None else "")]
+    for p in b["plants"]:
+        out.append(f"  {p['node']} ({p['metric']}, {p['homes']} homes): found {p['found']}; " +
+                   (f"first problem {p['first_problem']}, {p['lead_days']} days later" if p["first_problem"] else
+                    "no problem in its homes since (fixed in time, or not a fault)"))
+    return "\n".join(out)
+
+
 # ---------- the operator's view ----------
 
 def summary(store, now=None):
@@ -635,4 +694,9 @@ def fleet_lines(r):
            f"{len(p['lines'])} line{'' if len(p['lines']) == 1 else 's'} on their own (v0.53)"]
     for x in p["open"][:5]:
         out.append(f"               {x['words']}")
+    l3 = p.get("last_30_days") or {}
+    if l3.get("plants"):
+        out.append(f"               last 30 days: {l3['plants']} predicted, {l3['recovered']} fixed before failing "
+                   f"(calls likely avoided: {l3['calls_likely_avoided']} homes), {l3['failed']} failed after the "
+                   "warning")
     return out
