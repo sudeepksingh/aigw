@@ -1342,5 +1342,86 @@ class Coverage(unittest.TestCase):
             self.assertEqual(coverage.of(s.snapshot(ids["old"])), {})
 
 
+class FleetLearning(unittest.TestCase):
+    """v0.50 the reference aggregator: merge rules, k-anonymity, the cap, what is refused, the signed file."""
+    KEY = "5/80+/high/phone/evening/fibre"
+
+    def summary(self, outcomes, normals=(), line="fibre"):
+        return {"v": 1, "line": line, "outcomes": [list(o) for o in outcomes], "normals": [list(n) for n in normals]}
+
+    def test_check_refuses_what_is_not_coarse(self):
+        from aigw_cortex import fleetlearn as fl
+        ok, _ = fl.check(self.summary([("WIFI_HOPPING", "stay24", self.KEY, 4, 1, 1, 0)], [(1, 3, 22.0, 3.0)]))
+        self.assertTrue(ok)
+        bad = [
+            self.summary([("WIFI_HOPPING", "stay24", "5/80+/high/02:00:00:00:00:01/evening/fibre", 4, 1, 0, 0)]),
+            self.summary([("WIFI_HOPPING", "stay24", "5/80+/high/192.168.1.20/evening/fibre", 4, 1, 0, 0)]),
+            self.summary([("WIFI_HOPPING", "stay24", "5/80+/high/phone/evening", 4, 1, 0, 0)]),
+            self.summary([("WIFI_HOPPING", "stay24", self.KEY, 4, 3, 2, 0)]),      # more helped+worse than tried
+            self.summary([("wifi hopping", "stay24", self.KEY, 4, 1, 0, 0)]),
+            self.summary([("WIFI_HOPPING", "stay24", self.KEY, 4, 1.5, 0, 0)]),
+            self.summary([], [(9, 3, 22.0, 3.0)]),
+            self.summary([], line="my-street"),
+            dict(self.summary([]), hostname="laptop-anna"),
+            {"v": 2, "outcomes": []},
+        ]
+        for b in bad:
+            self.assertIsNone(fl.check(b)[0], b)
+
+    def test_merge_k_cap_and_publish(self):
+        from aigw_cortex import fleetlearn as fl
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            st = fl.Settings(k=3, cap=50, gap=0)
+            g = [s.enroll(f"h{i}")[0] for i in range(4)]
+            # three homes: keeping a phone on 2.4 GHz rarely helps, waiting often does
+            for gw in g[:3]:
+                code, ans = fl.accept(s, st, gw, self.summary(
+                    [("WIFI_HOPPING", "stay24", self.KEY, 10, 2, 1, 0), ("WIFI_HOPPING", "wait", self.KEY, 10, 7, 0, 0)],
+                    [(1, 3, 20.0, 3.0)]))
+                self.assertEqual(code, 200)
+            # one home only: LINE_FULL (below k), and a huge count (capped at 50)
+            fl.accept(s, st, g[3], self.summary([("LINE_FULL", "sqm", self.KEY, 90, 9, 0, 0),
+                                                  ("WIFI_HOPPING", "wait", self.KEY, 1000, 1000, 0, 0)],
+                                                 [(1, 3, 80.0, 3.0)]))
+            agg = fl.aggregate(s, st)
+            by = {(c, a, k): (h, t, he, w, u) for c, a, k, h, t, he, w, u in agg["buckets"]}
+            self.assertEqual(by[("WIFI_HOPPING", "stay24", self.KEY)], (3, 30, 6, 3, 0))
+            self.assertEqual(by[("WIFI_HOPPING", "stay24", "5/*/high/*/*/fibre")], (3, 30, 6, 3, 0))
+            self.assertEqual(by[("WIFI_HOPPING", "stay24", "*/*/*/*/*/*")], (3, 30, 6, 3, 0))
+            self.assertEqual(by[("WIFI_HOPPING", "wait", self.KEY)], (4, 80, 71, 0, 0))     # 30 + capped 50
+            self.assertFalse(any(c == "LINE_FULL" for c, *_ in agg["buckets"]), "one home's bucket is left out")
+            n = {(line, m, b): (h, mean) for line, m, b, h, mean, _ in agg["normals"]}
+            self.assertEqual(n[("fibre", 1, 3)], (4, 20.0))       # the median: one odd home doesn't move it
+            self.assertIn(("*", 1, 3), n)
+            # published once, signed, and the gateway's format
+            m = [x for x in s.latest_models() if x["name"] == "fleet-priors"]
+            self.assertTrue(m)
+            with open(os.path.join(s.models_dir(), m[0]["file"]), "rb") as f:
+                data = f.read().decode()
+            self.assertTrue(data.startswith("# aigw-priors fleet-priors\n# version "))
+            self.assertIn("# k 3\n", data)
+            self.assertIn(f"o WIFI_HOPPING stay24 {self.KEY} 3 30 6 3 0\n", data)
+            self.assertNotIn("LINE_FULL", data)
+            for gw in g:
+                self.assertNotIn(gw, data)
+            self.assertTrue(os.path.exists(os.path.join(s.models_dir(), m[0]["file"] + ".sig")))
+            v = m[0]["version"]
+            self.assertIsNone(fl.maybe_publish(s, st), "nothing changed: not published again")
+            fl.accept(s, st, g[0], self.summary([("WIFI_HOPPING", "stay24", self.KEY, 12, 2, 1, 0)]))
+            self.assertGreater([x for x in s.latest_models() if x["name"] == "fleet-priors"][0]["version"], v)
+            # a home that leaves takes its share with it
+            s.remove("h3")
+            agg = fl.aggregate(s, st)
+            self.assertNotIn(("WIFI_HOPPING", "wait", self.KEY),
+                             {(c, a, k) for c, a, k, *_ in agg["buckets"]}, "two homes left: below k")
+
+    def test_off(self):
+        from aigw_cortex import fleetlearn as fl
+        with tempfile.TemporaryDirectory() as d:
+            s = Store(d)
+            self.assertEqual(fl.accept(s, fl.Settings(enabled=False), "x", self.summary([]))[0], 409)
+
+
 if __name__ == "__main__":
     unittest.main()

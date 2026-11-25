@@ -26,6 +26,12 @@ if(AIGW_FEATURE_CARE)
   add_test(NAME proactive_care COMMAND test_care)
 endif()
 
+if(AIGW_FEATURE_FLEETLEARN AND AIGW_FEATURE_CARE)
+  add_executable(test_fleet test_fleet.c)
+  target_link_libraries(test_fleet ag)
+  add_test(NAME fleet_learning COMMAND test_fleet)
+endif()
+
 if(AIGW_FEATURE_CARE)
   add_executable(test_warn test_warn.c)
   target_link_libraries(test_warn ag)
