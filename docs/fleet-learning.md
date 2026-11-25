@@ -276,6 +276,15 @@ neither `FED` nor the bridge. Without it, `agctl fleet` says
 `not built in (AIGW_FEATURE_FLEETLEARN)`, the data model has no
 `FleetLearning.` object, and a `fleet` config section is ignored.
 
+### Flash
+
+Installed flash of the full profile (as `aigw-selftest` counts it, OpenWRT
+24.10.8 SDK): x86-64 980 KB, aarch64 972 KB, mipsel 812 KB of the 1024 KB
+budget. Fleet learning adds 28, 32 and 24 KB (v0.48: 952, 940, 788). x86-64
+and aarch64 have 44 and 52 KB left, so later features need room made at build
+level, for example `-ffunction-sections -Wl,--gc-sections` for agd, or
+shipping agctl's help text compressed, before anything is dropped.
+
 ## Tests
 
 - `tests/test_fleet.c` (ctest `fleet_learning`): buckets and levels; the

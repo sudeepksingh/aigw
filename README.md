@@ -66,7 +66,7 @@ illustrated version.
 > (`fleet.share`). A build option (`AIGW_FEATURE_FLEETLEARN`, in the full
 > profile); data model 1.23 `Device.X_AIGW_.FleetLearning.`; `agctl fleet`;
 > see [docs/fleet-learning.md](docs/fleet-learning.md). Installed flash, full
-> profile (KB, x86-64/aarch64/mipsel): FLASHFULL.
+> profile (KB, x86-64/aarch64/mipsel): 980/972/812.
 >
 > **v0.48:** **Choose the features.** Whoever builds AIGW OS picks its
 > features: 20 of them, each a CMake option and a `make menuconfig` choice, with

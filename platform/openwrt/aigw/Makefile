@@ -222,7 +222,7 @@ define Package/aigw/config
     bool "Federated learning" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_FLEETLEARN
-    bool "Fleet learning: every home teaches the next (about 20 KB)" if AIGW_PROFILE_CUSTOM
+    bool "Fleet learning: every home teaches the next (about 30 KB)" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_FED
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
     help
@@ -232,7 +232,7 @@ define Package/aigw/config
       warns from its first day against the fleet's normal. It never acts
       by itself: act.mode and the policies decide. Sharing this home's
       summary is opt-in (fleet.share). Needs federated learning (FED);
-      uses the bridge (PLUGINS) to reach cortex. About 20 KB of flash.
+      uses the bridge (PLUGINS) to reach cortex. About 30 KB of flash.
       See docs/fleet-learning.md.
   config AIGW_FEATURE_PLUGINS
     bool "Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)" if AIGW_PROFILE_CUSTOM

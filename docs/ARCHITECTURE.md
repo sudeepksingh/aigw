@@ -1201,7 +1201,7 @@ Verified by `tests/mesh-test.sh` (the handler on its own over a fake ubus and a 
 | Cortex (`fleetlearn.py`) | The reference aggregator: a fixed vocabulary (no MAC, address or name can travel), latest summary per home, cap per home and bucket, k-anonymity, medians of normals, published only on change |
 | Surfaces | `agctl fleet`, `agctl fleet rank <code> [device]`; DM 1.23 `Device.X_AIGW_.FleetLearning.`, `FleetPriorsReceived!`, `FleetChoice!`; ubus `ag.fleet`, event `ag.fleet` |
 
-Installed flash, full profile: FLASHFULL KB (x86-64/aarch64/mipsel); fleet learning itself FLASHOWN KB.
+Installed flash, full profile: 980/972/812 KB (x86-64/aarch64/mipsel); fleet learning itself 28/32/24 KB.
 
 **As built in v0.48: features chosen when it is built.** The full build does what v0.47 did; whoever builds AIGW OS can leave features out ([features.md](features.md)).
 
