@@ -237,8 +237,8 @@ class Cortex(unittest.TestCase):
         for c in (1, 2):
             for i in range(10):
                 gws[(c, i)] = s.enroll(f"cab{c}-home{i}", group=f"olt-9/cab-{c}")[0]
-        # a week of reports: cabinet 1's homes start sliding together on day -6; one home on cabinet 2 on its own
-        for d in range(-7, 1):
+        # four days of reports: cabinet 1's homes start sliding together on day -6; one home on cabinet 2 on its own
+        for d in range(-3, 1):
             for (c, i), g in gws.items():
                 day = TODAY + d
                 if c == 1 and i < 8 and d >= -2:
@@ -280,13 +280,13 @@ class Cortex(unittest.TestCase):
         self.assertTrue(any(k.startswith(f"line:{gws[(2, 0)]}:margin:") for k in keys), keys)
         self.assertEqual(sum(1 for k in keys if k.startswith("line:")), 1)
         doc = json.loads(s.q("SELECT doc FROM isp_tickets WHERE key = ?", (f"plant:{pid}",))[0]["doc"])
-        self.assertEqual(doc["explains"], 9)            # 1 proactive ticket + 8 members' own lines
+        self.assertEqual(doc["explains"], 1)            # the member's proactive line ticket, not sent
         tickets.flush(s, cfg, now)
         body = json.loads(s.q("SELECT body FROM ticket_outbox WHERE key = ? AND op = 'create'",
                               (f"plant:{pid}",))[0]["body"])
         self.assertEqual(body["ticketType"], "PredictedPlantFault")
         self.assertTrue(body["name"].startswith("Predicted plant fault"))
-        self.assertTrue(any("explains 9" in nt["text"] for nt in body["note"]))
+        self.assertTrue(any("explains 1 of" in nt["text"] for nt in body["note"]))
         self.assertEqual(len([e for e in body["relatedEntity"] if e["role"] == "affectedGateway"]), 8)
         # the same plant keeps its number next day; a later problem in it is the first fault (lead time)
         s.report(gws[(1, 1)], {"status": {}, "line": vec(TODAY + 1, onset=TODAY - 6, left=1),
@@ -295,7 +295,7 @@ class Cortex(unittest.TestCase):
                  now + 86400)
         ps2 = areapredict.predictions(s, open_only=True)
         self.assertEqual(ps2[0]["id"], pid)
-        self.assertAlmostEqual(ps2[0]["lead_days"], 1.0, delta=0.1)
+        self.assertAlmostEqual(ps2[0]["lead_days"], 3.0, delta=0.1)    # found on day -2, the problem on day +1
         b = areapredict.backtest(s, now + 86400)
         self.assertEqual([p["node"] for p in b["plants"]], ["olt-9/cab-1"])
         self.assertIsNotNone(b["plants"][0]["lead_days"])

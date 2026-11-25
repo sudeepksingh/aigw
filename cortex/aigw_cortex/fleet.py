@@ -240,7 +240,8 @@ def text(r, now=None):
            f": {h['reporting']} of {h['total']} homes reporting" + (f", {h['silent']} silent" if h["silent"] else "")]
     if e["mean"] is None:
         out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
-        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) + mesh.fleet_lines(r) +
+        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) +
+                         areapredict.fleet_lines(r) + mesh.fleet_lines(r) +
                          channels.fleet_lines(r) +
                          coverage.fleet_lines(r) + tickets.fleet_lines(r))
     change = ""

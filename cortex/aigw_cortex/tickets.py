@@ -770,6 +770,8 @@ def _scan_lines(store, cfg, since, now, seen, explained, explains):
         if r["state"] != "open" or key in present:
             continue
         doc = dict(json.loads(r["doc"]), open=False, plant=explained.get(r["gateway"], 0))
+        if doc["plant"]:                    # it turned out to be the plant's: resolved, counted on the plant's
+            explains[doc["plant"]] = explains.get(doc["plant"], 0) + 1
         ev = _upsert(store, cfg, key, "line", key[5:], r["gateway"], doc, _fp(doc, LINE_FP), False, since, now)
         if ev:
             seen[ev] = seen.get(ev, 0) + 1

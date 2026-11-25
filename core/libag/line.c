@@ -109,7 +109,7 @@ void line_analyse(const struct line_day *d, int n, long today, int m, const stru
 	struct line_day w[LINE_DAYS];
 	float x[LINE_DAYS], z[LINE_DAYS], r[LINE_DAYS], sg = line_lower_worse(m) ? -1.0f : 1.0f;
 	float best = 0, step = 0, slope = 0, tau = 0, base, floor_, fault, lz, fz, cs = 0, cd = 0, sig;
-	int i, k = 0, cp = 0, from = 0, nseg, drift = 0, win = p->window < LINE_DAYS ? p->window : LINE_DAYS;
+	int i, k = 0, cp = 0, from = 0, seg, nseg, drift = 0, win = p->window < LINE_DAYS ? p->window : LINE_DAYS;
 
 	memset(o, 0, sizeof(*o));
 	o->days_left = -1;
@@ -169,16 +169,26 @@ void line_analyse(const struct line_day *d, int n, long today, int m, const stru
 		base = sg * median(z, from);
 	else
 		from = 0;
-	nseg = k - from;
-	if (nseg >= 4) {
-		theil_sen(x + from, z + from, nseg, &slope, &tau);
+	seg = from;
+	/* the trend: after the change point; a ramp's median split comes late, so if that is too short to prove, a
+	   day or more earlier (to day 3) */
+	for (i = from; !drift && i >= (cp ? 2 : 0); i--) {
+		nseg = k - i;
+		if (nseg < 4)
+			continue;
+		theil_sen(x + i, z + i, nseg, &slope, &tau);
 		/* steady enough (tau), and not by chance: Kendall's test, one-sided p < 0.01 */
-		drift = slope > 0 && tau >= p->tau && slope * (x[k - 1] - x[from]) >= floor_ &&
+		drift = slope > 0 && tau >= p->tau && slope * (x[k - 1] - x[i]) >= floor_ &&
 			3 * tau * sqrtf((float)nseg * (float)(nseg - 1)) / sqrtf(2.0f * (float)(2 * nseg + 5)) >= 2.33f;
+		if (drift)
+			seg = i;
+		if (!cp)
+			break;
 	}
+	nseg = k - seg;
 	if (drift) {
-		for (i = from; i < k; i++)
-			r[i - from] = z[i] - slope * x[i];
+		for (i = seg; i < k; i++)
+			r[i - seg] = z[i] - slope * x[i];
 		lz = median(r, nseg) + slope * x[k - 1];
 	} else {
 		slope = 0;

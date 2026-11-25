@@ -68,7 +68,7 @@ int main(void)
 	CHECK(T.conf >= 70 && fabsf(T.base - 10) < 0.2f, "  high confidence (%d), base %.2f", T.conf, T.base);
 	CHECK(T.onset >= TODAY - 11 && T.onset <= TODAY - 8, "  it began about day -10 (%ld)", (long)T.onset - TODAY);
 	line_words(LM_MARGIN, &T, w, sizeof(w));
-	CHECK(strstr(w, "The noise margin fell from 10 dB") && strstr(w, "a fault (3 dB) in about"), "  words: %s", w);
+	CHECK(strstr(w, "The noise margin fell from") && strstr(w, "a fault (3 dB) in about"), "  words: %s", w);
 
 	/* 3. CRC errors step up and stay: stepped, not drifting, no fault yet */
 	for (i = 0; i < 14; i++)

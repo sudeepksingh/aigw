@@ -92,15 +92,24 @@ def analyse(days, today, metric, fault=None, p=None):
         base = sg * median(z[:frm])
     else:
         frm = 0
-    nseg = k - frm
     slope = tau = 0.0
     drift = False
-    if nseg >= 4:
-        slope, tau = theil_sen(x[frm:], z[frm:])
-        drift = (slope > 0 and tau >= p["tau"] and slope * (x[-1] - x[frm]) >= floor_ and
+    seg = frm
+    # the trend after the change point; a ramp's median split comes late: if too short to prove, start earlier
+    for i in range(frm, (2 if cp else 0) - 1, -1):
+        nseg = k - i
+        if nseg < 4:
+            continue
+        slope, tau = theil_sen(x[i:], z[i:])
+        drift = (slope > 0 and tau >= p["tau"] and slope * (x[-1] - x[i]) >= floor_ and
                  3 * tau * math.sqrt(nseg * (nseg - 1)) / math.sqrt(2 * (2 * nseg + 5)) >= 2.33)
+        if drift:
+            seg = i
+        if drift or not cp:
+            break
+    nseg = k - seg
     if drift:
-        lz = median([z[i] - slope * x[i] for i in range(frm, k)]) + slope * x[-1]
+        lz = median([z[i] - slope * x[i] for i in range(seg, k)]) + slope * x[-1]
     else:
         slope = 0.0
         lz = median(z[frm:])
