@@ -1508,7 +1508,7 @@ static void show_models(struct ubus_request *req, int type, struct blob_attr *ms
 		printf("  none: model updates are refused until you trust a key (agctl trust <key.pub>)\n");
 }
 
-#if AIGW_FEATURE_FED || AIGW_FEATURE_UPGRADE
+#if AIGW_FEATURE_FED || AIGW_FEATURE_UPGRADE || AIGW_FEATURE_AREAPREDICT
 static double fdbl(struct blob_attr *tbl, const char *name)
 {
 	struct blob_attr *a = field(tbl, name);
