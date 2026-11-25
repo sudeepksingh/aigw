@@ -126,6 +126,15 @@ struct brief_in {
 	/* coverage advice (ag/coverage.h), from the devices' history: what to do about weak Wi-Fi (which device, when,
 	   where, an extender or not), the device's history in a line, the customer's words; NULL none (yet) */
 	const char *coverage, *coverage_line, *coverage_note;
+	/* per-app experience (ag/appqoe.h): the period's sessions of the app asked about (else all) and their bad moments,
+	   each in words with its cause; the worst one with a cause in the home or on the line as a finding */
+	const char *apps_kind;          /* the app asked about, in words ("calls"); NULL any */
+	int apps_sessions, apps_troubled, apps_moments, apps_far_end;
+	const char *const *apps_line;   /* newest first */
+	const long *apps_t;
+	int napps_line;
+	const struct brief_finding *apps;       /* NULL none */
+	const char *apps_scores;        /* "calls 98%, streaming 100%" this week; NULL */
 };
 
 struct brief_line {

@@ -197,6 +197,18 @@ static void to_calls(struct nf_conntrack *ct, const struct aflow *f, uint64_t up
 	calls_counters(f->id, f->client, f->dst, f->domain, f->proto, f->dport, up, down, upk, dpk);
 }
 
+/* per-app experience: every TCP and UDP connection's counters, packets too (appqoe.c) */
+static void to_apps(struct nf_conntrack *ct, const struct aflow *f, uint64_t up, uint64_t down)
+{
+	uint64_t upk, dpk;
+
+	if (!AIGW_FEATURE_APPQOE || !cfg.apps || (f->proto != IPPROTO_UDP && f->proto != IPPROTO_TCP))
+		return;
+	upk = nfct_attr_is_set(ct, ATTR_ORIG_COUNTER_PACKETS) ? nfct_get_attr_u64(ct, ATTR_ORIG_COUNTER_PACKETS) : 0;
+	dpk = nfct_attr_is_set(ct, ATTR_REPL_COUNTER_PACKETS) ? nfct_get_attr_u64(ct, ATTR_REPL_COUNTER_PACKETS) : 0;
+	appqoe_counters(f->id, f->client, f->domain, f->proto, f->dport, up, down, upk, dpk);
+}
+
 /* Credit traffic since the last look to the device and its destination. */
 static void credit(struct aflow *f, uint64_t up, uint64_t down)
 {
@@ -367,6 +379,7 @@ static void flow_started(struct aflow *f, const struct tuple *t)
 		flows_no_dns_total++;
 	}
 	emit("new", f, 0, 0);
+	appqoe_flow_new(f->client, f->proto, f->dport);
 	alerts_on_flow(f->client, f->dst, f->domain, proto_name(f->proto), f->dport, f->no_dns);
 	if ((e = early_take(t)))
 		apply_name(f, &e->s);
@@ -428,6 +441,7 @@ static void flow_end(struct aflow *f, uint64_t up, uint64_t down)
 	emit("end", f, up, down);
 	if (cfg.calls && f->proto == IPPROTO_UDP)
 		calls_flow_end(f->id);
+	appqoe_flow_end(f->id);
 	act_remove(f);
 }
 
@@ -485,6 +499,7 @@ static int dump_cb(enum nf_conntrack_msg_type type, struct nf_conntrack *ct, voi
 		counters(ct, &up, &down);
 		credit(f, up, down);
 		to_calls(ct, f, up, down);
+		to_apps(ct, f, up, down);
 	}
 	return NFCT_CB_CONTINUE;
 }
@@ -498,9 +513,13 @@ static void dump_cb_timer(struct uloop_timeout *tmo)
 		AG_DEBUG("conntrack dump failed: %s", strerror(errno));
 	else if (cfg.calls)
 		calls_dump_done();      /* every connection's counters seen: which are calls or games */
+	if (AIGW_FEATURE_APPQOE && cfg.apps)
+		appqoe_dump_done();     /* ... and the apps' sessions, how they go */
 	/* calls and games are noticed within a few looks: look more often for them */
 	if (cfg.calls && cfg.calls_poll < every)
 		every = cfg.calls_poll;
+	if (AIGW_FEATURE_APPQOE && cfg.apps && cfg.apps_poll < every)
+		every = cfg.apps_poll;
 	uloop_timeout_set(tmo, every * 1000);
 }
 

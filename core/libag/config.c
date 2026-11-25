@@ -127,7 +127,7 @@ static const struct { const char *section, *feature; int built; } feature_sectio
 	{ "offers", "OFFERS", AIGW_FEATURE_OFFERS }, { "area", "AREA", AIGW_FEATURE_AREA },
 	{ "proactive", "PROACTIVE", AIGW_FEATURE_PROACTIVE }, { "mesh", "MESH", AIGW_FEATURE_MESH },
 	{ "coverage", "COVERAGE", AIGW_FEATURE_COVERAGE }, { "plugins", "PLUGINS", AIGW_FEATURE_PLUGINS },
-	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE },
+	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE }, { "apps", "APPQOE", AIGW_FEATURE_APPQOE },
 };
 
 /* "mesh (AIGW_FEATURE_MESH), ..." for each such section the config has */
@@ -276,6 +276,12 @@ void ag_config_load(struct ag_config *c)
 	c->calls_share = 1;
 	c->calls_poll = 10;
 	c->calls_min_s = 60;
+	c->apps = 1;
+	c->apps_names = 1;
+	c->apps_share = 1;
+	c->apps_poll = 10;
+	c->apps_min_s = 30;
+	copy(c->apps_rules, sizeof(c->apps_rules), "/etc/aigw/apps.rules");
 	/* in memory on a router (a reboot is itself in the story: the gap); on a PC, on disk */
 	copy(c->why_file, sizeof(c->why_file), owrt ? "/tmp/aigw/agd-why.bin" : "/var/lib/aigw/agd-why.bin");
 	c->mgmt_reset = 1;
@@ -600,6 +606,24 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "calls", "min_s");
 		if (v && atoi(v) >= 0 && atoi(v) <= 86400)
 			c->calls_min_s = atoi(v);
+		v = opt(ctx, p, "apps", "enabled");
+		if (v)
+			c->apps = atoi(v) != 0;
+		v = opt(ctx, p, "apps", "names");
+		if (v)
+			c->apps_names = atoi(v) != 0;
+		v = opt(ctx, p, "apps", "share");
+		if (v)
+			c->apps_share = atoi(v) != 0;
+		v = opt(ctx, p, "apps", "poll");
+		if (v && atoi(v) >= 1 && atoi(v) <= 300)
+			c->apps_poll = atoi(v);
+		v = opt(ctx, p, "apps", "min_s");
+		if (v && atoi(v) >= 0 && atoi(v) <= 86400)
+			c->apps_min_s = atoi(v);
+		v = opt(ctx, p, "apps", "rules");
+		if (v)
+			copy(c->apps_rules, sizeof(c->apps_rules), v);
 		v = opt(ctx, p, "offers", "enabled");
 		if (v)
 			c->offers = atoi(v) != 0;

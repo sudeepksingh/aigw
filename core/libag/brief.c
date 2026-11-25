@@ -263,6 +263,15 @@ static void evidence(const struct brief_in *in, struct brief *o)
 	if (in->calls)
 		line_add(o->ev, &o->nev, 0, "calls", "%d call%s or game%s in the period, %d rough.", in->calls,
 			 in->calls == 1 ? "" : "s", in->calls == 1 ? "" : "s", in->calls_rough);
+	if (in->apps_kind || in->apps_sessions || in->napps_line) {
+		line_add(o->ev, &o->nev, 0, "apps", "%s in the period: %d session%s, %d with trouble%s%s.",
+			 in->apps_kind ? in->apps_kind : "Apps", in->apps_sessions, in->apps_sessions == 1 ? "" : "s",
+			 in->apps_troubled, in->apps_scores ? "; this week " : "", in->apps_scores ? in->apps_scores : "");
+		if (in->apps_kind && o->nev)
+			o->ev[o->nev - 1].text[0] = (char)toupper((unsigned char)o->ev[o->nev - 1].text[0]);
+	}
+	for (i = 0; i < in->napps_line; i++)
+		line_add(o->ev, &o->nev, in->apps_t ? in->apps_t[i] : 0, "apps", "%s", in->apps_line[i]);
 	if (in->upgrade && strcmp(in->upgrade, "None") && in->upgrade_at && in->upgrade_at >= in->from - 86400) {
 		char when[16];
 
@@ -490,6 +499,9 @@ void brief_judge(const struct brief_in *in, struct brief *o)
 			main = &in->mesh[f];
 			o->current = ends_now;
 		}
+	/* nothing else for the period as a whole: an app's bad moment with its cause in the home or on the line */
+	if (!main && in->apps && bad(in->apps))
+		main = in->apps;
 	if (main) {
 		o->code = main->code;
 		f = brief_fault_of(main->code);
@@ -530,6 +542,8 @@ void brief_judge(const struct brief_in *in, struct brief *o)
 			o->code = in->why.code;
 		else if (known && in->calls_rough && in->calls_rough * 2 >= in->calls)
 			o->code = "OUTSIDE_SERVICE";
+		else if (known && in->apps_moments && in->apps_far_end * 2 >= in->apps_moments)
+			o->code = "OUTSIDE_SERVICE";    /* the apps had trouble while the home and the line were fine */
 		else if (!known)
 			o->code = "NO_DATA";
 		f = brief_fault_of(o->code);
@@ -552,6 +566,10 @@ void brief_judge(const struct brief_in *in, struct brief *o)
 	else if (!strcmp(o->code, "LINE_FULL") || brief_fault_of(o->code) == BF_UNKNOWN)
 		first_sentence(in->have_why && in->why.text ? in->why.text : "There is no record of that period", first,
 			       sizeof(first));
+	else if (!strcmp(o->code, "OUTSIDE_SERVICE") && !(in->calls_rough && in->calls_rough * 2 >= in->calls))
+		snprintf(first, sizeof(first), "%d of %d bad moment%s of %s %s while the home and the line were fine",
+			 in->apps_far_end, in->apps_moments, in->apps_moments == 1 ? "" : "s",
+			 in->apps_kind ? in->apps_kind : "the apps", in->apps_moments == 1 ? "was" : "were");
 	else if (!strcmp(o->code, "OUTSIDE_SERVICE"))
 		snprintf(first, sizeof(first), "%d of %d calls or games were rough while the line and Wi-Fi were fine",
 			 in->calls_rough, in->calls);

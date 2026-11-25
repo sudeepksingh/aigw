@@ -23,6 +23,7 @@ set(AIGW_FEATURE_TABLE
   "OFFERS|Signals for the ISP (a faster plan, mesh Wi-Fi, and more)|WHY,CARE"
   "SQM|Self-tuning smart queueing|WHY"
   "CALLS|Calls and games first|SQM"
+  "APPQOE|Per-app experience: how each call, stream and game went, and why|WHY"
   "BRIEF|The help-desk brief|CARE,WHY"
   "PROACTIVE|Proactive care before the call, tickets to the ISP|BRIEF"
   "AREA|Area outages, fixes held while many homes fail at once|"
@@ -39,7 +40,7 @@ set(AIGW_FEATURE_TABLE
 # needs most) | minimal (the core only)
 set(AIGW_PROFILE "full" CACHE STRING "Feature profile: full, small or minimal")
 set_property(CACHE AIGW_PROFILE PROPERTY STRINGS full small minimal)
-set(AIGW_PROFILE_small WIFI_HEAL TR143 CARE UPGRADE WHY BRIEF PROACTIVE SQM)
+set(AIGW_PROFILE_small WIFI_HEAL TR143 CARE UPGRADE WHY BRIEF PROACTIVE SQM APPQOE)
 
 set(AIGW_FEATURE_NAMES "")
 foreach(row ${AIGW_FEATURE_TABLE})

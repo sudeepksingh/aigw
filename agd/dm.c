@@ -36,6 +36,7 @@
 
 #include <libubus.h>
 
+#include "ag/appqoe.h"
 #include "ag/brief.h"
 #include "ag/care.h"
 #include "ag/diag.h"
@@ -45,7 +46,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.22"
+#define DM_VERSION "1.23"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -161,6 +162,9 @@ enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, T
 #if AIGW_FEATURE_COVERAGE
        TB_SPOT,
 #endif
+#if AIGW_FEATURE_APPQOE
+       TB_APPKIND, TB_APPMOMENT,
+#endif
        TB_N };
 
 static int host_listed(const struct device *d)
@@ -247,6 +251,10 @@ static struct {
 #if AIGW_FEATURE_COVERAGE
 	[TB_SPOT]     = { "Device.X_AIGW_.Coverage.Spot.{i}.", coverage_spot_ids },
 #endif
+#if AIGW_FEATURE_APPQOE
+	[TB_APPKIND]  = { "Device.X_AIGW_.AppExperience.Kind.{i}.", appqoe_kind_ids },
+	[TB_APPMOMENT] = { "Device.X_AIGW_.AppExperience.Moment.{i}.", appqoe_moment_ids },
+#endif
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -306,6 +314,12 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 #if AIGW_FEATURE_COVERAGE
 	case TB_SPOT:
 		return coverage_spot_field(inst, "Devices", tmp, sizeof(tmp));
+#endif
+#if AIGW_FEATURE_APPQOE
+	case TB_APPKIND:
+		return appqoe_kind_field(inst, "Minutes", tmp, sizeof(tmp));
+	case TB_APPMOMENT:
+		return appqoe_moment_field(inst, "Seconds", tmp, sizeof(tmp));
 #endif
 	}
 	return -1;
@@ -1044,6 +1058,37 @@ GET(g_cov) { const char *d = strrchr(c->ppath, '.'); return coverage_field(d ? d
 GET(g_cov_spot) { const char *d = strrchr(c->ppath, '.'); return coverage_spot_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
 #endif
 
+#if AIGW_FEATURE_APPQOE
+/* per-app experience (Device.X_AIGW_.AppExperience.): by the parameter's own name; times and booleans as such */
+static const char *ax_name(const char *path) { const char *d = strrchr(path, '.'); return d ? d + 1 : path; }
+
+static int ax_fmt(int rc, const char *name, char *buf, size_t n)
+{
+	if (rc < 0)
+		return -1;
+	if (!strcmp(name, "LastMoment") || !strcmp(name, "Time") || !strcmp(name, "FixTime")) {
+		char v[24];
+
+		snprintf(v, sizeof(v), "%s", buf);
+		fmt_time(strtoll(v, NULL, 10), buf, n);
+	}
+	return 0;
+}
+
+GET(g_ax)
+{
+	const char *f = ax_name(c->ppath);
+
+	if (!strcmp(f, "KindNumberOfEntries") || !strcmp(f, "MomentNumberOfEntries")) {
+		snprintf(buf, n, "%d", count(*f == 'K' ? TB_APPKIND : TB_APPMOMENT));
+		return 0;
+	}
+	return ax_fmt(appqoe_field(f, buf, n), f, buf, n);
+}
+GET(g_ax_kind) { const char *f = ax_name(c->ppath); return ax_fmt(appqoe_kind_field(c->inst, f, buf, n), f, buf, n); }
+GET(g_ax_mo) { const char *f = ax_name(c->ppath); return ax_fmt(appqoe_moment_field(c->inst, f, buf, n), f, buf, n); }
+#endif
+
 #if AIGW_FEATURE_AREA
 /* area outages (Device.X_AIGW_.AreaOutage.): cortex found many homes of this uplink down at once */
 #define AOF(fn, f) GET(fn) { (void)c; return area_field(f, buf, n); }
@@ -1513,6 +1558,36 @@ static struct dm_param {
 	{ CV "Spot.{i}.Signal", T_INT, 0, TB_SPOT, g_cov_spot, NULL },
 	{ CV "Spot.{i}.HeardBestBy", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
 #undef CV
+#endif
+#if AIGW_FEATURE_APPQOE
+#define AX "Device.X_AIGW_.AppExperience."
+	{ AX "Enable", T_BOOL, 0, TB_NONE, g_ax, NULL },
+	{ AX "ServerNames", T_BOOL, 0, TB_NONE, g_ax, NULL },
+	{ AX "Shared", T_BOOL, 0, TB_NONE, g_ax, NULL },
+	{ AX "Status", T_STR, N, TB_NONE, g_ax, NULL },
+	{ AX "ActiveSessions", T_UINT, 0, TB_NONE, g_ax, NULL },
+	{ AX "Sessions", T_UINT, 0, TB_NONE, g_ax, NULL },
+	{ AX "BadMoments", T_UINT, N, TB_NONE, g_ax, NULL },
+	{ AX "Score", T_INT, 0, TB_NONE, g_ax, NULL },
+	{ AX "LastMoment", T_TIME, 0, TB_NONE, g_ax, NULL },
+	{ AX "KindNumberOfEntries", T_UINT, 0, TB_NONE, g_ax, NULL },
+	{ AX "Kind.{i}.Name", T_STR, 0, TB_APPKIND, g_ax_kind, NULL },
+	{ AX "Kind.{i}.Score", T_INT, 0, TB_APPKIND, g_ax_kind, NULL },
+	{ AX "Kind.{i}.Minutes", T_UINT, 0, TB_APPKIND, g_ax_kind, NULL },
+	{ AX "Kind.{i}.BadMinutes", T_UINT, 0, TB_APPKIND, g_ax_kind, NULL },
+	{ AX "Kind.{i}.Sessions", T_UINT, 0, TB_APPKIND, g_ax_kind, NULL },
+	{ AX "MomentNumberOfEntries", T_UINT, N, TB_NONE, g_ax, NULL },
+	{ AX "Moment.{i}.Time", T_TIME, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.Kind", T_STR, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.What", T_STR, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.Seconds", T_UINT, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.Confidence", T_UINT, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.Cause", T_STR, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.CauseCode", T_STR, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.Fixed", T_BOOL, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.FixTime", T_TIME, 0, TB_APPMOMENT, g_ax_mo, NULL },
+	{ AX "Moment.{i}.Summary", T_STR, 0, TB_APPMOMENT, g_ax_mo, NULL },
+#undef AX
 #endif
 #if AIGW_FEATURE_AREA
 #define AO "Device.X_AIGW_.AreaOutage."
@@ -2005,8 +2080,14 @@ static int r_whyslow(const struct ictx *c, struct blob_attr *a, struct blob_buf 
 	if (!from)
 		from = to - 3600;
 	why_hide_calls(req_remote && !cfg.calls_share);    /* calls.share 0: no calls in the ISP's story */
+#if AIGW_FEATURE_APPQOE
+	why_hide_apps(req_remote && !cfg.apps_share);      /* apps.share 0: no app moments either */
+#endif
 	i = why_ask(from, to, h, &r, &in, e, n);
 	why_hide_calls(0);
+#if AIGW_FEATURE_APPQOE
+	why_hide_apps(0);
+#endif
 	if (i < 0)
 		return E_INVALID_ARGS;
 	for (i = 0; i < r.n && len < sizeof(codes); i++)
@@ -2135,6 +2216,18 @@ static int r_brief(const struct ictx *c, struct blob_attr *a, struct blob_buf *o
 	q.propose = arg_true(a, "Propose");
 	q.names = !req_remote || cfg.brief_names;         /* the ISP: device kinds, unless the home allows names */
 	q.hide_calls = req_remote && !cfg.calls_share;
+#if AIGW_FEATURE_APPQOE
+	{
+		const char *av = arg(a, "App");
+
+		if (av && *av && app_group_by_name(av) < 0) {
+			snprintf(e, n, "App is Calls, Streaming, Gaming, Downloads, Browsing or SmartHome");
+			return E_INVALID_ARGS;
+		}
+		snprintf(q.app, sizeof(q.app), "%s", av ? av : "");
+		q.hide_apps = req_remote && !cfg.apps_share;
+	}
+#endif
 	snprintf(q.who, sizeof(q.who), "%s", req_origin);
 	return brief_start(&q, brief_done, cur_async, e, n) < 0 ? E_REFUSED : E_PENDING;
 }
@@ -2210,7 +2303,11 @@ static struct dm_cmd {
 	  "Code,Area,Severity,Summary,Advice,Findings,Story,Start,End,RecordedPercent", r_whyslow, 0, 0 },
 #endif
 #if AIGW_FEATURE_BRIEF
-	{ "Device.X_AIGW_.SupportBrief()", TB_NONE, "Period,Start,End,Host,Fresh,SpeedTest,Propose",
+	{ "Device.X_AIGW_.SupportBrief()", TB_NONE, "Period,Start,End,Host,Fresh,SpeedTest,Propose"
+#if AIGW_FEATURE_APPQOE
+	  ",App"                        /* calls, streaming, gaming, ...: "my calls drop" */
+#endif
+	  ,
 	  "Fault,Code,Confidence,Verdict,Evidence,Done,Tell,RemoteFix,Fix,FixDecision,Visit,VisitReason,Checked,Start,End,"
 	  "DataAgeSeconds", r_brief, 0, 1 },
 #endif
@@ -2270,6 +2367,9 @@ enum {
 #if AIGW_FEATURE_CALLS
 	EVT_CALL,
 #endif
+#if AIGW_FEATURE_APPQOE
+	EVT_APP,
+#endif
 #if AIGW_FEATURE_AREA
 	EVT_AREA,
 #endif
@@ -2319,6 +2419,9 @@ static struct {
 #if AIGW_FEATURE_CALLS
 	[EVT_CALL] = { "Device.X_AIGW_.CallReport!",
 	  "Kind,Verdict,DurationSeconds,FullLineSeconds,LineKbps,LatencyMs,JitterMs,LossPercent,Prioritized,Summary" },
+#endif
+#if AIGW_FEATURE_APPQOE
+	[EVT_APP] = { "Device.X_AIGW_.AppMoment!", "Moment,Kind,What,Seconds,Confidence,Cause,CauseCode,Time,Summary" },
 #endif
 #if AIGW_FEATURE_AREA
 	[EVT_AREA] = { "Device.X_AIGW_.AreaOutage!", "Incident,Kind,Since,Homes,HomesInArea,Confidence,Uplink" },
@@ -2964,6 +3067,26 @@ void dm_on_call(const char *kind, const char *verdict, long duration, long full_
 				     "Prioritized", prioritized ? "true" : "false", "Summary", summary, NULL };
 
 		emit(events[EVT_CALL].path, kv);  /* CallReport! */
+	}
+}
+#endif
+
+#if AIGW_FEATURE_APPQOE
+/* appqoe.c: an app's bad moment and its cause (AppMoment!), without names */
+void dm_on_app(uint32_t moment, const char *kind, const char *what, int seconds, int conf, const char *cause,
+	       const char *code, long t, const char *summary)
+{
+	char mo[16], s[16], cf[16], tm[40];
+
+	snprintf(mo, sizeof(mo), "%u", moment);
+	snprintf(s, sizeof(s), "%d", seconds);
+	snprintf(cf, sizeof(cf), "%d", conf);
+	fmt_time(t, tm, sizeof(tm));
+	{
+		const char *kv[] = { "Moment", mo, "Kind", kind, "What", what, "Seconds", s, "Confidence", cf, "Cause", cause,
+				     "CauseCode", code ? code : "", "Time", tm, "Summary", summary, NULL };
+
+		emit(events[EVT_APP].path, kv);   /* AppMoment! */
 	}
 }
 #endif

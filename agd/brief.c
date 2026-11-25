@@ -29,6 +29,7 @@
 #include <libubox/blobmsg.h>
 #include <libubox/uloop.h>
 
+#include "ag/appqoe.h"
 #include "ag/brief.h"
 #include "ag/calls.h"
 #include "ag/care.h"
@@ -242,6 +243,48 @@ static void gather(struct brief_in *in, const struct brief_ask *a, long now)
 			in->coverage_note = cn[0] ? cn : NULL;
 		}
 	}
+#if AIGW_FEATURE_APPQOE
+	/* per-app experience: the period's sessions (of the app asked about) and their bad moments, with causes */
+	{
+		static struct appqoe_brief ab;
+		static const char *lines[APPQOE_BRIEF_LINES];
+		static struct brief_finding af;
+		static char kind_w[24];
+		int g = a->app[0] ? app_group_by_name(a->app) : -1, j;
+
+		if (!a->hide_apps && appqoe_brief(a->from, a->to, in->host_target, g, a->names, &ab) == 0) {
+			if (g >= 0) {
+				snprintf(kind_w, sizeof(kind_w), "%s", app_group_words(g));
+				in->apps_kind = kind_w;
+			}
+			in->apps_sessions = ab.sessions;
+			in->apps_troubled = ab.troubled;
+			in->apps_moments = ab.moments;
+			in->apps_far_end = ab.far_end;
+			for (j = 0; j < ab.nline; j++) {
+				if (!a->names)
+					brief_scrub_isp(ab.line[j], sizeof(ab.line[j]));
+				lines[j] = ab.line[j];
+			}
+			in->apps_line = lines;
+			in->apps_t = ab.t;
+			in->napps_line = ab.nline;
+			in->apps_scores = ab.scores[0] ? ab.scores : NULL;
+			if (ab.worst_code[0]) {
+				memset(&af, 0, sizeof(af));
+				af.code = ab.worst_code;
+				af.area = !strncmp(ab.worst_code, "WIFI", 4) || !strncmp(ab.worst_code, "MESH", 4) ? "WiFi" :
+					  !strncmp(ab.worst_code, "DNS", 3) ? "DNS" : !strncmp(ab.worst_code, "DEVICE", 6) ? "Device" :
+					  "Internet";
+				af.sev = DS_WARN;
+				af.since = ab.worst_since;
+				af.until = ab.worst_until;
+				af.text = ab.line[ab.worst];
+				in->apps = &af;
+			}
+		}
+	}
+#endif
 	/* smart queueing, the last upgrade */
 	if (cfg.sqm && sqm_field("Status", sqm_state, sizeof(sqm_state)) == 0) {
 		uint32_t id;
@@ -410,6 +453,7 @@ int brief_quick(long from, long to, const char *host, struct brief *out)
 		snprintf(a.host, sizeof(a.host), "%s", host);
 	a.names = cfg.brief_names;
 	a.hide_calls = !cfg.calls_share;
+	a.hide_apps = !cfg.apps_share;
 	snprintf(a.who, sizeof(a.who), "proactive care");
 	Q.a = a;
 	Q.have_check = Q.speed_ran = 0;
@@ -626,6 +670,7 @@ void brief_report_blob(struct blob_buf *b)
 	a.to = now;
 	a.names = cfg.brief_names;
 	a.hide_calls = !cfg.calls_share;
+	a.hide_apps = !cfg.apps_share;
 	snprintf(a.who, sizeof(a.who), "cortex");
 	Q.a = a;
 	Q.have_check = Q.speed_ran = 0;
