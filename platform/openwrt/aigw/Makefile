@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.48.0
+PKG_VERSION:=0.50.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -151,7 +151,7 @@ define Package/aigw-demo/description
 endef
 
 # the features (cmake/features.cmake, docs/features.md): make menuconfig, Network > aigw
-AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA FED PLUGINS SNI METER FASTPATH REMOTE KEYS
+AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS
 PKG_CONFIG_DEPENDS:=$(foreach f,$(AIGW_FEATURES),CONFIG_AIGW_FEATURE_$(f))
 
 define Package/aigw/config
@@ -221,7 +221,19 @@ define Package/aigw/config
   config AIGW_FEATURE_FED
     bool "Federated learning" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
-  config AIGW_FEATURE_PLUGINS
+  config AIGW_FEATURE_FLEETLEARN
+    bool "Fleet learning: every home teaches the next (about 20 KB)" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_FED
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    help
+      How fixes went in other homes (counts per fault, fix and coarse
+      context, k homes or more, signed by cortex) ranks the fixes AIGW
+      may use here, blended with this home's own outcomes; a new gateway
+      warns from its first day against the fleet's normal. It never acts
+      by itself: act.mode and the policies decide. Sharing this home's
+      summary is opt-in (fleet.share). Needs federated learning (FED);
+      uses the bridge (PLUGINS) to reach cortex. About 20 KB of flash.
+      See docs/fleet-learning.md.  config AIGW_FEATURE_PLUGINS
     bool "Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_SNI
