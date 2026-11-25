@@ -316,8 +316,8 @@ ok = ok and v[p + 'Ticket.$TID.Status'] == 'Raised' and v[p + 'Ticket.$TID.Fault
 ok = ok and v[p + 'Ticket.$TID.CustomerNote'].startswith('We noticed') and v[p + 'Ticket.$TID.Opened'].endswith('Z')
 sys.exit(0 if ok else 1)" < "$T/dm.json" || fail "TR-181 Device.X_AIGW_.Proactive.: $(cat "$T/dm.json")"
 "$UBUS" -s "$AIGW_UBUS" call ag.dm schema > "$T/schema.json"
-js "sys.exit(0 if d['version'] == '1.22' and 'Device.X_AIGW_.ProactiveTicket!' in [e['path'] for e in d['events']] else 1)" \
-	< "$T/schema.json" || fail "data model 1.22 with ProactiveTicket!: $(head -c 400 "$T/schema.json")"
+js "sys.exit(0 if d['version'] == '1.23' and 'Device.X_AIGW_.ProactiveTicket!' in [e['path'] for e in d['events']] else 1)" \
+	< "$T/schema.json" || fail "data model 1.23 with ProactiveTicket!: $(head -c 400 "$T/schema.json")"
 
 echo "== seen again and again: still one ticket, one event"
 sleep 6

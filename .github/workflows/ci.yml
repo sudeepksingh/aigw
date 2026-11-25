@@ -80,6 +80,10 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/mesh-test.sh build
       - name: "Coverage advice test (a simulated home: a phone that moves to a far room at night, a TV that lives there, a weak smart plug; one shared spot, an extender about halfway; kinds for the ISP; a ticket that says where)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/coverage-test.sh build
+      - name: "Home model test (places, path loss, the bedroom's problems; 2.4 GHz there before buying an extender; zones stay home; HomeAdvice! without names)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/home-test.sh build
+      - name: "Wi-Fi sensing test (off by default and keeps nothing; consent; movement by zone; presence local only unless share_events; CSI handler; off forgets)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/sense-test.sh build
       - name: "Smart queueing test (real bufferbloat on a veth WAN: proposed, shaped, kept; tried and undone)"
         run: |
           (sudo modprobe sch_netem && sudo modprobe ifb) ||

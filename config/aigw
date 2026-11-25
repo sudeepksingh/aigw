@@ -358,6 +358,42 @@ config coverage 'coverage'
 	# lead), spots by device kind; never a name unless brief.names
 	option share '1'
 
+config home 'home'
+	# the home Wi-Fi model (agctl home, Device.X_AIGW_.HomeModel.,
+	# docs/home-model.md): from coverage's looks, the home's places (no floor
+	# plan), each place's path loss, the last 30 days' coverage problems, and
+	# what an extender, moving the gateway or another band would fix, before
+	# anyone buys anything. It only predicts: nothing is changed. Name a place
+	# by a device seen there: agctl home name <device> bedroom
+	option enabled '1'
+	# looks (coverage.interval each) before the model says anything
+	option learn '120'
+	# cortex gets the status, counts and the best option's kind; never places or names
+	option share '1'
+
+config sensing 'sensing'
+	# Wi-Fi sensing (agctl sense, docs/wifi-sensing.md): someone home or not,
+	# movement per zone, and a check-in that says whether today's activity is
+	# as usual. OPT-IN: off until the home agrees (agctl sense on --i-agree,
+	# which sets enabled and consent). It stays on this gateway. The ISP can't
+	# turn it on; it gets nothing unless share_events is 1, and then only
+	# PresenceChanged! and UnusualInactivity! (no zones, no devices).
+	option enabled '0'
+	# who agreed, and when (agctl sense on --i-agree writes it); empty: it does not run
+	option consent ''
+	# where devices stay, without the home model's place names: list zone '<MAC>=<zone>'
+	# list zone '02:11:22:33:44:55=living room'
+	# people's own devices, besides phones and watches by their type: list personal '<MAC>'
+	# coarse events to the ISP (PresenceChanged!, UnusualInactivity!)
+	option share_events '0'
+	# the check-in: unusual inactivity after this many minutes of the usual movement missed
+	option checkin '0'
+	option checkin_minutes '45'
+	# looks (5 s each) in a window
+	option window '6'
+	# a vendor's CSI handler, when the driver offers it: "<handler> motion" prints "<MAC> <0-100>" lines
+	# option csi_handler '/usr/libexec/aigw/csi-motion'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'
