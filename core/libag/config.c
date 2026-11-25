@@ -127,7 +127,7 @@ static const struct { const char *section, *feature; int built; } feature_sectio
 	{ "offers", "OFFERS", AIGW_FEATURE_OFFERS }, { "area", "AREA", AIGW_FEATURE_AREA },
 	{ "proactive", "PROACTIVE", AIGW_FEATURE_PROACTIVE }, { "mesh", "MESH", AIGW_FEATURE_MESH },
 	{ "coverage", "COVERAGE", AIGW_FEATURE_COVERAGE }, { "plugins", "PLUGINS", AIGW_FEATURE_PLUGINS },
-	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE },
+	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE }, { "line", "AREAPREDICT", AIGW_FEATURE_AREAPREDICT },
 };
 
 /* "mesh (AIGW_FEATURE_MESH), ..." for each such section the config has */
@@ -267,6 +267,9 @@ void ag_config_load(struct ag_config *c)
 	c->cov_interval = 60;
 	c->cov_learn = 60;
 	c->cov_share = 1;
+	c->line = 1;
+	c->line_interval = 900;
+	c->line_share = 1;
 	c->sqm = 1;
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
@@ -691,6 +694,16 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "coverage", "share");
 		if (v)
 			c->cov_share = atoi(v) != 0;
+		v = opt(ctx, p, "line", "enabled");
+		if (v)
+			c->line = atoi(v) != 0;
+		v = opt(ctx, p, "line", "interval");
+		if (v && atoi(v) >= 1 && atoi(v) <= 86400)
+			c->line_interval = atoi(v);
+		v = opt(ctx, p, "line", "share");
+		if (v)
+			c->line_share = atoi(v) != 0;
+		copy(c->line_handler, sizeof(c->line_handler), opt(ctx, p, "line", "handler"));
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

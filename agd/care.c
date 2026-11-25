@@ -380,6 +380,11 @@ static void done(void *ctx, const struct diag_result *r, const struct diag_input
 		sample_of(in, &s);
 		learn_one(&s, now, care_bad(&v) ? care_area_index(v.area) : -1);
 		last_sample = now;
+		/* line health (v0.53): the next hop's delay and loss, faults included (they are part of the trend) */
+		if (in && in->route && in->gw_ping.sent)
+			line_on_check(in->gw_ping.lost < in->gw_ping.sent && in->gw_ping.rtt_ms >= 0 ?
+				      (float)in->gw_ping.rtt_ms : -1.0f,
+				      (float)in->gw_ping.lost * 100.0f / (float)in->gw_ping.sent);
 	}
 	schedule(next_secs());
 }
@@ -463,6 +468,7 @@ static int speed_record(const struct tr143_out *o, long now, const char *by)
 		d->speed_low++;
 	AG_INFO("care: speed test%s%s: %.1f Mbit/s%s", by[0] ? " by " : "", by, spd.mbps, low ? " (slow)" : "");
 	upgrade_on_speed((float)spd.mbps);
+	line_on_speed((float)spd.mbps);
 	memset(&s, 0, sizeof(s));
 	s.have[CM_SPEED] = 1;
 	s.v[CM_SPEED] = (float)spd.mbps;
@@ -932,6 +938,7 @@ static void save_learn(struct blob_buf *b)
 		blobmsg_add_double(b, NULL, L.m[m].recent);
 		for (h = 0; h < 24; h++)
 			save_norm(b, &L.m[m].hour[h]);
+		blobmsg_add_double(b, NULL, L.m[m].level);     /* v0.53, last: older versions read the first 77 */
 		blobmsg_close_array(b, row);
 	}
 	blobmsg_close_array(b, arr);
@@ -1069,7 +1076,7 @@ static void load_open(struct blob_attr *cur, struct care_state *s)
 static void load_norms(struct blob_attr *row, int m)
 {
 	struct blob_attr *v;
-	double x[5 + 3 * 24];
+	double x[5 + 3 * 24 + 1];
 	size_t r;
 	int k = 0, h;
 
@@ -1089,6 +1096,14 @@ static void load_norms(struct blob_attr *row, int m)
 		L.m[m].hour[h].dev = (float)x[6 + 3 * h];
 		L.m[m].hour[h].n = (unsigned)x[7 + 3 * h];
 	}
+	/* v0.53: the value lately; a state from before has only how much worse it was: the normal and that, never
+	   below 0 (the old "-1 Mbit/s") */
+	if (k > 5 + 3 * 24)
+		L.m[m].level = (float)x[5 + 3 * 24];
+	else if (L.m[m].all.n)
+		L.m[m].level = m == CM_SPEED ? L.m[m].all.mean - L.m[m].recent : L.m[m].all.mean + L.m[m].recent;
+	if (L.m[m].level < 0 || !isfinite(L.m[m].level))
+		L.m[m].level = 0;
 }
 
 static void load_learn(struct blob_attr *t)
@@ -1158,6 +1173,9 @@ static void load_learn(struct blob_attr *t)
 			}
 		}
 	}
+	/* an open warning saved by 0.52 or older may say "-1 Mbit/s": what was measured lately instead */
+	if (L.w.active && L.w.current < 0)
+		L.w.current = L.m[L.w.metric].level;
 }
 
 void care_load(struct blob_attr *t)

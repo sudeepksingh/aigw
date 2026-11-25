@@ -26,6 +26,7 @@ set(AIGW_FEATURE_TABLE
   "BRIEF|The help-desk brief|CARE,WHY"
   "PROACTIVE|Proactive care before the call, tickets to the ISP|BRIEF"
   "AREA|Area outages, fixes held while many homes fail at once|"
+  "AREAPREDICT|Area fault prediction: line health trends, the shared plant found before it fails|CARE"
   "FED|Federated learning|"
   "PLUGINS|Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)|"
   "SNI|Connection names from TLS and QUIC handshakes|"
@@ -39,7 +40,7 @@ set(AIGW_FEATURE_TABLE
 # needs most) | minimal (the core only)
 set(AIGW_PROFILE "full" CACHE STRING "Feature profile: full, small or minimal")
 set_property(CACHE AIGW_PROFILE PROPERTY STRINGS full small minimal)
-set(AIGW_PROFILE_small WIFI_HEAL TR143 CARE UPGRADE WHY BRIEF PROACTIVE SQM)
+set(AIGW_PROFILE_small WIFI_HEAL TR143 CARE UPGRADE WHY BRIEF PROACTIVE SQM AREAPREDICT)
 
 set(AIGW_FEATURE_NAMES "")
 foreach(row ${AIGW_FEATURE_TABLE})

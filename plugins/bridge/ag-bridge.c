@@ -39,6 +39,8 @@
  *              ACS pushes it); needs capability firmware.install and mgmt.firmware 1
  *   area       1 = pass on cortex's area-outage notice (many homes of this uplink
  *              down at once): agd holds its own fixes meanwhile (capability area.notice)
+ *   line       1 = send the line health vector (agd's line.share rules too) and pass on
+ *              cortex's word on the shared plant: shown, never acted on (line.notice)
  */
 #define _GNU_SOURCE
 #include <errno.h>
@@ -64,9 +66,10 @@
 
 static struct {
 	char url[128], token[128], devices[16], state[256], host[16], aigw[16];
-	int interval, models, proposals, fed, alert_names, firmware, area;
-	int can_read, can_propose, can_model, can_fed, can_firmware, can_area;
-} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1, .area = 1 };
+	int interval, models, proposals, fed, alert_names, firmware, area, line;
+	int can_read, can_propose, can_model, can_fed, can_firmware, can_area, can_line;
+} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1, .area = 1,
+	.line = 1 };
 
 static char *ibuf;
 static size_t ilen, icap;
@@ -212,6 +215,7 @@ static void on_hello(struct blob_attr *h)
 	c.alert_names = (int)fnum(conf, "alert_names", 1);
 	c.firmware = (int)fnum(conf, "firmware", 0);
 	c.area = (int)fnum(conf, "area", 1);
+	c.line = (int)fnum(conf, "line", 1);
 	if ((g = field(h, "granted")))
 		blobmsg_for_each_attr(cur, g, rem) {
 			const char *cap = blobmsg_type(cur) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(cur) : "";
@@ -222,6 +226,7 @@ static void on_hello(struct blob_attr *h)
 			c.can_fed |= !strcmp(cap, "fed.train");
 			c.can_firmware |= !strcmp(cap, "firmware.install");
 			c.can_area |= !strcmp(cap, "area.notice");
+			c.can_line |= !strcmp(cap, "line.notice");
 		}
 	configured = 1;
 }
@@ -594,6 +599,46 @@ static void area_pass(const char *out)
 	blob_buf_free(&a);
 }
 
+/*
+ * cortex's word on this home's line (v0.53): the cabinet, OLT or area serving it
+ * degrades with others, or not ({"line": {plant: 0}}). agd shows it; it changes nothing.
+ */
+static long line_told = -1;
+
+static void line_pass(const char *out)
+{
+	struct blob_buf a = { 0 }, b = { 0 };
+	struct blob_attr *t, *cur, *d;
+	size_t rem;
+	long plant;
+	int id = next_id++;
+	void *tt;
+
+	if (!c.line || !c.can_line || read_json(out, &a) || !(t = field(a.head, "line")) ||
+	    blobmsg_type(t) != BLOBMSG_TYPE_TABLE) {
+		blob_buf_free(&a);
+		return;                      /* a cortex before 0.53 says nothing */
+	}
+	plant = fnum(t, "plant", 0);
+	blob_buf_init(&b, 0);
+	tt = blobmsg_open_table(&b, "line");
+	blobmsg_for_each_attr(cur, t, rem)
+		if (strcmp(blobmsg_name(cur), "id"))
+			blobmsg_add_blob(&b, cur);
+	blobmsg_add_u32(&b, "id", (uint32_t)id);
+	blobmsg_close_table(&b, tt);
+	d = ask(&b, id);
+	if (!d || !fnum(d, "ok", 0))
+		logf_("line notice %ld: not taken by agd: %s", plant, reply_err);
+	else if (plant != line_told)
+		logf_(plant ? "shared plant %ld: told agd" : "no shared plant fault (was %ld): told agd",
+		      plant ? plant : line_told);
+	if (d && fnum(d, "ok", 0))
+		line_told = plant;
+	blob_buf_free(&b);
+	blob_buf_free(&a);
+}
+
 static void report(void)
 {
 	struct blob_buf r = { 0 };
@@ -631,6 +676,9 @@ static void report(void)
 	/* coverage advice: the verdict (a home that needs an extender), counts, spots by kind (coverage.share) */
 	if ((d = query("coverage")) && (d = field(d, "coverage")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
 		copy_attr(&r, "coverage", d);
+	/* line health (v0.53): each metric's trend, no names, no addresses, nothing unless agd's line.share */
+	if (c.line && (d = query("line")) && (d = field(d, "line")) && field(d, "metrics"))
+		copy_attr(&r, "line", d);
 	if (c.can_read) {
 		/* each answer replaces the last one: use it before asking the next question */
 		if ((d = query("alerts")) && (d = field(d, "alerts")))
@@ -645,6 +693,7 @@ static void report(void)
 	if (write_json(path, &r) == 0 && http("POST", "/v1/report", path, out) == 0) {
 		logf_("checked in with cortex");
 		area_pass(out);
+		line_pass(out);
 	}
 	blob_buf_free(&r);
 }

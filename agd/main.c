@@ -1351,8 +1351,34 @@ static int m_coverage(struct ubus_context *ctx, struct ubus_object *obj, struct 
 }
 #endif
 
+#if AIGW_FEATURE_AREAPREDICT
+/* ag line: line health, each metric's trend and when it would be a fault; cortex's word on the shared plant.
+   {look: true} looks at the line now */
+enum { LN_LOOK, __LN_MAX };
+static const struct blobmsg_policy line_policy[__LN_MAX] = { [LN_LOOK] = { "look", BLOBMSG_TYPE_BOOL } };
+
+static int m_line(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		  const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__LN_MAX];
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(line_policy, __LN_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (tb[LN_LOOK] && blobmsg_get_bool(tb[LN_LOOK]))
+		blobmsg_add_u8(&b, "looking", (uint8_t)(line_look_now() == 0));
+	line_blob(&b, 0);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+#endif
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
+#if AIGW_FEATURE_AREAPREDICT
+	UBUS_METHOD("line", m_line, line_policy),
+#endif
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 #if AIGW_FEATURE_WIFI_HEAL
 	UBUS_METHOD("channels", m_channels, chan_policy),
@@ -1554,6 +1580,9 @@ int main(int argc, char **argv)
 #endif
 #if AIGW_FEATURE_COVERAGE
 	coverage_init();                /* coverage placement advice: after the state */
+#endif
+#if AIGW_FEATURE_AREAPREDICT
+	line_init();                    /* line health: after the state */
 #endif
 #if AIGW_FEATURE_KEYS
 	keys_init();

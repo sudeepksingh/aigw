@@ -32,6 +32,12 @@ if(AIGW_FEATURE_CARE)
   add_test(NAME early_warning COMMAND test_warn)
 endif()
 
+if(AIGW_FEATURE_AREAPREDICT)
+  add_executable(test_line test_line.c)
+  target_link_libraries(test_line ag m)
+  add_test(NAME line_health COMMAND test_line)
+endif()
+
 if(AIGW_FEATURE_UPGRADE)
   add_executable(test_upgrade test_upgrade.c)
   target_link_libraries(test_upgrade ag)

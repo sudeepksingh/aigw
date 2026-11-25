@@ -173,6 +173,11 @@ static void judge(long now)
 	in.line_mbps = line_mbps(&in.line_sold);
 	in.name = name_cb;
 	in.sqm_on = sqm_on();
+	{
+		static char lw[300];
+
+		in.line_degrading = line_degrading(lw, sizeof(lw)) ? lw : NULL;  /* a repair, not a faster plan */
+	}
 	offer_params_default(&p);
 	offer_judge(&in, &p, &res);
 	judged_at = now;

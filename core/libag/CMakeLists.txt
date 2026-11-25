@@ -13,6 +13,7 @@ aigw_feature_sources(AG_SOURCES SQM sqm.c)
 aigw_feature_sources(AG_SOURCES CALLS calls.c)
 aigw_feature_sources(AG_SOURCES BRIEF brief.c)
 aigw_feature_sources(AG_SOURCES PROACTIVE proactive.c)
+aigw_feature_sources(AG_SOURCES AREAPREDICT line.c)
 aigw_feature_sources(AG_SOURCES SNI sni.c)
 
 add_library(ag STATIC ${AG_SOURCES})

@@ -45,7 +45,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.22"
+#define DM_VERSION "1.23"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -161,6 +161,9 @@ enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, T
 #if AIGW_FEATURE_COVERAGE
        TB_SPOT,
 #endif
+#if AIGW_FEATURE_AREAPREDICT
+       TB_LINEM,
+#endif
        TB_N };
 
 static int host_listed(const struct device *d)
@@ -247,6 +250,9 @@ static struct {
 #if AIGW_FEATURE_COVERAGE
 	[TB_SPOT]     = { "Device.X_AIGW_.Coverage.Spot.{i}.", coverage_spot_ids },
 #endif
+#if AIGW_FEATURE_AREAPREDICT
+	[TB_LINEM]    = { "Device.X_AIGW_.LineHealth.Metric.{i}.", line_metric_ids },
+#endif
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -306,6 +312,10 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 #if AIGW_FEATURE_COVERAGE
 	case TB_SPOT:
 		return coverage_spot_field(inst, "Devices", tmp, sizeof(tmp));
+#endif
+#if AIGW_FEATURE_AREAPREDICT
+	case TB_LINEM:
+		return line_metric_field(inst, "Days", tmp, sizeof(tmp));
 #endif
 	}
 	return -1;
@@ -1044,6 +1054,14 @@ GET(g_cov) { const char *d = strrchr(c->ppath, '.'); return coverage_field(d ? d
 GET(g_cov_spot) { const char *d = strrchr(c->ppath, '.'); return coverage_spot_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
 #endif
 
+#if AIGW_FEATURE_AREAPREDICT
+/* line health (Device.X_AIGW_.LineHealth.): by the parameter's own name; times as dateTime */
+GET(g_lh) { const char *d = strrchr(c->ppath, '.'); return line_field(d ? d + 1 : c->ppath, buf, n); }
+GET(g_lh_t) { char v[24] = "0"; const char *d = strrchr(c->ppath, '.'); line_field(d ? d + 1 : c->ppath, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+GET(g_lm) { const char *d = strrchr(c->ppath, '.'); return line_metric_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
+GET(g_lm_t) { char v[24] = "0"; const char *d = strrchr(c->ppath, '.'); line_metric_field(c->inst, d ? d + 1 : c->ppath, v, sizeof(v)); fmt_time(strtoll(v, NULL, 10), buf, n); return 0; }
+#endif
+
 #if AIGW_FEATURE_AREA
 /* area outages (Device.X_AIGW_.AreaOutage.): cortex found many homes of this uplink down at once */
 #define AOF(fn, f) GET(fn) { (void)c; return area_field(f, buf, n); }
@@ -1513,6 +1531,41 @@ static struct dm_param {
 	{ CV "Spot.{i}.Signal", T_INT, 0, TB_SPOT, g_cov_spot, NULL },
 	{ CV "Spot.{i}.HeardBestBy", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
 #undef CV
+#endif
+#if AIGW_FEATURE_AREAPREDICT
+#define LH "Device.X_AIGW_.LineHealth."
+	{ LH "Enable", T_BOOL, 0, TB_NONE, g_lh, NULL },
+	{ LH "Share", T_BOOL, 0, TB_NONE, g_lh, NULL },
+	{ LH "Technology", T_STR, 0, TB_NONE, g_lh, NULL },
+	{ LH "Status", T_STR, N, TB_NONE, g_lh, NULL },
+	{ LH "WorstMetric", T_STR, 0, TB_NONE, g_lh, NULL },
+	{ LH "Summary", T_STR, 0, TB_NONE, g_lh, NULL },
+	{ LH "DaysToFault", T_INT, 0, TB_NONE, g_lh, NULL },
+	{ LH "Confidence", T_UINT, 0, TB_NONE, g_lh, NULL },
+	{ LH "Since", T_TIME, 0, TB_NONE, g_lh_t, NULL },
+	{ LH "LastLook", T_TIME, 0, TB_NONE, g_lh_t, NULL },
+	{ LH "Error", T_STR, 0, TB_NONE, g_lh, NULL },
+	{ LH "SharedPlant", T_STR, N, TB_NONE, g_lh, NULL },
+	{ LH "SharedPlantHomes", T_UINT, 0, TB_NONE, g_lh, NULL },
+	{ LH "SharedPlantDaysToCalls", T_INT, 0, TB_NONE, g_lh, NULL },
+	{ LH "SharedPlantConfidence", T_STR, 0, TB_NONE, g_lh, NULL },
+	{ LH "SharedPlantTicket", T_STR, 0, TB_NONE, g_lh, NULL },
+	{ LH "SharedPlantSummary", T_STR, 0, TB_NONE, g_lh, NULL },
+	{ LH "MetricNumberOfEntries", T_UINT, N, TB_NONE, g_lh, NULL },
+	{ LH "Metric.{i}.Name", T_STR, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Unit", T_STR, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.State", T_STR, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Now", T_DEC, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Level", T_DEC, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Base", T_DEC, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.SlopePerDay", T_DEC, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.FaultLevel", T_DEC, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Onset", T_TIME, 0, TB_LINEM, g_lm_t, NULL },
+	{ LH "Metric.{i}.DaysToFault", T_INT, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Confidence", T_UINT, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Days", T_UINT, 0, TB_LINEM, g_lm, NULL },
+	{ LH "Metric.{i}.Summary", T_STR, 0, TB_LINEM, g_lm, NULL },
+#undef LH
 #endif
 #if AIGW_FEATURE_AREA
 #define AO "Device.X_AIGW_.AreaOutage."
@@ -2285,6 +2338,10 @@ enum {
 #if AIGW_FEATURE_WIFI_HEAL
 	EVT_CHANPLAN,
 #endif
+#if AIGW_FEATURE_AREAPREDICT
+	EVT_LINE,
+	EVT_LINE_CLEARED,
+#endif
 	EVT_N
 };
 
@@ -2335,6 +2392,10 @@ static struct {
 #endif
 #if AIGW_FEATURE_WIFI_HEAL
 	[EVT_CHANPLAN] = { "Device.X_AIGW_.ChannelPlan!", "Radio,FromChannel,ToChannel,State,Reason,Before,After" },
+#endif
+#if AIGW_FEATURE_AREAPREDICT
+	[EVT_LINE] = { "Device.X_AIGW_.LineDegrading!", "Metric,State,Summary,DaysToFault,Confidence,Technology,Since" },
+	[EVT_LINE_CLEARED] = { "Device.X_AIGW_.LineDegradingCleared!", "Metric,Since,DurationSeconds" },
 #endif
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
@@ -2990,6 +3051,36 @@ void dm_on_area(int started, uint32_t incident, const char *kind, long since, lo
 				     "Reason", why, NULL };
 
 		emit(events[EVT_AREA_CLEARED].path, kv);  /* AreaOutageCleared! */
+	}
+}
+#endif
+
+#if AIGW_FEATURE_AREAPREDICT
+/* line.c: the line degrades (LineDegrading!: a new worst metric too), and is fine again (LineDegradingCleared!) */
+void dm_on_line(int started)
+{
+	char m[32], st[16], sum[300], left[12], conf[12], tech[16], since[40], s[24], d[24];
+	long t;
+
+	line_field("WorstMetric", m, sizeof(m));
+	line_field("Since", s, sizeof(s));
+	t = strtol(s, NULL, 10);
+	fmt_time(t, since, sizeof(since));
+	if (started) {
+		const char *kv[] = { "Metric", m, "State", st, "Summary", sum, "DaysToFault", left, "Confidence", conf,
+				     "Technology", tech, "Since", since, NULL };
+
+		line_field("Status", st, sizeof(st));
+		line_field("Summary", sum, sizeof(sum));
+		line_field("DaysToFault", left, sizeof(left));
+		line_field("Confidence", conf, sizeof(conf));
+		line_field("Technology", tech, sizeof(tech));
+		emit(events[EVT_LINE].path, kv);  /* LineDegrading! */
+	} else {
+		const char *kv[] = { "Metric", m, "Since", since, "DurationSeconds", d, NULL };
+
+		snprintf(d, sizeof(d), "%ld", (long)ag_wall_s() - t > 0 ? (long)ag_wall_s() - t : 0);
+		emit(events[EVT_LINE_CLEARED].path, kv);  /* LineDegradingCleared! */
 	}
 }
 #endif

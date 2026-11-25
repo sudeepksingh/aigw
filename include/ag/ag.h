@@ -234,6 +234,11 @@ struct ag_config {
 	int cov_interval;         /* s between looks (60) */
 	int cov_learn;            /* looks at a device before it is judged (60) */
 	int cov_share;            /* cortex gets the verdict and counts (never names) */
+	/* line health and area fault prediction (agd/line.c) */
+	int line;                 /* learn the line's trends, day by day */
+	int line_interval;        /* s between looks at the line's own numbers (900) */
+	int line_share;           /* cortex gets the line health vector (the line's physics only) */
+	char line_handler[128];   /* the WAN's numbers; "" the platform's (line-stats) */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

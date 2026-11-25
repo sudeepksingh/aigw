@@ -69,6 +69,9 @@ static void usage(void)
 		"  mesh channel <radio> <ch> [time]     move a mesh radio to another channel (trials both)\n"
 		"  coverage            where Wi-Fi is weak: which device, when, where in the home (spots named\n"
 		"                      by the devices seen there), and what fixes it (move it, or an extender)\n"
+		"  line [--look]       the line's health: each number's trend (sync rate, noise margin, errors,\n"
+		"                      drops, next hop, speed), when it would be a fault, and cortex's word on\n"
+		"                      the shared plant (the cabinet or OLT serving other homes too)\n"
 		"  offers              signals for the ISP from the last week: a faster plan, smart queueing,\n"
 		"                      mesh Wi-Fi, a customer at risk, a line to repair; with the evidence\n"
 		"  test ping <host> [count]          TR-143 tests, as an ISP runs them (USP, TR-069):\n"
@@ -2486,6 +2489,55 @@ static void show_mesh(struct ubus_request *req, int type, struct blob_attr *msg)
 }
 #endif
 
+#if AIGW_FEATURE_AREAPREDICT
+/* agctl line: the line's health, each metric's trend, and cortex's word on the shared plant */
+static void show_line(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s, *p;
+	size_t rem;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "enabled")) {
+		printf("Line health is off (line.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Line: %s (%s)%s\n", *fstr(msg, "status") ? fstr(msg, "status") : "Learning", fstr(msg, "tech"),
+	       fnum(msg, "shared") ? "" : "; not shared with the ISP (line.share 0)");
+	printf("  %s\n", fstr(msg, "summary"));
+	if ((int)fnum(msg, "days_left") >= 0 && *fstr(msg, "worst"))
+		printf("  fault     in about %d day%s at this rate (%s confidence)\n", (int)fnum(msg, "days_left"),
+		       fnum(msg, "days_left") == 1 ? "" : "s", fnum(msg, "conf") >= 70 ? "high" : fnum(msg, "conf") >= 40 ?
+		       "medium" : "low");
+	if ((p = field(msg, "plant")))
+		printf("  cortex    %s%s%s\n", fstr(p, "words"), *fstr(p, "ticket") ? " ISP ticket: " : "", fstr(p, "ticket"));
+	if (*fstr(msg, "error"))
+		printf("  handler   %s\n", fstr(msg, "error"));
+	else if (!*fstr(msg, "handler"))
+		printf("  handler   none: the line's own numbers aren't known here (next hop, speed and drops only)\n");
+	printf("\n  %-15s %-9s %10s %10s %11s %5s  %s\n", "metric", "state", "now", "normal", "a day", "days", "fault in");
+	blobmsg_for_each_attr(s, field(msg, "metrics"), rem) {
+		char now[24] = "-", base[24] = "-", slope[24] = "-", left[16] = "-";
+
+		if (field(s, "now"))
+			snprintf(now, sizeof(now), "%g", fdbl(s, "now"));
+		if (field(s, "base") && fnum(s, "days") >= 5)
+			snprintf(base, sizeof(base), "%g", fdbl(s, "base"));
+		if (fdbl(s, "slope") != 0)
+			snprintf(slope, sizeof(slope), "%+g", fdbl(s, "slope"));
+		if ((int)fnum(s, "days_left") >= 0)
+			snprintf(left, sizeof(left), "%d day%s", (int)fnum(s, "days_left"), fnum(s, "days_left") == 1 ? "" : "s");
+		printf("  %-15s %-9s %10s %10s %11s %5d  %s  (%s)\n", fstr(s, "name"),
+		       *fstr(s, "state") ? fstr(s, "state") : "-", now, base, slope, (int)fnum(s, "days"), left, fstr(s, "unit"));
+		if (!strcmp(fstr(s, "state"), "Stepped") || !strcmp(fstr(s, "state"), "Drifting") ||
+		    !strcmp(fstr(s, "state"), "Fault"))
+			printf("      -> %s\n", fstr(s, "words"));
+	}
+}
+#endif
+
 #if AIGW_FEATURE_COVERAGE
 /* agctl coverage: where Wi-Fi is weak, which device, when, and what fixes it */
 static void show_coverage(struct ubus_request *req, int type, struct blob_attr *msg)
@@ -2746,6 +2798,7 @@ static const struct { const char *cmd, *sub, *feature; int built; } features[] =
 	{ "wifi", "--report", "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
 	{ "mesh", NULL, "MESH", AIGW_FEATURE_MESH },
 	{ "coverage", NULL, "COVERAGE", AIGW_FEATURE_COVERAGE },
+	{ "line", NULL, "AREAPREDICT", AIGW_FEATURE_AREAPREDICT },
 	{ "offers", NULL, "OFFERS", AIGW_FEATURE_OFFERS },
 	{ "brief", NULL, "BRIEF", AIGW_FEATURE_BRIEF },
 	{ "why", NULL, "WHY", AIGW_FEATURE_WHY },
@@ -2927,6 +2980,14 @@ int main(int argc, char **argv)
 #if AIGW_FEATURE_COVERAGE
 	} else if (!strcmp(cmd, "coverage")) {
 		rc = call("ag", "coverage", NULL, show_coverage);
+#endif
+#if AIGW_FEATURE_AREAPREDICT
+	} else if (!strcmp(cmd, "line")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && (!strcmp(argv[i], "--look") || !strcmp(argv[i], "look")))
+			blobmsg_add_u8(&args, "look", 1);
+		rc = call("ag", "line", args.head, show_line);
+		blob_buf_free(&args);
 #endif
 #if AIGW_FEATURE_OFFERS
 	} else if (!strcmp(cmd, "offers")) {

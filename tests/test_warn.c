@@ -227,6 +227,27 @@ int main(void)
 	      "4 Mbit/s less a night: a trend at %.0f Mbit/s, below 50 in about %d days", s.speed, s.L.w.predict);
 	say(&s);
 
+	/* v0.53: the speed collapses to about 1 Mbit/s. The warning said "-1 Mbit/s" (the normal, which had learned the
+	   bad test meanwhile, less how much worse it was); now it says what the tests measured */
+	init(&s);
+	run(&s, 14 * DAY);
+	s.speed = 1;
+	at = s.checks;
+	while (!s.opened && s.checks - at < 5 * DAY)
+		step(&s);
+	{
+		char text[400];
+
+		care_warning_text(&s.L.w, &s.p, text, sizeof(text));
+		CHECK(s.opened && s.L.w.metric == CM_SPEED && s.L.w.kind == CW_SHIFT && s.L.w.current >= 0 &&
+		      s.L.w.current < 6 && !strchr(text, '-'), "about 1 Mbit/s: the warning says %.1f Mbit/s, never below 0",
+		      s.L.w.current);
+		say(&s);
+		run(&s, 2 * DAY);
+		CHECK(!s.L.w.active || (s.L.w.current >= 0 && s.L.w.current < 6), "  two nights later: %.1f Mbit/s",
+		      s.L.w.current);
+	}
+
 	/* the words */
 	{
 		char v[24];
