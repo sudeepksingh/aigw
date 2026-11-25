@@ -40,6 +40,7 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | 8 KB |
+| `AREAPREDICT` | Area fault prediction: line health trends, the shared plant found before it fails ([area-prediction.md](area-prediction.md)) | `CARE` | @APKB@ KB |
 | `FED` | Federated learning | | 16 KB |
 | `PLUGINS` | Plug-ins and skills: MQTT, Home Assistant, the bridge to cortex | | 104 KB |
 | `SNI` | Connection names from TLS and QUIC handshakes | | 8 KB |
@@ -57,7 +58,7 @@ smart queueing, the mesh and area outages when they are built.
 | Profile | Features | Installed flash (`aigw-selftest`) |
 |---|---|---|
 | `full` | all | x86-64 952 KB, aarch64 940 KB, mipsel 788 KB |
-| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM` | x86-64 664 KB, aarch64 668 KB, mipsel 564 KB |
+| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `AREAPREDICT` | x86-64 664 KB, aarch64 668 KB, mipsel 564 KB |
 | `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
 
 The installed flash is what `aigw-selftest` counts on the router: the programs, the scripts,

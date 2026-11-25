@@ -1213,6 +1213,15 @@ Verified by the full local suite on each profile, every feature built alone with
 
 ---
 
+**As built in v0.53: area fault prediction.** The gateway decides which way its line is going and when it would be a fault; cortex tells one home's line from the shared plant ([area-prediction.md](area-prediction.md)).
+
+| Piece | As built |
+|-------|----------|
+| Rules (core/libag/line.c, g/line.h) | One value a day per metric (a gauge's median, a counter's rate, a count); of the last 14 complete days: noise from day-to-day differences, a change point (median split, 75% of each side on its side), a Theil-Sen trend proven by Kendall's test (p < 0.01), level, base, onset, days to the fault level, confidence; the last 7 days' tau and slope as an early sign. Unit test 	ests/test_line.c |
+| Gateway (gd/line.c) | The WAN handler (line.handler, else line-stats: OpenWRT's DSL daemon, an SFP's optical level; else the carrier's drops), proactive care's next hop and speed tests; gctl line, Device.X_AIGW_.LineHealth. + Metric.{i}. (DM 1.23), LineDegrading!/LineDegradingCleared!; the vector to cortex (line.share), cortex's word back (capability line.notice); offers: LINE_REPAIR instead of a faster plan |
+| Cortex (linehealth.py, reapredict.py, reasim.py) | The same rules in Python (checked against the C on 300 series); per node, most specific first: homes degrading or showing early signs together, aligned within 3 days, beyond chance (binomial tail, fleet base rate); a parent for children together; sticky members; first calls, confidence, rank; predict, simulate, acktest; MCP plant_predictions; dashboard "Faults coming"; TMF621 kind plant (and line), with the homes' own line tickets suppressed |
+| Fixed | The early warning's "-1 Mbit/s" (care_learn.c): the value lately is kept, with a migration of saved states |
+
 ## 17. Status and risks
 
 Development PC checked 2026-11-06 (WSL2 kernel 6.18.54, RTL8821CU):

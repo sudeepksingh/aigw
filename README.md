@@ -57,6 +57,16 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.53:** **Area fault prediction.** Each gateway learns which way its line's
+> numbers are going (sync rate, noise margin, optical level, FEC and CRC errors,
+> drops, the next hop, the speed test) and when one would be a fault at that rate.
+> Cortex compares the homes of one cabinet or OLT and tells one home's line from
+> the shared plant: "the plant serving 14 of 20 homes is degrading; first calls
+> likely in about 3 days". One TMF621 ticket for the plant, not 14; no faster plan
+> sold on a degrading line. In gctl line, data model 1.23
+> (Device.X_AIGW_.LineHealth.), python3 -m aigw_cortex predict; measured on
+> simulated fleets with known faults; see [docs/area-prediction.md](docs/area-prediction.md).
+>
 > **v0.48:** **Choose the features.** Whoever builds AIGW OS picks its
 > features: 20 of them, each a CMake option and a `make menuconfig` choice, with
 > full, small and minimal profiles. A feature that is not built in takes no
