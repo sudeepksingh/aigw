@@ -40,7 +40,8 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | 8 KB |
-| `FED` | Federated learning | | 16 KB |
+| `FED` | Federated learning | | 16 KB with `FLEETLEARN` |
+| `FLEETLEARN` | Fleet learning: fixes ranked by the fleet's outcomes, warnings from day one ([fleet-learning.md](fleet-learning.md)) | `FED` | FLKB |
 | `PLUGINS` | Plug-ins and skills: MQTT, Home Assistant, the bridge to cortex | | 104 KB |
 | `SNI` | Connection names from TLS and QUIC handshakes | | 8 KB |
 | `METER` | Per-device traffic meter (eBPF) | | 4 KB |
