@@ -127,8 +127,20 @@ static const struct { const char *section, *feature; int built; } feature_sectio
 	{ "offers", "OFFERS", AIGW_FEATURE_OFFERS }, { "area", "AREA", AIGW_FEATURE_AREA },
 	{ "proactive", "PROACTIVE", AIGW_FEATURE_PROACTIVE }, { "mesh", "MESH", AIGW_FEATURE_MESH },
 	{ "coverage", "COVERAGE", AIGW_FEATURE_COVERAGE }, { "plugins", "PLUGINS", AIGW_FEATURE_PLUGINS },
-	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE },
+	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE }, { "fleet", "FLEETLEARN", AIGW_FEATURE_FLEETLEARN },
 };
+
+/* fleet.line: the kinds of line the fleet's buckets know */
+int ag_fleet_line_ok(const char *v)
+{
+	static const char *const ok[] = { "", "fibre", "dsl", "cable", "fwa", "satellite", "other", NULL };
+	int i;
+
+	for (i = 0; ok[i]; i++)
+		if (!strcmp(v, ok[i]))
+			return 1;
+	return 0;
+}
 
 /* "mesh (AIGW_FEATURE_MESH), ..." for each such section the config has */
 static void note_unbuilt(struct ag_config *c, struct uci_context *ctx, struct uci_package *p)
@@ -286,6 +298,15 @@ void ag_config_load(struct ag_config *c)
 	c->fed_enabled = 1;
 	c->fed_noise = 1.0;
 	c->fed_min_examples = 3;
+	c->fleet = 1;
+	c->fleet_share = 0;     /* opt-in: what leaves the home needs a yes (docs/fleet-learning.md) */
+	c->fleet_k = 5;
+	c->fleet_interval = 86400;
+	c->fleet_noise = 1.0;
+	c->fleet_cap = 50;
+	c->fleet_strength = 20;
+	c->fleet_choose = 1;
+	c->fleet_margin = 0.15;
 	c->bucket_seconds = 3600;
 	c->learn_minutes = 1440;
 	c->min_known = 20;
@@ -600,6 +621,36 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "calls", "min_s");
 		if (v && atoi(v) >= 0 && atoi(v) <= 86400)
 			c->calls_min_s = atoi(v);
+		v = opt(ctx, p, "fleet", "enabled");
+		if (v)
+			c->fleet = atoi(v) != 0;
+		v = opt(ctx, p, "fleet", "share");
+		if (v)
+			c->fleet_share = atoi(v) != 0;
+		v = opt(ctx, p, "fleet", "k");
+		if (v && atoi(v) >= 2 && atoi(v) <= 10000)
+			c->fleet_k = atoi(v);
+		v = opt(ctx, p, "fleet", "interval");
+		if (v && atoi(v) >= 1)
+			c->fleet_interval = atoi(v);
+		v = opt(ctx, p, "fleet", "line");
+		if (v && ag_fleet_line_ok(v))
+			copy(c->fleet_line, sizeof(c->fleet_line), v);
+		v = opt(ctx, p, "fleet", "noise");
+		if (v && atof(v) >= 0 && atof(v) <= 100)
+			c->fleet_noise = atof(v);
+		v = opt(ctx, p, "fleet", "cap");
+		if (v && atoi(v) >= 1)
+			c->fleet_cap = atoi(v);
+		v = opt(ctx, p, "fleet", "strength");
+		if (v && atof(v) >= 0 && atof(v) <= 10000)
+			c->fleet_strength = atof(v);
+		v = opt(ctx, p, "fleet", "choose");
+		if (v)
+			c->fleet_choose = atoi(v) != 0;
+		v = opt(ctx, p, "fleet", "margin");
+		if (v && atof(v) >= 0 && atof(v) <= 2)
+			c->fleet_margin = atof(v);
 		v = opt(ctx, p, "offers", "enabled");
 		if (v)
 			c->offers = atoi(v) != 0;
