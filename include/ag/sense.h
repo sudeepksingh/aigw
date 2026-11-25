@@ -63,6 +63,7 @@ struct sn_params {
 	int learn;              /* quiet windows before a link judges (20) */
 	float stay_zone;        /* a zone stays as it is from window to window (0.85) */
 	float stay_home;        /* presence stays (0.995) */
+	int night_from, night_to;       /* local hours when stillness means asleep, not away (23, 7) */
 	int learn_days;         /* days before the check-in judges (7) */
 	int checkin_min;        /* unusual inactivity: this many minutes of usual movement missed (45) */
 };
@@ -102,6 +103,7 @@ struct sn_state {
 	uint8_t frozen;         /* learn nothing more (the benchmark's held-out days) */
 	uint8_t inactive;       /* unusual inactivity now */
 	uint8_t personal_known; /* some link is someone's own device */
+	uint8_t run;            /* windows in a row with movement */
 	long home_since;
 	long last_motion;
 	long inactive_since;

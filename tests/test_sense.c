@@ -23,6 +23,7 @@
  */
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -263,6 +264,8 @@ int main(void)
 	double us;
 
 	sn_params_default(&P);
+	if (getenv("AIGW_SENSE_SEED"))          /* another simulated home: the same checks must hold */
+		rng ^= strtoull(getenv("AIGW_SENSE_SEED"), NULL, 10) * 0x9E3779B97F4A7C15ULL;
 	test_basics();
 	run(1, "a home with a phone of the person's own");
 	run(0, "someone living alone without a phone");

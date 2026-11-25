@@ -14,11 +14,13 @@ void sn_params_default(struct sn_params *p)
 	p->window = 6;
 	p->look_s = 5;
 	p->min_fresh = 3;
-	p->k_spread = 2.5f;
-	p->min_db = 1.5f;
+	p->k_spread = 2.0f;
+	p->min_db = 1.0f;
 	p->cp_db = 4;
 	p->learn = 20;
-	p->stay_zone = 0.97f;
+	p->stay_zone = 0.95f;
+	p->night_from = 23;
+	p->night_to = 7;
 	p->stay_home = 0.995f;
 	p->learn_days = 7;
 	p->checkin_min = 45;
@@ -279,8 +281,8 @@ int sn_window(struct sn_state *s, long t, int hour, long day, const struct sn_pa
 	u = usual_p(s, hour, p);
 	if (any)
 		lr *= 20, snprintf(s->why, sizeof(s->why), "movement");
-	else if (judged)
-		lr *= (1 - (u > 0.9f ? 0.9f : u)) / 0.98f;
+	else if (judged && !s->personal_known && !(hour >= p->night_from || hour < p->night_to))
+		lr *= u > 0.05f ? (1 - (u > 0.9f ? 0.9f : u)) / 0.98f : 0.95f;  /* stillness by day: slowly, nobody home */
 	if (s->personal_known)
 		lr *= personal ? 8.0f : 0.3f;
 	if (personal && !any)
@@ -301,14 +303,16 @@ int sn_window(struct sn_state *s, long t, int hour, long day, const struct sn_pa
 		if (any && s->seen[hour] < 65535)
 			s->seen[hour]++;
 	}
-	if (any) {
+	s->run = any ? (uint8_t)(s->run < 255 ? s->run + 1 : 255) : 0;
+	/* for the check-in, a minute of movement (one stray window is not someone); two to end an alarm */
+	if (s->run >= (s->inactive ? 4 : 2)) {
 		s->last_motion = t;
 		s->expected = 0;
 		if (s->inactive) {
 			s->inactive = 0;
 			ev |= SN_EV_ACTIVE_AGAIN;
 		}
-	} else if (judged || s->last_motion) {
+	} else if (!any && (judged || s->last_motion)) {
 		/* away by its own devices: not inactivity */
 		if (s->personal_known && !personal)
 			s->expected = 0;
