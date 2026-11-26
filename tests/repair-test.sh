@@ -372,6 +372,15 @@ ok = ok and not any('sara-laptop' in json.dumps(e) for e in a)
 sys.exit(0 if ok else 1)
 EOF
 
+if has fleetlearn; then   # the receipts' verdicts are fleet learning's outcomes (the same decision: it replaces act.c's guess)
+	agctl -j fleet | js "
+c = {(x['code'], x['action']): x for x in d['local']}
+a, b = c.get(('WIFI_HOPPING', 'stay24')), c.get(('WIFI_CONGESTION', 'channel'))
+sys.exit(0 if a and a['helped'] == 1 and a['tried'] == 1 and b and b['tried'] == 1 and b['helped'] == 0 and b['worse'] == 0 else 1)" ||
+		fail "fleet learning's outcomes from the receipts: $(agctl -j fleet)"
+	echo "   fleet learning: the laptop's fix helped, the channel's didn't (from the receipts)"
+fi
+
 echo "== a restart: the receipts and the evidence kept"
 N0=$(rep | js "print(len(d['receipts']))")
 stop_agd
