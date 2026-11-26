@@ -41,7 +41,8 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | 8 KB |
-| `FED` | Federated learning | | 16 KB |
+| `FED` | Federated learning | | 16 KB (with `FLEETLEARN`, which needs it, 44 KB) |
+| `FLEETLEARN` | Fleet learning: fixes ranked by the fleet's outcomes, warnings from day one ([fleet-learning.md](fleet-learning.md)) | `FED` | 28 KB |
 | `PLUGINS` | Plug-ins and skills: MQTT, Home Assistant, the bridge to cortex | | 104 KB |
 | `SNI` | Connection names from TLS and QUIC handshakes | | 8 KB |
 | `METER` | Per-device traffic meter (eBPF) | | 4 KB |
@@ -58,8 +59,8 @@ Wi-Fi's look at each device, and feeds the help-desk brief, when they are built.
 
 | Profile | Features | Installed flash (`aigw-selftest`) |
 |---|---|---|
-| `full` | all | x86-64 1000 KB, aarch64 988 KB, mipsel 828 KB |
-| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `APPQOE` | x86-64 704 KB, aarch64 712 KB, mipsel 604 KB |
+| `full` | all | FULLKB |
+| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `APPQOE` | SMALLKB |
 | `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
 
 The installed flash is what `aigw-selftest` counts on the router: the programs, the scripts,

@@ -31,10 +31,14 @@
     python3 -m aigw_cortex publish-intel [--min-homes N]  signed list of known threats
     python3 -m aigw_cortex fed [status]               federated learning: rounds, homes, privacy
     python3 -m aigw_cortex fed aggregate              close the open round now (with what came in)
+    python3 -m aigw_cortex fleetlearn [status]        fleet learning: homes sharing, buckets, priors published
+    python3 -m aigw_cortex fleetlearn publish         publish the fleet's priors now (if they changed)
 
 serve takes the round settings: --fed-min-homes 3 --fed-gap 86400 (seconds
 between rounds) --fed-noise 1.0 --fed-clip 1.0 --fed-lr 0.5 --fed-epochs 50,
-or --no-fed.
+or --no-fed. Fleet learning: --fleet-k 5 (homes a bucket needs) --fleet-cap 50
+(tries one home counts at most, per bucket) --fleet-gap 3600 (seconds between
+published priors), or --no-fleet.
 
 Data (database, signing key, published models) lives in --data, default
 $AIGW_CORTEX_DATA or ~/.aigw-cortex.
@@ -190,6 +194,18 @@ def fed_settings(a):
                     epochs=a.fed_epochs, clip=a.fed_clip, noise=a.fed_noise)
 
 
+def fleet_args(p):
+    p.add_argument("--no-fleet", action="store_true", help="no fleet learning summaries or priors")
+    p.add_argument("--fleet-k", type=int, default=5, help="homes a bucket needs before it is published (k-anonymity)")
+    p.add_argument("--fleet-cap", type=int, default=50, help="tries one home counts at most, per bucket")
+    p.add_argument("--fleet-gap", type=int, default=3600, help="seconds between published priors")
+
+
+def fleet_settings(a):
+    from .fleetlearn import Settings
+    return Settings(enabled=not a.no_fleet, k=a.fleet_k, cap=a.fleet_cap, gap=a.fleet_gap)
+
+
 def rollout_args(p):
     rs = p.add_subparsers(dest="what", required=True)
     n = rs.add_parser("new", help="plan a rollout; its first wave starts at once")
@@ -307,6 +323,7 @@ def main(argv=None):
     p.add_argument("--tickets", help="ISP ticketing configuration (default $AIGW_CORTEX_TICKETS, else "
                                      "<data>/tickets.json; none: off)")
     fed_args(p)
+    fleet_args(p)
     p = sub.add_parser("tickets", help="area outages and proactive tickets in the ISP's ticketing (tickets.py)")
     p.add_argument("what", nargs="?", default="status",
                    choices=("status", "list", "sync", "outbox", "retry", "config", "hub"))
@@ -394,6 +411,9 @@ def main(argv=None):
     p = sub.add_parser("fed")
     p.add_argument("what", nargs="?", default="status", choices=("status", "aggregate"))
     fed_args(p)
+    p = sub.add_parser("fleetlearn", help="fleet learning: the homes' summaries and the priors (fleetlearn.py)")
+    p.add_argument("what", nargs="?", default="status", choices=("status", "publish"))
+    fleet_args(p)
     a = ap.parse_args(argv)
 
     if a.cmd == "demo":                     # never in the real fleet's directory (--data)
@@ -407,7 +427,8 @@ def main(argv=None):
             tc = tickets.load_config(a.data, a.tickets)
         except ValueError as e:
             sys.exit(f"tickets: {e}")
-        serve(store, a.listen, a.port, a.cert, a.key, log=not a.quiet, fed_settings=fed_settings(a), tickets_cfg=tc)
+        serve(store, a.listen, a.port, a.cert, a.key, log=not a.quiet, fed_settings=fed_settings(a), tickets_cfg=tc,
+              fleet_settings=fleet_settings(a))
     elif a.cmd == "tickets":
         tickets_cmd(store, a)
     elif a.cmd == "dashboard":
@@ -429,6 +450,15 @@ def main(argv=None):
                 print(f"published domain-adapter version {r['version']}: {r['note']}")
         else:
             show(fed.status(store, s))
+    elif a.cmd == "fleetlearn":
+        from . import fleetlearn
+        s = fleet_settings(a)
+        if a.what == "publish":
+            r = fleetlearn.maybe_publish(store, s, force=True)
+            print(f"published fleet-priors version {r['version']}: {r['note']}" if r else
+                  "nothing to publish: no bucket of k homes yet, or nothing changed")
+        else:
+            show(fleetlearn.status(store, s))
     elif a.cmd == "fleet":
         from . import fleet
         r = fleet.report(store, max(1, a.days), a.group)

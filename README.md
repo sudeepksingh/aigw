@@ -68,9 +68,20 @@ illustrated version.
 > 2.4 GHz (wlan0) from channel 11 to 6, and the 3 calls since were fine." Or,
 > with evidence, the far end. Scores per kind of app, `agctl apps`, the
 > timeline, the help desk (`agctl brief --app calls`), `Device.X_AIGW_.AppExperience.`
-> and `AppMoment!` (data model 1.23). Only kinds and family names are kept,
+> and `AppMoment!` (data model 1.24). Only kinds and family names are kept,
 > never a server name or a URL. Feature `APPQOE` (full and small profiles,
 > 48 KB, 40 on mipsel); see [docs/app-experience.md](docs/app-experience.md).
+>
+> **v0.50:** **Every home teaches the next.** Fleet learning: how a fix went in
+> homes like this one (counts per fault, fix and a coarse context, only where k
+> homes or more add up to it, signed by cortex) ranks the fixes the gateway may
+> use, blended with the home's own outcomes, which count for more as they grow.
+> A new gateway warns from its first day against the fleet's normal, marked
+> "from the fleet". The fleet never acts by itself, and sharing is opt-in
+> (`fleet.share`). A build option (`AIGW_FEATURE_FLEETLEARN`, in the full
+> profile); data model 1.23 `Device.X_AIGW_.FleetLearning.`; `agctl fleet`;
+> see [docs/fleet-learning.md](docs/fleet-learning.md). Installed flash, full
+> profile (KB, x86-64/aarch64/mipsel): 980/972/812.
 >
 > **v0.48:** **Choose the features.** Whoever builds AIGW OS picks its
 > features: 20 of them, each a CMake option and a `make menuconfig` choice, with

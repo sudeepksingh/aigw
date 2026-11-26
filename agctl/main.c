@@ -121,6 +121,8 @@ static void usage(void)
 		"  label <domain> safe|threat    tell AIGW what a name is (kept here; it trains the\n"
 		"                      shared layer without the name leaving)\n"
 		"  fed forget [domain] drop one answer, or all of them\n"
+		"  fleet               fleet learning: what was shared, what came back, the choices it changed\n"
+		"  fleet rank <code> [device]    how each fix did for this fault, here and in the fleet\n"
 		"\n"
 		"  remote              remote access: on or off, peers, who is connected\n"
 		"  remote on <address> turn it on; <address>: how phones reach this home (public IP or\n"
@@ -1553,6 +1555,78 @@ static void show_fed(struct ubus_request *req, int type, struct blob_attr *msg)
 }
 #endif
 
+#if AIGW_FEATURE_FLEETLEARN
+static void show_fleet(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *sh = field(msg, "shared"), *rx = field(msg, "received"), *arr, *x;
+	size_t rem;
+	char t[32];
+	int k = 0;
+
+	if (json_out)
+		return print_json(msg);
+	printf("Fleet learning %s (every home teaches the next: how fixes went in homes like this one)\n",
+	       fnum(msg, "enabled") ? "on" : "OFF (fleet.enabled)");
+	if (!fnum(msg, "share"))
+		printf("  sharing    off: nothing leaves this home (fleet.share 0, the default: sharing is opt-in)\n");
+	else if (fnum(sh, "at"))
+		printf("  sharing    on, every %llu s; last summary %s: %llu buckets of outcomes, %llu normals (each count "
+		       "at most %llu, noise %.2f)\n", (unsigned long long)fnum(msg, "interval"), ago(fnum(sh, "at"), t, sizeof(t)),
+		       (unsigned long long)fnum(sh, "buckets"), (unsigned long long)fnum(sh, "normals"),
+		       (unsigned long long)fnum(msg, "cap"), fdbl(msg, "noise"));
+	else
+		printf("  sharing    on, every %llu s; nothing sent yet (the bridge sends it at its next check-in)\n",
+		       (unsigned long long)fnum(msg, "interval"));
+	printf("  here       %llu outcomes in %llu buckets (kept here)\n", (unsigned long long)fnum(msg, "outcomes"),
+	       (unsigned long long)fnum(msg, "cells"));
+	if (fnum(rx, "loaded"))
+		printf("  received   priors version %llu from %llu homes (k %llu; used here at %llu or more): %llu buckets, "
+		       "%llu normals, %s\n", (unsigned long long)fnum(rx, "version"), (unsigned long long)fnum(rx, "homes"),
+		       (unsigned long long)fnum(rx, "k"), (unsigned long long)fnum(msg, "k"),
+		       (unsigned long long)fnum(rx, "buckets"), (unsigned long long)fnum(rx, "normals"),
+		       ago(fnum(rx, "at"), t, sizeof(t)));
+	else
+		printf("  received   nothing yet: fixes are chosen by the rules alone, warnings wait for this home's normal\n");
+	if (fnum(rx, "cold_start"))
+		printf("  warnings   judged against the fleet's normal (\"from the fleet\") while this gateway learns its own\n");
+	printf("  choices    %llu informed by the fleet, %llu changed (only among the fixes the rules allow)\n",
+	       (unsigned long long)fnum(msg, "choices"), (unsigned long long)fnum(msg, "changed"));
+	if ((arr = field(msg, "last_choices")))
+		blobmsg_for_each_attr(x, arr, rem)
+			printf("    %s  %s: %s%s%s. %s\n", ago(fnum(x, "at"), t, sizeof(t)), fstr(x, "code"), fstr(x, "default"),
+			       fnum(x, "changed") ? " -> " : " kept", fnum(x, "changed") ? fstr(x, "chosen") : "", fstr(x, "why"));
+	if ((arr = field(msg, "local")))
+		blobmsg_for_each_attr(x, arr, rem) {
+			if (!k++)
+				printf("Outcomes here (code, action, bucket: band/width/congestion/device/hours/line):\n");
+			printf("  %-16s %-9s %-36s tried %llu, helped %llu, worse %llu, undone %llu\n", fstr(x, "code"),
+			       fstr(x, "action"), fstr(x, "bucket"), (unsigned long long)fnum(x, "tried"),
+			       (unsigned long long)fnum(x, "helped"), (unsigned long long)fnum(x, "worse"),
+			       (unsigned long long)fnum(x, "undone"));
+		}
+}
+
+static void show_fleet_rank(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *arr = field(msg, "actions"), *x;
+	size_t rem;
+	int k = 0;
+
+	if (json_out)
+		return print_json(msg);
+	printf("%s in %s (band/width/congestion/device/hours/line), best first by the blend of fleet and home:\n",
+	       fstr(msg, "code"), fstr(msg, "context"));
+	if (arr)
+		blobmsg_for_each_attr(x, arr, rem) {
+			printf("  %-9s score %+.2f: %s; the fleet's share %.0f%%\n", fstr(x, "action"), fdbl(x, "score"),
+			       fstr(x, "words"), 100 * fdbl(x, "fleet_share"));
+			k++;
+		}
+	if (!k)
+		printf("  nothing known yet, here or from the fleet\n");
+}
+#endif
+
 #if AIGW_FEATURE_REMOTE
 static int remote_conf;
 #endif
@@ -2838,6 +2912,7 @@ static const struct { const char *cmd, *sub, *feature; int built; } features[] =
 	{ "remote", NULL, "REMOTE", AIGW_FEATURE_REMOTE },
 	{ "fed", NULL, "FED", AIGW_FEATURE_FED },
 	{ "label", NULL, "FED", AIGW_FEATURE_FED },
+	{ "fleet", NULL, "FLEETLEARN", AIGW_FEATURE_FLEETLEARN },
 	{ "keys", NULL, "KEYS", AIGW_FEATURE_KEYS },
 	{ "key", NULL, "KEYS", AIGW_FEATURE_KEYS },
 };
@@ -3401,6 +3476,17 @@ int main(int argc, char **argv)
 			rc = call("ag.fed", "label", args.head, show_ok) || change_failed;
 			blob_buf_free(&args);
 		}
+#endif
+#if AIGW_FEATURE_FLEETLEARN
+	} else if (!strcmp(cmd, "fleet") && i == argc) {
+		rc = call("ag.fleet", "status", NULL, show_fleet);
+	} else if (!strcmp(cmd, "fleet") && !strcmp(argv[i], "rank") && i + 1 < argc) {
+		blob_buf_init(&args, 0);
+		blobmsg_add_string(&args, "code", argv[i + 1]);
+		if (i + 2 < argc)
+			blobmsg_add_string(&args, "device", argv[i + 2]);
+		rc = call("ag.fleet", "rank", args.head, show_fleet_rank);
+		blob_buf_free(&args);
 #endif
 	} else if (!strcmp(cmd, "dm") && i < argc) {
 		const char *sub = argv[i++];

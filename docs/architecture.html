@@ -1512,6 +1512,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Smaller, same features</td><td>Link-time optimisation, and on aarch64 and MIPS programs aligned to the kernel&rsquo;s 4 KB pages instead of 64 KB. Installed flash, of the 1024 KB budget: x86-64 980 &rarr; 948 KB, aarch64 980 &rarr; 940 KB, mipsel 960 &rarr; 788 KB.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.50: fleet learning, every home teaches the next</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Choosing a fix with the fleet</td><td>How a fix went in homes like this one (counts per fault, fix and a coarse context, only where k homes or more add up to it) is blended with this home&rsquo;s own outcomes. When waiting clears a fault clearly more often than the fix, the gateway waits first, and says why. The fleet never acts by itself. See <a href="fleet-learning.md">fleet-learning.md</a>.</td></tr>
+      <tr><td>Warnings from day one</td><td>While a new gateway learns its own normal, early warning judges against the fleet&rsquo;s normal for its line type, marked &ldquo;from the fleet&rdquo;.</td></tr>
+      <tr><td>What leaves the home</td><td>Only with <code>fleet.share</code> (opt-in): capped, noised counts and the learned normal&rsquo;s shape. No MACs, addresses, names, SNIs or timelines. Priors come back signed, through the model-update path.</td></tr>
+      <tr><td>Installed flash</td><td>Full profile (x86-64, aarch64, mipsel): 980/972/812 KB of 1024; fleet learning itself 28/32/24 KB.</td></tr>
+    </tbody>
+  </table></div>
   <h3 style="margin-top:18px">As built in v0.48: choose the features</h3>
   <div class="tbl"><table>
     <thead><tr><th>Piece</th><th>What it does</th></tr></thead>

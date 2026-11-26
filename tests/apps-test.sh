@@ -216,9 +216,10 @@ wait_for() {   # wait_for <seconds> <what> <shell condition>
 live() {   # the live sessions: "<kind>:<device>:<app>" sorted, one line
 	agctl -j apps | js "print(' '.join(sorted(s['kind'] + ':' + s['device'] + ':' + s.get('app', '') for s in d.get('live', []))))"
 }
-moment() {   # the newest moment's <field> (empty: none)
-	agctl -j apps | js "m = d.get('moments', []); print(m[0].get('$1', '') if m else '')"
+moment() {   # the newest moment of the call's <field> (empty: none); the stream may have its own
+	agctl -j apps | js "m = [x for x in d.get('moments', []) if x['kind'] == 'VideoCall']; print(m[0].get('$1', '') if m else '')"
 }
+calls_n() { agctl -j apps | js "print(len([x for x in d.get('moments', []) if x['kind'] == 'VideoCall']))"; }
 appevents() {   # AppMoment! events: Kind What Cause | Summary
 	python3 - "$T/events.log" <<'EOF'
 import json, sys
@@ -321,7 +322,7 @@ ip netns exec "$NI" tc qdisc replace dev "apwp$R" root netem loss 40% delay 30ms
 sleep 10
 ip netns exec "$NI" tc qdisc del dev "apwp$R" root
 wait_for 30 "a second moment: $(agctl -j apps | js "print(d.get('moments'))")" \
-	'[ "$(agctl -j apps | js "print(len(d[\"moments\"]))")" -ge 2 ]'
+	'[ "$(calls_n)" -ge 2 ]'
 agctl apps
 C=$(moment cause)
 case "$C" in ISP|Line) ;; *) fail "choppy because of the network beyond the home, not $C: $(moment summary)" ;; esac
@@ -359,7 +360,7 @@ sys.exit(0 if a and a.get('moments') and 'secret' not in s and 'nflxvideo' not i
 echo "== kept over a restart; apps.share 0: the ISP sees nothing; apps.names 0: no family"
 config 0 0
 start_agd
-agctl -j apps | js "sys.exit(0 if len(d['moments']) >= 2 and d['moments'][-1]['what'] == 'Freeze' and d['status'] == 'Active' else 1)" ||
+[ "$(calls_n)" -ge 2 ] && agctl -j apps | js "sys.exit(0 if d['moments'][-1]['what'] == 'Freeze' and d['status'] == 'Active' else 1)" ||
 	fail "the moments kept at home: $(agctl -j apps)"
 [ "$(dmget Device.X_AIGW_.AppExperience.Shared)" = false ] && [ "$(dmget Device.X_AIGW_.AppExperience.Status)" = NotShared ] &&
 	[ "$(dmget Device.X_AIGW_.AppExperience.BadMoments)" = 0 ] && [ "$(dmget Device.X_AIGW_.AppExperience.MomentNumberOfEntries)" = 0 ] ||

@@ -1190,6 +1190,19 @@ Installed flash, as `aigw-selftest` counts it in CI's QEMU jobs (budget 1024 KB)
 
 Verified by `tests/mesh-test.sh` (the handler on its own over a fake ubus and a fake local USP agent, then everything before through it; a config with the old handler's path), the upgrade test (`MIGRATIONS` in `upgrade_console.py`), and the full suite on the LTO build.
 
+**As built in v0.50: fleet learning, every home teaches the next** ([fleet-learning.md](fleet-learning.md)). Middleware exposes each home's data; AIGW decides with the fleet's evidence, on the gateway, and says why.
+
+| Piece | As built |
+|-------|----------|
+| Outcomes (`agd/agd.h` `outcome_report`) | How a fix, or waiting, went for a fault: act.c (trial kept, tried, undone by a person), proactive.c (fixed by AIGW, cleared by itself, still there after the grace time); one per key, a later report replaces the earlier (proven self-repair's receipts use the same call) |
+| Buckets (`core/libag/fleet.c`, `ag/fleet.h`) | Fault x action x band/width/congestion/device class/hours/line, at five levels from every dimension to none; the Bayesian blend (a Dirichlet: the fleet's counts as at most `fleet.strength` tries, the home's own added) and the choice (only by `fleet.margin`, only with 5 tries behind each) |
+| agd (`agd/fleet.c`) | Cells in the state; the summary (opt-in `fleet.share`: counts capped, noised with keyed repeatable noise, the normal's shape); the `fleet-priors` slot in models.c (usign, version, rollback, k checked); proactive care waits first when the fleet says waiting clears it more often; early warning's normal from the fleet while learning (`care_normal_for`) |
+| Transport | The bridge (capability `fleet.share`) posts `/v1/fleet/summary`; priors come back through `/v1/models` like any signed update |
+| Cortex (`fleetlearn.py`) | The reference aggregator: a fixed vocabulary (no MAC, address or name can travel), latest summary per home, cap per home and bucket, k-anonymity, medians of normals, published only on change |
+| Surfaces | `agctl fleet`, `agctl fleet rank <code> [device]`; DM 1.23 `Device.X_AIGW_.FleetLearning.`, `FleetPriorsReceived!`, `FleetChoice!`; ubus `ag.fleet`, event `ag.fleet` |
+
+Installed flash, full profile: 980/972/812 KB (x86-64/aarch64/mipsel); fleet learning itself 28/32/24 KB.
+
 **As built in v0.48: features chosen when it is built.** The full build does what v0.47 did; whoever builds AIGW OS can leave features out ([features.md](features.md)).
 
 | Piece | As built |
@@ -1217,7 +1230,7 @@ Verified by the full local suite on each profile, every feature built alone with
 |-------|----------|
 | The rules (`core/libag/appqoe.c`, `include/ag/appqoe.h`) | Pure. A rules file (`config/apps.rules` = the built-in rules; `/etc/aigw/apps.rules` replaces it): `kind` lines over a connection's last looks (protocol, port, rate each way, packets a second, packet size, up/down ratio, duty, spread, age), first match wins; `family` lines (server-name suffixes, longest wins); `browse`. The quality of a minute per kind: E-model MOS and freezes for calls, a drain model for streams (rebuffering past a 10 s buffer, lower resolution), lag for games. The cause from the timeline's code, else the moment's own evidence, else the far end. Words for the home and the ISP |
 | The sessions (`agd/appqoe.c`) | Every look (`flow.c`'s dump, `apps.poll`): each TCP/UDP connection's counters, its kind (sticky), a device's connections of a kind are a session; stalls from looks far below the usual rate between usual ones. Every `why.interval`: the minute judged with the timeline's sample and Self-Healing Wi-Fi's look at the device; bad minutes in a row are a moment; closed: `why_ask` for the device then, the cause, the timeline (`WE_APP`), `ag.app`, `AppMoment!`; later, what AIGW did next (`why_events`) and the sessions since. Scores per group over 7 days. Fixed memory, about 100 KB |
-| Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.23), the bridge's `apps` query |
+| Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.24), the bridge's `apps` query |
 | Privacy | Kind and family name only; names to the ISP only with `brief.names`; `apps.share 0` hides it from the ISP (also from `WhySlow()`), `apps.names 0` uses no server names |
 
 Installed flash, full profile (budget 1024 KB): x86-64 1000 KB, aarch64 988 KB, mipsel 828 KB (+48, +48, +40 KB); small 704, 712, 604 KB.

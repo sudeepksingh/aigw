@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS rollout_homes (
     rollout INTEGER, gateway TEXT, wave INTEGER, state TEXT, score_before INTEGER, score_after INTEGER,
     error TEXT DEFAULT '', updated INTEGER, PRIMARY KEY (rollout, gateway));
 CREATE TABLE IF NOT EXISTS rollout_log (rollout INTEGER, ts INTEGER, text TEXT);
+-- v0.50: fleet learning (fleetlearn.py): each home's latest summary (counts per fault x fix x coarse bucket)
+CREATE TABLE IF NOT EXISTS fleet_summaries (gateway TEXT PRIMARY KEY, ts INTEGER, body TEXT);
 """
 
 # a day's row from a gateway (agd's care_days_blob) -> care_days' columns
@@ -176,6 +178,7 @@ class Store:
         g = self.gateway(ref)
         if g:
             self.x("DELETE FROM gateways WHERE id = ?", (g["id"],))
+            self.x("DELETE FROM fleet_summaries WHERE gateway = ?", (g["id"],))     # its share of the priors goes
         return g
 
     # ---------- reports ----------

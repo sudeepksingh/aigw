@@ -88,6 +88,32 @@ int care_normal(const struct care_learn *L, int m, int hour, float *mean, float 
 	return 0;
 }
 
+int care_normal_for(const struct care_learn *L, int m, int hour, long now, const struct care_learn_params *p,
+		    float *mean, float *dev, int *fleet)
+{
+	float om = 0, od = 0, w = 0;
+	int own = care_normal(L, m, hour, &om, &od) == 0, b = hour / 6;
+
+	*fleet = 0;
+	if (!p->prior || m < 0 || m >= CARE_METRICS || !p->prior->have[m] || hour < 0 || hour > 23 ||
+	    !care_learning(L, now, p)) {
+		if (!own)
+			return -1;
+		*mean = om;
+		*dev = od;
+		return 0;
+	}
+	/* the fleet's normal hands over to the home's own as its learning goes on */
+	if (own && L->started && p->learn_s > 0)
+		w = (float)(now - L->started) / (float)p->learn_s;
+	if (w > 1)
+		w = 1;
+	*mean = w * om + (1 - w) * p->prior->mean[m][b];
+	*dev = w * od + (1 - w) * p->prior->dev[m][b];
+	*fleet = 1;
+	return 0;
+}
+
 static void learn(struct care_norm *c, float x, unsigned window, float weight)
 {
 	float a;
@@ -156,25 +182,28 @@ static int trend(const struct care_mstate *M, int m, long day, float *per_day, f
 }
 
 struct cand {
-	int metric, kind, predict, days;
+	int metric, kind, predict, days, fleet;
 	float normal, current, per_day, strength;
 };
 
 /* what a metric shows now: a trend first (it says when), else a shift; 0 none */
-static int candidate(const struct care_learn *L, int m, int hour, long day, const struct care_learn_params *p,
+static int candidate(const struct care_learn *L, int m, int hour, long day, long now, const struct care_learn_params *p,
 		     struct cand *c)
 {
 	const struct care_mstate *M = &L->m[m];
 	float mean, dev, per_day = 0, r2 = 0, level = 0, excess = 0, eff;
-	int nd = 0;
+	int nd = 0, fleet;
 
-	if (care_normal(L, m, hour, &mean, &dev) < 0)
+	if (care_normal_for(L, m, hour, now, p, &mean, &dev, &fleet) < 0)
 		return 0;
 	eff = effect_of(m, mean, p);
 	memset(c, 0, sizeof(*c));
 	c->metric = m;
 	c->normal = mean;
-	if (trend(M, m, day, &per_day, &r2, &level, &excess, &nd) == 0 && nd >= p->min_days && per_day > 0 &&
+	c->fleet = fleet;
+	if (fleet)
+		eff *= 2;               /* another home's normal: only a clear difference */
+	if (!fleet && trend(M, m, day, &per_day, &r2, &level, &excess, &nd) == 0 && nd >= p->min_days && per_day > 0 &&
 	    r2 >= p->r2 && excess >= eff / 2 && per_day * (float)(nd - 1) >= eff / 2) {
 		float fault = p->fault[m], left;
 
@@ -205,16 +234,17 @@ static int candidate(const struct care_learn *L, int m, int hour, long day, cons
 }
 
 /* is the open warning still so (with some slack, so it doesn't flap) */
-static int still(const struct care_learn *L, int hour, long day, const struct care_learn_params *p)
+static int still(const struct care_learn *L, int hour, long day, long now, const struct care_learn_params *p)
 {
 	const struct care_warning *w = &L->w;
 	const struct care_mstate *M = &L->m[w->metric];
 	float mean, dev;
 	struct cand c;
+	int fleet;
 
-	if (candidate(L, w->metric, hour, day, p, &c))
+	if (candidate(L, w->metric, hour, day, now, p, &c))
 		return 1;
-	if (care_normal(L, w->metric, hour, &mean, &dev) < 0)
+	if (care_normal_for(L, w->metric, hour, now, p, &mean, &dev, &fleet) < 0)
 		return 0;
 	if (w->kind == CW_SHIFT)
 		return M->cusum > p->h[w->metric] / 4 && M->recent >= effect_of(w->metric, mean, p) / 2;
@@ -230,6 +260,7 @@ static void take(struct care_warning *w, const struct cand *c)
 	w->per_day = c->per_day;
 	w->days = c->days;
 	w->predict = c->predict;
+	w->fleet = c->fleet;
 }
 
 int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour, long day, long now, unsigned quiet_areas,
@@ -247,11 +278,11 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 	for (m = 0; m < CARE_METRICS; m++) {
 		struct care_mstate *M = &L->m[m];
 		float x = s->v[m], mean, dev, scale, excess, z;
-		int quiet = (quiet_areas >> care_metric_area(m)) & 1, slot;
+		int quiet = (quiet_areas >> care_metric_area(m)) & 1, slot, fleet;
 
 		if (!s->have[m] || !isfinite(x) || x < 0)
 			continue;
-		if (care_normal(L, m, hour, &mean, &dev) == 0) {
+		if (care_normal_for(L, m, hour, now, p, &mean, &dev, &fleet) == 0) {
 			scale = 1.25f * dev;
 			if (scale < floor_of(m, mean, p))
 				scale = floor_of(m, mean, p);
@@ -259,7 +290,7 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 			z = excess / scale;
 			if (z > 3)
 				z = 3;          /* one far-off check is a blip, not hours */
-			if (!learning && !quiet) {
+			if ((!learning || fleet) && !quiet) {
 				M->cusum += z - p->k;
 				if (M->cusum < 0)
 					M->cusum = 0;
@@ -278,10 +309,11 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 				M->days[slot].excess_sum += excess;
 				M->days[slot].n++;
 			}
-			/* a far-off value counts as at most 6 deviations from the normal */
-			if (x > mean + 6 * scale)
+			/* a far-off value counts as at most 6 deviations from the normal (the home's own:
+			   another home's normal must not pull this one's towards it) */
+			if (!fleet && x > mean + 6 * scale)
 				x = mean + 6 * scale;
-			if (x < mean - 6 * scale)
+			if (!fleet && x < mean - 6 * scale)
 				x = mean - 6 * scale;
 		}
 		if (quiet)
@@ -289,12 +321,12 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 		learn(&M->hour[hour], x, HOUR_WINDOW, L->w.active && L->w.metric == m ? 0.1f : 1.0f);
 		learn(&M->all, x, ALL_WINDOW, L->w.active && L->w.metric == m ? 0.1f : 1.0f);
 	}
-	if (learning)
+	if (learning && !p->prior)
 		return 0;
 	for (m = 0; m < CARE_METRICS; m++) {
 		if ((quiet_areas >> care_metric_area(m)) & 1)
 			continue;
-		if (candidate(L, m, hour, day, p, &c) && (!have || c.strength > best.strength)) {
+		if (candidate(L, m, hour, day, now, p, &c) && (!have || c.strength > best.strength)) {
 			best = c;
 			have = 1;
 		}
@@ -309,7 +341,7 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 		}
 		return ev;
 	}
-	if (still(L, hour, day, p) && !((quiet_areas >> care_metric_area(L->w.metric)) & 1)) {
+	if (still(L, hour, day, now, p) && !((quiet_areas >> care_metric_area(L->w.metric)) & 1)) {
 		if (have && best.metric == L->w.metric)
 			take(&L->w, &best);     /* the same metric: its newest numbers */
 		return ev;
@@ -327,7 +359,20 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 	return ev | CW_CLEARED;
 }
 
+static void text_of(const struct care_warning *w, const struct care_learn_params *p, char *buf, size_t n);
+
 void care_warning_text(const struct care_warning *w, const struct care_learn_params *p, char *buf, size_t n)
+{
+	size_t len;
+
+	text_of(w, p, buf, n);
+	len = strlen(buf);
+	if (w->fleet && len < n)
+		snprintf(buf + len, n - len, " The normal is from the fleet (homes like this one): this gateway is still "
+			 "learning its own.");
+}
+
+static void text_of(const struct care_warning *w, const struct care_learn_params *p, char *buf, size_t n)
 {
 	static const char *const what[CARE_METRICS] = { "The next router's delay", "The internet's delay",
 		"Packet loss to the internet", "The time names take to resolve (DNS)", "The download speed" };

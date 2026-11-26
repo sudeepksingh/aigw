@@ -204,7 +204,7 @@ as their own policies and `act.mode` allow (the default stays `advise`).
 - The bridge to cortex: query `apps`: the scores and counts (with `apps.share`), no names.
 - Events: `ag.app` on ubus (with names, at home).
 
-### Data model (1.23)
+### Data model (1.24)
 
 `Device.X_AIGW_.AppExperience.` (only in builds with the feature):
 
