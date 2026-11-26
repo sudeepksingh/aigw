@@ -1211,6 +1211,17 @@ Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
 
 Verified by the full local suite on each profile, every feature built alone with what it needs, and the full build without each feature (each with no warnings).
 
+**As built in v0.51: per-app experience.** How each call, stream and game went, in the app's own terms, and why ([app-experience.md](app-experience.md)). Feature `APPQOE`, needs `WHY`; in the full and small profiles.
+
+| Piece | As built |
+|-------|----------|
+| The rules (`core/libag/appqoe.c`, `include/ag/appqoe.h`) | Pure. A rules file (`config/apps.rules` = the built-in rules; `/etc/aigw/apps.rules` replaces it): `kind` lines over a connection's last looks (protocol, port, rate each way, packets a second, packet size, up/down ratio, duty, spread, age), first match wins; `family` lines (server-name suffixes, longest wins); `browse`. The quality of a minute per kind: E-model MOS and freezes for calls, a drain model for streams (rebuffering past a 10 s buffer, lower resolution), lag for games. The cause from the timeline's code, else the moment's own evidence, else the far end. Words for the home and the ISP |
+| The sessions (`agd/appqoe.c`) | Every look (`flow.c`'s dump, `apps.poll`): each TCP/UDP connection's counters, its kind (sticky), a device's connections of a kind are a session; stalls from looks far below the usual rate between usual ones. Every `why.interval`: the minute judged with the timeline's sample and Self-Healing Wi-Fi's look at the device; bad minutes in a row are a moment; closed: `why_ask` for the device then, the cause, the timeline (`WE_APP`), `ag.app`, `AppMoment!`; later, what AIGW did next (`why_events`) and the sessions since. Scores per group over 7 days. Fixed memory, about 100 KB |
+| Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.23), the bridge's `apps` query |
+| Privacy | Kind and family name only; names to the ISP only with `brief.names`; `apps.share 0` hides it from the ISP (also from `WhySlow()`), `apps.names 0` uses no server names |
+
+Installed flash, full profile (budget 1024 KB): x86-64 1000 KB, aarch64 988 KB, mipsel 828 KB (+48, +48, +40 KB); small 704, 712, 604 KB.
+
 ---
 
 ## 17. Status and risks

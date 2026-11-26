@@ -219,8 +219,8 @@ define Package/aigw/config
       terms (a call's MOS and freezes, a stream's rebuffering, a game's lag),
       and explains each bad moment from the timeline: Wi-Fi, the line full,
       the ISP or the far end. agctl apps, Device.X_AIGW_.AppExperience.,
-      AppMoment!, and the help desk's brief. About 18 KB of flash, 75 KB of
-      memory (docs/app-experience.md). In the small profile: it answers the
+      AppMoment!, and the help desk's brief. 48 KB of flash (40 KB on mipsel),
+      about 100 KB of memory (docs/app-experience.md). In the small profile: it answers the
       calls customers make most ("my video call froze").
   config AIGW_FEATURE_BRIEF
     bool "The help-desk brief" if AIGW_PROFILE_CUSTOM

@@ -57,6 +57,21 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.51:** **Per-app experience: "my video call froze".** The gateway tells
+> video calls, voice calls, screen shares, streams, cloud and online games,
+> large downloads, browsing and smart-home devices apart from their
+> connections' traits and server-name families (a rules file an ISP can change
+> without new code), estimates how each went in the app's own terms (a call's
+> E-model MOS and freezes, a stream's rebuffering, a game's lag spikes), and
+> explains each bad moment: "The video call on laptop (Zoom) at 10:02 froze for
+> about 8 s: the 2.4 GHz Wi-Fi channel was congested; then at 10:04 AIGW moved
+> 2.4 GHz (wlan0) from channel 11 to 6, and the 3 calls since were fine." Or,
+> with evidence, the far end. Scores per kind of app, `agctl apps`, the
+> timeline, the help desk (`agctl brief --app calls`), `Device.X_AIGW_.AppExperience.`
+> and `AppMoment!` (data model 1.23). Only kinds and family names are kept,
+> never a server name or a URL. Feature `APPQOE` (full and small profiles,
+> 48 KB, 40 on mipsel); see [docs/app-experience.md](docs/app-experience.md).
+>
 > **v0.48:** **Choose the features.** Whoever builds AIGW OS picks its
 > features: 20 of them, each a CMake option and a `make menuconfig` choice, with
 > full, small and minimal profiles. A feature that is not built in takes no

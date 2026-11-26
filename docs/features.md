@@ -23,7 +23,7 @@ The core is always built. It is what makes AIGW OS a managed gateway:
 
 Sizes are for x86-64. They are agd, agctl, agdns and the plug-ins, stripped, in 4 KB blocks,
 built as OpenWRT's SDK builds them. "Off saves" is what turning the feature off saves; when
-other features need it, they go too. The core alone is 316 KB of programs; everything is 832 KB.
+other features need it, they go too. The core alone is 316 KB of programs; everything is 880 KB.
 
 | Feature | What it is | Needs | Off saves |
 |---|---|---|---|
@@ -37,7 +37,7 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `OFFERS` | Signals for the ISP (a faster plan, mesh Wi-Fi, and more) | `WHY`, `CARE` | 16 KB |
 | `SQM` | Self-tuning smart queueing | `WHY` | 32 KB with `CALLS` (about 12 on its own) |
 | `CALLS` | Calls and games first | `SQM` | 20 KB |
-| `APPQOE` | Per-app experience: how each call, stream and game went, and why ([app-experience.md](app-experience.md)) | `WHY` | APPKB |
+| `APPQOE` | Per-app experience: how each call, stream and game went, and why ([app-experience.md](app-experience.md)) | `WHY` | 48 KB (40 on mipsel) |
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | 8 KB |
@@ -58,8 +58,8 @@ Wi-Fi's look at each device, and feeds the help-desk brief, when they are built.
 
 | Profile | Features | Installed flash (`aigw-selftest`) |
 |---|---|---|
-| `full` | all | x86-64 952 KB, aarch64 940 KB, mipsel 788 KB |
-| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `APPQOE` | x86-64 664 KB, aarch64 668 KB, mipsel 564 KB |
+| `full` | all | x86-64 1000 KB, aarch64 988 KB, mipsel 828 KB |
+| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `APPQOE` | x86-64 704 KB, aarch64 712 KB, mipsel 604 KB |
 | `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
 
 The installed flash is what `aigw-selftest` counts on the router: the programs, the scripts,

@@ -14,7 +14,7 @@ Per-app experience: Active; server names help tell apps apart (families only, ne
   now       video stream on tv (Netflix) since 20:05, 52 min, Good
   moments   The video call on laptop (Zoom) at 10:02 froze for about 8 s: the 2.4 GHz Wi-Fi channel was congested; then at 10:04 AIGW moved 2.4 GHz (wlan0) from channel 11 to 6, and the 3 calls since were fine. (confidence 80%)
   sessions  video call on laptop (Zoom), 10:31-11:02, 31 min, 0 bad
-  cost      9 of 160 connections watched, 2 sessions, 75 KB of memory, 40 us a look
+  cost      9 of 160 connections watched, 2 sessions, 96 KB of memory, 40 us a look
 ```
 
 It is a compile-time feature, `AIGW_FEATURE_APPQOE` ([features.md](features.md)), that needs
@@ -230,9 +230,12 @@ Measured by `tests/test_appqoe.c` and shown by `agctl apps` (`cost`):
   roughly 20 times slower: about 1 ms every 10 s. A server name's family is looked up once per
   connection. The minute's judgement is a handful of sums; asking the timeline for a moment's
   cause (once per moment) is the heaviest step, about 1 ms here.
-- **Memory**: 75 KB, fixed (160 connections with 6 looks each, 32 sessions, 32 moments, 48
-  sessions ended, 8 days, the rules).
-- **Flash**: the feature adds about 20 KB (agd and agctl), see [features.md](features.md).
+- **Memory**: about 100 KB, fixed (160 connections with 6 looks each, 32 sessions, 32 moments,
+  48 sessions ended, 8 days, the rules, and the buffers for a moment's cause).
+- **Flash**: the feature adds 48 KB on x86-64 and aarch64 and 40 KB on mipsel (installed, as
+  `aigw-selftest` counts it; OpenWRT 24.10.8 SDK, against v0.48 built the same way). The full
+  profile is 1000 / 988 / 828 KB (x86-64 / aarch64 / mipsel) of the 1024 KB budget; the small
+  profile 704 / 712 / 604 KB. See [features.md](features.md).
 
 ## Tests
 
