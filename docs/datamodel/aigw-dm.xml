@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.22. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.23. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-22" file="aigw-dm-1-22.xml">
+             spec="urn:aigw-os:aigw-dm-1-23" file="aigw-dm-1-23.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.22">
+  <model name="AIGW-OS:1.23">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -262,6 +262,18 @@
         <parameter name="Before"><syntax><string/></syntax></parameter>
         <parameter name="After"><syntax><string/></syntax></parameter>
       </event>
+      <event name="FleetPriorsReceived!">
+        <parameter name="Version"><syntax><string/></syntax></parameter>
+        <parameter name="Buckets"><syntax><string/></syntax></parameter>
+        <parameter name="Normals"><syntax><string/></syntax></parameter>
+        <parameter name="Homes"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="FleetChoice!">
+        <parameter name="Code"><syntax><string/></syntax></parameter>
+        <parameter name="Default"><syntax><string/></syntax></parameter>
+        <parameter name="Chosen"><syntax><string/></syntax></parameter>
+        <parameter name="Reason"><syntax><string/></syntax></parameter>
+      </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
       <command name="NSLookupDiagnostics()" async="true">
@@ -462,6 +474,23 @@
       <parameter name="SpotNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Decision." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.FleetLearning." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readWrite" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Share" access="readWrite" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="K" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="UploadInterval" access="readWrite" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LineType" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="OutcomesRecorded" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LastShared" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="PriorsVersion" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="PriorsHomes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="PriorsBuckets" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="PriorsReceived" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="ColdStart" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="ChoicesMade" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ChoicesChanged" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="LastChoice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.LastDiagnosis." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Time" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>

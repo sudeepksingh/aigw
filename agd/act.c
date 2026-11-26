@@ -221,8 +221,29 @@ static void dec_event(const struct decision *d)
 	blob_buf_free(&b);
 }
 
+/* fleet learning: how a fix went (the outcome interface, agd.h). Proactive care and proven
+   self-repair report the same decision again when they know better (the fault it was for) */
+static void fix_outcome(const struct decision *d, int state)
+{
+	const char *a = d->action;
+	char mac[18] = "", ifc[24] = "";
+	int r = state == D_KEPT ? FL_HELPED : state == D_REVERTED ? FL_UNDONE :
+		strstr(d->note, "worse") ? FL_WORSE : FL_NO_CHANGE;
+
+	if (!strcmp(a, "channel"))
+		snprintf(ifc, sizeof(ifc), "%.*s", (int)strcspn(d->target, ":"), d->target);
+	else if (strcmp(a, "sqm") && strcmp(a, "meshchan"))
+		snprintf(mac, sizeof(mac), "%.17s", d->target);
+	outcome_report(!strcmp(a, "channel") ? "WIFI_CONGESTION" : !strcmp(a, "stay24") ? "WIFI_HOPPING" :
+		       !strcmp(a, "sqm") ? "LINE_FULL" : !strcmp(a, "meshchan") ? "MESH_BACKHAUL" : "WIFI_COVERAGE",
+		       a, r, d->id, mac, ifc);
+}
+
 static void set_state(struct decision *d, int state)
 {
+	if ((state == D_KEPT || state == D_TRIED || (state == D_REVERTED && d->applied)) &&
+	    (is_wifi_fix(d->action) || !strcmp(d->action, "sqm")))
+		fix_outcome(d, state);
 	d->state = state;
 	d->decided = ag_wall_s();
 	AG_INFO("decision %u %s %s%s%s: %s%s%s", d->id, d->action, d->target, d->scope[0] ? " for " : "",

@@ -45,7 +45,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.22"
+#define DM_VERSION "1.23"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -1173,6 +1173,32 @@ GET(g_tr_cap)
 }
 #endif
 
+#if AIGW_FEATURE_FLEETLEARN
+/* fleet learning (Device.X_AIGW_.FleetLearning.): one getter and one setter, by the parameter's own name */
+static const char *fl_name(const char *path) { const char *d = strrchr(path, '.'); return d ? d + 1 : path; }
+GET(g_fl)
+{
+	const char *nm = fl_name(c->ppath);
+
+	if (!strcmp(nm, "LastShared") || !strcmp(nm, "PriorsReceived")) {
+		char v[24] = "0";
+
+		fleet_field(nm, v, sizeof(v));
+		fmt_time(strtoll(v, NULL, 10), buf, n);
+		return 0;
+	}
+	return fleet_field(nm, buf, n);
+}
+static int s_fl(const struct ictx *c, const char *v, int apply, char *err, size_t en)
+{
+	if (fleet_set(fl_name(c->ppath), v, apply, err, en) < 0)
+		return E_INVALID_VALUE;
+	if (apply)
+		AG_INFO("dm: fleet learning %s set to '%s' by %s", fl_name(c->ppath), v, req_origin);
+	return E_OK;
+}
+#endif
+
 /* ---------- the schema ---------- */
 
 #define W 1                             /* writable */
@@ -1513,6 +1539,25 @@ static struct dm_param {
 	{ CV "Spot.{i}.Signal", T_INT, 0, TB_SPOT, g_cov_spot, NULL },
 	{ CV "Spot.{i}.HeardBestBy", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
 #undef CV
+#endif
+#if AIGW_FEATURE_FLEETLEARN
+#define FLP "Device.X_AIGW_.FleetLearning."
+	{ FLP "Enable", T_BOOL, W, TB_NONE, g_fl, s_fl },
+	{ FLP "Share", T_BOOL, W, TB_NONE, g_fl, s_fl },
+	{ FLP "K", T_UINT, W, TB_NONE, g_fl, s_fl },
+	{ FLP "UploadInterval", T_UINT, W, TB_NONE, g_fl, s_fl },
+	{ FLP "LineType", T_STR, W, TB_NONE, g_fl, s_fl },
+	{ FLP "OutcomesRecorded", T_UINT, 0, TB_NONE, g_fl, NULL },
+	{ FLP "LastShared", T_TIME, 0, TB_NONE, g_fl, NULL },
+	{ FLP "PriorsVersion", T_UINT, N, TB_NONE, g_fl, NULL },
+	{ FLP "PriorsHomes", T_UINT, 0, TB_NONE, g_fl, NULL },
+	{ FLP "PriorsBuckets", T_UINT, 0, TB_NONE, g_fl, NULL },
+	{ FLP "PriorsReceived", T_TIME, 0, TB_NONE, g_fl, NULL },
+	{ FLP "ColdStart", T_BOOL, 0, TB_NONE, g_fl, NULL },
+	{ FLP "ChoicesMade", T_UINT, 0, TB_NONE, g_fl, NULL },
+	{ FLP "ChoicesChanged", T_UINT, 0, TB_NONE, g_fl, NULL },
+	{ FLP "LastChoice", T_STR, 0, TB_NONE, g_fl, NULL },
+#undef FLP
 #endif
 #if AIGW_FEATURE_AREA
 #define AO "Device.X_AIGW_.AreaOutage."
@@ -2285,6 +2330,10 @@ enum {
 #if AIGW_FEATURE_WIFI_HEAL
 	EVT_CHANPLAN,
 #endif
+#if AIGW_FEATURE_FLEETLEARN
+	EVT_FLEET_PRIORS,
+	EVT_FLEET_CHOICE,
+#endif
 	EVT_N
 };
 
@@ -2335,6 +2384,10 @@ static struct {
 #endif
 #if AIGW_FEATURE_WIFI_HEAL
 	[EVT_CHANPLAN] = { "Device.X_AIGW_.ChannelPlan!", "Radio,FromChannel,ToChannel,State,Reason,Before,After" },
+#endif
+#if AIGW_FEATURE_FLEETLEARN
+	[EVT_FLEET_PRIORS] = { "Device.X_AIGW_.FleetPriorsReceived!", "Version,Buckets,Normals,Homes" },
+	[EVT_FLEET_CHOICE] = { "Device.X_AIGW_.FleetChoice!", "Code,Default,Chosen,Reason" },
 #endif
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
@@ -2931,6 +2984,28 @@ void dm_on_upgrade(const char *result, const char *from, const char *to, const c
 			     "Summary", summary, NULL };
 
 	emit(events[EVT_UPGRADE].path, kv);           /* UpgradeChecked! */
+}
+#endif
+
+#if AIGW_FEATURE_FLEETLEARN
+/* fleet.c: new priors from the fleet in use (FleetPriorsReceived!); a choice the fleet changed (FleetChoice!) */
+void dm_on_fleet_priors(int version, int buckets, int normals, unsigned homes)
+{
+	char v[12], bk[12], nm[12], h[12];
+	const char *kv[] = { "Version", v, "Buckets", bk, "Normals", nm, "Homes", h, NULL };
+
+	snprintf(v, sizeof(v), "%d", version);
+	snprintf(bk, sizeof(bk), "%d", buckets);
+	snprintf(nm, sizeof(nm), "%d", normals);
+	snprintf(h, sizeof(h), "%u", homes);
+	emit(events[EVT_FLEET_PRIORS].path, kv);
+}
+
+void dm_on_fleet_choice(const char *code, const char *dflt, const char *chosen, const char *reason)
+{
+	const char *kv[] = { "Code", code, "Default", dflt, "Chosen", chosen, "Reason", reason, NULL };
+
+	emit(events[EVT_FLEET_CHOICE].path, kv);
 }
 #endif
 

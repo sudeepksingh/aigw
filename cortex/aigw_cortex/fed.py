@@ -154,15 +154,11 @@ def _aggregate(store, s, force):
     return {"round": r["round"], "homes": len(ups), "version": version, "weights": new, "note": note}
 
 
-def publish(store, weights, note):
-    from .__main__ import signing_key        # one key for models, lists and the layer
-    version = store.next_version(NAME)
-    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    fmt = lambda xs: " ".join(f"{x:.6g}" for x in xs)
-    data = (f"# aigw-adapter {NAME}\n# version {version}\n# published {stamp}\n# {note}\n"
-            f"center {fmt(CENTER)}\nscale {fmt(SCALE)}\nweights {fmt(weights)}\n").encode()
+def publish_signed(store, name, ext, version, data, note):
+    """A signed file gateways fetch like a model update (/v1/models): the layer, fleet priors."""
+    from .__main__ import signing_key        # one key for models, lists, the layer and the priors
     sec, _ = signing_key(store.dir)
-    fname = f"{NAME}-{version}.adapter"
+    fname = f"{name}-{version}{ext}"
     out = os.path.join(store.models_dir(), fname)
     with open(out + ".sig.tmp", "w") as f:
         f.write(usign.sign(sec, data))
@@ -170,8 +166,17 @@ def publish(store, weights, note):
         f.write(data)
     os.replace(out + ".sig.tmp", out + ".sig")
     os.replace(out + ".tmp", out)
-    store.add_model(NAME, version, fname, hashlib.sha256(data).hexdigest(), len(data), note)
+    store.add_model(name, version, fname, hashlib.sha256(data).hexdigest(), len(data), note)
     return version
+
+
+def publish(store, weights, note):
+    version = store.next_version(NAME)
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    fmt = lambda xs: " ".join(f"{x:.6g}" for x in xs)
+    data = (f"# aigw-adapter {NAME}\n# version {version}\n# published {stamp}\n# {note}\n"
+            f"center {fmt(CENTER)}\nscale {fmt(SCALE)}\nweights {fmt(weights)}\n").encode()
+    return publish_signed(store, NAME, ".adapter", version, data, note)
 
 
 def status(store, s):

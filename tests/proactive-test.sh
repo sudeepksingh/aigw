@@ -316,8 +316,8 @@ ok = ok and v[p + 'Ticket.$TID.Status'] == 'Raised' and v[p + 'Ticket.$TID.Fault
 ok = ok and v[p + 'Ticket.$TID.CustomerNote'].startswith('We noticed') and v[p + 'Ticket.$TID.Opened'].endswith('Z')
 sys.exit(0 if ok else 1)" < "$T/dm.json" || fail "TR-181 Device.X_AIGW_.Proactive.: $(cat "$T/dm.json")"
 "$UBUS" -s "$AIGW_UBUS" call ag.dm schema > "$T/schema.json"
-js "sys.exit(0 if d['version'] == '1.22' and 'Device.X_AIGW_.ProactiveTicket!' in [e['path'] for e in d['events']] else 1)" \
-	< "$T/schema.json" || fail "data model 1.22 with ProactiveTicket!: $(head -c 400 "$T/schema.json")"
+js "sys.exit(0 if tuple(map(int, d['version'].split('.'))) >= (1, 22) and 'Device.X_AIGW_.ProactiveTicket!' in [e['path'] for e in d['events']] else 1)" \
+	< "$T/schema.json" || fail "data model 1.22 or later with ProactiveTicket!: $(head -c 400 "$T/schema.json")"
 
 echo "== seen again and again: still one ticket, one event"
 sleep 6
@@ -385,16 +385,54 @@ sleep 1
 grep -q "$LAPTOP\|sara-laptop" "$T/events.log" && fail "the event must not name the laptop: $(cat "$T/events.log")"
 echo "   ticket $LT: keeping it on 2.4 GHz proposed as decision $DEC, nothing applied"
 
-echo "== enforce mode (restarted): a TV hopping: AIGW keeps it on 2.4 GHz itself"
+FT=0
+if has fleetlearn; then
+echo "== fleet learning: in homes like this, waiting clears hopping far more often than 2.4 GHz: wait first"
+# the laptop's proposal answered first: else the brief's fix for the next ticket is "approve it"
 agctl reject "$DEC" > /dev/null || fail "reject $DEC"
+PYTHONPATH="$REPO/cortex" python3 -m aigw_cortex --data "$T/cx" pubkey > /dev/null 2>&1
+agctl trust "$T/cx/keys/cortex.pub" > /dev/null || fail "trust the test key"
+cat > "$T/fleet.priors" <<'EOF'
+# aigw-priors fleet-priors
+# version 1
+# k 5
+# homes 40
+o WIFI_HOPPING stay24 */*/*/*/*/* 40 400 40 20 0
+o WIFI_HOPPING wait */*/*/*/*/* 40 400 300 0 0
+EOF
+PYTHONPATH="$REPO/cortex" python3 - "$T/cx" "$T/fleet.priors" <<'EOF'
+import sys
+from aigw_cortex import usign
+from aigw_cortex.__main__ import signing_key
+sec, _ = signing_key(sys.argv[1])
+open(sys.argv[2] + ".sig", "w").write(usign.sign(sec, open(sys.argv[2], "rb").read()))
+EOF
+agctl model install "$T/fleet.priors" > /dev/null || fail "the fleet's priors should load: $(agctl model install "$T/fleet.priors" 2>&1)"
+hop "$PHONE" 2
+at "$PHONE" "-50 wlan0"
+wait_pro 40 "[t for t in d['tickets'] if t['code'] == 'WIFI_HOPPING' and t['target'] == '$PHONE' and t['status'] == 'Watching' and 'Fleet learning' in t['next_step']]"
+FT=$(pro | js "print([t for t in d['tickets'] if t['code'] == 'WIFI_HOPPING' and t['target'] == '$PHONE'][0]['id'])")
+agctl -j decisions | js "sys.exit(1 if [k for k in d['decisions'] if k['action'] == 'stay24' and k['target'].lower() == '$PHONE'.lower()] else 0)" ||
+	fail "the fleet said wait: no stay24 for the phone: $(agctl decisions)"
+agctl -j fleet | js "c = d['last_choices'][0]; sys.exit(0 if d['changed'] >= 1 and c['chosen'] == 'wait' and c['default'] == 'stay24' else 1)" ||
+	fail "agctl fleet should show the choice it changed: $(agctl fleet)"
+agctl fleet | grep -q "stay24 -> wait" || fail "agctl fleet in words: $(agctl fleet)"
+sleep 1
+grep -q "FleetChoice!" "$T/events.log" || fail "FleetChoice! for the ISP: $(cat "$T/events.log")"
+echo "   ticket $FT: waiting first, as the fleet's outcomes say; the fix follows if it doesn't clear"
+rm -f "$T/models/fleet-priors".*         # the next part is about the rules' own fix
+fi
+
+echo "== enforce mode (restarted): a TV hopping: AIGW keeps it on 2.4 GHz itself"
+[ "$FT" != 0 ] || agctl reject "$DEC" > /dev/null || fail "reject $DEC"
 stop_agd
 config enforce 1
 start_agd
 EV=$(events)
 hop "$TV" 2
 at "$TV" "-60 wlan1"
-wait_pro 40 "[t for t in d['tickets'] if t['code'] == 'WIFI_HOPPING' and t['id'] != $LT and t['status'] in ('Fixing', 'Fixed')]"
-TT=$(pro | js "print([t for t in d['tickets'] if t['code'] == 'WIFI_HOPPING' and t['id'] != $LT][0]['id'])")
+wait_pro 40 "[t for t in d['tickets'] if t['code'] == 'WIFI_HOPPING' and t['id'] not in ($LT, $FT) and t['status'] in ('Fixing', 'Fixed')]"
+TT=$(pro | js "print([t for t in d['tickets'] if t['code'] == 'WIFI_HOPPING' and t['id'] not in ($LT, $FT)][0]['id'])")
 TDEC=$(pro | js "print([t for t in d['tickets'] if t['id'] == $TT][0]['decision'])")
 agctl -j decisions | js "
 x = [k for k in d['decisions'] if k['id'] == $TDEC]

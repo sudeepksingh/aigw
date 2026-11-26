@@ -85,6 +85,12 @@ static const struct ops adapter_ops = {
 	fed_adapter_version, fed_adapter_size,
 };
 #endif
+#if AIGW_FEATURE_FLEETLEARN
+static const struct ops priors_ops = {
+	".priors", "priors", "buckets", fleet_priors_parse, fleet_priors_check, fleet_priors_use, fleet_priors_free,
+	fleet_priors_version, fleet_priors_size,
+};
+#endif
 
 static const struct ops *ops_for(const uint8_t *data, size_t len)
 {
@@ -95,6 +101,10 @@ static const struct ops *ops_for(const uint8_t *data, size_t len)
 #if AIGW_FEATURE_FED
 	if (len >= 15 && !memcmp(data, "# aigw-adapter ", 15))
 		return &adapter_ops;    /* federated learning's shared layer */
+#endif
+#if AIGW_FEATURE_FLEETLEARN
+	if (len >= 14 && !memcmp(data, "# aigw-priors ", 14))
+		return &priors_ops;     /* fleet learning: the fleet's outcomes and normals */
 #endif
 	return NULL;
 }
@@ -121,6 +131,9 @@ static struct slot slots[] = {
 	{ .name = "threat-intel", .ops = &list_ops },     /* no packaged version: only from cortex */
 #if AIGW_FEATURE_FED
 	{ .name = "domain-adapter", .ops = &adapter_ops }, /* the layer homes learn together (fed.c) */
+#endif
+#if AIGW_FEATURE_FLEETLEARN
+	{ .name = "fleet-priors", .ops = &priors_ops },     /* every home teaches the next (fleet.c) */
 #endif
 };
 #define NSLOTS ((int)(sizeof(slots) / sizeof(slots[0])))
