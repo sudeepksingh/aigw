@@ -47,8 +47,8 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `FASTPATH` | Kernel fast path (flowtable) | | under 4 KB |
 | `REMOTE` | Remote access over WireGuard | | 8 KB (and the `aigw-remote` package) |
 | `KEYS` | Per-device Wi-Fi keys | | 8 KB |
-| `HOMEMODEL` | The home Wi-Fi model: places, and what an extender or a move would fix ([home-model.md](home-model.md)) | `COVERAGE` | HOMEMODEL_KB |
-| `SENSING` | Wi-Fi sensing, opt-in: presence, movement per zone, a care check-in ([wifi-sensing.md](wifi-sensing.md)) | | SENSING_KB |
+| `HOMEMODEL` | The home Wi-Fi model: places, and what an extender or a move would fix ([home-model.md](home-model.md)) | `COVERAGE` | 28 KB |
+| `SENSING` | Wi-Fi sensing, opt-in: presence, movement per zone, a care check-in ([wifi-sensing.md](wifi-sensing.md)) | | 12 KB |
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions

@@ -697,6 +697,7 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "coverage", "share");
 		if (v)
 			c->cov_share = atoi(v) != 0;
+#if AIGW_FEATURE_HOMEMODEL
 		v = opt(ctx, p, "home", "enabled");
 		if (v)
 			c->home = atoi(v) != 0;
@@ -706,6 +707,8 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "home", "share");
 		if (v)
 			c->home_share = atoi(v) != 0;
+#endif
+#if AIGW_FEATURE_SENSING
 		v = opt(ctx, p, "sensing", "enabled");
 		if (v)
 			c->sense = atoi(v) != 0;
@@ -726,6 +729,7 @@ void ag_config_load(struct ag_config *c)
 		if (v && atoi(v) >= 3 && atoi(v) <= 16)
 			c->sense_window = atoi(v);
 		copy(c->sense_csi, sizeof(c->sense_csi), opt(ctx, p, "sensing", "csi_handler"));
+#endif
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

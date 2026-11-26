@@ -200,6 +200,7 @@ model's place names when that is built too.
 
 ## Size
 
-About 12 KB of flash on x86-64 (see [features.md](features.md) for each
-architecture). In the **full** profile only: it is an opt-in service, not
+Installed flash it adds to the full profile: 12 KB on x86-64, 16 KB on
+aarch64, 12 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them).
+In the **full** profile only: it is an opt-in service, not
 what an ISP needs most on 8 or 16 MB of flash.

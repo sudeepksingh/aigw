@@ -250,7 +250,8 @@ define Package/aigw/config
       confidence, and checks an extender's prediction once one is added.
       Decides whether the ISP's mesh Wi-Fi signal is worth sending. Only
       predicts; changes nothing. agctl home, Device.X_AIGW_.HomeModel.
-      About 16 KB of flash (docs/home-model.md).
+      About 28 KB of flash on x86-64, 32 KB on aarch64, 24 KB on mipsel
+      (docs/home-model.md).
   config AIGW_FEATURE_SENSING
     bool "Wi-Fi sensing, presence, movement and a care check-in (opt-in)" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
@@ -260,7 +261,8 @@ define Package/aigw/config
       only through a vendor handler). Off at run time until the home agrees
       (agctl sense on --i-agree); stays on the gateway unless
       sensing.share_events. agctl sense, Device.X_AIGW_.Sensing.
-      About 12 KB of flash (docs/wifi-sensing.md).
+      About 12 KB of flash on x86-64, 16 KB on aarch64, 12 KB on mipsel
+      (docs/wifi-sensing.md).
   endmenu
 endef
 
