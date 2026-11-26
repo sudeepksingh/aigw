@@ -63,8 +63,8 @@ The home model holds back the ISP's mesh Wi-Fi signal (`OFFERS`) when a free cha
 
 | Profile | Features | Installed flash (`aigw-selftest`) |
 |---|---|---|
-| `full` | all | x86-64 952 KB, aarch64 940 KB, mipsel 788 KB |
-| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM` | x86-64 664 KB, aarch64 668 KB, mipsel 564 KB |
+| `full` | all | x86-64 996 KB, aarch64 988 KB, mipsel 828 KB |
+| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM` | x86-64 664 KB, aarch64 668 KB, mipsel 568 KB |
 | `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
 
 The installed flash is what `aigw-selftest` counts on the router: the programs, the scripts,

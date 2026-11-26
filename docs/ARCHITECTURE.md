@@ -524,6 +524,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `agdns` | ~150 KB | ~3 MB |
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
+| *measured v0.52, installed (SDK 24.10.8, `flash-kb.py`)* | *full 996 KB x86-64, 988 KB aarch64, 828 KB mipsel; small 664 / 668 / 568; minimal 392 / 384 / 340* | — |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
@@ -1221,7 +1222,17 @@ Verified by the full local suite on each profile, every feature built alone with
 | Where it shows | `agctl home`, `agctl home name`, LuCI's Place button, `agctl sense`; data model 1.23 (`Device.X_AIGW_.HomeModel.` with `Place.{i}.` and `Option.{i}.`, `Device.X_AIGW_.Sensing.`); events `HomeAdvice!`, `PresenceChanged!`, `UnusualInactivity!`; ubus `ag.home`, `ag.sense`; cortex gets the home model's counts and best option, never sensing |
 | Honesty | Sensing's accuracy is measured on a simulated home with whole days held out (`tests/test_sense.c`), not on real labelled activity; `agd --sense-bench` and `aigw-selftest` check its CPU on each router |
 
-FLASH_TABLE
+Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
+
+| Profile | `x86_64` | `aarch64_cortex-a53` | `mipsel_24kc` |
+|---------|----------|----------------------|---------------|
+| full | 996 KB | 988 KB | 828 KB |
+| ... of it `HOMEMODEL` | 28 KB | 32 KB | 24 KB |
+| ... of it `SENSING` | 12 KB | 16 KB | 12 KB |
+| small | 664 KB | 668 KB | 568 KB |
+| minimal | 392 KB | 384 KB | 340 KB |
+
+The full profile has 28 KB left on x86-64 and 36 KB on aarch64.
 
 ---
 

@@ -72,7 +72,8 @@ illustrated version.
 > Accuracy is stated on a simulated home with whole days held out, and is not
 > yet validated on real, labelled activity. `agctl home`, `agctl sense`, data
 > model 1.23; two new build options (`HOMEMODEL`, `SENSING`). Installed flash
-> FLASH_LINE; see [docs/home-model.md](docs/home-model.md) and
+> (`aigw-selftest`, KB, x86-64/aarch64/mipsel): full 996/988/828 (the home model
+> adds 28/32/24, sensing 12/16/12), small 664/668/568, minimal 392/384/340; see [docs/home-model.md](docs/home-model.md) and
 > [docs/wifi-sensing.md](docs/wifi-sensing.md).
 >
 > **v0.48:** **Choose the features.** Whoever builds AIGW OS picks its
