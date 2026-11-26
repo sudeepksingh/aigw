@@ -691,8 +691,6 @@ static void on_query(struct plugin *p, const char *what, int id)
 #endif
 	} else if (!strcmp(what, "coverage")) {
 		coverage_report_blob(&d);       /* coverage advice: the verdict and counts, spots by kind: no names */
-	} else if (!strcmp(what, "apps")) {
-		appqoe_report_blob(&d);         /* per-app experience: scores and counts (apps.share), no names, no apps */
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :

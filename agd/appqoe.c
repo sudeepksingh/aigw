@@ -1262,32 +1262,6 @@ void appqoe_blob(struct blob_buf *b, const char *host, int group, int limit)
 	blobmsg_add_u32(b, "moments_total", total_mo);
 }
 
-/* the bridge to cortex (with apps.share): scores and counts, no names, no apps */
-void appqoe_report_blob(struct blob_buf *b)
-{
-	uint32_t min[AGR_N], bad[AGR_N], sess[AGR_N];
-	void *t, *s;
-	int g;
-
-	if (!cfg.apps || !cfg.apps_share)
-		return;
-	week(min, bad, sess);
-	t = blobmsg_open_table(b, "apps");
-	blobmsg_add_u32(b, "score", (uint32_t)appqoe_score(-1));
-	blobmsg_add_u32(b, "moments_total", total_mo);
-	s = blobmsg_open_table(b, "groups");
-	for (g = 0; g < AGR_N; g++) {
-		void *x = blobmsg_open_table(b, app_group_name(g));
-
-		blobmsg_add_u32(b, "score", (uint32_t)app_score(min[g], bad[g], MIN_SCORE));
-		blobmsg_add_u32(b, "minutes", min[g]);
-		blobmsg_add_u32(b, "bad_minutes", bad[g]);
-		blobmsg_close_table(b, x);
-	}
-	blobmsg_close_table(b, s);
-	blobmsg_close_table(b, t);
-}
-
 /* ---------- the help desk ---------- */
 
 int appqoe_brief(long from, long to, const char *mac, int group, int names, struct appqoe_brief *o)

@@ -79,7 +79,7 @@ an hour away.
 #### The rules file
 
 The rules are a text file, `/etc/aigw/apps.rules` (`apps.rules`). When it is missing, AIGW OS
-uses its built-in rules, which are exactly [config/apps.rules](../config/apps.rules): copy it,
+uses its built-in rules, which are [config/apps.rules](../config/apps.rules) without its comments: copy it,
 change it, put it on the gateway, and run `agctl apps --reload` (or `ubus call ag apps
 '{"reload":true}'`). No new code is needed to recognise a new app or to tune a kind.
 
@@ -201,7 +201,6 @@ as their own policies and `act.mode` allow (the default stays `advise`).
   other finding, a moment with a cause in the home or on the line becomes the brief's verdict;
   when most moments were the far end's, the fault is `OUTSIDE_SERVICE`. Without `--app` the
   brief lists any app's moments.
-- The bridge to cortex: query `apps`: the scores and counts (with `apps.share`), no names.
 - Events: `ag.app` on ubus (with names, at home).
 
 ### Data model (1.24)
@@ -240,7 +239,7 @@ Measured by `tests/test_appqoe.c` and shown by `agctl apps` (`cost`):
 ## Tests
 
 - `tests/test_appqoe.c` (ctest `app_experience`): the rules file (the shipped one is the
-  built-in rules word for word; bad lines skipped and said), families (longest suffix, label
+  built-in rules, the same once parsed; bad lines skipped and said), families (longest suffix, label
   boundaries, nearby names), each kind from synthetic flows (voice, video, screen share, cloud
   and online gaming, streaming, downloads, smart home; a call app's web connection is not a
   call; a Netflix name nearby doesn't make a call Netflix), the E-model against known delay and

@@ -895,7 +895,6 @@ void appqoe_flow_new(const char *client, uint8_t proto, uint16_t dport);
 void appqoe_flow_end(uint32_t id);
 void appqoe_dump_done(void);
 void appqoe_blob(struct blob_buf *b, const char *host, int group, int limit);
-void appqoe_report_blob(struct blob_buf *b);    /* the bridge: scores and counts, no names */
 int appqoe_score(int group);            /* 7 days, %; -1 not known */
 int appqoe_scores_words(char *buf, size_t n);
 int appqoe_brief(long from, long to, const char *mac, int group, int names, struct appqoe_brief *o);
@@ -916,7 +915,6 @@ static inline void appqoe_counters(uint32_t id, const char *client, const char *
 static inline void appqoe_flow_new(const char *client, uint8_t proto, uint16_t dport) { (void)client; (void)proto; (void)dport; }
 static inline void appqoe_flow_end(uint32_t id) { (void)id; }
 static inline void appqoe_dump_done(void) { }
-static inline void appqoe_report_blob(struct blob_buf *b) { (void)b; }
 static inline int appqoe_brief(long from, long to, const char *mac, int group, int names, struct appqoe_brief *o)
 { (void)from; (void)to; (void)mac; (void)group; (void)names; o->nline = 0; return -1; }
 static inline void appqoe_save(struct blob_buf *b) { (void)b; }

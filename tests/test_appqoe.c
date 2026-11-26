@@ -88,7 +88,14 @@ static void rules_file(const char *path)
 	n = fread(buf, 1, sizeof(buf) - 1, f);
 	fclose(f);
 	buf[n] = '\0';
-	CHECK(!strcmp(buf, app_rules_default()), "%s is the built-in rules word for word (regenerate it from them)", path);
+	{
+		static struct app_rules a, b;
+
+		app_rules_parse(&a, buf);
+		app_rules_parse(&b, app_rules_default());
+		CHECK(!memcmp(&a, &b, sizeof(a)) && !a.err[0], "%s is the built-in rules, with comments (the same %d rules, %d families)",
+		      path, a.nrule, a.nfam);
+	}
 }
 
 static void test_rules(void)
