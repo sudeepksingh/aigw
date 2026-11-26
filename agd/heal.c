@@ -158,6 +158,15 @@ int heal_hopping(const struct device *d)
 	return roams(state_of(i)) >= cfg.heal_hops;
 }
 
+int heal_roams(const struct device *d)
+{
+	int i = (int)(d - devs);
+
+	if (i < 0 || i >= DEV_MAX)
+		return -1;
+	return roams(state_of(i));
+}
+
 /* ---------- probing ---------- */
 
 /* read byte by byte: a uint16_t pointer into the packet breaks C's aliasing
@@ -530,6 +539,9 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 			}
 			keep = 0;                       /* still not clearly better: back */
 		}
+		/* proven repair: the trial's numbers for the fix's receipt (devices' loss on this access point) */
+		repair_trial(t->id, after.measured ? keep : -1, t->before_loss < 0 ? REPAIR_NONE : (float)t->before_loss,
+			     after.measured ? (float)after.loss_pct : REPAIR_NONE);
 		if (keep) {
 			struct heal_day *day = heal_report_day(&reps[a], (long)wall);
 			char ch[8];
@@ -653,6 +665,8 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 		snprintf(reason, sizeof(reason),
 			 "%.400s For %d minutes now. A trial on channel %d: measured for %d s, kept if devices do clearly "
 			 "better, else switched back.", r->explanation, (int)((wall - r->cause_since) / 60), pick, cfg.heal_trial);
+		repair_expect("channel", target, "wifi-congestion", RM_RADIO_LOSS,
+			      now_res->measured ? (float)now_res->loss_pct : REPAIR_NONE, REPAIR_NONE, cfg.heal_trial);
 		alerts_raise("wifi-congestion", "info", target, ap->iface, now_res->loss_pct / 100.0, reason);
 	}
 }
@@ -683,6 +697,7 @@ static void verdict_alerts(const struct wifi_ap *ap, const struct heal_radio *r,
 			snprintf(reason, sizeof(reason),
 				 "%s switched between 2.4 and 5 GHz %d times in 10 minutes, its 5 GHz signal marginal: keeping "
 				 "it on 2.4 GHz for a day gives it a steady connection.", dname(d), s[i].roams);
+			repair_expect("stay24", d->mac, kind, RM_HOPS, (float)s[i].roams, REPAIR_NONE, 0);
 			alerts_raise(kind, "info", d->ip, "5 GHz edge", s[i].roams, reason);
 		} else {
 			alerts_raise(kind, "info", d->ip, ap->iface, heal_sta_loss_pct(&s[i]) / 100.0, r->explanation);

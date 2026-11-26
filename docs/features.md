@@ -23,7 +23,7 @@ The core is always built. It is what makes AIGW OS a managed gateway:
 
 Sizes are for x86-64. They are agd, agctl, agdns and the plug-ins, stripped, in 4 KB blocks,
 built as OpenWRT's SDK builds them. "Off saves" is what turning the feature off saves; when
-other features need it, they go too. The core alone is 316 KB of programs; everything is 880 KB.
+other features need it, they go too. The core alone is 316 KB of programs; everything is EVERYKB.
 
 | Feature | What it is | Needs | Off saves |
 |---|---|---|---|
@@ -49,6 +49,7 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `FASTPATH` | Kernel fast path (flowtable) | | under 4 KB |
 | `REMOTE` | Remote access over WireGuard | | 8 KB (and the `aigw-remote` package) |
 | `KEYS` | Per-device Wi-Fi keys | | 8 KB |
+| `PROVEN` | Proven self-repair: every fix predicted, measured, and undone when it didn't help ([proven-repair.md](proven-repair.md)) | `CARE` | 40 KB (aarch64 40, mipsel 32) |
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions
@@ -60,7 +61,7 @@ Wi-Fi's look at each device, and feeds the help-desk brief, when they are built.
 | Profile | Features | Installed flash (`aigw-selftest`) |
 |---|---|---|
 | `full` | all | FULLKB |
-| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `APPQOE` | SMALLKB |
+| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `PROVEN`, `APPQOE` | SMALLKB |
 | `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
 
 The installed flash is what `aigw-selftest` counts on the router: the programs, the scripts,
@@ -96,7 +97,7 @@ with either of them. The `aigw-mqtt` and `aigw-bridge` packages need `PLUGINS`, 
 ## What a build says about itself
 
 - `agd --features` and `agctl version` list the features built in.
-- `Device.X_AIGW_.Features` (data model 1.22) has the same list, so the ISP and cortex know
+- `Device.X_AIGW_.Features` (data model 1.22 and later) has the same list, so the ISP and cortex know
   what each gateway can do.
 - A command of a feature that is not built in says so: `agctl mesh: not built in
   (AIGW_FEATURE_MESH)`.

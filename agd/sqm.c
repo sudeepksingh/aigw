@@ -203,6 +203,30 @@ int sqm_prio(const char *ifc, const char *const *eps, int n, char *out, size_t o
 	return rc;
 }
 
+/* proven repair: the internet's delay while the line was full in [from, to); -1 it wasn't full */
+int sqm_full_ms(int64_t from, int64_t to, float *ms)
+{
+	struct sqm_line l;
+	struct sqm_stats s;
+	struct why_min *m;
+	int n, max = (int)((to - from) / (cfg.why_interval > 0 ? cfg.why_interval : 60)) + 16;
+
+	if (to <= from)
+		return -1;
+	if (max > 20000)
+		max = 20000;
+	if (!(m = malloc(sizeof(*m) * (size_t)max)))
+		return -1;
+	why_line_now(&l);
+	n = why_samples((long)from, (long)to, m, max);
+	sqm_stats_of(m, n, (long)from, (long)to, &l, &s);
+	free(m);
+	if (!s.n || s.ms < 0)
+		return -1;
+	*ms = (float)s.ms;
+	return 0;
+}
+
 /* in effect now (on trial, kept, or a person's own) */
 int sqm_on(void)
 {
@@ -284,6 +308,9 @@ static void trial(uint32_t id, long on_at, const char *target)
 	Q.judged_at = now;
 	snprintf(Q.summary, sizeof(Q.summary), "%s", why);
 	AG_INFO("sqm: %s %s", target, why);
+	/* proven repair: the trial's numbers (the internet's delay while the line was full) */
+	repair_trial(id, Q.verdict == SQ_KEEP, Q.before.n && Q.before.ms >= 0 ? (float)Q.before.ms : REPAIR_NONE,
+		     Q.after.n && Q.after.ms >= 0 ? (float)Q.after.ms : REPAIR_NONE);
 	if (Q.verdict == SQ_KEEP)
 		act_keep(id, why);
 	else
@@ -301,7 +328,9 @@ void sqm_on_sample(void)
 
 	if (act_find_action("sqm", &id, &st, target, sizeof(target), &applied, origin, sizeof(origin)) == 0) {
 		/* a trial isn't judged while the area's line is down or slow: that says nothing about SQM */
-		if (st == 1 && strstr(origin, "bufferbloat") && !area_hold(AH_SQM_JUDGE))
+		/* with proven repair, proactive care's smart queueing gets the same trial (and is undone if it didn't help) */
+		if (st == 1 && (strstr(origin, "bufferbloat") || (cfg.repair && strstr(origin, "proactive"))) &&
+		    !area_hold(AH_SQM_JUDGE))
 			trial(id, applied ? (long)applied : now, target);
 		else if (st == 2 && now - last_check >= CHECK_S) {
 			last_check = now;               /* kept: still there? (a WAN that came back has lost it) */
@@ -350,6 +379,7 @@ void sqm_on_sample(void)
 		localtime_r(&tt, &tm);
 		snprintf(subject, sizeof(subject), "%.31s, %02d:%02d:%02d", why_wan(), tm.tm_hour, tm.tm_min, tm.tm_sec);
 		AG_INFO("sqm: %s", why);
+		repair_expect("sqm", target, "bufferbloat", RM_FULL_MS, REPAIR_NONE, REPAIR_NONE, 0);
 		alerts_raise("bufferbloat", "info", target, subject, 1.0, reason);
 	}
 }

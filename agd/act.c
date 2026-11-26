@@ -250,6 +250,7 @@ static void set_state(struct decision *d, int state)
 		d->scope, state_names[state], d->note[0] ? " -- " : "", d->note);
 	dec_event(d);
 	dm_on_decision(d->id, state_names[state]);
+	repair_on_decision(d->id, state_names[state]);  /* proven repair: a receipt, its verdict */
 	if (state == D_ACTIVE && !strcmp(d->action, "stay24"))
 		heal_on_band_rule(d->target, d->id);   /* the healing report counts it (once per decision) */
 	/* proactive care: a Wi-Fi problem is "fixed by AIGW" only if AIGW changed something */
@@ -1194,13 +1195,17 @@ void act_on_alert(uint32_t alert_id, const char *kind, const char *ip, const cha
 	d->rate = g.rate;
 
 	if (mode == AG_MODE_ENFORCE) {
-		if (auto_actions_last_hour() < cfg.act_max_auto) {
+		char gate[160];
+
+		if (!repair_gate(p->action, gate, sizeof(gate)))
+			snprintf(d->note, sizeof(d->note), "enforce mode, but not proven here yet (%.110s): waiting for you", gate);
+		else if (auto_actions_last_hour() < cfg.act_max_auto) {
 			apply(d, 1, err, sizeof(err));
 			return;
-		}
-		snprintf(d->note, sizeof(d->note),
-			 "enforce mode, but the hourly limit of %d automatic action%s is reached: waiting for you",
-			 cfg.act_max_auto, cfg.act_max_auto == 1 ? "" : "s");
+		} else
+			snprintf(d->note, sizeof(d->note),
+				 "enforce mode, but the hourly limit of %d automatic action%s is reached: waiting for you",
+				 cfg.act_max_auto, cfg.act_max_auto == 1 ? "" : "s");
 	}
 	set_state(d, D_PROPOSED);
 	d->decided = 0;
@@ -1514,15 +1519,19 @@ int act_auto(const char *action, const char *what, int ttl, const char *origin, 
 	d->rate = g.rate;
 	*id = d->id;
 	if (cfg.act_mode == AG_MODE_ENFORCE) {
-		if (auto_actions_last_hour() < cfg.act_max_auto) {
+		char gate[160];
+
+		if (!repair_gate(action, gate, sizeof(gate)))
+			snprintf(d->note, sizeof(d->note), "enforce mode, but not proven here yet (%.110s): waiting for you", gate);
+		else if (auto_actions_last_hour() < cfg.act_max_auto) {
 			if (apply(d, 1, err, errlen) < 0)
 				return -1;
 			*applied = 1;
 			return 0;
-		}
-		snprintf(d->note, sizeof(d->note),
-			 "enforce mode, but the hourly limit of %d automatic action%s is reached: waiting for you",
-			 cfg.act_max_auto, cfg.act_max_auto == 1 ? "" : "s");
+		} else
+			snprintf(d->note, sizeof(d->note),
+				 "enforce mode, but the hourly limit of %d automatic action%s is reached: waiting for you",
+				 cfg.act_max_auto, cfg.act_max_auto == 1 ? "" : "s");
 	}
 	set_state(d, D_PROPOSED);
 	d->decided = 0;

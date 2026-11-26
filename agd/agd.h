@@ -10,6 +10,7 @@
 #include <libubox/blobmsg.h>
 
 #include "ag/ag.h"
+#include "ag/repair.h"          /* the metric names fixes are predicted on (also without proven repair: unused) */
 
 #define DEV_MAX     256
 #define DEV_DOM_MAX 32
@@ -242,7 +243,7 @@ static inline void fed_load(struct blob_attr *tbl) { (void)tbl; }
  * The outcome interface: how a fix (or waiting) for a fault went. It is fleet
  * learning's source, fed by act.c (trials kept or tried, a person's undo) and
  * proactive.c (fixed by AIGW, cleared by itself, the ISP had to hear of it).
- * Proven self-repair (v0.49, AIGW_FEATURE_PROVEN) feeds its receipts here too:
+ * Proven self-repair (v0.51, AIGW_FEATURE_PROVEN) feeds its receipts here too:
  * a later report with the same key replaces the earlier one, so a receipt
  * corrects what act.c guessed.
  *   code    the fault: WIFI_HOPPING, LINE_FULL, WIFI_CONGESTION, MESH_BACKHAUL, ...
@@ -1168,6 +1169,67 @@ static inline const char *coverage_kind_of(const char *mac) { (void)mac; return 
 static inline void coverage_report_blob(struct blob_buf *b) { (void)b; }
 static inline void coverage_save(struct blob_buf *b) { (void)b; }
 static inline void coverage_load(struct blob_attr *t) { (void)t; }
+#endif
+
+#if AIGW_FEATURE_WIFI_HEAL
+int heal_roams(const struct device *d);         /* heal.c: band changes in its window; -1 not known */
+int chan_air_now(const char *iface, float *pct);        /* chan.c: % of the air used by others; -1 not known */
+#else
+static inline int heal_roams(const struct device *d) { (void)d; return -1; }
+static inline int chan_air_now(const char *iface, float *pct) { (void)iface; (void)pct; return -1; }
+#endif
+#if AIGW_FEATURE_SQM
+/* sqm.c: the internet's delay while the line was full in [from, to); -1 the line wasn't full then */
+int sqm_full_ms(int64_t from, int64_t to, float *ms);
+#else
+static inline int sqm_full_ms(int64_t from, int64_t to, float *ms) { (void)from; (void)to; (void)ms; return -1; }
+#endif
+
+#if AIGW_FEATURE_PROVEN
+/* repair.c: proven self-repair (ag/repair.h): every fix predicted, measured, judged, undone when it didn't help */
+void repair_init(void);                 /* after the state and act */
+int repair_kind(const char *action);    /* a fix it judges */
+void repair_on_decision(uint32_t id, const char *state);       /* act.c: a decision's new state */
+/* the part that proposes a fix says what it expects (before the decision exists; metric: enum repair_metric,
+   before/expected REPAIR_NONE when not known; within 0: the usual) */
+void repair_expect(const char *action, const char *target, const char *fault, int metric, float before, float expected,
+		   long within_s);
+/* a fix's own trial decided: kept 1, undone 0, couldn't judge -1; its numbers before and after */
+void repair_trial(uint32_t id, int kept, float before, float after);
+/* proactive.c: 1 a proven fix, 0 judged and not helped, -1 still measured, -2 no receipt (off, or not a fix) */
+int repair_proven(uint32_t decision);
+void repair_on_ticket(uint32_t decision, int call_avoided);
+/* act.c: the confidence gate; 1 may act on its own, 0 not (why in words) */
+int repair_gate(const char *action, char *why, size_t n);
+void repair_blob(struct blob_buf *b, int what, unsigned limit);        /* what: 0 all, 1 stats, 2 shadows */
+void repair_report_blob(struct blob_buf *b);    /* the bridge: counts, no names */
+void repair_care_blob(struct blob_buf *b);
+void repair_why_blob(struct blob_buf *b, long from, long to);
+void repair_week(int wifi, unsigned *helped, unsigned *judged);
+int repair_ids(uint32_t *out, int max);
+int repair_stat_ids(uint32_t *out, int max);
+int repair_field(uint32_t id, const char *f, int names, char *buf, size_t n);
+int repair_stat_field(uint32_t id, const char *f, char *buf, size_t n);
+int repair_dm_field(const char *f, char *buf, size_t n);
+void repair_save(struct blob_buf *b);
+void repair_load(struct blob_attr *t);
+/* dm.c: Repair! (undone 0) or RepairUndone! (1) */
+void dm_on_repair(uint32_t receipt, int undone);
+#else
+static inline void repair_on_decision(uint32_t id, const char *state) { (void)id; (void)state; }
+static inline void repair_expect(const char *action, const char *target, const char *fault, int metric, float before,
+				 float expected, long within_s)
+{ (void)action; (void)target; (void)fault; (void)metric; (void)before; (void)expected; (void)within_s; }
+static inline void repair_trial(uint32_t id, int kept, float before, float after) { (void)id; (void)kept; (void)before; (void)after; }
+static inline int repair_proven(uint32_t decision) { (void)decision; return -2; }
+static inline void repair_on_ticket(uint32_t decision, int call_avoided) { (void)decision; (void)call_avoided; }
+static inline int repair_gate(const char *action, char *why, size_t n) { (void)action; if (n) why[0] = '\0'; return 1; }
+static inline void repair_report_blob(struct blob_buf *b) { (void)b; }
+static inline void repair_care_blob(struct blob_buf *b) { (void)b; }
+static inline void repair_why_blob(struct blob_buf *b, long from, long to) { (void)b; (void)from; (void)to; }
+static inline void repair_week(int wifi, unsigned *helped, unsigned *judged) { (void)wifi; *helped = *judged = 0; }
+static inline void repair_save(struct blob_buf *b) { (void)b; }
+static inline void repair_load(struct blob_attr *t) { (void)t; }
 #endif
 
 /* handler.c: platform handlers (Wi-Fi settings, firmware), replaceable by an OEM */

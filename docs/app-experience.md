@@ -203,7 +203,7 @@ as their own policies and `act.mode` allow (the default stays `advise`).
   brief lists any app's moments.
 - Events: `ag.app` on ubus (with names, at home).
 
-### Data model (1.24)
+### Data model (1.25)
 
 `Device.X_AIGW_.AppExperience.` (only in builds with the feature):
 

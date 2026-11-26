@@ -525,6 +525,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
+| *measured v0.51, installed (SDK packages)* | *full 992 KB x86-64, 980 KB aarch64, 820 KB mipsel; small 708 / 708 / 600; minimal 392 x86-64* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |
@@ -1224,13 +1225,36 @@ Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
 
 Verified by the full local suite on each profile, every feature built alone with what it needs, and the full build without each feature (each with no warnings).
 
-**As built in v0.51: per-app experience.** How each call, stream and game went, in the app's own terms, and why ([app-experience.md](app-experience.md)). Feature `APPQOE`, needs `WHY`; in the full and small profiles.
+**As built in v0.51: proven self-repair.** Middleware exposes data; AIGW decides, and now proves what it decided ([proven-repair.md](proven-repair.md)). Feature `PROVEN` (needs `CARE`; full and small profiles).
+
+| Piece | As built |
+|-------|----------|
+| Before a fix | Every corrective decision (`channel`, `stay24`, `sqm`, `meshsteer`, `meshchan`), proposed or taken, gets a receipt with a prediction: the metric, the device or radio, the value now, the value expected, the deadline. The part that proposes it says what it expects (`repair_expect()` in heal.c, chan.c, sqm.c, mesh.c, proactive.c); otherwise the metric's good value or the home's normal for the hour |
+| After it | Measured from `repair.settle` to the deadline, against the value before and the home's normal for that hour (care's normal; for Wi-Fi loss, care's learning rule on the home's loss while all is well); helped, no change, worse, or unknown (the device left, an area outage, a person's undo, too little measured). A fix with a trial of its own (channel healing, planned channels, SQM, mesh) gets the trial's numbers (`repair_trial()`), and the trial decides helped against no change |
+| Undo | A fix of AIGW's own without a trial that didn't help is undone through the decision's own undo (`act_undo_because`: the channel before, the band refusal lifted, SQM removed, the device steered back), in enforce mode only; state `tried`, `RepairUndone!` |
+| Advise mode | Shadow receipts: the prediction, the predicted gain, a confidence (the fix rate measured here, once 3 are judged); measured without the fix: needed or not needed; never applied, marked so everywhere |
+| Evidence | Per fault and kind of fix, by day for 31 days: fix rate (unknowns left out), mean improvement, undo rate, calls likely avoided, shadows; over 1, 7 and 30 days |
+| Gate | `repair.gate` (off by default): in enforce mode, act alone only with kinds of fix at `gate_fix_rate` % over `gate_trials` judged trials; others wait for a person, with a note (`repair_gate()` in act.c) |
+| Surfaces | `agctl repair` (`--stats`, `--shadow`), lines in `agctl care` and `agctl why` (and the timeline, `WE_REPAIR`), ubus `ag repair`, `ag.repair` events, data model 1.24 `Device.X_AIGW_.Repair.` (`Receipt.{i}.`, `Stats.{i}.`), `Repair!`, `RepairUndone!`, the bridge's `repair` counts; proactive's "fixed by AIGW" and the offers' signals count only proven fixes |
+| State | Receipts (64 at most, the oldest judged go first) and the evidence, saved by name in agd's state: kept over restarts and upgrades |
+
+Installed flash, OpenWRT 24.10.8 SDK, as `aigw-selftest` counts it (budget 1024 KB), against v0.50 built the same way:
+
+| Profile | `x86_64` | `aarch64_cortex-a53` | `mipsel_24kc` |
+|---------|----------|----------------------|---------------|
+| full | 992 KB (+40) | 980 KB (+40) | 820 KB (+32) |
+| small | 708 KB (+44) | 708 KB (+40) | 600 KB (+36) |
+| minimal | 392 KB (+0) | | |
+
+Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-test.sh`, the full local suite on the full, small and minimal profiles, `PROVEN` built alone with `CARE` and `TR143`, and the full build without it (no warnings).
+
+**As built in v0.52: per-app experience.** How each call, stream and game went, in the app's own terms, and why ([app-experience.md](app-experience.md)). Feature `APPQOE`, needs `WHY`; in the full and small profiles.
 
 | Piece | As built |
 |-------|----------|
 | The rules (`core/libag/appqoe.c`, `include/ag/appqoe.h`) | Pure. A rules file (`config/apps.rules` = the built-in rules; `/etc/aigw/apps.rules` replaces it): `kind` lines over a connection's last looks (protocol, port, rate each way, packets a second, packet size, up/down ratio, duty, spread, age), first match wins; `family` lines (server-name suffixes, longest wins); `browse`. The quality of a minute per kind: E-model MOS and freezes for calls, a drain model for streams (rebuffering past a 10 s buffer, lower resolution), lag for games. The cause from the timeline's code, else the moment's own evidence, else the far end. Words for the home and the ISP |
 | The sessions (`agd/appqoe.c`) | Every look (`flow.c`'s dump, `apps.poll`): each TCP/UDP connection's counters, its kind (sticky), a device's connections of a kind are a session; stalls from looks far below the usual rate between usual ones. Every `why.interval`: the minute judged with the timeline's sample and Self-Healing Wi-Fi's look at the device; bad minutes in a row are a moment; closed: `why_ask` for the device then, the cause, the timeline (`WE_APP`), `ag.app`, `AppMoment!`; later, what AIGW did next (`why_events`) and the sessions since. Scores per group over 7 days. Fixed memory, about 100 KB |
-| Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.24) |
+| Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.25) |
 | Privacy | Kind and family name only; names to the ISP only with `brief.names`; `apps.share 0` hides it from the ISP (also from `WhySlow()`), `apps.names 0` uses no server names |
 
 Installed flash, full profile (budget 1024 KB): x86-64 1000 KB, aarch64 988 KB, mipsel 828 KB (+48, +48, +40 KB); small 704, 712, 604 KB.

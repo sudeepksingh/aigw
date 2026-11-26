@@ -46,7 +46,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.24"
+#define DM_VERSION "1.25"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -165,6 +165,9 @@ enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, T
 #if AIGW_FEATURE_APPQOE
        TB_APPKIND, TB_APPMOMENT,
 #endif
+#if AIGW_FEATURE_PROVEN
+       TB_RECEIPT, TB_RSTAT,
+#endif
        TB_N };
 
 static int host_listed(const struct device *d)
@@ -255,6 +258,10 @@ static struct {
 	[TB_APPKIND]  = { "Device.X_AIGW_.AppExperience.Kind.{i}.", appqoe_kind_ids },
 	[TB_APPMOMENT] = { "Device.X_AIGW_.AppExperience.Moment.{i}.", appqoe_moment_ids },
 #endif
+#if AIGW_FEATURE_PROVEN
+	[TB_RECEIPT]  = { "Device.X_AIGW_.Repair.Receipt.{i}.", repair_ids },
+	[TB_RSTAT]    = { "Device.X_AIGW_.Repair.Stats.{i}.", repair_stat_ids },
+#endif
 };
 
 /* what an instance number stands for, resolved before a getter runs */
@@ -320,6 +327,12 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 		return appqoe_kind_field(inst, "Minutes", tmp, sizeof(tmp));
 	case TB_APPMOMENT:
 		return appqoe_moment_field(inst, "Seconds", tmp, sizeof(tmp));
+#endif
+#if AIGW_FEATURE_PROVEN
+	case TB_RECEIPT:
+		return repair_field(inst, "Mode", 1, tmp, sizeof(tmp));
+	case TB_RSTAT:
+		return repair_stat_field(inst, "Action", tmp, sizeof(tmp));
 #endif
 	}
 	return -1;
@@ -1169,6 +1182,59 @@ GET(g_pr)
 GET(g_pt) { return pr_get(1, c->inst, pr_name(c->ppath), buf, n); }
 #endif
 
+#if AIGW_FEATURE_PROVEN
+/* proven repair (Device.X_AIGW_.Repair.): by the parameter's own name; booleans and times by name too */
+static const char *rp_name(const char *path) { const char *d = strrchr(path, '.'); return d ? d + 1 : path; }
+
+static int rp_out(const char *name, const char *v, char *buf, size_t n)
+{
+	if (!strcmp(name, "Enable") || !strcmp(name, "Undo") || !strcmp(name, "Shadow") || !strcmp(name, "Gate") ||
+	    !strcmp(name, "PredictionMet") || !strcmp(name, "Undone"))
+		snprintf(buf, n, "%s", atoi(v) ? "true" : "false");
+	else if (!strcmp(name, "Created") || !strcmp(name, "Deadline") || !strcmp(name, "Judged"))
+		fmt_time(strtoll(v, NULL, 10), buf, n);
+	else
+		snprintf(buf, n, "%s", v);
+	return 0;
+}
+
+GET(g_rp)
+{
+	const char *name = rp_name(c->ppath);
+	char v[64];
+
+	if (!strcmp(name, "ReceiptNumberOfEntries") || !strcmp(name, "StatsNumberOfEntries")) {
+		snprintf(buf, n, "%d", count(name[0] == 'R' ? TB_RECEIPT : TB_RSTAT));
+		return 0;
+	}
+	if (repair_dm_field(name, v, sizeof(v)) < 0)
+		return -1;
+	return rp_out(name, v, buf, n);
+}
+
+GET(g_rr)
+{
+	const char *name = rp_name(c->ppath);
+	char v[400];
+
+	/* the ISP's view: the home's names out unless brief.names */
+	if (repair_field(c->inst, name, !req_remote || cfg.brief_names, v, sizeof(v)) < 0)
+		return -1;
+	return rp_out(name, v, buf, n);
+}
+
+GET(g_rs)
+{
+	const char *name = rp_name(c->ppath);
+	char v[200];
+
+	if (repair_stat_field(c->inst, name, v, sizeof(v)) < 0)
+		return -1;
+	snprintf(buf, n, "%s", v);      /* Gate is Open or Held here: a string */
+	return 0;
+}
+#endif
+
 #if AIGW_FEATURE_TR143
 /* TR-143 (Device.IP.Diagnostics., Device.DNS.Diagnostics.): the test and the name from the path */
 static int tr_kind(const char *path)
@@ -1691,6 +1757,73 @@ static struct dm_param {
 	{ PR "Ticket.{i}.NextStep", T_STR, 0, TB_TICKET, g_pt, NULL },
 	{ PR "Ticket.{i}.CustomerNote", T_STR, 0, TB_TICKET, g_pt, NULL },
 #undef PR
+#endif
+#if AIGW_FEATURE_PROVEN
+#define RP "Device.X_AIGW_.Repair."
+#define RP_PER(P) \
+	{ RP P "Fixes", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "Helped", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "NoChange", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "Worse", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "Unknown", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "Undone", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "FixRate", T_INT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "UndoRate", T_INT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "MeanImprovement", T_DEC, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "CallsLikelyAvoided", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "Shadows", T_UINT, 0, TB_NONE, g_rp, NULL }, \
+	{ RP P "ShadowsNeeded", T_UINT, 0, TB_NONE, g_rp, NULL },
+#define RS_PER(P) \
+	{ RP "Stats.{i}." P "Fixes", T_UINT, 0, TB_RSTAT, g_rs, NULL }, \
+	{ RP "Stats.{i}." P "Helped", T_UINT, 0, TB_RSTAT, g_rs, NULL }, \
+	{ RP "Stats.{i}." P "FixRate", T_INT, 0, TB_RSTAT, g_rs, NULL }, \
+	{ RP "Stats.{i}." P "MeanImprovement", T_DEC, 0, TB_RSTAT, g_rs, NULL }, \
+	{ RP "Stats.{i}." P "UndoRate", T_INT, 0, TB_RSTAT, g_rs, NULL },
+	{ RP "Enable", T_BOOL, 0, TB_NONE, g_rp, NULL },
+	{ RP "Undo", T_BOOL, 0, TB_NONE, g_rp, NULL },
+	{ RP "Shadow", T_BOOL, 0, TB_NONE, g_rp, NULL },
+	{ RP "Gate", T_BOOL, 0, TB_NONE, g_rp, NULL },
+	{ RP "GateFixRate", T_UINT, 0, TB_NONE, g_rp, NULL },
+	{ RP "GateTrials", T_UINT, 0, TB_NONE, g_rp, NULL },
+	{ RP "WindowSeconds", T_UINT, 0, TB_NONE, g_rp, NULL },
+	{ RP "Pending", T_UINT, 0, TB_NONE, g_rp, NULL },
+	RP_PER("Day")
+	RP_PER("Week")
+	RP_PER("Month")
+	{ RP "ReceiptNumberOfEntries", T_UINT, N, TB_NONE, g_rp, NULL },
+	{ RP "Receipt.{i}.Decision", T_UINT, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Mode", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Action", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Fault", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Metric", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Before", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Expected", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.WithinSeconds", T_UINT, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.After", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Normal", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Result", T_STR, N, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.PredictionMet", T_BOOL, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.ImprovementPercent", T_DEC, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Undone", T_BOOL, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.UndoneBy", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Confidence", T_INT, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.CallsLikelyAvoided", T_UINT, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Created", T_TIME, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Deadline", T_TIME, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Judged", T_TIME, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Prediction", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "Receipt.{i}.Summary", T_STR, 0, TB_RECEIPT, g_rr, NULL },
+	{ RP "StatsNumberOfEntries", T_UINT, 0, TB_NONE, g_rp, NULL },
+	{ RP "Stats.{i}.Fault", T_STR, 0, TB_RSTAT, g_rs, NULL },
+	{ RP "Stats.{i}.Action", T_STR, 0, TB_RSTAT, g_rs, NULL },
+	{ RP "Stats.{i}.Gate", T_STR, 0, TB_RSTAT, g_rs, NULL },
+	{ RP "Stats.{i}.GateWhy", T_STR, 0, TB_RSTAT, g_rs, NULL },
+	RS_PER("Day")
+	RS_PER("Week")
+	RS_PER("Month")
+#undef RS_PER
+#undef RP_PER
+#undef RP
 #endif
 #if AIGW_FEATURE_TR143
 	/* TR-143: TR-069 writes the inputs and DiagnosticsState, reads the results; USP runs the commands */
@@ -2434,6 +2567,10 @@ enum {
 	EVT_FLEET_PRIORS,
 	EVT_FLEET_CHOICE,
 #endif
+#if AIGW_FEATURE_PROVEN
+	EVT_REPAIR,
+	EVT_REPAIR_UNDONE,
+#endif
 	EVT_N
 };
 
@@ -2491,6 +2628,11 @@ static struct {
 #if AIGW_FEATURE_FLEETLEARN
 	[EVT_FLEET_PRIORS] = { "Device.X_AIGW_.FleetPriorsReceived!", "Version,Buckets,Normals,Homes" },
 	[EVT_FLEET_CHOICE] = { "Device.X_AIGW_.FleetChoice!", "Code,Default,Chosen,Reason" },
+#endif
+#if AIGW_FEATURE_PROVEN
+	[EVT_REPAIR] = { "Device.X_AIGW_.Repair!",
+	  "Receipt,Decision,Mode,Action,Fault,Result,Metric,Before,Expected,After,PredictionMet,Undone,Prediction,Summary" },
+	[EVT_REPAIR_UNDONE] = { "Device.X_AIGW_.RepairUndone!", "Receipt,Decision,Action,Fault,Result,Summary" },
 #endif
 };
 #define N_EVENTS ((int)(sizeof(events) / sizeof(events[0])))
@@ -3263,6 +3405,36 @@ void dm_on_chanplan(const char *iface, int from, int to, const char *state, cons
 
 		emit(events[EVT_CHANPLAN].path, kv);  /* ChannelPlan! */
 	}
+}
+#endif
+
+#if AIGW_FEATURE_PROVEN
+/* repair.c: a fix (or a shadow) judged (Repair!), or undone because it didn't help (RepairUndone!); names only by
+   brief.names */
+void dm_on_repair(uint32_t receipt, int undone)
+{
+	static const char *const f[] = { "Decision", "Mode", "Action", "Fault", "Result", "Metric", "Before", "Expected",
+					  "After", "PredictionMet", "Undone", "Prediction", "Summary" };
+	char v[13][400], rid[16];
+	const char *kv[2 * 14 + 1];
+	int i, k = 0;
+
+	snprintf(rid, sizeof(rid), "%u", receipt);
+	kv[k++] = "Receipt";
+	kv[k++] = rid;
+	for (i = 0; i < 13; i++) {
+		if (undone && strcmp(f[i], "Decision") && strcmp(f[i], "Action") && strcmp(f[i], "Fault") &&
+		    strcmp(f[i], "Result") && strcmp(f[i], "Summary"))
+			continue;
+		v[i][0] = '\0';
+		repair_field(receipt, f[i], cfg.brief_names, v[i], sizeof(v[i]));
+		if (!strcmp(f[i], "PredictionMet") || !strcmp(f[i], "Undone"))
+			snprintf(v[i], sizeof(v[i]), "%s", atoi(v[i]) ? "true" : "false");
+		kv[k++] = f[i];
+		kv[k++] = v[i];
+	}
+	kv[k] = NULL;
+	emit(events[undone ? EVT_REPAIR_UNDONE : EVT_REPAIR].path, kv);   /* Repair! / RepairUndone! */
 }
 #endif
 

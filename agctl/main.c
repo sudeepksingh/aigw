@@ -49,6 +49,10 @@ static void usage(void)
 		"  care [--check|--speed]  proactive care: problems found by the gateway itself, early\n"
 		"                      warnings, the experience score and the nightly speed (--speed: test now;\n"
 		"                      --speed <http://server/file>: once, against a server of your own)\n"
+		"  repair [--stats|--shadow]  proven repair: each fix AIGW made with what it predicted, what\n"
+		"                      was measured after it (helped, no change, worse) and whether it was undone;\n"
+		"                      the fix rate by fault and kind of fix (last day, 7, 30 days); in advise\n"
+		"                      mode, what AIGW would have done (shadows, never applied)\n"
 		"  upgrade [--forget]  the last firmware upgrade: the home before and after it, kept or rolled\n"
 		"                      back, and why (--forget: a version rolled back may be installed again)\n"
 		"  why [device] [--at 20:00 | --from 19:30 --to 21:00 | --last 2h] [--raw]\n"
@@ -82,7 +86,8 @@ static void usage(void)
 		"  flows [N]           last N finished connections (default 30)\n"
 		"  alerts [N]          what AIGW thinks you should know, and why\n"
 		"  score <domain>      the domain-risk model's view of a name\n"
-		"  watch [dns|flows|wifi|home|alerts|decisions|plugins|models|upgrade|all]   follow activity live\n"
+		"  watch [dns|flows|wifi|home|alerts|decisions|plugins|models|upgrade|repair|all]   follow activity\n"
+		"                      live\n"
 		"                      (Ctrl+C to stop)\n"
 		"\n"
 		"  decisions [N]       actions waiting for you, in effect, and past ones\n"
@@ -442,6 +447,110 @@ static void show_proactive(struct ubus_request *req, int type, struct blob_attr 
 }
 #endif
 
+#if AIGW_FEATURE_PROVEN
+/* "9 fixes: 7 helped (fix rate 78%), 1 no change, 1 made worse; 2 undone; 3 not known" */
+static void repair_line(struct blob_attr *s)
+{
+	if (!s || (!fnum(s, "fixes") && !fnum(s, "shadows"))) {
+		printf("no fixes measured yet");
+		return;
+	}
+	printf("%llu fix%s", (unsigned long long)fnum(s, "fixes"), fnum(s, "fixes") == 1 ? "" : "es");
+	if (fnum(s, "judged"))
+		printf(": %llu helped (fix rate %llu%%), %llu no change, %llu made worse", (unsigned long long)fnum(s, "helped"),
+		       (unsigned long long)fnum(s, "fix_rate"), (unsigned long long)fnum(s, "no_change"),
+		       (unsigned long long)fnum(s, "worse"));
+	if (fnum(s, "undone"))
+		printf("; %llu undone", (unsigned long long)fnum(s, "undone"));
+	if (fnum(s, "unknown"))
+		printf("; %llu not known (the device left, too little measured)", (unsigned long long)fnum(s, "unknown"));
+	if (fnum(s, "calls_likely_avoided"))
+		printf("; calls likely avoided %llu", (unsigned long long)fnum(s, "calls_likely_avoided"));
+	if (fnum(s, "shadows"))
+		printf("; %llu shadow%s (not applied), %llu needed", (unsigned long long)fnum(s, "shadows"),
+		       fnum(s, "shadows") == 1 ? "" : "s", (unsigned long long)fnum(s, "shadows_needed"));
+}
+
+static void repair_receipt(struct blob_attr *r)
+{
+	char t1[32];
+	int shadow = !strcmp(fstr(r, "mode"), "shadow");
+
+	printf("    #%-3llu %-8s %-9s %-16s %s%s, decision %llu, %s\n", (unsigned long long)fnum(r, "id"),
+	       shadow ? "shadow" : "applied", fstr(r, "action"), fstr(r, "fault"), fstr(r, "result"),
+	       fnum(r, "met") && !shadow ? " (as predicted)" : "", (unsigned long long)fnum(r, "decision"),
+	       ago(fnum(r, "created"), t1, sizeof(t1)));
+	printf("         predicted  %s\n", fstr(r, "prediction"));
+	if (*fstr(r, "summary"))
+		printf("         %-10s %s\n", shadow ? "without it" : "measured", fstr(r, "summary"));
+	else
+		printf("         measured   not yet: judged %s\n", fnum(r, "trial") ? "when its own trial decides" :
+		       "at the deadline");
+	if (field(r, "confidence") && shadow)
+		printf("         confidence %llu%% (the fix rate measured here)\n", (unsigned long long)fnum(r, "confidence"));
+	else if (shadow)
+		printf("         confidence not measured here yet (fewer than 3 such fixes judged)\n");
+}
+
+/* agctl repair [--stats|--shadow]: proven repair's receipts and evidence */
+static void show_repair(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	static const char *const per[] = { "day", "week", "month" };
+	static const char *const label[] = { "last day", "last 7 days", "last 30 days" };
+	struct blob_attr *g = field(msg, "gate"), *s = field(msg, "summary"), *x;
+	size_t rem;
+	unsigned k;
+	int n = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (!fnum(msg, "enabled")) {
+		printf("Proven repair is off (repair.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	printf("Proven repair: every fix is predicted, measured for %llu s (or by its own trial) and judged; act mode %s\n",
+	       (unsigned long long)fnum(msg, "window_s"), fstr(msg, "mode"));
+	printf("  undo      %s\n", !fnum(msg, "undo") ? "off: a fix that didn't help stays (repair.undo 0)" :
+	       !strcmp(fstr(msg, "mode"), "enforce") ? "a fix of AIGW's own that didn't help is undone, as it was before" :
+	       "only in enforce mode (now: said, not done)");
+	printf("  shadows   %s\n", fnum(msg, "shadow") ? "on: in advise mode, what AIGW would have done is measured without it" :
+	       "off (repair.shadow 0)");
+	if (g && !fnum(g, "enabled"))
+		printf("  gate      off: AIGW acts as act.mode says\n");
+	else if (g)
+		printf("  gate      on: acts on its own only with kinds of fix at %llu%% or better over %llu trials\n",
+		       (unsigned long long)fnum(g, "fix_rate"), (unsigned long long)fnum(g, "trials"));
+	if (fnum(msg, "pending"))
+		printf("  now       %llu being measured\n", (unsigned long long)fnum(msg, "pending"));
+	for (k = 0; k < 3; k++) {
+		printf("  %-13s", label[k]);
+		repair_line(field(s, per[k]));
+		printf("\n");
+	}
+	blobmsg_for_each_attr(x, field(msg, "stats"), rem) {
+		struct blob_attr *m = field(x, "month");
+
+		if (!n++)
+			printf("  by fault and fix (30 days)\n");
+		printf("    %-18s %-9s ", fstr(x, "fault"), fstr(x, "action"));
+		repair_line(m);
+		printf("\n");
+		if (!strcmp(fstr(x, "gate"), "held"))
+			printf("%33s gate: held (%s)\n", "", fstr(x, "gate_why"));
+	}
+	n = 0;
+	blobmsg_for_each_attr(x, field(msg, "receipts"), rem) {
+		if (!n++)
+			printf("  receipts (newest first)\n");
+		repair_receipt(x);
+	}
+	if (!n && field(msg, "receipts"))
+		printf("  receipts  none yet\n");
+}
+#endif
+
 #if AIGW_FEATURE_CARE
 static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 {
@@ -484,6 +593,17 @@ static void show_care(struct ubus_request *req, int type, struct blob_attr *msg)
 			printf("  advice    %s\n", fstr(p, "advice"));
 	} else
 		printf("  now       OK: no problem found\n");
+#if AIGW_FEATURE_PROVEN
+	if (field(msg, "repair")) {
+		struct blob_attr *rp = field(msg, "repair");
+
+		printf("  repairs   last 7 days: ");
+		repair_line(field(rp, "week"));
+		if (fnum(rp, "pending"))
+			printf("; %llu being measured", (unsigned long long)fnum(rp, "pending"));
+		printf(" (agctl repair)\n");
+	}
+#endif
 	{
 		struct blob_attr *w = field(msg, "early_warning"), *nm = field(msg, "normal"), *sp = field(msg, "speed"), *cur;
 		size_t rem;
@@ -2167,6 +2287,19 @@ static void show_why(struct ubus_request *req, int type, struct blob_attr *msg)
 			printf("  what happened\n");
 		printf("    %-9s %s\n", fstr(f, "clock"), fstr(f, "text"));
 	}
+#if AIGW_FEATURE_PROVEN
+	k = 0;
+	blobmsg_for_each_attr(f, field(msg, "repairs"), rem) {
+		char t[32];
+
+		if (!k++)
+			printf("  AIGW's fixes then (agctl repair)\n");
+		clock_of(fnum(f, "created"), t, sizeof(t));
+		printf("    %-9s #%llu %s %s: %s\n", t, (unsigned long long)fnum(f, "id"),
+		       !strcmp(fstr(f, "mode"), "shadow") ? "shadow (not applied)" : fstr(f, "action"), fstr(f, "result"),
+		       *fstr(f, "summary") ? fstr(f, "summary") : fstr(f, "prediction"));
+	}
+#endif
 	printf("  findings\n");
 	blobmsg_for_each_attr(f, field(msg, "findings"), rem)
 		printf("    %-8s %-16s %s\n", fstr(f, "severity"), fstr(f, "code"), fstr(f, "text"));
@@ -2878,6 +3011,8 @@ static int watch(const char *what)
 		rc = 1;
 	if ((all || !strcmp(what, "upgrade")) && ubus_register_event_handler(ctx, &ev, AG_EV_UPGRADE))
 		rc = 1;
+	if ((all || !strcmp(what, "repair")) && ubus_register_event_handler(ctx, &ev, AG_EV_REPAIR))
+		rc = 1;
 	if (rc) {
 		fprintf(stderr, "agctl: cannot subscribe to events (permission?)\n");
 	} else {
@@ -2915,6 +3050,7 @@ static const struct { const char *cmd, *sub, *feature; int built; } features[] =
 	{ "fleet", NULL, "FLEETLEARN", AIGW_FEATURE_FLEETLEARN },
 	{ "keys", NULL, "KEYS", AIGW_FEATURE_KEYS },
 	{ "key", NULL, "KEYS", AIGW_FEATURE_KEYS },
+	{ "repair", NULL, "PROVEN", AIGW_FEATURE_PROVEN },
 };
 
 /* 1 (and says why) when cmd [sub] belongs to a feature this build does not have */
@@ -3028,6 +3164,21 @@ int main(int argc, char **argv)
 			rc = call("ag", "care", args.head, show_care);
 		blob_buf_free(&args);
 		rc = rc || diag_failed;
+#endif
+#if AIGW_FEATURE_PROVEN
+	} else if (!strcmp(cmd, "repair")) {
+		blob_buf_init(&args, 0);
+		if (i < argc && (!strcmp(argv[i], "--stats") || !strcmp(argv[i], "stats")))
+			blobmsg_add_u8(&args, "stats", 1);
+		else if (i < argc && (!strcmp(argv[i], "--shadow") || !strcmp(argv[i], "shadow")))
+			blobmsg_add_u8(&args, "shadow", 1);
+		else if (i < argc) {
+			usage();
+			blob_buf_free(&args);
+			return 1;
+		}
+		rc = call("ag", "repair", args.head, show_repair);
+		blob_buf_free(&args);
 #endif
 #if AIGW_FEATURE_UPGRADE
 	} else if (!strcmp(cmd, "upgrade")) {

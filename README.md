@@ -57,7 +57,7 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **v0.51:** **Per-app experience: "my video call froze".** The gateway tells
+> **v0.52:** **Per-app experience: "my video call froze".** The gateway tells
 > video calls, voice calls, screen shares, streams, cloud and online games,
 > large downloads, browsing and smart-home devices apart from their
 > connections' traits and server-name families (a rules file an ISP can change
@@ -68,9 +68,24 @@ illustrated version.
 > 2.4 GHz (wlan0) from channel 11 to 6, and the 3 calls since were fine." Or,
 > with evidence, the far end. Scores per kind of app, `agctl apps`, the
 > timeline, the help desk (`agctl brief --app calls`), `Device.X_AIGW_.AppExperience.`
-> and `AppMoment!` (data model 1.24). Only kinds and family names are kept,
+> and `AppMoment!` (data model 1.25). Only kinds and family names are kept,
 > never a server name or a URL. Feature `APPQOE` (full and small profiles,
 > 48 KB, 40 on mipsel); see [docs/app-experience.md](docs/app-experience.md).
+>
+> **v0.51:** **Proven self-repair.** Every fix AIGW takes or proposes now says
+> what it expects ("OnePlus: loss 26% -> under 5% within 10 min"), is measured
+> afterwards against the value before and the home's normal for that hour, and
+> is judged: helped, no change, made worse, or not known (the device left, an
+> area outage). A fix of AIGW's own that didn't help is undone in enforce mode,
+> exactly as it was before. In advise mode, what AIGW would have done is measured
+> without it (shadows, never applied). Receipts and the fix rate by fault and kind
+> of fix (last day, 7 and 30 days) are in `agctl repair` and
+> `Device.X_AIGW_.Repair.` (data model 1.24, `Repair!`, `RepairUndone!`); a
+> confidence gate (off by default) lets an ISP allow acting only for kinds of fix
+> proven here; "fixed by AIGW" now counts only proven fixes. Feature `PROVEN`, in
+> the full and small profiles, 40 KB. Installed flash (KB, x86-64/aarch64/mipsel):
+> full 992/980/820, small 708/708/600; see
+> [docs/proven-repair.md](docs/proven-repair.md).
 >
 > **v0.50:** **Every home teaches the next.** Fleet learning: how a fix went in
 > homes like this one (counts per fault, fix and a coarse context, only where k
