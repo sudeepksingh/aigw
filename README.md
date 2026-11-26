@@ -63,8 +63,8 @@ illustrated version.
 > Cortex compares the homes of one cabinet or OLT and tells one home's line from
 > the shared plant: "the plant serving 14 of 20 homes is degrading; first calls
 > likely in about 3 days". One TMF621 ticket for the plant, not 14; no faster plan
-> sold on a degrading line. In gctl line, data model 1.25
-> (Device.X_AIGW_.LineHealth.), python3 -m aigw_cortex predict; measured on
+> sold on a degrading line. In `agctl line`, data model 1.25
+> (`Device.X_AIGW_.LineHealth.`), `python3 -m aigw_cortex predict`; measured on
 > simulated fleets with known faults; see [docs/area-prediction.md](docs/area-prediction.md).
 >
 > **v0.51:** **Proven self-repair.** Every fix AIGW takes or proposes now says

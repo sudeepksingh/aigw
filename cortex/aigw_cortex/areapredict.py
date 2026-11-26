@@ -214,7 +214,7 @@ def correlate(vecs, nodes, s=None, known=None):
     Returns {"plants": [...], "lines": [...]}; each plant: node, metric, signature,
     homes, homes_in_node, members {gw: trend}, onset, calls_in, p, confidence, score.
     known: the plants open already, [{node, metric, onset, members}]: their homes stay while they show it, and a
-    newcomer must have begun within lign days of the plant's own onset (a ramp's start leaves the 14 days)."""
+    newcomer must have begun within `align` days of the plant's own onset (a ramp's start leaves the 14 days)."""
     kn = {(k["node"], k["metric"]): k for k in known or []}
     s = dict(DEFAULTS, **(s or {}))
     deg = {g: degraded(v, s["min_conf"]) for g, v in vecs.items()}
