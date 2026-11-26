@@ -316,7 +316,15 @@ ignore the extra number.
 
 The feature is in the **full** and **small** profiles (the gateway side is small, needs only
 `CARE`, and is what an ISP needs most: a failing cabinet found before the calls), not in
-**minimal**. See [features.md](features.md) for the sizes.
+**minimal**. Installed flash, as `aigw-selftest` counts it (OpenWRT 24.10.8, budget 1024 KB):
+
+| Profile | x86-64 | aarch64 | mipsel | Added by this feature |
+|---|---|---|---|---|
+| full | 976 KB | 968 KB | 812 KB | +24, +28, +24 KB (agd, agctl, the bridge) |
+| small | 676 KB | 688 KB | 584 KB | +12, +20, +20 KB |
+| minimal | 392 KB | 384 KB | 340 KB | none (not in it) |
+
+The `line-stats` handler adds 4 KB more (in /usr/libexec/aigw, not counted). Cortex's part runs at the ISP, not on the gateway.
 
 ## Limits
 

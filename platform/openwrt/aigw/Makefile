@@ -230,7 +230,8 @@ define Package/aigw/config
       cortex compares the homes of one cabinet or OLT and predicts a failing
       shared plant days before the first calls: one ticket, not one per home.
       No faster plan is offered on a degrading line. It only watches and tells.
-      Needs CARE. Adds about @KB@ KB to agd (x86-64), plus the line-stats handler.
+      Needs CARE. Adds 24 KB of installed flash on x86-64 (aarch64 28,
+      mipsel 24) in the full profile, 12 to 20 KB in the small one.
   config AIGW_FEATURE_FED
     bool "Federated learning" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
