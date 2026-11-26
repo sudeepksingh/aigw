@@ -28,6 +28,7 @@ set(AIGW_FEATURE_TABLE
   "AREA|Area outages, fixes held while many homes fail at once|"
   "AREAPREDICT|Area fault prediction: line health trends, the shared plant found before it fails|CARE"
   "FED|Federated learning|"
+  "FLEETLEARN|Fleet learning, every home teaches the next (fixes ranked by the fleet's outcomes, warnings from day one)|FED"
   "PLUGINS|Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)|"
   "SNI|Connection names from TLS and QUIC handshakes|"
   "METER|Per-device traffic meter (eBPF)|"

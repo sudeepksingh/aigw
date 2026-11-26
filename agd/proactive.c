@@ -520,8 +520,20 @@ static void raise_it(struct pro_ticket *t, long now, const struct brief *b, cons
 	tell(t, now);
 }
 
-/* a new ticket (or one back after the ISP last heard of it long ago): fix, propose, watch or raise */
-static void decide(struct pro_ticket *t, long now)
+/* fleet learning: a ticket's fault, as an outcome of what was done (or of waiting) */
+static void ticket_outcome(const struct pro_ticket *t, int result)
+{
+	char act[48] = "wait";
+	uint32_t key = OUTCOME_TICKET | t->id;
+
+	if (t->acted && t->decision && act_field(t->decision, "action", act, sizeof(act)) == 0)
+		key = t->decision;
+	outcome_report(t->code, act, result, key, is_mac(t->target) ? t->target : "", "");
+}
+
+/* a new ticket (or one back after the ISP last heard of it long ago): fix, propose, watch or raise;
+   fleet_ok 0: the fix now, whatever the fleet says (its wait didn't clear it) */
+static void decide(struct pro_ticket *t, long now, int fleet_ok)
 {
 	struct brief b;
 	char err[200], reason[300];
@@ -542,6 +554,17 @@ static void decide(struct pro_ticket *t, long now)
 		b.fix.possible = 1;
 		b.fix.action = "sqm";
 		snprintf(b.fix.text, sizeof(b.fix.text), "Smart queueing on the line: calls and games stay smooth while it is full.");
+	}
+	/* fleet learning: in homes like this one, does waiting clear it more often than the fix? Then wait
+	   first (the fix follows if it doesn't clear in time). Only a choice among what the rules allow */
+	if (fleet_ok && cfg.pro_fix && b.fix.possible && b.fix.action &&
+	    (!strcmp(b.fix.action, "sqm") || !strcmp(b.fix.action, "stay24")) &&
+	    fleet_choose(t->code, b.fix.action, is_mac(t->target) ? t->target : "", t->id, reason, sizeof(reason))) {
+		t->status = PS_WATCHING;
+		t->watch_until = now + P.wifi_grace;
+		snprintf(t->next_step, sizeof(t->next_step), "Nothing yet: %.560s", reason);
+		brief_scrub_isp(t->next_step, sizeof(t->next_step));
+		return;
 	}
 	if (cfg.pro_fix && b.fix.possible && b.fix.action) {
 		snprintf(reason, sizeof(reason), "Proactive care, before the call (ticket %u): %.200s", t->id, b.verdict);
@@ -599,6 +622,9 @@ static void closed(struct pro_ticket *t, long now)
 	AG_INFO("proactive: ticket %u %s over after %ld min: %s", t->id, t->code, (now - t->since) / 60, pro_status_name(st));
 	if (quiet)
 		return;                 /* a flap the ISP never heard of: it heard it was over already */
+	/* fleet learning: AIGW's fix helped, or it cleared by itself before the ISP had to hear of it */
+	if (st == PS_FIXED || st == PS_PASSED)
+		ticket_outcome(t, FL_HELPED);
 	if (st == PS_FIXED) {
 		pro_note(t->code, 1, local_hour(t->since), t->note, sizeof(t->note));
 		snprintf(t->next_step, sizeof(t->next_step), "Nothing to do: AIGW fixed it%s. The note can go to the customer.",
@@ -629,7 +655,7 @@ static void step(long now)
 		switch (ch[i].kind) {
 		case PC_NEW:
 			AG_INFO("proactive: ticket %u %s worth acting on (%d points: %s)", t->id, t->code, t->points, t->why);
-			decide(t, now);
+			decide(t, now, 1);
 			break;
 		case PC_REOPENED:
 			if (t->notified && now - t->notified_at < P.cooldown_s) {
@@ -641,7 +667,7 @@ static void step(long now)
 				AG_INFO("proactive: ticket %u %s back (flap %d): the ISP knows already", t->id, t->code, t->flaps);
 			} else {
 				t->status = PS_WATCHING;
-				decide(t, now);
+				decide(t, now, 1);
 			}
 			break;
 		case PC_GRACE_OVER: {
@@ -658,6 +684,16 @@ static void step(long now)
 				tell(t, now);
 				break;
 			}
+			char fa[48];
+
+			if (fleet_wait_over(t->id, fa, sizeof(fa))) {
+				/* the fleet's "wait first" didn't clear it: the fix now */
+				ticket_outcome(t, FL_NO_CHANGE);
+				AG_INFO("proactive: ticket %u %s: waiting didn't clear it, %s now", t->id, t->code, fa);
+				decide(t, now, 0);
+				break;
+			}
+			ticket_outcome(t, FL_NO_CHANGE);        /* fleet learning: the fix (or waiting) didn't clear it */
 			describe(t, now, &b);
 			t->acted = 0;           /* whatever AIGW changed didn't fix it: not "fixed by AIGW" if it clears now */
 			raise_it(t, now, &b, fixing ? "AIGW's fix didn't clear it. " : "Self-Healing Wi-Fi didn't clear it. ");

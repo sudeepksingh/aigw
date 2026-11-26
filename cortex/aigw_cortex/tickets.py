@@ -24,7 +24,7 @@ Two ways out, either or both, off unless the configuration file turns them on:
 Events: outage.opened, outage.updated, outage.resolved, proactive.opened,
 proactive.updated, proactive.resolved. Which proactive tickets: those the gateway
 told the ISP (Raised, Proposed: "told_isp", the default) or all of them ("all").
-v0.53 (areapredict.py): plant.* (on by default), a shared plant predicted to fail: one
+v0.54 (areapredict.py): plant.* (on by default), a shared plant predicted to fail: one
 ticket for its homes, and while it is open their own line tickets (proactive care's on
 the line, and line.*) are not sent: the plant's ticket says how many it explains;
 line.* (when listed in events), a home's line degrading on its own.
@@ -797,7 +797,7 @@ def _scan_proactive(store, cfg, since, now, seen, explained=None, explains=None)
             told = bool(t.get("told_isp")) or t.get("status") in ("Raised", "Proposed")
             if key not in tracked and cfg["proactive"] == "told_isp" and not told:
                 continue
-            # v0.53: a line ticket of a home a predicted plant fault explains: the plant's one ticket covers it
+            # v0.54: a line ticket of a home a predicted plant fault explains: the plant's one ticket covers it
             if key not in tracked and g["id"] in explained and (t.get("fault") == "LINE" or t.get("code") in LINE_CODES):
                 pid = explained[g["id"]]
                 explains[pid] = explains.get(pid, 0) + 1

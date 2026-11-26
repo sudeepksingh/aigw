@@ -154,7 +154,7 @@ struct care_mstate {
 	float cusum;            /* shift: how much worse than normal, accumulated (deviations) */
 	float recent;           /* how much worse than normal lately (raw units, smoothed) */
 	struct care_mday days[CARE_TREND_DAYS];
-	/* v0.53: the value itself lately (smoothed like recent): what a shift's warning says it is now. Before, that
+	/* v0.54: the value itself lately (smoothed like recent): what a shift's warning says it is now. Before, that
 	   was the normal less recent, and the normal had learned the bad value meanwhile ("-1 Mbit/s") */
 	float level;
 };
@@ -164,7 +164,17 @@ struct care_sample {
 	float v[CARE_METRICS];  /* ms, ms, %, ms, Mbit/s */
 };
 
+/* v0.50 fleet learning: the fleet's normal for homes like this one (its line type), per hour band
+   (fl_hour_band: 0 night .. 3 evening). While a gateway is still learning its own, warnings are
+   judged against this, blended into the home's own as its learning goes on (all the home's own once
+   learn_s has passed); only shifts (a trend needs the home's own days), and only twice as clear. */
+struct care_prior {
+	int have[CARE_METRICS];
+	float mean[CARE_METRICS][4], dev[CARE_METRICS][4];
+};
+
 struct care_learn_params {
+	const struct care_prior *prior; /* NULL: none (no warnings while learning) */
 	long learn_s;           /* no warning before this much learning (care.learn_days) */
 	float k;                /* CUSUM allowance (deviations) */
 	float h[CARE_METRICS];  /* CUSUM threshold, per metric (the speed is tested once a day) */
@@ -185,6 +195,7 @@ struct care_warning {
 	int days;               /* trend: of data */
 	int predict;            /* days until a fault at this rate; 0 already, -1 not known */
 	long duration;          /* set when it clears */
+	int fleet;              /* judged against the fleet's normal: this home's own was still being learned */
 };
 
 struct care_learn {
@@ -208,6 +219,10 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 int care_learning(const struct care_learn *L, long now, const struct care_learn_params *p);
 /* the normal of a metric at an hour; -1 when not known yet */
 int care_normal(const struct care_learn *L, int metric, int hour, float *mean, float *dev);
+/* the normal warnings are judged against now: the home's own, or while it is learning the fleet's
+   (p->prior) blended into it; *fleet 1 then; -1 none */
+int care_normal_for(const struct care_learn *L, int metric, int hour, long now, const struct care_learn_params *p,
+		    float *mean, float *dev, int *fleet);
 const char *care_metric_name(int m);    /* NextHopLatency, InternetLatency, InternetLoss, DNSLatency, DownloadSpeed */
 int care_metric_area(int m);            /* CA_INTERNET or CA_DNS */
 /* a value with its unit: "12 ms", "0.4%", "95 Mbit/s" */

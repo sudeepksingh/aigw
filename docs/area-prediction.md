@@ -127,7 +127,7 @@ Line: Drifting (dsl)
 The bridge's own setting `line` (default `1`) sends the vector and passes cortex's answer on;
 the answer needs the bridge's capability `line.notice`.
 
-### Data model 1.23
+### Data model 1.24
 
 `Device.X_AIGW_.LineHealth.`
 
@@ -300,15 +300,15 @@ network.
   learning, drifting (agctl line, LineHealth., Metric.{i}, LineDegrading! once, the vector at
   cortex), five more homes on the cabinet and the plant predicted, cortex's word shown on the
   gateway, LINE_REPAIR, a restart (the days kept, no second event), line.share 0, and a care state
-  saved by 0.52 with the "-1 Mbit/s" warning read back.
+  saved by 0.53 with the "-1 Mbit/s" warning read back.
 
 ## The "-1 Mbit/s" early warning (fixed)
 
-Before 0.53 a shift warning said what the value was now as the normal less how much worse it had
+Before 0.54 a shift warning said what the value was now as the normal less how much worse it had
 been lately (care_learn.c `candidate()`), but the normal had learned the bad value meanwhile: a
 speed that fell to about 1 Mbit/s could read "The download speed is -1 Mbit/s". Now each metric
 keeps the value itself lately (smoothed like before) and the warning says that. A state saved by
-0.52 or older has no such value: it is taken as the normal and how much worse, never below 0, and
+0.53 or older has no such value: it is taken as the normal and how much worse, never below 0, and
 an open warning that said less than 0 says that instead. Older versions reading a newer state
 ignore the extra number.
 

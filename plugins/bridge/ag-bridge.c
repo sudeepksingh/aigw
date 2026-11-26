@@ -13,6 +13,9 @@
  *   learning round: agd trains ◄───── fed ◄──── GET /v1/fed      the shared layer (14 numbers)
  *   on your answers, returns          update ─► POST /v1/fed/update   averaged with other homes',
  *   only a clipped, noisy change                                   published as a signed layer
+ *   fleet learning: counts of   ─────► fleet ──► POST /v1/fleet/summary  added up with other homes';
+ *   fixes' outcomes, capped and         (only when agd says one is due:     buckets of k homes or more
+ *   noised (fleet.share 1 only)         fleet.share, fleet.interval)       come back as signed priors
  *   area outage: fixes held   ◄────── area ◄─── the report's answer   many homes of one uplink
  *                                                                  at once (outage.py)
  *   firmware, agd's Download path ◄── firmware ◄ GET /v1/firmware   a staged rollout's wave
@@ -37,6 +40,8 @@
  *              federated rounds
  *   firmware   1 = take firmware from cortex's staged rollouts (default 0: the ISP's
  *              ACS pushes it); needs capability firmware.install and mgmt.firmware 1
+ *   fleet      1 = pass on agd's fleet-learning summary when agd has one to share (capability
+ *              fleet.share; agd shares nothing unless fleet.share is 1 there, the default is 0)
  *   area       1 = pass on cortex's area-outage notice (many homes of this uplink
  *              down at once): agd holds its own fixes meanwhile (capability area.notice)
  *   line       1 = send the line health vector (agd's line.share rules too) and pass on
@@ -66,10 +71,10 @@
 
 static struct {
 	char url[128], token[128], devices[16], state[256], host[16], aigw[16];
-	int interval, models, proposals, fed, alert_names, firmware, area, line;
-	int can_read, can_propose, can_model, can_fed, can_firmware, can_area, can_line;
+	int interval, models, proposals, fed, alert_names, firmware, area, fleet, line;
+	int can_read, can_propose, can_model, can_fed, can_firmware, can_area, can_fleet, can_line;
 } c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1, .area = 1,
-	.line = 1 };
+	.fleet = 1, .line = 1 };
 
 static char *ibuf;
 static size_t ilen, icap;
@@ -215,6 +220,7 @@ static void on_hello(struct blob_attr *h)
 	c.alert_names = (int)fnum(conf, "alert_names", 1);
 	c.firmware = (int)fnum(conf, "firmware", 0);
 	c.area = (int)fnum(conf, "area", 1);
+	c.fleet = (int)fnum(conf, "fleet", 1);
 	c.line = (int)fnum(conf, "line", 1);
 	if ((g = field(h, "granted")))
 		blobmsg_for_each_attr(cur, g, rem) {
@@ -226,6 +232,7 @@ static void on_hello(struct blob_attr *h)
 			c.can_fed |= !strcmp(cap, "fed.train");
 			c.can_firmware |= !strcmp(cap, "firmware.install");
 			c.can_area |= !strcmp(cap, "area.notice");
+			c.can_fleet |= !strcmp(cap, "fleet.share");
 			c.can_line |= !strcmp(cap, "line.notice");
 		}
 	configured = 1;
@@ -600,7 +607,7 @@ static void area_pass(const char *out)
 }
 
 /*
- * cortex's word on this home's line (v0.53): the cabinet, OLT or area serving it
+ * cortex's word on this home's line (v0.54): the cabinet, OLT or area serving it
  * degrades with others, or not ({"line": {plant: 0}}). agd shows it; it changes nothing.
  */
 static long line_told = -1;
@@ -617,7 +624,7 @@ static void line_pass(const char *out)
 	if (!c.line || !c.can_line || read_json(out, &a) || !(t = field(a.head, "line")) ||
 	    blobmsg_type(t) != BLOBMSG_TYPE_TABLE) {
 		blob_buf_free(&a);
-		return;                      /* a cortex before 0.53 says nothing */
+		return;                      /* a cortex before 0.54 says nothing */
 	}
 	plant = fnum(t, "plant", 0);
 	blob_buf_init(&b, 0);
@@ -676,7 +683,7 @@ static void report(void)
 	/* coverage advice: the verdict (a home that needs an extender), counts, spots by kind (coverage.share) */
 	if ((d = query("coverage")) && (d = field(d, "coverage")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
 		copy_attr(&r, "coverage", d);
-	/* line health (v0.53): each metric's trend, no names, no addresses, nothing unless agd's line.share */
+	/* line health (v0.54): each metric's trend, no names, no addresses, nothing unless agd's line.share */
 	if (c.line && (d = query("line")) && (d = field(d, "line")) && field(d, "metrics"))
 		copy_attr(&r, "line", d);
 	if (c.can_read) {
@@ -979,6 +986,39 @@ out:
 	blob_buf_free(&r);
 }
 
+/* ---------- fleet learning ---------- */
+
+/* agd's summary, when one is due and this home shares: counts per fault x action x coarse bucket and
+   the learned normal's shape. Nothing else is added here; a missed one is covered by the next (the
+   counts are the home's totals) */
+static void fleet_share(void)
+{
+	struct blob_buf b = { 0 }, r = { 0 };
+	struct blob_attr *d, *s, *cur;
+	char body[300], rout[300];
+	int id = next_id++;
+	size_t rem;
+	void *t;
+
+	blob_buf_init(&b, 0);
+	t = blobmsg_open_table(&b, "fleet");
+	blobmsg_add_u32(&b, "id", (uint32_t)id);
+	blobmsg_close_table(&b, t);
+	d = ask(&b, id);
+	if (!d || !fnum(d, "ok", 0) || !(s = field(d, "summary")) || blobmsg_type(s) != BLOBMSG_TYPE_TABLE)
+		goto out;               /* not due, or this home doesn't share: nothing to say */
+	blob_buf_init(&r, 0);
+	blobmsg_for_each_attr(cur, s, rem)
+		blobmsg_add_blob(&r, cur);
+	snprintf(body, sizeof(body), "%s/fleet-summary.json", c.state);
+	snprintf(rout, sizeof(rout), "%s/fleet-summary.out", c.state);
+	if (write_json(body, &r) == 0 && http("POST", "/v1/fleet/summary", body, rout) == 0)
+		logf_("fleet summary sent");
+out:
+	blob_buf_free(&b);
+	blob_buf_free(&r);
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -1023,6 +1063,8 @@ int main(void)
 				fed_round();
 			if (c.firmware && c.can_firmware)
 				fetch_firmware();
+			if (c.fleet && c.can_fleet)
+				fleet_share();
 			next = now_ms() + (uint64_t)c.interval * 1000;
 			continue;
 		}

@@ -102,6 +102,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/outside-test.sh build
       - name: Federated learning test (three homes, noisy updates, signed shared layer, no names leave)
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/fed-test.sh build
+      - name: Fleet learning test (three homes share, cortex aggregates with k-anonymity, signed priors, cold start, tamper)
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/fleet-test.sh build
       - name: "Staged rollout test (four homes, waves through the bridge: one passes; a rollback stops it: the last home never gets it)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/rollout-test.sh build
       - name: Area outages (cortex tells, the gateway holds its fixes)

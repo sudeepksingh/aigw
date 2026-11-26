@@ -90,13 +90,13 @@ def outages(store, since, ids, now=None):
     return out
 
 
-UPSELL_HELD = ("PLAN_UPGRADE", "SMART_QUEUE")      # v0.53: not sold on a line that is degrading
+UPSELL_HELD = ("PLAN_UPGRADE", "SMART_QUEUE")      # v0.54: not sold on a line that is degrading
 
 
 def signals(store, ids, names, groups, limit=30, degrading=None):
     """Each home's open signals for the ISP (v0.32): how many homes, by product, and
     the list in the order a team would call: repairs, homes at risk, then sales by
-    confidence. v0.53: a faster plan or smart queueing is held for a home whose line
+    confidence. v0.54: a faster plan or smart queueing is held for a home whose line
     degrades (a predicted plant or line fault): a repair first, not a sale."""
     degrading = degrading or set()
     rows = [r for r in store.offers_open(ids) if not (r["gateway"] in degrading and r["code"] in UPSELL_HELD)]
@@ -165,7 +165,7 @@ def report(store, days=7, group=None, now=None):
         if g["last_seen"] and now - g["last_seen"] > SILENT_S:
             attention.append({"home": g["name"], "group": g["grp"] or "", "why": "silent", "last_seen": g["last_seen"]})
 
-    # v0.53: shared plants and lines predicted to fail (areapredict.py), among these homes
+    # v0.54: shared plants and lines predicted to fail (areapredict.py), among these homes
     pred = areapredict.summary(store, now)
     pred["open"] = [p for p in pred["open"] if any(m["gateway"] in ids for m in p["members"])]
     pred["lines"] = [x for x in pred["lines"] if x["gateway"] in ids]

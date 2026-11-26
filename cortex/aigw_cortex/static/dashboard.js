@@ -236,13 +236,13 @@ function renderMesh(r) {
     ], m.hurting, (h) => openGateway(h.home)) : el("p", { class: "muted" }, "No extender hurts more than it helps."));
 }
 
-// v0.53: area fault prediction (areapredict.py): the shared plant degrading before it fails
+// v0.54: area fault prediction (areapredict.py): the shared plant degrading before it fails
 function renderPredictions(r) {
   const p = r.predictions || {};
   const open = p.open || [], lines = p.lines || [], l3 = p.last_30_days || {};
   if (!open.length && !lines.length && !l3.plants) {
     predictions.replaceChildren(el("p", { class: "empty" },
-      "No line degrading. Gateways send their line health from AIGW OS 0.53 on, after 5 days of learning."));
+      "No line degrading. Gateways send their line health from AIGW OS 0.54 on, after 5 days of learning."));
     return;
   }
   const calls = (d) => (d === 0 ? "now" : d > 0 ? in about  : "not known");

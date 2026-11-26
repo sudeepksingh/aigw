@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Area fault prediction (v0.53): cortex/aigw_cortex/{linehealth,areapredict,areasim}.py.
+"""Area fault prediction (v0.54): cortex/aigw_cortex/{linehealth,areapredict,areasim}.py.
 
     python3 tests/test_areapredict.py        (AIGW_LINE_DUMP=<build>/tests/line_dump: also against the C rules)
 
@@ -247,7 +247,7 @@ class Cortex(unittest.TestCase):
                     v = vec(day, onset=TODAY - 4, left=4)
                 else:
                     v = ok(day)
-                rep = {"status": {"version": "0.53.0"}, "line": v}
+                rep = {"status": {"version": "0.54.0"}, "line": v}
                 if d == 0 and c == 1 and i == 0:          # its gateway raised a line ticket of its own too
                     rep["proactive"] = {"tickets": [{"id": 1, "status": "Raised", "open": 1, "code": "LINE_LOSS",
                                                      "fault": "LINE", "severity": "problem", "opened": now - 600,

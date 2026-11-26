@@ -27,6 +27,7 @@
 #define AG_EV_CALL "ag.call"       /* a call or game noticed, and over (with how it went) */
 #define AG_EV_TICKET "ag.ticket"   /* proactive care, before the call: a ticket raised, fixed, over */
 #define AG_EV_MESH "ag.mesh"       /* mesh Wi-Fi: the controller found or lost, a device moved, a backhaul, a trial */
+#define AG_EV_FLEET "ag.fleet"     /* fleet learning: priors received, a summary shared, a choice the fleet changed */
 /* the platform's mesh handler (in /usr/libexec/aigw), and the one before 0.47,
  * which a config may still name: read as the platform's */
 #define MESH_HANDLER "mesh-dataelements"
@@ -249,6 +250,17 @@ struct ag_config {
 	double fed_noise;         /* at least this noise multiplier on what leaves, whatever cortex asks */
 	int fed_min_examples;     /* answered examples needed before taking part in a round */
 	double fed_budget;        /* stop taking part before epsilon passes this; 0 = no limit */
+	/* fleet learning (agd/fleet.c, docs/fleet-learning.md) */
+	int fleet;                /* keep outcomes, use the fleet's priors */
+	int fleet_share;          /* send summaries to cortex (opt-in: 0) */
+	int fleet_k;              /* a fleet bucket needs this many homes to be used */
+	int fleet_interval;       /* s between summaries */
+	char fleet_line[10];      /* fibre, dsl, cable, fwa, other; "" not known */
+	double fleet_noise;       /* noise on each count shared (standard deviation) */
+	int fleet_cap;            /* a count shared is at most this (one home can't outweigh many) */
+	double fleet_strength;    /* the fleet's counts weigh at most this many tries of the home's own */
+	int fleet_choose;         /* let the fleet's evidence change which allowed fix is used */
+	double fleet_margin;      /* ... when the other candidate is better by this much */
 	/* per-device behaviour baselines */
 	int bucket_seconds;       /* length of one activity bucket (an hour) */
 	int learn_minutes;        /* watch a device this long before judging it */
@@ -292,6 +304,7 @@ struct ag_config {
 	int key_ttl;              /* an unused join key expires after this many seconds */
 };
 
+int ag_fleet_line_ok(const char *v);     /* fleet.line: "", fibre, dsl, cable, fwa, satellite, other */
 int ag_mode_parse(const char *s, int dflt);
 const char *ag_mode_str(int mode);
 

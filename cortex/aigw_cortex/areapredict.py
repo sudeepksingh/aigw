@@ -600,7 +600,7 @@ def backtest(store, now=None):
     names = {g["id"]: g["name"] for g in store.gateways()}
     rows = store.q("SELECT gateway, day, vec FROM line_vectors ORDER BY day")
     if not rows:
-        return {"days": 0, "plants": [], "note": "no line health vectors kept yet (gateways send them from 0.53)"}
+        return {"days": 0, "plants": [], "note": "no line health vectors kept yet (gateways send them from 0.54)"}
     by_day = defaultdict(dict)
     for r in rows:
         by_day[r["day"]][r["gateway"]] = json.loads(r["vec"])
@@ -691,7 +691,7 @@ def fleet_lines(r):
     if not p.get("open") and not p.get("lines"):
         return []
     out = [f"  faults coming {len(p['open'])} shared plant{'' if len(p['open']) == 1 else 's'}, "
-           f"{len(p['lines'])} line{'' if len(p['lines']) == 1 else 's'} on their own (v0.53)"]
+           f"{len(p['lines'])} line{'' if len(p['lines']) == 1 else 's'} on their own (v0.54)"]
     for x in p["open"][:5]:
         out.append(f"               {x['words']}")
     l3 = p.get("last_30_days") or {}

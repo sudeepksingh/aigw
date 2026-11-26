@@ -554,6 +554,7 @@ int dev_state_save(void)
 	alerts_save(&b);
 	act_save(&b);
 	fed_save(&b);
+	fleet_save(&b);
 	burst_save(&b);
 	dm_save(&b);
 	heal_save(&b);
@@ -659,6 +660,8 @@ int dev_state_load(void)
 	blob_for_each_attr(cur, b.head, rem) {
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "fed"))
 			fed_load(cur);
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "fleet"))
+			fleet_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "home_sites"))
 			burst_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "dm_instances"))

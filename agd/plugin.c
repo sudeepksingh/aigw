@@ -179,7 +179,7 @@ static int priv_cap(const char *cap)
 {
 	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read") || !strcmp(cap, "model.offer") ||
 	       !strcmp(cap, "fed.train") || !strcmp(cap, "firmware.install") || !strcmp(cap, "area.notice") ||
-	       !strcmp(cap, "line.notice");
+	       !strcmp(cap, "fleet.share") || !strcmp(cap, "line.notice");
 }
 
 static void state_dir(const struct plugin *p, char *out, size_t n)
@@ -551,6 +551,31 @@ static void on_fed(struct plugin *p, struct blob_attr *a)
 }
 #endif
 
+#if AIGW_FEATURE_FLEETLEARN
+/* fleet learning: the summary that leaves the home, when one is due (fleet.share 1 only) */
+static void on_fleet(struct plugin *p, struct blob_attr *a)
+{
+	struct blob_buf d = { 0 };
+	char err[200] = "";
+	int rc = -1;
+	void *t;
+
+	blob_buf_init(&d, 0);
+	t = blobmsg_open_table(&d, "summary");
+	if (!has_cap(p, "fleet.share"))
+		snprintf(err, sizeof(err), "plug-in %s may not share fleet summaries (capability fleet.share%s)", p->name,
+			 trusted(p) ? " not in its manifest" : " needs: agctl plugin allow");
+	else
+		rc = fleet_summary(&d, err, sizeof(err));
+	blobmsg_close_table(&d, t);
+	blobmsg_add_u8(&d, "ok", rc == 0);
+	if (rc == 0)
+		dev_state_save();               /* when it was shared, and the noise's secret */
+	reply(p, (int)gnum(a, "id", 0), &d, err);
+	blob_buf_free(&d);
+}
+#endif
+
 static void fw_offer_done(void *ctx, int ok, const char *msg)
 {
 	(void)ctx;
@@ -763,6 +788,12 @@ static void handle_line(struct plugin *p, char *line)
 #if AIGW_FEATURE_FED
 		else if (!strcmp(key, "fed") && body)
 			on_fed(p, body);
+#endif
+		else if (!strcmp(key, "fleet") && body)
+#if AIGW_FEATURE_FLEETLEARN
+			on_fleet(p, body);
+#else
+			reply(p, (int)gnum(body, "id", 0), NULL, "fleet learning is not built in (AIGW_FEATURE_FLEETLEARN)");
 #endif
 		else if (!strcmp(key, "firmware") && body)
 			on_firmware(p, body);
@@ -1313,7 +1344,7 @@ static int load_manifest(struct plugin *p, char *err, size_t n)
 		    strcmp(p->caps[i], "devices.read") && strcmp(p->caps[i], "alert.raise") &&
 		    strcmp(p->caps[i], "model.offer") && strcmp(p->caps[i], "fed.train") &&
 		    strcmp(p->caps[i], "firmware.install") && strcmp(p->caps[i], "area.notice") &&
-		    strcmp(p->caps[i], "line.notice")) {
+		    strcmp(p->caps[i], "fleet.share") && strcmp(p->caps[i], "line.notice")) {
 			snprintf(err, n, "unknown capability '%s'", p->caps[i]);
 			goto out;
 		}

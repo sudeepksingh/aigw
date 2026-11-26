@@ -12,7 +12,7 @@
 #              LineHealth.SharedPlant* show it
 #   offers     no faster plan on a degrading line: LINE_REPAIR, with the line's words
 #   restart    agd restarts: the days come back, no second LineDegrading!
-#   migration  a care state saved by 0.52 with the "-1 Mbit/s" early warning: read back as 0 or more
+#   migration  a care state saved by 0.53 with the "-1 Mbit/s" early warning: read back as 0 or more
 #   share 0    with line.share 0 the bridge sends no vector
 #
 # Needs root (private ubusd, plug-ins run as nobody), python3, curl, ubus.
@@ -87,7 +87,7 @@ EOF
 sed -i "s|\$T0|$T/handler-start|g" "$T/line-stats"
 chmod 755 "$T/line-stats"
 
-# a care state saved by 0.52: the speed's warning said "-1 Mbit/s" (77 numbers a metric, no level)
+# a care state saved by 0.53: the speed's warning said "-1 Mbit/s" (77 numbers a metric, no level)
 NOW=$(date +%s)
 python3 - "$T/state.json" "$NOW" <<'EOF'
 import json, sys
@@ -161,7 +161,7 @@ sleep 1
 h bridge "http://127.0.0.1:$PORT" > /dev/null || fail "agctl bridge"
 echo "$TOKEN" | h bridge token > /dev/null || fail "bridge token"
 
-echo "== the -1 Mbit/s warning of 0.52, read back"
+echo "== the -1 Mbit/s warning of 0.53, read back"
 h -j care > "$T/care.json" || fail "agctl care"
 js "w=d['early_warning']; sys.exit(0 if w['status'] == 'warning' and '-' not in w['summary'] and 'Mbit/s' in w['summary'] else 1)" < "$T/care.json" ||
 	fail "the old warning should read 0 or more: $(cat "$T/care.json")"
@@ -215,7 +215,7 @@ def vec(bad):
     return {"v": 1, "tech": "dsl", "day": day, "status": m["state"], "metrics": [m]}
 for s in ("s1", "s2", "s3", "s4", "s5") + tuple(f"q{i}" for i in range(1, 11)):
     tok = open(f"{t}/{s}.token").read().strip()
-    body = {"bridge": "0.53.0", "interval": 300, "status": {"version": "0.53.0"}, "line": vec(s.startswith("s"))}
+    body = {"bridge": "0.54.0", "interval": 300, "status": {"version": "0.54.0"}, "line": vec(s.startswith("s"))}
     r = urllib.request.Request(f"http://127.0.0.1:{port}/v1/report", data=json.dumps(body).encode(),
                                headers={"Authorization": f"Bearer {tok}"})
     print(s, json.loads(urllib.request.urlopen(r).read())["line"])

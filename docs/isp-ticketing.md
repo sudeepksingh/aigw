@@ -65,7 +65,7 @@ would send (`python3 -m aigw_cortex tickets outbox`, and the bodies in
 |---------|---------|--------------|
 | `enabled` | `false` | Nothing happens without it. |
 | `dry_run` | `false` | Work out and keep, send nothing. |
-| `events` | `["outage", "proactive", "plant"]` | Which events go to TMF621 (and to webhooks without their own list): `outage`, `proactive`, `plant`, `line`, or single events `outage.opened`, `outage.updated`, `outage.resolved`, `proactive.opened`, `proactive.updated`, `proactive.resolved`, `plant.*`, `line.*`. v0.53: `plant` is a shared plant predicted to fail (one ticket for its homes; their own line tickets are then not sent), `line` a home's line degrading on its own ([area-prediction.md](area-prediction.md)). |
+| `events` | `["outage", "proactive", "plant"]` | Which events go to TMF621 (and to webhooks without their own list): `outage`, `proactive`, `plant`, `line`, or single events `outage.opened`, `outage.updated`, `outage.resolved`, `proactive.opened`, `proactive.updated`, `proactive.resolved`, `plant.*`, `line.*`. v0.54: `plant` is a shared plant predicted to fail (one ticket for its homes; their own line tickets are then not sent), `line` a home's line degrading on its own ([area-prediction.md](area-prediction.md)). |
 | `proactive` | `told_isp` | Which proactive tickets: those the gateway told the ISP (`Raised`, `Proposed`), or `all` (also those AIGW fixed itself, `Fixed`, and those kept at home, as a record). |
 | `interval_s` | 30 | How often the server looks; it also looks right after a gateway reports. |
 | `retry` | `{"base_s": 10, "max_s": 3600, "max_attempts": 30}` | Exponential backoff (±20%), and when a row gives up (about a day). |

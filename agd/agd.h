@@ -238,6 +238,63 @@ static inline void fed_save(struct blob_buf *b) { (void)b; }
 static inline void fed_load(struct blob_attr *tbl) { (void)tbl; }
 #endif
 
+/*
+ * The outcome interface: how a fix (or waiting) for a fault went. It is fleet
+ * learning's source, fed by act.c (trials kept or tried, a person's undo) and
+ * proactive.c (fixed by AIGW, cleared by itself, the ISP had to hear of it).
+ * Proven self-repair (v0.49, AIGW_FEATURE_PROVEN) feeds its receipts here too:
+ * a later report with the same key replaces the earlier one, so a receipt
+ * corrects what act.c guessed.
+ *   code    the fault: WIFI_HOPPING, LINE_FULL, WIFI_CONGESTION, MESH_BACKHAUL, ...
+ *   action  stay24, sqm, channel, meshsteer, meshchan, ... or "wait" (nothing changed)
+ *   result  FL_HELPED, FL_NO_CHANGE, FL_WORSE, FL_UNDONE (ag/fleet.h)
+ *   key     one outcome per key: the decision id, or OUTCOME_TICKET | ticket id
+ *   mac     the device it was for ("" the home): only its class is kept
+ *   iface   the access point ("" the device's, or none): only its band and width are kept
+ */
+#include "ag/fleet.h"
+#define OUTCOME_TICKET 0x80000000u
+struct care_prior;
+#if AIGW_FEATURE_FLEETLEARN
+void outcome_report(const char *code, const char *action, int result, uint32_t key, const char *mac, const char *iface);
+/* fleet.c: fleet learning ("every home teaches the next", ag/fleet.h) */
+void fleet_init(void);
+/* proactive.c: the default fix dflt for a ticket's fault, or waiting first? 1: wait (why says so, in words);
+   only the existing rules' candidates, so the fleet never causes an action by itself */
+int fleet_choose(const char *code, const char *dflt, const char *mac, uint32_t ticket, char *why, size_t wn);
+/* the fleet's wait for this ticket didn't clear it: the fix to try now (1), else 0 */
+int fleet_wait_over(uint32_t ticket, char *action, size_t an);
+const struct care_prior *fleet_care_prior(void);       /* care.c: normals from the fleet, NULL none */
+void fleet_blob(struct blob_buf *b, int full);
+void fleet_rank_blob(struct blob_buf *b, const char *code, const char *mac);
+int fleet_summary(struct blob_buf *b, char *err, size_t n);    /* the bridge: what leaves, 0 when one is due */
+int fleet_field(const char *f, char *buf, size_t n);   /* Device.X_AIGW_.FleetLearning.; -1 unknown */
+int fleet_set(const char *f, const char *v, int apply, char *err, size_t n);
+void fleet_save(struct blob_buf *b);
+void fleet_load(struct blob_attr *t);
+int fleet_test_outcome(struct blob_attr *msg, char *err, size_t n);    /* AIGW_TEST_OUTCOMES only */
+/* models.c: the "fleet-priors" slot (a signed "# aigw-priors" file) */
+void *fleet_priors_parse(const uint8_t *data, size_t len, char *name, size_t nn, char *err, size_t en);
+int fleet_priors_check(const void *obj, char *err, size_t n);
+void fleet_priors_use(void *obj);
+void fleet_priors_free(void *obj);
+int fleet_priors_version(const void *obj, char *published, size_t n);
+int fleet_priors_size(const void *obj);
+/* dm.c: FleetPriorsReceived!, FleetChoice! */
+void dm_on_fleet_priors(int version, int buckets, int normals, unsigned homes);
+void dm_on_fleet_choice(const char *code, const char *dflt, const char *chosen, const char *reason);
+#else
+static inline void outcome_report(const char *code, const char *action, int result, uint32_t key, const char *mac,
+				  const char *iface)
+{ (void)code; (void)action; (void)result; (void)key; (void)mac; (void)iface; }
+static inline int fleet_choose(const char *code, const char *dflt, const char *mac, uint32_t ticket, char *why, size_t wn)
+{ (void)code; (void)dflt; (void)mac; (void)ticket; (void)why; (void)wn; return 0; }
+static inline int fleet_wait_over(uint32_t ticket, char *action, size_t an) { (void)ticket; (void)action; (void)an; return 0; }
+static inline const struct care_prior *fleet_care_prior(void) { return NULL; }
+static inline void fleet_save(struct blob_buf *b) { (void)b; }
+static inline void fleet_load(struct blob_attr *t) { (void)t; }
+#endif
+
 #if AIGW_FEATURE_FASTPATH
 /* fastpath.c: established connections through the kernel flowtable; back to the rules on an action */
 int fastpath_release(const char *ip, const char *why);
@@ -692,8 +749,13 @@ static inline int upgrade_field(const char *f, char *buf, size_t n) { (void)f; (
 int care_online(void);
 /* care.c: the normal of a metric (enum care_metric) at a local hour; -1 not known */
 int care_normal_hour(int metric, int hour, float *v);
+/* care.c, for fleet learning: the home's own learned normal over an hour band (0 night .. 3 evening),
+   once it is learned; -1 not yet */
+int care_normal_band(int metric, int band, float *mean, float *dev);
 #else
 static inline int care_normal_hour(int metric, int hour, float *v) { (void)metric; (void)hour; (void)v; return -1; }
+static inline int care_normal_band(int metric, int band, float *mean, float *dev)
+{ (void)metric; (void)band; (void)mean; (void)dev; return -1; }
 #endif
 
 #if AIGW_FEATURE_WHY

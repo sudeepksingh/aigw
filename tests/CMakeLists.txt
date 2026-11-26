@@ -26,6 +26,12 @@ if(AIGW_FEATURE_CARE)
   add_test(NAME proactive_care COMMAND test_care)
 endif()
 
+if(AIGW_FEATURE_FLEETLEARN AND AIGW_FEATURE_CARE)
+  add_executable(test_fleet test_fleet.c)
+  target_link_libraries(test_fleet ag)
+  add_test(NAME fleet_learning COMMAND test_fleet)
+endif()
+
 if(AIGW_FEATURE_CARE)
   add_executable(test_warn test_warn.c)
   target_link_libraries(test_warn ag)
@@ -120,7 +126,7 @@ if(Python3_FOUND)
   add_test(NAME staged_rollout COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_rollout.py)
   # v0.42: ISP ticketing against a local mock TMF621 server (tests/tmf621_mock.py, 127.0.0.1 only)
   add_test(NAME isp_tickets COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_tickets.py)
-  # v0.53: area fault prediction: the trend rules (the same as the gateway's, line_dump), the correlation, a
+  # v0.54: area fault prediction: the trend rules (the same as the gateway's, line_dump), the correlation, a
   # simulated fleet of 60 homes on 3 cabinets, tickets for the plant and none for the homes it explains
   if(AIGW_FEATURE_AREAPREDICT)
     add_test(NAME area_prediction COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_areapredict.py)

@@ -227,7 +227,7 @@ int main(void)
 	      "4 Mbit/s less a night: a trend at %.0f Mbit/s, below 50 in about %d days", s.speed, s.L.w.predict);
 	say(&s);
 
-	/* v0.53: the speed collapses to about 1 Mbit/s. The warning said "-1 Mbit/s" (the normal, which had learned the
+	/* v0.54: the speed collapses to about 1 Mbit/s. The warning said "-1 Mbit/s" (the normal, which had learned the
 	   bad test meanwhile, less how much worse it was); now it says what the tests measured */
 	init(&s);
 	run(&s, 14 * DAY);
