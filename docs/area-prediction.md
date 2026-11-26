@@ -92,7 +92,7 @@ Of the last 14 complete days of a metric (today is never judged: it isn't over):
 
 The line's status is its worst metric with medium confidence (40) or more, or a fault: by
 state, then the fewest days left, then the confidence. `LineDegrading!` is sent when the status
-becomes Stepped, Drifting or Fault, or its worst metric changes; `LineDegradingCleared!` when it
+becomes Stepped, Drifting or Fault, or another metric starts degrading too (not when the degrading ones only change places); `LineDegradingCleared!` when it
 is OK again. The trends change once a day, so the status doesn't flap.
 
 ### What it says

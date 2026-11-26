@@ -67,6 +67,7 @@ static long analysed;                   /* the day the trends are of */
 static struct {
 	int status, metric;             /* the line's: the worst metric */
 	long since;                     /* the status started (wall s) */
+	unsigned degrading;             /* bits: metrics degrading (an event when one joins, not when they reorder) */
 } S;
 static struct {                         /* cortex's answer: the shared plant */
 	uint32_t plant;
@@ -215,6 +216,7 @@ static void analyse(long today)
 {
 	struct line_params p;
 	int m, worst = -1, status = LS_NONE, learning = 0, was = S.status, wm = S.metric;
+	unsigned deg = 0;
 	long now = now_s();
 	char text[300];
 
@@ -227,6 +229,8 @@ static void analyse(long today)
 			learning = 1;
 		if (tr[m].state >= LS_STEP && tr[m].conf < MIN_CONF && tr[m].state != LS_FAULT)
 			continue;
+		if (tr[m].state >= LS_STEP)
+			deg |= 1u << m;
 		if (tr[m].state >= LS_OK && (worst < 0 || worse(m, worst)))
 			worst = m;
 	}
@@ -236,7 +240,8 @@ static void analyse(long today)
 	else if (learning)
 		status = LS_LEARNING;
 	S.metric = worst >= 0 ? worst : 0;
-	if (status >= LS_STEP && (was < LS_STEP || wm != S.metric)) {
+	if (status >= LS_STEP && (was < LS_STEP || (deg & ~S.degrading))) {
+		S.degrading = deg;
 		S.since = now;
 		words_of(S.metric, text, sizeof(text));
 		AG_WARN("line: %s (%s, %s confidence): %s", line_state_name(status), line_metric_name(S.metric),
@@ -255,6 +260,7 @@ static void analyse(long today)
 	} else {
 		S.status = status;
 	}
+	S.degrading = status >= LS_STEP ? deg : 0;
 }
 
 /* ---------- what is measured ---------- */
@@ -741,6 +747,7 @@ void line_save(struct blob_buf *b)
 	blobmsg_add_u32(b, "status", (uint32_t)S.status);
 	blobmsg_add_u32(b, "metric", (uint32_t)S.metric);
 	blobmsg_add_u64(b, "since", (uint64_t)S.since);
+	blobmsg_add_u32(b, "degrading", S.degrading);
 	arr = blobmsg_open_array(b, "days");
 	for (m = 0; m < LINE_METRICS; m++)
 		for (k = 0; k < LINE_DAYS; k++) {
@@ -778,6 +785,8 @@ void line_load(struct blob_attr *t)
 			S.metric = (int)num(cur, &ok) % LINE_METRICS;
 		else if (!strcmp(k, "since"))
 			S.since = (long)num(cur, &ok);
+		else if (!strcmp(k, "degrading"))
+			S.degrading = (unsigned)num(cur, &ok) & ((1u << LINE_METRICS) - 1);
 		else if (!strcmp(k, "days") && blobmsg_type(cur) == BLOBMSG_TYPE_ARRAY)
 			blobmsg_for_each_attr(row, cur, r2) {
 				double x[4] = { 0 };

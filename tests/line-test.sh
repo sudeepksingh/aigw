@@ -186,7 +186,8 @@ js "sys.exit(0 if any(x['metric'] == 'crc' and x['days'] >= 5 for x in d['metric
 case "$(dmv Status)" in Drifting|Fault) ;; *) fail "LineHealth.Status: $(dmv Status)" ;; esac
 h dm get Device.X_AIGW_.LineHealth.Metric.2.Name | grep -q NoiseMargin || fail "Metric.2 is the noise margin: $(h dm get Device.X_AIGW_.LineHealth.Metric.)"
 wait_for 5 "LineDegrading!" "[ \"\$(nev 'LineDegrading!')\" -ge 1 ]"
-grep 'LineDegrading!' "$T/events.log" | grep -q NoiseMargin || fail "LineDegrading! should name the metric: $(cat "$T/events.log")"
+grep 'LineDegrading!' "$T/events.log" | grep -q -E '"Metric":"(NoiseMargin|CRCErrors)"' || fail "LineDegrading! should name the metric: $(cat "$T/events.log")"
+[ "$(nev 'LineDegrading!')" -le 2 ] || fail "one LineDegrading! a metric that joins, not one each time they change places: $(nev 'LineDegrading!')"
 wait_for 15 "the bridge should send the line health vector" \
 	"PYTHONPATH='$REPO/cortex' python3 -c \"
 import sys; from aigw_cortex.store import Store; from aigw_cortex import areapredict
