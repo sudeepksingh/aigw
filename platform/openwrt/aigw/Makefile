@@ -231,6 +231,7 @@ define Package/aigw/config
       shared plant days before the first calls: one ticket, not one per home.
       No faster plan is offered on a degrading line. It only watches and tells.
       Needs CARE. Adds about @KB@ KB to agd (x86-64), plus the line-stats handler.
+  config AIGW_FEATURE_FED
     bool "Federated learning" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_PLUGINS
