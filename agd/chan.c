@@ -693,6 +693,14 @@ static void plan_propose(const struct wifi_ap *a, struct chan_state *s, int64_t 
 		 cfg.chan_plan_trial >= 120 ? cfg.chan_plan_trial / 60 : cfg.chan_plan_trial,
 		 cfg.chan_plan_trial >= 120 ? "minutes" : "seconds", a->channel);
 	AG_INFO("%s: proposing channel %d (from %d): %s", a->iface, s->pick, a->channel, s->choice.words);
+	{
+		struct cp_feel f;
+
+		/* proven repair: the plan's own prediction, the air others use over the busy hours, less by its gain */
+		cp_before(&s->t, cp_slot(&s->t, a->channel), &f);
+		repair_expect("channel", target, "wifi-plan", RM_AIR, f.n_air ? f.air : REPAIR_NONE,
+			      f.n_air ? f.air * (100 - s->choice.gain_pct) / 100.0f : REPAIR_NONE, 0);
+	}
 	alerts_raise("wifi-plan", "info", target, a->iface, s->choice.gain_pct / 100.0, reason);
 	s->asked_at = now;
 	s->proposed++;
@@ -750,6 +758,8 @@ static void plan_trial(const struct wifi_ap *a, struct chan_state *s, int64_t no
 	after.n_rate = s->n_rate;
 	after.n_air = s->n_air;
 	keep = cp_verdict(&s->before, &after, cfg.chan_plan_better, why, sizeof(why));
+	/* proven repair: the trial's numbers (the air used by others over the busy hours) */
+	repair_trial(id, keep, s->before.n_air ? s->before.air : REPAIR_NONE, after.n_air ? after.air : REPAIR_NONE);
 	cp_feel_words(&s->before, bw, sizeof(bw));
 	cp_feel_words(&after, aw, sizeof(aw));
 	if (keep) {
@@ -859,6 +869,17 @@ void chan_tick(void)
 		    (!s->last_scan || now - s->last_scan >= cfg.chan_scan_gap) && !calls_live())
 			judge(a, s, now);
 	}
+}
+
+/* proven repair: the air used by others on this access point's channel now */
+int chan_air_now(const char *iface, float *pct)
+{
+	const struct chan_state *s = state_for(iface, 0);
+
+	if (!s || !s->works || s->util < 0)
+		return -1;
+	*pct = (float)s->util;
+	return 0;
 }
 
 void chan_blob(struct blob_buf *b, const char *iface)

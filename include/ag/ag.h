@@ -28,6 +28,7 @@
 #define AG_EV_TICKET "ag.ticket"   /* proactive care, before the call: a ticket raised, fixed, over */
 #define AG_EV_MESH "ag.mesh"       /* mesh Wi-Fi: the controller found or lost, a device moved, a backhaul, a trial */
 #define AG_EV_FLEET "ag.fleet"     /* fleet learning: priors received, a summary shared, a choice the fleet changed */
+#define AG_EV_REPAIR "ag.repair"   /* proven repair: a fix predicted, judged (helped, no change, worse), undone */
 /* the platform's mesh handler (in /usr/libexec/aigw), and the one before 0.47,
  * which a config may still name: read as the platform's */
 #define MESH_HANDLER "mesh-dataelements"
@@ -235,6 +236,16 @@ struct ag_config {
 	int cov_interval;         /* s between looks (60) */
 	int cov_learn;            /* looks at a device before it is judged (60) */
 	int cov_share;            /* cortex gets the verdict and counts (never names) */
+	/* proven self-repair (agd/repair.c) */
+	int repair;               /* every fix predicted, measured and judged, with a receipt */
+	int repair_window;        /* s a fix without a trial of its own is measured (600) */
+	int repair_settle;        /* s after a fix before measuring starts (60) */
+	int repair_undo;          /* a fix that didn't help is undone (enforce mode, AIGW's own fixes) */
+	int repair_shadow;        /* advise mode: what AIGW would have done, measured without it */
+	int repair_gate;          /* act on its own only with kinds of fix proven here (0: off) */
+	int repair_gate_rate;     /* ... a fix rate of at least this % (80) */
+	int repair_gate_trials;   /* ... over at least this many judged trials in 30 days (10) */
+	int repair_tick;          /* s between measurements (10) */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

@@ -20,6 +20,12 @@ is likely to notice:
 When a fix AIGW made has done its job, the ISP hears "we noticed X and fixed it",
 with a note ready for the customer.
 
+With [proven self-repair](proven-repair.md) (v0.51, feature `PROVEN`), "fixed by
+AIGW" means **proven**: the fix's receipt measured that it helped. A ticket that
+clears while its fix is still being measured waits for the verdict (at most two
+hours); a fix that didn't help, or couldn't be judged, closes the ticket as over by
+itself, and the fix is undone in enforce mode.
+
 ```
 $ agctl care proactive
 Before the call: a look every 1m; worth acting on at 3 points; fixes by AIGW (act mode enforce); 1 of 3 new tickets to the ISP left today

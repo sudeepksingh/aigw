@@ -1530,6 +1530,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Installed flash</td><td>Of the 1024 KB budget (x86-64, aarch64, mipsel): full 952, 940, 788 KB; small 664, 668, 564 KB; minimal 392, 384, 340 KB.</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.51: proven self-repair</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>A prediction before each fix</td><td>A channel, a device kept on 2.4 GHz, smart queueing, a mesh move: what it should change, by how much, by when (&ldquo;OnePlus: loss 26% &rarr; under 5% within 10 min&rdquo;).</td></tr>
+      <tr><td>A verdict after it</td><td>Measured against the value before and the home&rsquo;s normal for that hour: helped, no change, made worse, or not known (the device left, an area outage). A fix of AIGW&rsquo;s own that didn&rsquo;t help is undone in enforce mode, exactly as it was before.</td></tr>
+      <tr><td>Evidence before acting</td><td>In advise mode, what AIGW would have done is measured without it (shadows, never applied). The fix rate by fault and kind of fix over 1, 7 and 30 days; a confidence gate (off by default) for kinds proven here. <code>agctl repair</code>, data model 1.24 <code>Device.X_AIGW_.Repair.</code>; &ldquo;fixed by AIGW&rdquo; counts only proven fixes.</td></tr>
+      <tr><td>Installed flash</td><td>Feature <code>PROVEN</code>, full and small profiles: full 992, 980, 820 KB; small 708, 708, 600 KB (x86-64, aarch64, mipsel).</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 --><section id="risks">

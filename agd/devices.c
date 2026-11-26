@@ -567,6 +567,7 @@ int dev_state_save(void)
 	mesh_save(&b);
 	chan_save(&b);
 	coverage_save(&b);
+	repair_save(&b);
 
 	json =blobmsg_format_json(b.head, true);
 	snprintf(tmp, sizeof(tmp), "%s.tmp", cfg.state_file);
@@ -685,6 +686,8 @@ int dev_state_load(void)
 			chan_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "coverage"))
 			coverage_load(cur);
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "repair"))
+			repair_load(cur);
 		if (blobmsg_type(cur) != BLOBMSG_TYPE_ARRAY)
 			continue;
 		if (!strcmp(blobmsg_name(cur), "devices"))
