@@ -1166,7 +1166,8 @@ void appqoe_blob(struct blob_buf *b, const char *host, int group, int limit)
 		k += S[i].used;
 	blobmsg_add_u32(b, "sessions", (uint32_t)k);
 	blobmsg_add_u32(b, "ram_bytes", (uint32_t)(sizeof(F) + sizeof(fh) + sizeof(S) + sizeof(M) + sizeof(D) + sizeof(days) +
-						    sizeof(br) + sizeof(rules)));
+						    sizeof(br) + sizeof(rules) + sizeof(struct why_result) +
+						    64 * sizeof(struct why_ev)));   /* + a moment's cause and what came next */
 	blobmsg_add_u64(b, "look_us", cost_us);
 	blobmsg_add_u64(b, "look_us_max", cost_max_us);
 	blobmsg_close_table(b, t);
@@ -1467,11 +1468,45 @@ int appqoe_moment_field(uint32_t inst, const char *f, char *buf, size_t n)
 
 /* ---------- saved with agd's state ---------- */
 
+/* each record as a hex dump of its struct, with the struct's size: another layout (another version) is dropped */
+static void dump(struct blob_buf *b, const void *p, size_t n)
+{
+	static const char hx[] = "0123456789abcdef";
+	char s[2 * sizeof(struct mo) + 1];
+	const uint8_t *x = p;
+	size_t i;
+
+	for (i = 0; i < n && 2 * i + 1 < sizeof(s); i++) {
+		s[2 * i] = hx[x[i] >> 4];
+		s[2 * i + 1] = hx[x[i] & 15];
+	}
+	s[2 * i] = '\0';
+	blobmsg_add_string(b, NULL, s);
+}
+
+static int undump(struct blob_attr *a, void *p, size_t n)
+{
+	const char *s = blobmsg_type(a) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(a) : "";
+	uint8_t *x = p;
+	size_t i;
+
+	if (strlen(s) != 2 * n)
+		return -1;
+	for (i = 0; i < n; i++) {
+		unsigned v;
+
+		if (sscanf(s + 2 * i, "%2x", &v) != 1)
+			return -1;
+		x[i] = (uint8_t)v;
+	}
+	return 0;
+}
+
 void appqoe_save(struct blob_buf *b)
 {
-	void *t, *a, *e;
+	void *t, *a;
 	unsigned u;
-	int i, g;
+	int i;
 
 	if (!total_sess && !total_mo && !m_n && !d_n)
 		return;
@@ -1480,73 +1515,23 @@ void appqoe_save(struct blob_buf *b)
 	blobmsg_add_u32(b, "seq_se", seq_se);
 	blobmsg_add_u32(b, "sessions", total_sess);
 	blobmsg_add_u32(b, "moments_total", total_mo);
+	blobmsg_add_u32(b, "layout", (uint32_t)(sizeof(struct mo) << 20 | sizeof(struct done) << 10 | sizeof(struct day)));
 	a = blobmsg_open_array(b, "days");
-	for (i = 0; i < DAYS; i++) {
-		if (!days[i].day)
-			continue;
-		e = blobmsg_open_array(b, NULL);
-		blobmsg_add_u32(b, NULL, (uint32_t)days[i].day);
-		for (g = 0; g < AGR_N; g++) {
-			blobmsg_add_u32(b, NULL, days[i].min[g]);
-			blobmsg_add_u32(b, NULL, days[i].bad[g]);
-			blobmsg_add_u32(b, NULL, days[i].sess[g]);
-		}
-		blobmsg_close_array(b, e);
-	}
+	for (i = 0; i < DAYS; i++)
+		if (days[i].day)
+			dump(b, &days[i], sizeof(days[i]));
 	blobmsg_close_array(b, a);
 	a = blobmsg_open_array(b, "moments");
 	for (u = 0; u < m_n; u++) {
 		const struct mo *m = &M[(m_head + MO_MAX - m_n + u) % MO_MAX];
 
-		if (!m->seq || !m->closed)
-			continue;
-		e = blobmsg_open_table(b, NULL);
-		blobmsg_add_u32(b, "seq", m->seq);
-		blobmsg_add_u32(b, "sess", m->sess);
-		blobmsg_add_u32(b, "kind", m->kind);
-		blobmsg_add_u32(b, "what", m->what);
-		blobmsg_add_u32(b, "conf", m->conf);
-		blobmsg_add_u32(b, "cause", m->cause);
-		blobmsg_add_u32(b, "looked", m->fixed_looked);
-		blobmsg_add_string(b, "app", m->app);
-		blobmsg_add_string(b, "mac", m->mac);
-		blobmsg_add_string(b, "code", m->code);
-		blobmsg_add_string(b, "top", m->top);
-		blobmsg_add_string(b, "fix", m->fix);
-		blobmsg_add_u64(b, "t", (uint64_t)m->t);
-		blobmsg_add_u64(b, "end", (uint64_t)m->end);
-		blobmsg_add_u64(b, "fix_t", (uint64_t)m->fix_t);
-		blobmsg_add_u32(b, "seconds", (uint32_t)m->seconds);
-		blobmsg_add_u32(b, "mos", (uint32_t)m->mos10);
-		blobmsg_add_u32(b, "bad_min", (uint32_t)m->bad_min);
-		blobmsg_add_u32(b, "recorded", (uint32_t)m->recorded);
-		blobmsg_add_u32(b, "band", (uint32_t)m->band);
-		blobmsg_add_u32(b, "signal", (uint32_t)-m->signal);
-		blobmsg_add_u32(b, "wifi_loss", (uint32_t)(m->wifi_loss + 1));
-		blobmsg_add_u32(b, "full", (uint32_t)m->line_full);
-		blobmsg_add_u32(b, "rtt", (uint32_t)(m->rtt + 1));
-		blobmsg_add_u32(b, "usual", (uint32_t)(m->rtt_usual + 1));
-		blobmsg_add_u32(b, "loss10", (uint32_t)(m->loss10 + 1));
-		blobmsg_add_u32(b, "top_kbps", m->top_kbps);
-		blobmsg_close_table(b, e);
+		if (m->seq && m->closed)
+			dump(b, m, sizeof(*m));
 	}
 	blobmsg_close_array(b, a);
 	a = blobmsg_open_array(b, "done");
-	for (u = 0; u < d_n; u++) {
-		const struct done *d = &D[(d_head + DONE_MAX - d_n + u) % DONE_MAX];
-
-		e = blobmsg_open_table(b, NULL);
-		blobmsg_add_u32(b, "id", d->id);
-		blobmsg_add_u32(b, "kind", d->kind);
-		blobmsg_add_string(b, "app", d->app);
-		blobmsg_add_string(b, "mac", d->mac);
-		blobmsg_add_u64(b, "start", (uint64_t)d->start);
-		blobmsg_add_u64(b, "end", (uint64_t)d->end);
-		blobmsg_add_u32(b, "minutes", (uint32_t)d->minutes);
-		blobmsg_add_u32(b, "bad_min", (uint32_t)d->bad_min);
-		blobmsg_add_u32(b, "moments", (uint32_t)d->moments);
-		blobmsg_close_table(b, e);
-	}
+	for (u = 0; u < d_n; u++)
+		dump(b, &D[(d_head + DONE_MAX - d_n + u) % DONE_MAX], sizeof(struct done));
 	blobmsg_close_array(b, a);
 	blobmsg_close_table(b, t);
 }
@@ -1556,21 +1541,15 @@ static long jnum(struct blob_attr *a)
 	switch (blobmsg_type(a)) {
 	case BLOBMSG_TYPE_INT64: return (long)blobmsg_get_u64(a);
 	case BLOBMSG_TYPE_INT32: return (long)blobmsg_get_u32(a);
-	case BLOBMSG_TYPE_INT16: return (long)blobmsg_get_u16(a);
-	case BLOBMSG_TYPE_INT8: return (long)blobmsg_get_u8(a);
 	}
 	return 0;
 }
 
-static void str_of(struct blob_attr *c, char *dst, size_t n)
-{
-	snprintf(dst, n, "%s", blobmsg_type(c) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(c) : "");
-}
-
 void appqoe_load(struct blob_attr *t)
 {
-	struct blob_attr *c, *x, *y;
-	size_t rem, r2, r3;
+	struct blob_attr *c, *x;
+	size_t rem, r2;
+	int layout = 0, nd = 0;
 
 	memset(days, 0, sizeof(days));
 	memset(M, 0, sizeof(M));
@@ -1583,97 +1562,44 @@ void appqoe_load(struct blob_attr *t)
 		else if (!strcmp(k, "seq_se")) seq_se = (uint32_t)jnum(c);
 		else if (!strcmp(k, "sessions")) total_sess = (uint32_t)jnum(c);
 		else if (!strcmp(k, "moments_total")) total_mo = (uint32_t)jnum(c);
-		else if (!strcmp(k, "days") && blobmsg_type(c) == BLOBMSG_TYPE_ARRAY) {
-			int i = 0;
+		else if (!strcmp(k, "layout"))
+			layout = jnum(c) == (long)(sizeof(struct mo) << 20 | sizeof(struct done) << 10 | sizeof(struct day));
+	}
+	if (!layout) {
+		AG_INFO("apps: the saved moments are of another version: not kept");
+		return;
+	}
+	blobmsg_for_each_attr(c, t, rem) {
+		const char *k = blobmsg_name(c);
 
-			blobmsg_for_each_attr(x, c, r2) {
-				uint32_t v[1 + 3 * AGR_N];
-				int j = 0, g;
-
-				if (i >= DAYS || blobmsg_type(x) != BLOBMSG_TYPE_ARRAY)
-					continue;
-				memset(v, 0, sizeof(v));
-				blobmsg_for_each_attr(y, x, r3)
-					if (j < (int)(sizeof(v) / sizeof(v[0])))
-						v[j++] = (uint32_t)jnum(y);
-				days[i].day = (int32_t)v[0];
-				for (g = 0; g < AGR_N; g++) {
-					days[i].min[g] = v[1 + 3 * g];
-					days[i].bad[g] = v[2 + 3 * g];
-					days[i].sess[g] = v[3 + 3 * g];
-				}
-				i++;
-			}
-		} else if (!strcmp(k, "moments") && blobmsg_type(c) == BLOBMSG_TYPE_ARRAY) {
-			blobmsg_for_each_attr(x, c, r2) {
-				struct mo *m = &M[m_head];
-
-				memset(m, 0, sizeof(*m));
-				blobmsg_for_each_attr(y, x, r3) {
-					const char *n = blobmsg_name(y);
-					long v = jnum(y);
-
-					if (!strcmp(n, "seq")) m->seq = (uint32_t)v;
-					else if (!strcmp(n, "sess")) m->sess = (uint32_t)v;
-					else if (!strcmp(n, "kind")) m->kind = (uint8_t)v;
-					else if (!strcmp(n, "what")) m->what = (uint8_t)v;
-					else if (!strcmp(n, "conf")) m->conf = (uint8_t)v;
-					else if (!strcmp(n, "cause")) m->cause = (uint8_t)v;
-					else if (!strcmp(n, "looked")) m->fixed_looked = (uint8_t)v;
-					else if (!strcmp(n, "app")) str_of(y, m->app, sizeof(m->app));
-					else if (!strcmp(n, "mac")) str_of(y, m->mac, sizeof(m->mac));
-					else if (!strcmp(n, "code")) str_of(y, m->code, sizeof(m->code));
-					else if (!strcmp(n, "top")) str_of(y, m->top, sizeof(m->top));
-					else if (!strcmp(n, "fix")) str_of(y, m->fix, sizeof(m->fix));
-					else if (!strcmp(n, "t")) m->t = v;
-					else if (!strcmp(n, "end")) m->end = v;
-					else if (!strcmp(n, "fix_t")) m->fix_t = v;
-					else if (!strcmp(n, "seconds")) m->seconds = (int)v;
-					else if (!strcmp(n, "mos")) m->mos10 = (int)v;
-					else if (!strcmp(n, "bad_min")) m->bad_min = (int)v;
-					else if (!strcmp(n, "recorded")) m->recorded = (int)v;
-					else if (!strcmp(n, "band")) m->band = (int)v;
-					else if (!strcmp(n, "signal")) m->signal = -(int)v;
-					else if (!strcmp(n, "wifi_loss")) m->wifi_loss = (int)v - 1;
-					else if (!strcmp(n, "full")) m->line_full = (int)v;
-					else if (!strcmp(n, "rtt")) m->rtt = (int)v - 1;
-					else if (!strcmp(n, "usual")) m->rtt_usual = (int)v - 1;
-					else if (!strcmp(n, "loss10")) m->loss10 = (int)v - 1;
-					else if (!strcmp(n, "top_kbps")) m->top_kbps = (uint32_t)v;
-				}
-				if (!m->seq || m->kind <= AK_NONE || m->kind >= AK_N)
-					continue;
-				m->closed = 1;
+		if (blobmsg_type(c) != BLOBMSG_TYPE_ARRAY)
+			continue;
+		blobmsg_for_each_attr(x, c, r2) {
+			if (!strcmp(k, "days") && nd < DAYS && undump(x, &days[nd], sizeof(days[0])) == 0)
+				nd++;
+			else if (!strcmp(k, "moments") && undump(x, &M[m_head], sizeof(M[0])) == 0 && M[m_head].seq &&
+				 M[m_head].kind > AK_NONE && M[m_head].kind < AK_N) {
+				M[m_head].closed = 1;
 				m_head = (m_head + 1) % MO_MAX;
 				if (m_n < MO_MAX)
 					m_n++;
-			}
-		} else if (!strcmp(k, "done") && blobmsg_type(c) == BLOBMSG_TYPE_ARRAY) {
-			blobmsg_for_each_attr(x, c, r2) {
-				struct done *d = &D[d_head];
-
-				memset(d, 0, sizeof(*d));
-				blobmsg_for_each_attr(y, x, r3) {
-					const char *n = blobmsg_name(y);
-					long v = jnum(y);
-
-					if (!strcmp(n, "id")) d->id = (uint32_t)v;
-					else if (!strcmp(n, "kind")) d->kind = (uint8_t)v;
-					else if (!strcmp(n, "app")) str_of(y, d->app, sizeof(d->app));
-					else if (!strcmp(n, "mac")) str_of(y, d->mac, sizeof(d->mac));
-					else if (!strcmp(n, "start")) d->start = v;
-					else if (!strcmp(n, "end")) d->end = v;
-					else if (!strcmp(n, "minutes")) d->minutes = (int)v;
-					else if (!strcmp(n, "bad_min")) d->bad_min = (int)v;
-					else if (!strcmp(n, "moments")) d->moments = (int)v;
-				}
-				if (d->kind <= AK_NONE || d->kind >= AK_N)
-					continue;
+			} else if (!strcmp(k, "done") && undump(x, &D[d_head], sizeof(D[0])) == 0 && D[d_head].kind > AK_NONE &&
+				   D[d_head].kind < AK_N) {
 				d_head = (d_head + 1) % DONE_MAX;
 				if (d_n < DONE_MAX)
 					d_n++;
 			}
 		}
+	}
+	/* the strings were saved with the struct: ended within it */
+	{
+		unsigned u;
+
+		for (u = 0; u < MO_MAX; u++)
+			M[u].app[sizeof(M[u].app) - 1] = M[u].mac[sizeof(M[u].mac) - 1] = M[u].code[sizeof(M[u].code) - 1] =
+				M[u].top[sizeof(M[u].top) - 1] = M[u].fix[sizeof(M[u].fix) - 1] = '\0';
+		for (u = 0; u < DONE_MAX; u++)
+			D[u].app[sizeof(D[u].app) - 1] = D[u].mac[sizeof(D[u].mac) - 1] = '\0';
 	}
 }
 
