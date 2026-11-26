@@ -37,6 +37,7 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `OFFERS` | Signals for the ISP (a faster plan, mesh Wi-Fi, and more) | `WHY`, `CARE` | 16 KB |
 | `SQM` | Self-tuning smart queueing | `WHY` | 32 KB with `CALLS` (about 12 on its own) |
 | `CALLS` | Calls and games first | `SQM` | 20 KB |
+| `APPQOE` | Per-app experience: how each call, stream and game went, and why ([app-experience.md](app-experience.md)) | `WHY` | APPKB |
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | 8 KB |
@@ -50,14 +51,15 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions
-smart queueing, the mesh and area outages when they are built.
+smart queueing, the mesh and area outages when they are built. Per-app experience uses Self-Healing
+Wi-Fi's look at each device, and feeds the help-desk brief, when they are built.
 
 ## Profiles
 
 | Profile | Features | Installed flash (`aigw-selftest`) |
 |---|---|---|
 | `full` | all | x86-64 952 KB, aarch64 940 KB, mipsel 788 KB |
-| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM` | x86-64 664 KB, aarch64 668 KB, mipsel 564 KB |
+| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `APPQOE` | x86-64 664 KB, aarch64 668 KB, mipsel 564 KB |
 | `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
 
 The installed flash is what `aigw-selftest` counts on the router: the programs, the scripts,
