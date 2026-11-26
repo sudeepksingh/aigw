@@ -1399,8 +1399,38 @@ static int m_coverage(struct ubus_context *ctx, struct ubus_object *obj, struct 
 }
 #endif
 
+#if AIGW_FEATURE_PROVEN
+/* ag repair {stats, shadow, limit}: proven repair's receipts and evidence (stats: only the evidence; shadow: only
+   what AIGW would have done in advise mode). At home: devices by name */
+enum { RP_STATS, RP_SHADOW, RP_LIMIT, __RP_MAX };
+static const struct blobmsg_policy repair_policy[__RP_MAX] = {
+	[RP_STATS] = { "stats", BLOBMSG_TYPE_BOOL },
+	[RP_SHADOW] = { "shadow", BLOBMSG_TYPE_BOOL },
+	[RP_LIMIT] = { "limit", BLOBMSG_TYPE_INT32 },
+};
+
+static int m_repair(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		    const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__RP_MAX];
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(repair_policy, __RP_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	repair_blob(&b, tb[RP_STATS] && blobmsg_get_bool(tb[RP_STATS]) ? 1 :
+		    tb[RP_SHADOW] && blobmsg_get_bool(tb[RP_SHADOW]) ? 2 : 0,
+		    tb[RP_LIMIT] ? blobmsg_get_u32(tb[RP_LIMIT]) : 20);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+#endif
+
 static struct ubus_method ag_methods[] = {
 	UBUS_METHOD_NOARG("status", m_status),
+#if AIGW_FEATURE_PROVEN
+	UBUS_METHOD("repair", m_repair, repair_policy),
+#endif
 	UBUS_METHOD("diagnose", m_diagnose, diag_policy),
 #if AIGW_FEATURE_WIFI_HEAL
 	UBUS_METHOD("channels", m_channels, chan_policy),
@@ -1611,6 +1641,9 @@ int main(int argc, char **argv)
 #endif
 #if AIGW_FEATURE_FLEETLEARN
 	fleet_init();                   /* every home teaches the next: after the state */
+#endif
+#if AIGW_FEATURE_PROVEN
+	repair_init();                  /* proven repair: after the state and act; measures the fixes being judged */
 #endif
 #if AIGW_FEATURE_PLUGINS
 	plugin_init();

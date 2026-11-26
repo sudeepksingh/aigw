@@ -757,6 +757,7 @@ static void trial_step(long now)
 			T.no_back = 1;
 			snprintf(note, sizeof(note), "not judged: %s %s during the trial", who,
 				 idx < 0 ? "left the Wi-Fi" : "moved again by itself");
+			repair_trial(T.id, -1, REPAIR_NONE, REPAIR_NONE);
 			act_undo_because(T.id, note);
 			ev("trial-ended", T.sta, T.from, T.to, T.id, note);
 			last(T.id, "Steer", "Ended", note);
@@ -777,6 +778,7 @@ static void trial_step(long now)
 				T.no_back = 1;
 				snprintf(note, sizeof(note), "missed: %s didn't move (the controller's request didn't land)%s", who,
 					 h->pause_until > now ? "; left alone for a while" : "");
+				repair_trial(T.id, -1, REPAIR_NONE, REPAIR_NONE);
 				act_undo_because(T.id, note);
 				ev("missed", T.sta, T.from, T.to, T.id, note);
 				last(T.id, "Steer", "Missed", note);
@@ -791,7 +793,12 @@ static void trial_step(long now)
 		mesh_sample_of(&N, idx, h, loss_of(T.sta), &after);
 		sample_words(&T.before, bw, sizeof(bw));
 		sample_words(&after, aw, sizeof(aw));
-		if (mesh_trial_judge(&T.before, &after, &P, why, sizeof(why)) == MESH_KEEP) {
+		int skeep = mesh_trial_judge(&T.before, &after, &P, why, sizeof(why)) == MESH_KEEP;
+
+		/* proven repair: the trial's numbers (its signal where it is) */
+		repair_trial(T.id, skeep, T.before.dbm ? (float)T.before.dbm : REPAIR_NONE,
+			     after.dbm ? (float)after.dbm : REPAIR_NONE);
+		if (skeep) {
 			h->kept++;
 			C.kept++;
 			snprintf(note, sizeof(note), "kept: %.150s", why);
@@ -817,6 +824,7 @@ static void trial_step(long now)
 	/* a channel change */
 	if (find_radio(T.ruid, &d, &r) < 0) {
 		T.no_back = 1;
+		repair_trial(T.id, -1, REPAIR_NONE, REPAIR_NONE);
 		act_undo_because(T.id, "not judged: the radio left the mesh during the trial");
 		trial_end();
 		return;
@@ -831,6 +839,7 @@ static void trial_step(long now)
 			T.no_back = 1;
 			snprintf(note, sizeof(note), "missed: the controller didn't change the channel (still %d)",
 				 N.dev[d].radio[r].channel);
+			repair_trial(T.id, -1, REPAIR_NONE, REPAIR_NONE);
 			act_undo_because(T.id, note);
 			last(T.id, "Channel", "Missed", note);
 			dm_on_mesh(T.id, "Channel", "Missed", T.ruid, "", "", note, "", "");
@@ -855,6 +864,9 @@ static void trial_step(long now)
 				 "the air got busier on the new channel");
 		} else
 			keep = mesh_trial_judge(&T.before, &after, &P, why, sizeof(why)) == MESH_KEEP;
+		/* proven repair: the trial's numbers (frames sent again on the radio) */
+		repair_trial(T.id, keep, T.before.retry_pct >= 0 ? (float)T.before.retry_pct : REPAIR_NONE,
+			     after.retry_pct >= 0 ? (float)after.retry_pct : REPAIR_NONE);
 		if (keep) {
 			C.chans_kept++;
 			snprintf(note, sizeof(note), "kept: %.150s", why);
@@ -1068,6 +1080,9 @@ static void decide(long now)
 			snprintf(target, sizeof(target), "%s@%s", s->mac, m.to);
 			snprintf(reason, sizeof(reason), "%s is %s", sta_name(s->mac), m.why);
 			made = 1;               /* one attempt a read, whatever comes of it */
+			/* proven repair: its signal now, and what the target access point hears of it */
+			repair_expect("meshsteer", target, "mesh-weak", RM_SIGNAL, m.cur_dbm ? (float)m.cur_dbm : REPAIR_NONE,
+				      m.exp_dbm ? (float)m.exp_dbm : REPAIR_NONE, cfg.mesh_trial);
 			if (act_auto("meshsteer", target, cfg.mesh_trial * 3 + 600, "mesh", reason, &id, &applied, err,
 				     sizeof(err)) < 0) {
 				AG_INFO("mesh: not moving %s: %s", sta_name(s->mac), err);
@@ -1092,6 +1107,7 @@ static void decide(long now)
 		if (was_tried(rad->id, plan[i].to, now))
 			continue;
 		snprintf(target, sizeof(target), "%s:%d", rad->id, plan[i].to);
+		repair_expect("meshchan", target, "mesh-channel", RM_RETRY, REPAIR_NONE, REPAIR_NONE, cfg.mesh_trial);
 		if (act_auto("meshchan", target, cfg.mesh_trial * 3 + 600, "mesh", plan[i].why, &id, &applied, err,
 			     sizeof(err)) < 0) {
 			AG_INFO("mesh: not changing channel %s: %s", target, err);

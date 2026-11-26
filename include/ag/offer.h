@@ -87,6 +87,8 @@ struct offer_in {
 	float line_mbps;                /* the line's speed: sold, else tested; 0 not known */
 	int line_sold;                  /* ... it is what was sold (care.speed_mbps) */
 	int sqm_on;                     /* AIGW runs smart queueing already: no SMART_QUEUE */
+	/* proven repair, the window's fixes AIGW made itself: helped of those judged (all; Wi-Fi's own) */
+	unsigned proven_fixes, proven_judged, wifi_fixes, wifi_judged;
 	/* a device's name, else NULL (only for the words that stay home) */
 	const char *(*name)(const uint8_t mac[6], void *ctx);
 	void *ctx;
