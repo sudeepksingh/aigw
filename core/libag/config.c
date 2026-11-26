@@ -127,7 +127,7 @@ static const struct { const char *section, *feature; int built; } feature_sectio
 	{ "offers", "OFFERS", AIGW_FEATURE_OFFERS }, { "area", "AREA", AIGW_FEATURE_AREA },
 	{ "proactive", "PROACTIVE", AIGW_FEATURE_PROACTIVE }, { "mesh", "MESH", AIGW_FEATURE_MESH },
 	{ "coverage", "COVERAGE", AIGW_FEATURE_COVERAGE }, { "plugins", "PLUGINS", AIGW_FEATURE_PLUGINS },
-	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE }, { "fleet", "FLEETLEARN", AIGW_FEATURE_FLEETLEARN },
+	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE }, { "fleet", "FLEETLEARN", AIGW_FEATURE_FLEETLEARN }, { "repair", "PROVEN", AIGW_FEATURE_PROVEN },
 	{ "home", "HOMEMODEL", AIGW_FEATURE_HOMEMODEL }, { "sensing", "SENSING", AIGW_FEATURE_SENSING },
 };
 
@@ -285,6 +285,15 @@ void ag_config_load(struct ag_config *c)
 	c->home_share = 1;
 	c->sense_checkin_min = 45;
 	c->sense_window = 6;
+	c->repair = AIGW_FEATURE_PROVEN;
+	c->repair_window = 600;
+	c->repair_settle = 60;
+	c->repair_undo = 1;
+	c->repair_shadow = 1;
+	c->repair_gate = 0;               /* off: acting is as act.mode says */
+	c->repair_gate_rate = 80;
+	c->repair_gate_trials = 10;
+	c->repair_tick = 10;
 	c->sqm = 1;
 	c->sqm_detect = 10;
 	c->sqm_trial = 30;
@@ -781,6 +790,35 @@ void ag_config_load(struct ag_config *c)
 			c->sense_window = atoi(v);
 		copy(c->sense_csi, sizeof(c->sense_csi), opt(ctx, p, "sensing", "csi_handler"));
 #endif
+		v = opt(ctx, p, "repair", "enabled");
+		if (v)
+			c->repair = atoi(v) != 0;
+		v = opt(ctx, p, "repair", "window");
+		if (v && atoi(v) >= 2 && atoi(v) <= 86400)
+			c->repair_window = atoi(v);
+		v = opt(ctx, p, "repair", "settle");
+		if (v && atoi(v) >= 0 && atoi(v) <= 3600)
+			c->repair_settle = atoi(v);
+		v = opt(ctx, p, "repair", "undo");
+		if (v)
+			c->repair_undo = atoi(v) != 0;
+		v = opt(ctx, p, "repair", "shadow");
+		if (v)
+			c->repair_shadow = atoi(v) != 0;
+		v = opt(ctx, p, "repair", "gate");
+		if (v)
+			c->repair_gate = atoi(v) != 0;
+		v = opt(ctx, p, "repair", "gate_fix_rate");
+		if (v && atoi(v) >= 0 && atoi(v) <= 100)
+			c->repair_gate_rate = atoi(v);
+		v = opt(ctx, p, "repair", "gate_trials");
+		if (v && atoi(v) >= 1 && atoi(v) <= 1000)
+			c->repair_gate_trials = atoi(v);
+		v = opt(ctx, p, "repair", "tick");
+		if (v && atoi(v) >= 1 && atoi(v) <= 600)
+			c->repair_tick = atoi(v);
+		if (!AIGW_FEATURE_PROVEN)
+			c->repair = 0;          /* not built in: other parts behave as without it */
 		copy(c->mgmt_manufacturer, sizeof(c->mgmt_manufacturer), opt(ctx, p, "mgmt", "manufacturer"));
 		copy(c->mgmt_model, sizeof(c->mgmt_model), opt(ctx, p, "mgmt", "model_name"));
 		copy(c->mgmt_product, sizeof(c->mgmt_product), opt(ctx, p, "mgmt", "product_class"));

@@ -113,6 +113,12 @@ if(AIGW_FEATURE_SENSING)
   add_test(NAME wifi_sensing COMMAND test_sense)
 endif()
 
+if(AIGW_FEATURE_PROVEN)
+  add_executable(test_repair test_repair.c)
+  target_link_libraries(test_repair ag m)
+  add_test(NAME proven_repair COMMAND test_repair)
+endif()
+
 if(AIGW_FEATURE_TR143)
   add_executable(test_tr143 test_tr143.c)
   target_link_libraries(test_tr143 ag)

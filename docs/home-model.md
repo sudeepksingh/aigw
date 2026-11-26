@@ -144,7 +144,7 @@ This is how the model is checked on real homes, one extender at a time.
 
 It learns from coverage advice's looks, so `coverage.enabled` must be 1 too.
 
-## Data model (1.24)
+## Data model (1.25)
 
 `Device.X_AIGW_.HomeModel.`: `Enable`, `Status` (Learning, Ready, Disabled),
 `Places`, `Problems`, `AccessPoints`, `BestOption`, `ExtenderHelps` (Unknown,

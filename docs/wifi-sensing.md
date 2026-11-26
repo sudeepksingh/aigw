@@ -122,7 +122,7 @@ agctl sense off             # off, and forget everything
 agctl watch                 # ag.sense events, among others
 ```
 
-## Data model (1.24)
+## Data model (1.25)
 
 `Device.X_AIGW_.Sensing.`: `Enable` (read-only), `Status` (Off, Learning, On),
 `ShareEvents`, and only with `share_events`: `Presence` (Home, Away),

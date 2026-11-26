@@ -180,6 +180,9 @@ static void judge(long now)
 		in.extender = h < 0 ? 0 : h ? 1 : -1;
 		in.extender_why = why;
 	}
+	/* proven repair: the week's fixes AIGW made itself, proven to have helped (all; Wi-Fi's own) */
+	repair_week(0, &in.proven_fixes, &in.proven_judged);
+	repair_week(1, &in.wifi_fixes, &in.wifi_judged);
 	offer_params_default(&p);
 	offer_judge(&in, &p, &res);
 	judged_at = now;
@@ -221,6 +224,22 @@ static void fresh(void)
 }
 
 /* the signals (names: the devices by name, for the home's own view only) */
+/* proven repair's week, as the signals count it: fixes AIGW made itself that measurably helped */
+static void proven_blob(struct blob_buf *b)
+{
+	unsigned h, j, wh, wj;
+	void *t;
+
+	repair_week(0, &h, &j);
+	repair_week(1, &wh, &wj);
+	t = blobmsg_open_table(b, "proven_fixes");
+	blobmsg_add_u32(b, "helped", h);
+	blobmsg_add_u32(b, "judged", j);
+	blobmsg_add_u32(b, "wifi_helped", wh);
+	blobmsg_add_u32(b, "wifi_judged", wj);
+	blobmsg_close_table(b, t);
+}
+
 void offers_blob(struct blob_buf *b, int names)
 {
 	void *a, *t;
@@ -265,6 +284,7 @@ void offers_blob(struct blob_buf *b, int names)
 		blobmsg_close_table(b, t);
 	}
 	blobmsg_close_array(b, a);
+	proven_blob(b);
 }
 
 /* for cortex (inside proactive care's report): the active ones, without names; nothing unless shared */
@@ -294,6 +314,7 @@ void offers_care_blob(struct blob_buf *b)
 		blobmsg_close_table(b, t);
 	}
 	blobmsg_close_array(b, a);
+	proven_blob(b);
 }
 
 /* Device.X_AIGW_.Offers.: Enable, Shared, Signals; <Name>.Active, Confidence, Days, Since, Evidence */

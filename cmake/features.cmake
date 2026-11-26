@@ -36,13 +36,14 @@ set(AIGW_FEATURE_TABLE
   "KEYS|Per-device Wi-Fi keys|"
   "HOMEMODEL|The home Wi-Fi model, what an extender or a move would fix|COVERAGE"
   "SENSING|Wi-Fi sensing, presence, movement and a care check-in (opt-in)|"
+  "PROVEN|Proven self-repair: every fix predicted, measured, and undone when it didn't help|CARE"
 )
 
 # profiles: full (everything, the default) | small (8/16 MB flash: what an ISP
 # needs most) | minimal (the core only)
 set(AIGW_PROFILE "full" CACHE STRING "Feature profile: full, small or minimal")
 set_property(CACHE AIGW_PROFILE PROPERTY STRINGS full small minimal)
-set(AIGW_PROFILE_small WIFI_HEAL TR143 CARE UPGRADE WHY BRIEF PROACTIVE SQM)
+set(AIGW_PROFILE_small WIFI_HEAL TR143 CARE UPGRADE WHY BRIEF PROACTIVE SQM PROVEN)
 
 set(AIGW_FEATURE_NAMES "")
 foreach(row ${AIGW_FEATURE_TABLE})

@@ -220,10 +220,17 @@ config proactive 'proactive'
 	option cooldown '600'
 	option max_per_day '3'
 
+config repair 'repair'
+	option window '4'
+	option settle '1'
+	option tick '1'
+
 config lan 'lan'
 	list iface 'lan0'
 EOF
 }
+# proven repair (when built): the TV's band changes, as measured (AIGW_TEST_REPAIR_FILE)
+: > "$T/probe"
 config advise 3
 # a test plug-in standing in for cortex's area outage notice (the bridge passes it on the same way):
 # renewed every second while $T/pstate/nudge/outage exists, lapsing 3 s after
@@ -246,7 +253,7 @@ printf '1999999999 %s 10.96.0.41 dads-phone *\n1999999999 %s 10.96.0.42 sara-lap
 export AIGW_UCI_CONFDIR="$T/config" AIGW_UBUS="$T/ubus.sock"
 "$UBUSD" -s "$AIGW_UBUS" > "$T/ubusd.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.5
-start_agd() { AIGW_TEST_AREA_HOLD_MIN=1 ip netns exec "$GW" "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"; sleep 1; }
+start_agd() { AIGW_TEST_AREA_HOLD_MIN=1 AIGW_TEST_REPAIR_FILE="$T/probe" ip netns exec "$GW" "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"; sleep 1; }
 stop_agd() { kill "$AGD"; wait "$AGD" 2>/dev/null || true; }
 start_agd
 "$UBUS" -s "$AIGW_UBUS" listen ag.dm.event > "$T/events.log" 2>&1 & L=$!; PIDS="$PIDS $L"
@@ -429,6 +436,10 @@ stop_agd
 config enforce 1
 start_agd
 EV=$(events)
+echo "BandChanges $TV 4" > "$T/probe"
+# once refused on 5 GHz, the TV stops changing bands: the fix proven (when proven repair is built)
+( until grep -qi "deny wlan0 $TV" "$T/fakehapd.log" 2>/dev/null; do sleep 0.2; done; echo "BandChanges $TV 0" > "$T/probe" ) &
+PIDS="$PIDS $!"
 hop "$TV" 2
 at "$TV" "-60 wlan1"
 wait_pro 40 "[t for t in d['tickets'] if t['code'] == 'WIFI_HOPPING' and t['id'] not in ($LT, $FT) and t['status'] in ('Fixing', 'Fixed')]"
@@ -455,6 +466,11 @@ sys.exit(0 if ok else 1)
 EOF
 pro | js "c = d['counts']; sys.exit(0 if c['fixed_by_aigw'] == 1 and c['calls_likely_avoided'] >= 2 else 1)" ||
 	fail "fixed by AIGW, counted: $(agctl care proactive)"
+if has proven; then   # counted only once proven: its receipt says it helped, and the call it likely avoided
+	agctl -j repair | js "r = [r for r in d['receipts'] if r['decision'] == $TDEC and r['mode'] == 'applied']
+sys.exit(0 if r and r[0]['result'] == 'Helped' and r[0]['metric'] == 'BandChanges' and r[0]['fault'] == 'WIFI_HOPPING' and
+         r[0]['calls_likely_avoided'] == 1 else 1)" || fail "the fix proven before it counts: $(agctl repair)"
+fi
 echo "   ticket $TT: fixed by AIGW (decision $TDEC); the ISP told only once it was over"
 
 echo "== the day's limit: a phone dropping off Wi-Fi, kept at home"

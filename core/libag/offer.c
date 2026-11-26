@@ -263,6 +263,14 @@ static void mesh(const struct offer_in *in, const struct offer_params *p, const 
 		snprintf(o->evidence + e, sizeof(o->evidence) - e, " Before you buy: %s.", in->extender_why);
 		o->confidence = OC_HIGH;
 	}
+	/* proven repair: AIGW's own Wi-Fi fixes, measured, mostly didn't help: what is left needs hardware */
+	if (in->wifi_judged >= 3 && in->wifi_fixes * 2 < in->wifi_judged) {
+		size_t e = strlen(o->evidence);
+
+		o->confidence = OC_HIGH;
+		snprintf(o->evidence + e, sizeof(o->evidence) - e, " AIGW's own Wi-Fi fixes helped only %u of %u times, "
+			 "measured: settings can't fix it.", in->wifi_fixes, in->wifi_judged);
+	}
 	(void)devs;
 	/* the weakest, by name, for the home's own view */
 	for (i = 0; i < ns; i++)
@@ -338,8 +346,16 @@ static void retain_and_repair(const struct offer_in *in, const struct offer_para
 	r->of_days = n > dn ? n : dn;
 	r->since = (in->today - p->days + 1) * 86400;
 	r->confidence = why >= 2 ? OC_HIGH : OC_MEDIUM;
-	snprintf(r->evidence, sizeof(r->evidence), "A bad week for this home: %s%s%s. Call before the customer does.",
-		 reasons, main >= 0 ? "; mostly " : "", main >= 0 ? care_area_name(main) : "");
+	{
+		char proven[120] = "";
+
+		/* what AIGW already fixed itself, proven by measurement: the call is about what is left */
+		if (in->proven_judged)
+			snprintf(proven, sizeof(proven), " AIGW fixed %u of its %u measured fixes itself (proven by "
+				 "measurement).", in->proven_fixes, in->proven_judged);
+		snprintf(r->evidence, sizeof(r->evidence), "A bad week for this home: %s%s%s. Call before the customer does.%s",
+			 reasons, main >= 0 ? "; mostly " : "", main >= 0 ? care_area_name(main) : "", proven);
+	}
 }
 
 void offer_judge(const struct offer_in *in, const struct offer_params *p, struct offer_result *out)

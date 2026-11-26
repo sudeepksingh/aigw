@@ -571,9 +571,12 @@ static void decide(struct pro_ticket *t, long now, int fleet_ok)
 		brief_scrub_isp(reason, sizeof(reason));
 		if (!strcmp(b.fix.action, "sqm")) {
 			act = "sqm";
+			repair_expect("sqm", "", t->code, RM_FULL_MS, REPAIR_NONE, REPAIR_NONE, 0);
 			rc = sqm_auto(ORIGIN, reason, &id, &applied, err, sizeof(err));
 		} else if (!strcmp(b.fix.action, "stay24") && is_mac(t->target)) {
 			act = "stay24";
+			repair_expect("stay24", t->target, t->code, !strcmp(t->code, "WIFI_HOPPING") ? RM_HOPS : RM_DEV_LOSS,
+				      REPAIR_NONE, REPAIR_NONE, 0);
 			rc = act_auto("stay24", t->target, 86400, ORIGIN, reason, &id, &applied, err, sizeof(err));
 		} else if (!strcmp(b.fix.action, "approve") && b.fix.decision) {
 			act = "approve";
@@ -615,9 +618,39 @@ static void decide(struct pro_ticket *t, long now, int fleet_ok)
 	raise_it(t, now, &b, NULL);
 }
 
+/* proven repair: AIGW's fix counts only once it is proven to have helped. Still being measured: the ticket waits
+   (for at most PROOF_WAIT_S after it was last seen); not proven: it cleared, but not by AIGW */
+#define PROOF_WAIT_S 7200
+static int proof_pending(struct pro_ticket *t, long now)
+{
+	int p;
+
+	if (!t->decision || (!t->acted && t->status != PS_FIXING))
+		return 0;
+	p = repair_proven(t->decision);
+	if (p == -1 && now - t->last_seen < PROOF_WAIT_S)
+		return 1;
+	if (p == 0 || p == -1) {
+		AG_INFO("proactive: ticket %u %s: AIGW's fix (decision %u) is not proven to have helped: not counted as "
+			"fixed by AIGW", t->id, t->code, t->decision);
+		t->acted = 0;
+		if (t->status == PS_FIXING)
+			t->status = t->notified ? PS_RAISED : PS_WATCHING;
+	}
+	return 0;
+}
+
 static void closed(struct pro_ticket *t, long now)
 {
-	int was_notified = t->notified, quiet = t->quiet, st = pro_close(&S, t, now);
+	int was_notified, quiet, st;
+
+	if (proof_pending(t, now))
+		return;                 /* over, but its fix is still being measured: closed when it is judged */
+	was_notified = t->notified;
+	quiet = t->quiet;
+	st = pro_close(&S, t, now);
+	if (st == PS_FIXED && t->decision)
+		repair_on_ticket(t->decision, !t->called);
 
 	AG_INFO("proactive: ticket %u %s over after %ld min: %s", t->id, t->code, (now - t->since) / 60, pro_status_name(st));
 	if (quiet)

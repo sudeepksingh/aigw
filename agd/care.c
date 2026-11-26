@@ -740,6 +740,7 @@ void care_blob(struct blob_buf *b)
 	blobmsg_add_u8(b, "enabled", (uint8_t)cfg.care);
 	blobmsg_add_u32(b, "interval_s", (uint32_t)cfg.care_interval);
 	blobmsg_add_u32(b, "wifi_grace_s", (uint32_t)cfg.care_wifi_grace);
+	repair_care_blob(b);            /* proven repair: the week's fixes, measured */
 	blobmsg_add_string(b, "status", op ? "problem" : "ok");
 	if (st.last_check)
 		blobmsg_add_u64(b, "last_check", (uint64_t)st.last_check);
