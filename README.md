@@ -63,9 +63,24 @@ illustrated version.
 > Cortex compares the homes of one cabinet or OLT and tells one home's line from
 > the shared plant: "the plant serving 14 of 20 homes is degrading; first calls
 > likely in about 3 days". One TMF621 ticket for the plant, not 14; no faster plan
-> sold on a degrading line. In gctl line, data model 1.24
+> sold on a degrading line. In gctl line, data model 1.25
 > (Device.X_AIGW_.LineHealth.), python3 -m aigw_cortex predict; measured on
 > simulated fleets with known faults; see [docs/area-prediction.md](docs/area-prediction.md).
+>
+> **v0.51:** **Proven self-repair.** Every fix AIGW takes or proposes now says
+> what it expects ("OnePlus: loss 26% -> under 5% within 10 min"), is measured
+> afterwards against the value before and the home's normal for that hour, and
+> is judged: helped, no change, made worse, or not known (the device left, an
+> area outage). A fix of AIGW's own that didn't help is undone in enforce mode,
+> exactly as it was before. In advise mode, what AIGW would have done is measured
+> without it (shadows, never applied). Receipts and the fix rate by fault and kind
+> of fix (last day, 7 and 30 days) are in `agctl repair` and
+> `Device.X_AIGW_.Repair.` (data model 1.24, `Repair!`, `RepairUndone!`); a
+> confidence gate (off by default) lets an ISP allow acting only for kinds of fix
+> proven here; "fixed by AIGW" now counts only proven fixes. Feature `PROVEN`, in
+> the full and small profiles, 40 KB. Installed flash (KB, x86-64/aarch64/mipsel):
+> full 992/980/820, small 708/708/600; see
+> [docs/proven-repair.md](docs/proven-repair.md).
 >
 > **v0.50:** **Every home teaches the next.** Fleet learning: how a fix went in
 > homes like this one (counts per fault, fix and a coarse context, only where k

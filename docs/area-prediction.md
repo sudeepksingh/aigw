@@ -127,7 +127,7 @@ Line: Drifting (dsl)
 The bridge's own setting `line` (default `1`) sends the vector and passes cortex's answer on;
 the answer needs the bridge's capability `line.notice`.
 
-### Data model 1.24
+### Data model 1.25
 
 `Device.X_AIGW_.LineHealth.`
 

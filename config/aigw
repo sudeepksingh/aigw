@@ -372,6 +372,28 @@ config coverage 'coverage'
 	# lead), spots by device kind; never a name unless brief.names
 	option share '1'
 
+config repair 'repair'
+	# proven self-repair (agctl repair, Device.X_AIGW_.Repair., docs/proven-repair.md):
+	# every fix AIGW takes or proposes says what it expects ("loss 26% -> under
+	# 5% within 10 min"), is measured afterwards against the home's normal for
+	# that hour, and is judged: helped, no change, made worse, or not known
+	option enabled '1'
+	# a fix without a trial of its own is measured for window s, from settle s
+	# after it took effect
+	option window '600'
+	option settle '60'
+	# a fix of AIGW's own that didn't help is undone, as it was before (only in
+	# enforce mode; a person's own request is theirs to undo)
+	option undo '1'
+	# advise mode: what AIGW would have done, measured without it (never applied)
+	option shadow '1'
+	# the confidence gate: in enforce mode, act on its own only with kinds of
+	# fix whose fix rate here is gate_fix_rate % or more over gate_trials
+	# judged trials (30 days); others wait for a person. 0: off
+	option gate '0'
+	option gate_fix_rate '80'
+	option gate_trials '10'
+
 config line 'line'
 	# line health and area fault prediction (agctl line, Device.X_AIGW_.LineHealth.,
 	# docs/area-prediction.md): each of the line's numbers day by day (sync rate,

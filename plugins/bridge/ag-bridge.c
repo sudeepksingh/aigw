@@ -683,6 +683,9 @@ static void report(void)
 	/* coverage advice: the verdict (a home that needs an extender), counts, spots by kind (coverage.share) */
 	if ((d = query("coverage")) && (d = field(d, "coverage")) && (!fnum(d, "names", 0) || !strcmp(c.devices, "names")))
 		copy_attr(&r, "coverage", d);
+	/* proven repair: the fix rate, mean improvement and undo rate by fault and kind of fix: counts, no names */
+	if ((d = query("repair")) && (d = field(d, "repair")))
+		copy_attr(&r, "repair", d);
 	/* line health (v0.54): each metric's trend, no names, no addresses, nothing unless agd's line.share */
 	if (c.line && (d = query("line")) && (d = field(d, "line")) && field(d, "metrics"))
 		copy_attr(&r, "line", d);

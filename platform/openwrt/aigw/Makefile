@@ -151,7 +151,7 @@ define Package/aigw-demo/description
 endef
 
 # the features (cmake/features.cmake, docs/features.md): make menuconfig, Network > aigw
-AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA AREAPREDICT FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS
+AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA AREAPREDICT FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS PROVEN
 PKG_CONFIG_DEPENDS:=$(foreach f,$(AIGW_FEATURES),CONFIG_AIGW_FEATURE_$(f))
 
 define Package/aigw/config
@@ -266,6 +266,19 @@ define Package/aigw/config
   config AIGW_FEATURE_KEYS
     bool "Per-device Wi-Fi keys" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_PROVEN
+    bool "Proven self-repair: every fix predicted, measured, undone if it didn't help" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_CARE
+    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    help
+      Each fix AIGW takes or proposes (a channel, a device kept on 2.4 GHz,
+      smart queueing, a mesh move) gets a receipt: what it predicts, what was
+      measured after it against the home's normal for that hour, and whether
+      it helped. A fix that didn't help is undone (enforce mode only). In
+      advise mode, what AIGW would have done is measured without it (never
+      applied). The fix rate by fault and kind of fix, and an optional
+      confidence gate: act only with kinds proven here. agctl repair;
+      Device.X_AIGW_.Repair. (docs/proven-repair.md). 40 KB on x86-64.
   endmenu
 endef
 

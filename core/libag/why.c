@@ -159,7 +159,7 @@ const char *why_kind_name(int kind)
 {
 	static const char *const n[] = {
 		"start", "join", "leave", "roam", "steer", "weak", "signal-ok", "health", "channel", "decision",
-		"care", "speed", "upgrade", "call", "mesh", "plan",
+		"care", "speed", "upgrade", "call", "mesh", "plan", "repair",
 	};
 
 	return kind >= 0 && kind < WE_N ? n[kind] : "?";

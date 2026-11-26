@@ -82,6 +82,7 @@ enum why_kind {
 	WE_CALL,                        /* a call or game ended, and how it went; flag: enum call_verdict (ag/calls.h) */
 	WE_MESH,                        /* mesh Wi-Fi: a device moved between access points, a backhaul, a trial's verdict */
 	WE_PLAN,                        /* neighbour-aware channels: a planned move proposed, its trial's verdict */
+	WE_REPAIR,                      /* proven repair: a fix judged (helped, no change, worse), undone; a shadow's verdict */
 	WE_N
 };
 

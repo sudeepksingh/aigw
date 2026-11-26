@@ -71,21 +71,31 @@ static float effect_of(int m, float normal, const struct care_learn_params *p)
 	return m == CM_SPEED ? 0.2f * normal : p->effect[m];
 }
 
-int care_normal(const struct care_learn *L, int m, int hour, float *mean, float *dev)
+int care_norm_blend(const struct care_norm *hour, const struct care_norm *all, float *mean, float *dev)
 {
-	const struct care_norm *a, *b;
 	float wb;
 
+	if (all->n < MIN_ALL)
+		return -1;
+	wb = (float)hour->n;
+	*mean = (wb * hour->mean + SHRINK * all->mean) / (wb + SHRINK);
+	*dev = (wb * hour->dev + SHRINK * all->dev) / (wb + SHRINK);
+	return 0;
+}
+
+int care_normal(const struct care_learn *L, int m, int hour, float *mean, float *dev)
+{
 	if (m < 0 || m >= CARE_METRICS || hour < 0 || hour > 23)
 		return -1;
-	a = &L->m[m].all;
-	b = &L->m[m].hour[hour];
-	if (a->n < MIN_ALL)
-		return -1;
-	wb = (float)b->n;
-	*mean = (wb * b->mean + SHRINK * a->mean) / (wb + SHRINK);
-	*dev = (wb * b->dev + SHRINK * a->dev) / (wb + SHRINK);
-	return 0;
+	return care_norm_blend(&L->m[m].hour[hour], &L->m[m].all, mean, dev);
+}
+
+static void learn(struct care_norm *c, float x, unsigned window, float weight);
+
+void care_norm_add(struct care_norm *hour, struct care_norm *all, float x)
+{
+	learn(hour, x, HOUR_WINDOW, 1);
+	learn(all, x, ALL_WINDOW, 1);
 }
 
 int care_normal_for(const struct care_learn *L, int m, int hour, long now, const struct care_learn_params *p,

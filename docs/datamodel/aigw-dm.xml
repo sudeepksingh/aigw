@@ -274,19 +274,29 @@
         <parameter name="Chosen"><syntax><string/></syntax></parameter>
         <parameter name="Reason"><syntax><string/></syntax></parameter>
       </event>
-      <event name="LineDegrading!">
+      <event name="Repair!">
+        <parameter name="Receipt"><syntax><string/></syntax></parameter>
+        <parameter name="Decision"><syntax><string/></syntax></parameter>
+        <parameter name="Mode"><syntax><string/></syntax></parameter>
+        <parameter name="Action"><syntax><string/></syntax></parameter>
+        <parameter name="Fault"><syntax><string/></syntax></parameter>
+        <parameter name="Result"><syntax><string/></syntax></parameter>
         <parameter name="Metric"><syntax><string/></syntax></parameter>
-        <parameter name="State"><syntax><string/></syntax></parameter>
+        <parameter name="Before"><syntax><string/></syntax></parameter>
+        <parameter name="Expected"><syntax><string/></syntax></parameter>
+        <parameter name="After"><syntax><string/></syntax></parameter>
+        <parameter name="PredictionMet"><syntax><string/></syntax></parameter>
+        <parameter name="Undone"><syntax><string/></syntax></parameter>
+        <parameter name="Prediction"><syntax><string/></syntax></parameter>
         <parameter name="Summary"><syntax><string/></syntax></parameter>
-        <parameter name="DaysToFault"><syntax><string/></syntax></parameter>
-        <parameter name="Confidence"><syntax><string/></syntax></parameter>
-        <parameter name="Technology"><syntax><string/></syntax></parameter>
-        <parameter name="Since"><syntax><string/></syntax></parameter>
       </event>
-      <event name="LineDegradingCleared!">
-        <parameter name="Metric"><syntax><string/></syntax></parameter>
-        <parameter name="Since"><syntax><string/></syntax></parameter>
-        <parameter name="DurationSeconds"><syntax><string/></syntax></parameter>
+      <event name="RepairUndone!">
+        <parameter name="Receipt"><syntax><string/></syntax></parameter>
+        <parameter name="Decision"><syntax><string/></syntax></parameter>
+        <parameter name="Action"><syntax><string/></syntax></parameter>
+        <parameter name="Fault"><syntax><string/></syntax></parameter>
+        <parameter name="Result"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
       </event>
     </object>
     <object name="Device.DNS.Diagnostics." access="readOnly" minEntries="1" maxEntries="1">
@@ -515,26 +525,6 @@
       <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Findings" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
-    <object name="Device.X_AIGW_.LineHealth." access="readOnly" minEntries="1" maxEntries="1">
-      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
-      <parameter name="Share" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
-      <parameter name="Technology" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
-      <parameter name="WorstMetric" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="DaysToFault" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
-      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
-      <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
-      <parameter name="LastLook" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
-      <parameter name="Error" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="SharedPlant" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
-      <parameter name="SharedPlantHomes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
-      <parameter name="SharedPlantDaysToCalls" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
-      <parameter name="SharedPlantConfidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="SharedPlantTicket" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="SharedPlantSummary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="MetricNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
-    </object>
     <object name="Device.X_AIGW_.Mesh." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
@@ -582,6 +572,54 @@
       <parameter name="MaxPerDay" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="Since" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="TicketNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Repair." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Undo" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Shadow" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Gate" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="GateFixRate" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="GateTrials" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WindowSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Pending" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayFixes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayHelped" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayNoChange" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayWorse" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayUnknown" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayUndone" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayFixRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="DayUndoRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="DayMeanImprovement" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="DayCallsLikelyAvoided" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayShadows" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayShadowsNeeded" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekFixes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekHelped" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekNoChange" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekWorse" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekUnknown" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekUndone" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekFixRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="WeekUndoRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="WeekMeanImprovement" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="WeekCallsLikelyAvoided" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekShadows" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekShadowsNeeded" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthFixes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthHelped" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthNoChange" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthWorse" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthUnknown" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthUndone" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthFixRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="MonthUndoRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="MonthMeanImprovement" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="MonthCallsLikelyAvoided" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthShadows" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthShadowsNeeded" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="ReceiptNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="StatsNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.SQM." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
@@ -876,8 +914,6 @@
         </output>
       </command>
     </object>
-    <object name="Device.X_AIGW_.LineHealth.Metric." access="readOnly" minEntries="1" maxEntries="1">
-    </object>
     <object name="Device.X_AIGW_.Offers.LineRepair." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Active" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -914,6 +950,10 @@
       <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Proactive.Ticket." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.Repair.Receipt." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.Repair.Stats." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="WiFiHealthNumberOfEntries">
       <parameter name="Radio" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -1013,21 +1053,6 @@
       <parameter name="Signal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
       <parameter name="HeardBestBy" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
-    <object name="Device.X_AIGW_.LineHealth.Metric.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="MetricNumberOfEntries">
-      <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="Unit" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="State" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-      <parameter name="Now" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
-      <parameter name="Level" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
-      <parameter name="Base" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
-      <parameter name="SlopePerDay" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
-      <parameter name="FaultLevel" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
-      <parameter name="Onset" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
-      <parameter name="DaysToFault" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
-      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
-      <parameter name="Days" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
-      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
-    </object>
     <object name="Device.X_AIGW_.Proactive.Ticket.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="TicketNumberOfEntries">
       <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
       <parameter name="Open" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
@@ -1050,6 +1075,51 @@
       <parameter name="Evidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="NextStep" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="CustomerNote" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Repair.Receipt.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="ReceiptNumberOfEntries">
+      <parameter name="Decision" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Mode" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Action" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Fault" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Metric" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Before" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Expected" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="WithinSeconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="After" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Normal" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Result" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="PredictionMet" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="ImprovementPercent" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="Undone" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="UndoneBy" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="CallsLikelyAvoided" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Created" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Deadline" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Judged" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Prediction" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Repair.Stats.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="StatsNumberOfEntries">
+      <parameter name="Fault" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Action" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Gate" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="GateWhy" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="DayFixes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayHelped" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DayFixRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="DayMeanImprovement" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="DayUndoRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="WeekFixes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekHelped" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="WeekFixRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="WeekMeanImprovement" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="WeekUndoRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="MonthFixes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthHelped" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MonthFixRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="MonthMeanImprovement" access="readOnly" activeNotify="canDeny"><syntax><decimal/></syntax></parameter>
+      <parameter name="MonthUndoRate" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.WiFiHealth.{i}.Stats." access="readOnly" minEntries="1" maxEntries="1">
     </object>

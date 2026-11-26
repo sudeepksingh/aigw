@@ -36,7 +36,7 @@
  *                    {"request": {"undo": id}}
  *                    {"done": {id, ok, error}}                      actuator result
  *                    {"query": "devices" | "decisions" | "alerts" | "models" | "status" | "care" |
- *                              "upgrade" | "brief" | "proactive" | "mesh" | "coverage", "id": n}
+ *                              "upgrade" | "brief" | "proactive" | "mesh" | "coverage" | "repair", "id": n}
  *                                                   (upgrade: the last one's check, no devices; brief:
  *                                                   the help desk's of the last hour; proactive: tickets
  *                                                   before the call; coverage: the verdict, counts and
@@ -717,6 +717,8 @@ static void on_query(struct plugin *p, const char *what, int id)
 #endif
 	} else if (!strcmp(what, "coverage")) {
 		coverage_report_blob(&d);       /* coverage advice: the verdict and counts, spots by kind: no names */
+	} else if (!strcmp(what, "repair")) {
+		repair_report_blob(&d);         /* proven repair: the fix rate by fault and kind of fix: counts, no names */
 #if AIGW_FEATURE_AREAPREDICT
 	} else if (!strcmp(what, "line")) {
 		void *t = blobmsg_open_table(&d, "line");       /* the line health vector: the line's physics only */

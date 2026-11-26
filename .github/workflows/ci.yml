@@ -76,6 +76,8 @@ jobs:
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/brief-test.sh build
       - name: "Proactive care test (the internet down: one ticket to the ISP with a plain note; a flap not told twice; advise proposes, enforce fixes; the day's limit)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/proactive-test.sh build
+      - name: "Proven repair test (advise: a shadow, never applied; enforce: helped and kept, no change and undone back to the channel before, a device that left is unknown; the evidence, a restart, the confidence gate, the bound)"
+        run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/repair-test.sh build
       - name: "Mesh Wi-Fi test (a simulated EasyMesh controller: a move proposed, approved and kept; one moved back; a miss; the controller's own steers left alone; a channel plan; a weak backhaul to the ISP)"
         run: sudo PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/mesh-test.sh build
       - name: "Coverage advice test (a simulated home: a phone that moves to a far room at night, a TV that lives there, a weak smart plug; one shared spot, an extender about halfway; kinds for the ISP; a ticket that says where)"

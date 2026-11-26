@@ -327,6 +327,17 @@ static void on_mesh(struct blob_attr **tb)
 		note(WE_MESH, *mac ? mac : NULL, 0, 0, "Mesh: %.140s", sum);
 }
 
+/* proven repair: a fix judged or undone, a shadow's verdict (the fix itself is on the timeline as a decision) */
+static void on_repair(struct blob_attr **tb)
+{
+	const char *ev = s_(tb, P_EVENT), *mac = s_(tb, P_MAC), *sum = s_(tb, P_SUMMARY);
+
+	if (!strcmp(ev, "judged"))
+		note(WE_REPAIR, *mac ? mac : NULL, 0, 0, "AIGW's fix judged: %.160s", sum);
+	else if (!strcmp(ev, "shadow-judged"))
+		note(WE_REPAIR, *mac ? mac : NULL, 0, 0, "Not applied (advise mode): %.150s", sum);
+}
+
 void why_on_emit(const char *type, struct blob_attr *msg)
 {
 	struct blob_attr *tb[__P_MAX];
@@ -336,6 +347,10 @@ void why_on_emit(const char *type, struct blob_attr *msg)
 	blobmsg_parse(pol, __P_MAX, tb, blob_data(msg), blob_len(msg));
 	if (!strcmp(type, AG_EV_MESH)) {
 		on_mesh(tb);
+		return;
+	}
+	if (!strcmp(type, AG_EV_REPAIR)) {
+		on_repair(tb);
 		return;
 	}
 	if (!strcmp(type, AG_EV_WIFI))
@@ -1151,6 +1166,7 @@ void why_blob(struct blob_buf *b, long from, long to, const char *host, int raw)
 		blobmsg_close_table(b, t);
 	}
 	blobmsg_close_array(b, a);
+	repair_why_blob(b, from, to);           /* proven repair: AIGW's fixes in that time, and how they went */
 	if (!raw)
 		return;
 	a = blobmsg_open_array(b, "samples");

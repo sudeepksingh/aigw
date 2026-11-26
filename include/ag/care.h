@@ -223,6 +223,10 @@ int care_normal(const struct care_learn *L, int metric, int hour, float *mean, f
    (p->prior) blended into it; *fleet 1 then; -1 none */
 int care_normal_for(const struct care_learn *L, int metric, int hour, long now, const struct care_learn_params *p,
 		    float *mean, float *dev, int *fleet);
+/* the same rule for a measure of another part of AIGW (proven repair's Wi-Fi loss): one sample
+   into its hour and the whole day; the normal from them, -1 when not known yet */
+void care_norm_add(struct care_norm *hour, struct care_norm *all, float x);
+int care_norm_blend(const struct care_norm *hour, const struct care_norm *all, float *mean, float *dev);
 const char *care_metric_name(int m);    /* NextHopLatency, InternetLatency, InternetLoss, DNSLatency, DownloadSpeed */
 int care_metric_area(int m);            /* CA_INTERNET or CA_DNS */
 /* a value with its unit: "12 ms", "0.4%", "95 Mbit/s" */
