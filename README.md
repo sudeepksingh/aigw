@@ -57,7 +57,7 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
-> **v0.52:** **A model of the home's Wi-Fi, and Wi-Fi sensing.** The gateway
+> **v0.53:** **A model of the home's Wi-Fi, and Wi-Fi sensing.** The gateway
 > learns the home's places from its devices' signals, with no floor plan:
 > which are near, which are far, which lie next to which, and the last 30 days'
 > coverage problems. Then it predicts, before anyone buys anything: "an
@@ -71,10 +71,21 @@ illustrated version.
 > only "home / away" and "unusual inactivity", and only if the home allows it.
 > Accuracy is stated on a simulated home with whole days held out, and is not
 > yet validated on real, labelled activity. `agctl home`, `agctl sense`, data
-> model 1.23; two new build options (`HOMEMODEL`, `SENSING`). Installed flash
+> model 1.24; two new build options (`HOMEMODEL`, `SENSING`). Installed flash
 > (`aigw-selftest`, KB, x86-64/aarch64/mipsel): full 996/988/828 (the home model
 > adds 28/32/24, sensing 12/16/12), small 664/668/568, minimal 392/384/340; see [docs/home-model.md](docs/home-model.md) and
 > [docs/wifi-sensing.md](docs/wifi-sensing.md).
+>
+> **v0.50:** **Every home teaches the next.** Fleet learning: how a fix went in
+> homes like this one (counts per fault, fix and a coarse context, only where k
+> homes or more add up to it, signed by cortex) ranks the fixes the gateway may
+> use, blended with the home's own outcomes, which count for more as they grow.
+> A new gateway warns from its first day against the fleet's normal, marked
+> "from the fleet". The fleet never acts by itself, and sharing is opt-in
+> (`fleet.share`). A build option (`AIGW_FEATURE_FLEETLEARN`, in the full
+> profile); data model 1.23 `Device.X_AIGW_.FleetLearning.`; `agctl fleet`;
+> see [docs/fleet-learning.md](docs/fleet-learning.md). Installed flash, full
+> profile (KB, x86-64/aarch64/mipsel): 980/972/812.
 >
 > **v0.48:** **Choose the features.** Whoever builds AIGW OS picks its
 > features: 20 of them, each a CMake option and a `make menuconfig` choice, with

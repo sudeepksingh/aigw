@@ -9,6 +9,8 @@
     POST /v1/proposals/<id>      how the gateway took one: {ok, decision, error}
     GET  /v1/fed                 the open federated learning round: shared layer, how to train
     POST /v1/fed/update          a home's clipped, noisy change {round, delta, n, noise, clip}
+    POST /v1/fleet/summary       (v0.50) a home's fleet-learning summary (fleetlearn.py): counts per fault,
+                                 fix and coarse bucket, the learned normal's shape; priors go out via /v1/models
     GET  /v1/firmware            a staged rollout's firmware, if this home's wave is cleared (sent once)
     POST /v1/firmware/<rollout>  how the gateway took it: {ok, current, error}
     POST /tmf621/listener[/...]  (v0.42) the ISP's TMF621 hub: a ticket it resolved, closed or
@@ -26,14 +28,15 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import fed, outage, rollout, tickets
+from . import fed, fleetlearn, outage, rollout, tickets
 
 MAX_BODY = 4 * 1024 * 1024
-FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list|adapter)(\.sig)?$")
+FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list|adapter|priors)(\.sig)?$")
 
 
-def make_handler(store, log=True, fed_settings=None, tickets_cfg=None, kick=None):
+def make_handler(store, log=True, fed_settings=None, tickets_cfg=None, kick=None, fleet_settings=None):
     fs = fed_settings or fed.Settings()
+    fls = fleet_settings or fleetlearn.Settings()
     tc = tickets_cfg or {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -133,6 +136,9 @@ def make_handler(store, log=True, fed_settings=None, tickets_cfg=None, kick=None
             if path == "/v1/fed/update":
                 code, answer = fed.accept(store, fs, gw["id"], body)
                 return self.send_json(code, answer)
+            if path == "/v1/fleet/summary":
+                code, answer = fleetlearn.accept(store, fls, gw["id"], body)
+                return self.send_json(code, answer)
             m = re.match(r"^/v1/firmware/(\d+)$", path)
             if m:
                 ok = rollout.offer_result(store, gw["id"], int(m.group(1)), bool(body.get("ok")),
@@ -158,14 +164,16 @@ def exposure_note(listen, cert):
             "reports travel in the clear. Use --cert/--key, or a reverse proxy with HTTPS")
 
 
-def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, fed_settings=None, tickets_cfg=None):
+def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, fed_settings=None, tickets_cfg=None,
+          fleet_settings=None):
     note = exposure_note(listen, cert)
     if note:
         print(note, file=sys.stderr, flush=True)
     tc = tickets_cfg or {}
     worker = tickets.Worker(store, tc, log)
     httpd = ThreadingHTTPServer((listen, port), make_handler(store, log, fed_settings, tc,
-                                                             worker.kick if tc.get("enabled") else None))
+                                                             worker.kick if tc.get("enabled") else None,
+                                                             fleet_settings))
     scheme = "http"
     if cert:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)

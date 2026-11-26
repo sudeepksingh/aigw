@@ -87,6 +87,20 @@ config alerts 'alerts'
 	# stop taking part before the privacy spent (epsilon) passes this; 0 = no limit
 	option fed_budget '0'
 
+config fleet 'fleet'
+	# fleet learning (docs/fleet-learning.md): how fixes went in homes like this
+	# one ranks the fixes here, and a new gateway warns from day one. Fleet
+	# priors never act by themselves: act.mode and the policies still decide
+	option enabled '1'
+	# send this home's summary (counts per fault, fix and coarse bucket; no MACs,
+	# IPs or names) through the bridge: opt-in, only with the customer's yes
+	option share '0'
+	# a fleet bucket is used only when at least k homes add up to it
+	option k '5'
+	option interval '86400'
+	# the line: fibre, dsl, cable, fwa, satellite, other ('' not known)
+	option line ''
+
 config baseline 'baseline'
 	# what is normal for each device, learned continuously
 	# watch a device this long, and until it has used this many sites, before judging it

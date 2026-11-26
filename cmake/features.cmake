@@ -27,6 +27,7 @@ set(AIGW_FEATURE_TABLE
   "PROACTIVE|Proactive care before the call, tickets to the ISP|BRIEF"
   "AREA|Area outages, fixes held while many homes fail at once|"
   "FED|Federated learning|"
+  "FLEETLEARN|Fleet learning, every home teaches the next (fixes ranked by the fleet's outcomes, warnings from day one)|FED"
   "PLUGINS|Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)|"
   "SNI|Connection names from TLS and QUIC handshakes|"
   "METER|Per-device traffic meter (eBPF)|"

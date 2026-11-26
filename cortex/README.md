@@ -163,6 +163,7 @@ Every request carries `Authorization: Bearer <token>`.
 | `POST /v1/proposals/<id>` | `{ok, decision, error}`: how the gateway took it |
 | `GET /v1/fed` | the open federated learning round: `{round, center, scale, weights, lr, epochs, clip, noise}` (`{round: 0}` with `--no-fed`) |
 | `POST /v1/fed/update` | a home's change for that round: `{round, delta[14], n, noise, clip}`; one per home per round |
+| `POST /v1/fleet/summary` | a home's fleet-learning summary `{v, line, outcomes, normals}` (fleetlearn.py); 400 for anything else |
 
 ## Federated learning
 
@@ -185,3 +186,21 @@ own `alerts.fed_noise` and can stop at `alerts.fed_budget`. Less noise learns
 faster with a small fleet and protects less; with three homes and noise 1.0
 the noise outweighs what they learn. For cortex to learn only this way, set
 the bridges' `alert_names` to `0` (alerts then arrive without subjects).
+
+## Fleet learning
+
+Gateways whose owner opted in (`fleet.share 1`) send a summary: counts per
+fault, fix and a coarse context bucket (band, width, congestion, device class,
+hours, line type), capped and noised, and the shape of their learned normal.
+Cortex keeps each home's latest, adds them up at five levels of the bucket,
+leaves out anything fewer than `--fleet-k` homes add up to, and publishes the
+signed `fleet-priors-<n>.priors` through `/v1/models`. Summaries with anything
+else (a MAC, an address, an unknown field) are refused. The merge rules and
+the file format are in [docs/fleet-learning.md](../docs/fleet-learning.md), so
+an ISP can run its own aggregator instead.
+
+```sh
+python3 -m aigw_cortex serve --fleet-k 5 --fleet-cap 50 --fleet-gap 3600
+python3 -m aigw_cortex fleetlearn            # homes sharing, buckets, the priors published
+python3 -m aigw_cortex fleetlearn publish    # publish now (if they changed)
+```

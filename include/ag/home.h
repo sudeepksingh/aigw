@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * AIGW home Wi-Fi model (v0.52.0): a compact model of the home's Wi-Fi with no
+ * AIGW home Wi-Fi model (v0.53.0): a compact model of the home's Wi-Fi with no
  * floor plan, and "what if" predictions from it: what an extender, moving the
  * gateway or another band would do, before anyone buys anything.
  *

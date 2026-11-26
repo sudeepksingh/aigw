@@ -116,6 +116,28 @@ static void lparams(void)
 	care_learn_params_default(&lp);
 	lp.learn_s = (long)cfg.care_learn_days * 86400;
 	lp.fault[CM_SPEED] = cfg.care_speed_mbps ? (float)cfg.care_speed_mbps * (float)cfg.care_speed_min_pct / 100.0f : 0;
+	lp.prior = fleet_care_prior();  /* fleet learning: warnings from day one, "from the fleet" */
+}
+
+int care_normal_band(int metric, int band, float *mean, float *dev)
+{
+	float m, d, sm = 0, sd = 0;
+	int h, n = 0;
+
+	lparams();
+	if (band < 0 || band > 3 || care_learning(&L, (long)ag_wall_s(), &lp))
+		return -1;
+	for (h = band * 6; h < band * 6 + 6; h++)
+		if (care_normal(&L, metric, h, &m, &d) == 0) {
+			sm += m;
+			sd += d;
+			n++;
+		}
+	if (!n)
+		return -1;
+	*mean = sm / (float)n;
+	*dev = sd / (float)n;
+	return 0;
 }
 
 static void tell_state(const char *event, const struct care_state *s)
@@ -160,6 +182,7 @@ static void tell_warning(const char *event)
 	blobmsg_add_string(&b, "area", care_area_name(care_metric_area(L.w.metric)));
 	blobmsg_add_string(&b, "summary", text);
 	blobmsg_add_u64(&b, "since", (uint64_t)L.w.since);
+	blobmsg_add_u8(&b, "from_fleet", (uint8_t)L.w.fleet);
 	agd_emit(AG_EV_CARE, &b);
 	blob_buf_free(&b);
 }
@@ -741,8 +764,12 @@ void care_blob(struct blob_buf *b)
 	blobmsg_add_string(b, "status", L.w.active ? "warning" : care_warning_learning() ? "learning" : "none");
 	blobmsg_add_u32(b, "learned_days", (uint32_t)care_learned_days());
 	blobmsg_add_u32(b, "learn_days", (uint32_t)cfg.care_learn_days);
+	/* fleet learning: while learning, warnings are judged against the fleet's normal */
+	blobmsg_add_u8(b, "fleet_normal", (uint8_t)(care_warning_learning() && lp.prior));
 	if (L.w.active) {
 		char text[400], v[24];
+
+		blobmsg_add_u8(b, "from_fleet", (uint8_t)L.w.fleet);
 
 		care_warning_words(text, sizeof(text));
 		blobmsg_add_string(b, "metric", care_metric_name(L.w.metric));
@@ -916,6 +943,8 @@ static void save_learn(struct blob_buf *b)
 		blobmsg_add_u32(b, "days", (uint32_t)L.w.days);
 		blobmsg_add_double(b, "predict", L.w.predict);
 		blobmsg_add_u8(b, "became", (uint8_t)warn_became);
+		if (L.w.fleet)
+			blobmsg_add_u8(b, "fleet", 1);
 		blobmsg_close_table(b, w);
 	}
 	if (L.last_end) {
@@ -1129,6 +1158,8 @@ static void load_learn(struct blob_attr *t)
 					L.w.predict = (int)jdbl(v);
 				else if (!strcmp(n, "became"))
 					warn_became = jnum(v) != 0;
+				else if (!strcmp(n, "fleet"))
+					L.w.fleet = jnum(v) != 0;
 			}
 			L.w.active = L.w.since != 0;
 		} else if (!strcmp(k, "metrics") && blobmsg_type(cur) == BLOBMSG_TYPE_ARRAY) {

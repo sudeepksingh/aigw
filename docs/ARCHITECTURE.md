@@ -524,7 +524,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `agdns` | ~150 KB | ~3 MB |
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
-| *measured v0.52, installed (SDK 24.10.8, `flash-kb.py`)* | *full 996 KB x86-64, 988 KB aarch64, 828 KB mipsel; small 664 / 668 / 568; minimal 392 / 384 / 340* | — |
+| *measured v0.53, installed (SDK 24.10.8, `flash-kb.py`)* | *full 996 KB x86-64, 988 KB aarch64, 828 KB mipsel; small 664 / 668 / 568; minimal 392 / 384 / 340* | — |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
@@ -1191,6 +1191,19 @@ Installed flash, as `aigw-selftest` counts it in CI's QEMU jobs (budget 1024 KB)
 
 Verified by `tests/mesh-test.sh` (the handler on its own over a fake ubus and a fake local USP agent, then everything before through it; a config with the old handler's path), the upgrade test (`MIGRATIONS` in `upgrade_console.py`), and the full suite on the LTO build.
 
+**As built in v0.50: fleet learning, every home teaches the next** ([fleet-learning.md](fleet-learning.md)). Middleware exposes each home's data; AIGW decides with the fleet's evidence, on the gateway, and says why.
+
+| Piece | As built |
+|-------|----------|
+| Outcomes (`agd/agd.h` `outcome_report`) | How a fix, or waiting, went for a fault: act.c (trial kept, tried, undone by a person), proactive.c (fixed by AIGW, cleared by itself, still there after the grace time); one per key, a later report replaces the earlier (proven self-repair's receipts use the same call) |
+| Buckets (`core/libag/fleet.c`, `ag/fleet.h`) | Fault x action x band/width/congestion/device class/hours/line, at five levels from every dimension to none; the Bayesian blend (a Dirichlet: the fleet's counts as at most `fleet.strength` tries, the home's own added) and the choice (only by `fleet.margin`, only with 5 tries behind each) |
+| agd (`agd/fleet.c`) | Cells in the state; the summary (opt-in `fleet.share`: counts capped, noised with keyed repeatable noise, the normal's shape); the `fleet-priors` slot in models.c (usign, version, rollback, k checked); proactive care waits first when the fleet says waiting clears it more often; early warning's normal from the fleet while learning (`care_normal_for`) |
+| Transport | The bridge (capability `fleet.share`) posts `/v1/fleet/summary`; priors come back through `/v1/models` like any signed update |
+| Cortex (`fleetlearn.py`) | The reference aggregator: a fixed vocabulary (no MAC, address or name can travel), latest summary per home, cap per home and bucket, k-anonymity, medians of normals, published only on change |
+| Surfaces | `agctl fleet`, `agctl fleet rank <code> [device]`; DM 1.23 `Device.X_AIGW_.FleetLearning.`, `FleetPriorsReceived!`, `FleetChoice!`; ubus `ag.fleet`, event `ag.fleet` |
+
+Installed flash, full profile: 980/972/812 KB (x86-64/aarch64/mipsel); fleet learning itself 28/32/24 KB.
+
 **As built in v0.48: features chosen when it is built.** The full build does what v0.47 did; whoever builds AIGW OS can leave features out ([features.md](features.md)).
 
 | Piece | As built |
@@ -1212,14 +1225,14 @@ Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
 
 Verified by the full local suite on each profile, every feature built alone with what it needs, and the full build without each feature (each with no warnings).
 
-**As built in v0.52: a model of the home's Wi-Fi, and Wi-Fi sensing.** Two build options, both in the full profile ([home-model.md](home-model.md), [wifi-sensing.md](wifi-sensing.md)).
+**As built in v0.53: a model of the home's Wi-Fi, and Wi-Fi sensing.** Two build options, both in the full profile ([home-model.md](home-model.md), [wifi-sensing.md](wifi-sensing.md)).
 
 | Piece | As built |
 |-------|----------|
 | Home model (`HOMEMODEL`, needs `COVERAGE`) | `core/libag/home.c`: coverage advice's looks clustered into the home's places (signatures across access points and bands, at most 8); places next to each other from devices walking between them; per place and band the path loss and a distance-like figure (log-distance, exponent 3), the 2.4 GHz offset, the experience per access point; the last 30 days' coverage problems. `agd/home.c` is fed by `agd/coverage.c` |
 | What if | Extender (near a place with a good link, or about halfway), GatewayUp, GatewayCentral, Band24, Band5: problems fixed of the last 30 days', places it may make weak, a confidence and its limits; ranked by problems fixed, the free one first when AIGW is fairly sure of both. `ExtenderHelps` holds or backs the ISP's `MESH_WIFI` signal. After an extender appears: predicted against measured |
 | Wi-Fi sensing (`SENSING`, opt-in) | `core/libag/sense.c`: per device and band, fresh readings only (the frame counter moved), the spread and change point per 30 s window, a sticky HMM per zone and one for presence, the usual movement per hour (weekdays, weekends) and the check-in. `agd/sense.c`: runs only with `sensing.enabled` and a consent; off keeps nothing, `agctl sense off` forgets; events local, the ISP's only with `share_events`; CSI only through a vendor handler |
-| Where it shows | `agctl home`, `agctl home name`, LuCI's Place button, `agctl sense`; data model 1.23 (`Device.X_AIGW_.HomeModel.` with `Place.{i}.` and `Option.{i}.`, `Device.X_AIGW_.Sensing.`); events `HomeAdvice!`, `PresenceChanged!`, `UnusualInactivity!`; ubus `ag.home`, `ag.sense`; cortex gets the home model's counts and best option, never sensing |
+| Where it shows | `agctl home`, `agctl home name`, LuCI's Place button, `agctl sense`; data model 1.24 (`Device.X_AIGW_.HomeModel.` with `Place.{i}.` and `Option.{i}.`, `Device.X_AIGW_.Sensing.`); events `HomeAdvice!`, `PresenceChanged!`, `UnusualInactivity!`; ubus `ag.home`, `ag.sense`; cortex gets the home model's counts and best option, never sensing |
 | Honesty | Sensing's accuracy is measured on a simulated home with whole days held out (`tests/test_sense.c`), not on real labelled activity; `agd --sense-bench` and `aigw-selftest` check its CPU on each router |
 
 Installed flash, as `aigw-selftest` counts it (budget 1024 KB):

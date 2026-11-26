@@ -1,6 +1,6 @@
 # Wi-Fi sensing
 
-*v0.52.0, `AIGW_FEATURE_SENSING`.* Someone home or not, movement per zone, and
+*v0.53.0, `AIGW_FEATURE_SENSING`.* Someone home or not, movement per zone, and
 "activity seen as usual today", a check-in for someone who lives alone. From
 the Wi-Fi signals the gateway already gets. **Opt-in**: off, even when built,
 until the home agrees. It stays on the gateway.
@@ -122,7 +122,7 @@ agctl sense off             # off, and forget everything
 agctl watch                 # ag.sense events, among others
 ```
 
-## Data model (1.23)
+## Data model (1.24)
 
 `Device.X_AIGW_.Sensing.`: `Enable` (read-only), `Status` (Off, Learning, On),
 `ShareEvents`, and only with `share_events`: `Presence` (Home, Away),

@@ -13,6 +13,9 @@
  *   learning round: agd trains ◄───── fed ◄──── GET /v1/fed      the shared layer (14 numbers)
  *   on your answers, returns          update ─► POST /v1/fed/update   averaged with other homes',
  *   only a clipped, noisy change                                   published as a signed layer
+ *   fleet learning: counts of   ─────► fleet ──► POST /v1/fleet/summary  added up with other homes';
+ *   fixes' outcomes, capped and         (only when agd says one is due:     buckets of k homes or more
+ *   noised (fleet.share 1 only)         fleet.share, fleet.interval)       come back as signed priors
  *   area outage: fixes held   ◄────── area ◄─── the report's answer   many homes of one uplink
  *                                                                  at once (outage.py)
  *   firmware, agd's Download path ◄── firmware ◄ GET /v1/firmware   a staged rollout's wave
@@ -37,6 +40,8 @@
  *              federated rounds
  *   firmware   1 = take firmware from cortex's staged rollouts (default 0: the ISP's
  *              ACS pushes it); needs capability firmware.install and mgmt.firmware 1
+ *   fleet      1 = pass on agd's fleet-learning summary when agd has one to share (capability
+ *              fleet.share; agd shares nothing unless fleet.share is 1 there, the default is 0)
  *   area       1 = pass on cortex's area-outage notice (many homes of this uplink
  *              down at once): agd holds its own fixes meanwhile (capability area.notice)
  */
@@ -64,9 +69,10 @@
 
 static struct {
 	char url[128], token[128], devices[16], state[256], host[16], aigw[16];
-	int interval, models, proposals, fed, alert_names, firmware, area;
-	int can_read, can_propose, can_model, can_fed, can_firmware, can_area;
-} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1, .area = 1 };
+	int interval, models, proposals, fed, alert_names, firmware, area, fleet;
+	int can_read, can_propose, can_model, can_fed, can_firmware, can_area, can_fleet;
+} c = { .devices = "names", .interval = 300, .models = 1, .proposals = 1, .fed = 1, .alert_names = 1, .area = 1,
+	.fleet = 1 };
 
 static char *ibuf;
 static size_t ilen, icap;
@@ -212,6 +218,7 @@ static void on_hello(struct blob_attr *h)
 	c.alert_names = (int)fnum(conf, "alert_names", 1);
 	c.firmware = (int)fnum(conf, "firmware", 0);
 	c.area = (int)fnum(conf, "area", 1);
+	c.fleet = (int)fnum(conf, "fleet", 1);
 	if ((g = field(h, "granted")))
 		blobmsg_for_each_attr(cur, g, rem) {
 			const char *cap = blobmsg_type(cur) == BLOBMSG_TYPE_STRING ? blobmsg_get_string(cur) : "";
@@ -222,6 +229,7 @@ static void on_hello(struct blob_attr *h)
 			c.can_fed |= !strcmp(cap, "fed.train");
 			c.can_firmware |= !strcmp(cap, "firmware.install");
 			c.can_area |= !strcmp(cap, "area.notice");
+			c.can_fleet |= !strcmp(cap, "fleet.share");
 		}
 	configured = 1;
 }
@@ -930,6 +938,39 @@ out:
 	blob_buf_free(&r);
 }
 
+/* ---------- fleet learning ---------- */
+
+/* agd's summary, when one is due and this home shares: counts per fault x action x coarse bucket and
+   the learned normal's shape. Nothing else is added here; a missed one is covered by the next (the
+   counts are the home's totals) */
+static void fleet_share(void)
+{
+	struct blob_buf b = { 0 }, r = { 0 };
+	struct blob_attr *d, *s, *cur;
+	char body[300], rout[300];
+	int id = next_id++;
+	size_t rem;
+	void *t;
+
+	blob_buf_init(&b, 0);
+	t = blobmsg_open_table(&b, "fleet");
+	blobmsg_add_u32(&b, "id", (uint32_t)id);
+	blobmsg_close_table(&b, t);
+	d = ask(&b, id);
+	if (!d || !fnum(d, "ok", 0) || !(s = field(d, "summary")) || blobmsg_type(s) != BLOBMSG_TYPE_TABLE)
+		goto out;               /* not due, or this home doesn't share: nothing to say */
+	blob_buf_init(&r, 0);
+	blobmsg_for_each_attr(cur, s, rem)
+		blobmsg_add_blob(&r, cur);
+	snprintf(body, sizeof(body), "%s/fleet-summary.json", c.state);
+	snprintf(rout, sizeof(rout), "%s/fleet-summary.out", c.state);
+	if (write_json(body, &r) == 0 && http("POST", "/v1/fleet/summary", body, rout) == 0)
+		logf_("fleet summary sent");
+out:
+	blob_buf_free(&b);
+	blob_buf_free(&r);
+}
+
 /* ---------- main ---------- */
 
 int main(void)
@@ -974,6 +1015,8 @@ int main(void)
 				fed_round();
 			if (c.firmware && c.can_firmware)
 				fetch_firmware();
+			if (c.fleet && c.can_fleet)
+				fleet_share();
 			next = now_ms() + (uint64_t)c.interval * 1000;
 			continue;
 		}

@@ -746,6 +746,54 @@ static struct ubus_object fed_obj = {
 };
 #endif
 
+#if AIGW_FEATURE_FLEETLEARN
+/* ---------- fleet learning: what was shared, what came back, the choices it changed ---------- */
+
+enum { FL_A_CODE, FL_A_DEVICE, __FL_A_MAX };
+static const struct blobmsg_policy fleet_policy[__FL_A_MAX] = {
+	[FL_A_CODE] = { .name = "code", .type = BLOBMSG_TYPE_STRING },
+	[FL_A_DEVICE] = { .name = "device", .type = BLOBMSG_TYPE_STRING },
+};
+
+static int m_fleet(struct ubus_context *ctx, struct ubus_object *obj,
+		   struct ubus_request_data *req, const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__FL_A_MAX];
+	char err[200] = "";
+
+	blobmsg_parse(fleet_policy, __FL_A_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (!strcmp(method, "status")) {
+		fleet_blob(&b, 1);
+	} else if (!strcmp(method, "rank")) {
+		const struct device *d = tb[FL_A_DEVICE] ? act_find_device(blobmsg_get_string(tb[FL_A_DEVICE])) : NULL;
+
+		if (!tb[FL_A_CODE] || !fl_word_ok(blobmsg_get_string(tb[FL_A_CODE]), FL_CODE))
+			return UBUS_STATUS_INVALID_ARGUMENT;
+		if (tb[FL_A_DEVICE] && !d)
+			return UBUS_STATUS_NOT_FOUND;
+		fleet_rank_blob(&b, blobmsg_get_string(tb[FL_A_CODE]), d ? d->mac : "");
+	} else {
+		int rc = fleet_test_outcome(msg, err, sizeof(err));
+
+		blobmsg_add_u8(&b, "ok", rc == 0);
+		blobmsg_add_string(&b, "error", err);
+	}
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+
+static struct ubus_method fleet_methods[] = {
+	UBUS_METHOD_NOARG("status", m_fleet),
+	UBUS_METHOD("rank", m_fleet, fleet_policy),
+	UBUS_METHOD_NOARG("outcome", m_fleet),          /* tests only (AIGW_TEST_OUTCOMES) */
+};
+static struct ubus_object_type fleet_type = UBUS_OBJECT_TYPE("ag.fleet", fleet_methods);
+static struct ubus_object fleet_obj = {
+	.name = "ag.fleet", .type = &fleet_type, .methods = fleet_methods, .n_methods = ARRAY_SIZE(fleet_methods),
+};
+#endif
+
 #if AIGW_FEATURE_REMOTE
 /* ---------- remote access ---------- */
 
@@ -1500,6 +1548,9 @@ static void on_ubus_connect(struct ubus_context *ctx)
 #if AIGW_FEATURE_FED
 		&fed_obj,
 #endif
+#if AIGW_FEATURE_FLEETLEARN
+		&fleet_obj,
+#endif
 		dm_ubus_object(),
 	};
 	size_t i;
@@ -1638,6 +1689,9 @@ int main(int argc, char **argv)
 #endif
 #if AIGW_FEATURE_KEYS
 	keys_init();
+#endif
+#if AIGW_FEATURE_FLEETLEARN
+	fleet_init();                   /* every home teaches the next: after the state */
 #endif
 #if AIGW_FEATURE_PLUGINS
 	plugin_init();

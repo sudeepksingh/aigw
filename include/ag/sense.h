@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /*
- * AIGW Wi-Fi sensing (v0.52.0): someone home or not, movement per zone, and
+ * AIGW Wi-Fi sensing (v0.53.0): someone home or not, movement per zone, and
  * "activity seen as usual today" (a care check-in for someone who lives
  * alone). Opt-in: off unless the home turns it on (agd/sense.c checks).
  *

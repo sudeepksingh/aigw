@@ -1,10 +1,10 @@
 {
   "name": "bridge",
   "kind": "connector",
-  "version": "0.52.0",
-  "description": "Links this gateway to cortex: fleet history, signed model updates, federated learning rounds (names stay home), suggestions from the AI assistant (they wait for your OK), staged firmware rollouts (off unless firmware is 1), area outages (AIGW holds its fixes while the ISP's network is down)",
+  "version": "0.53.0",
+  "description": "Links this gateway to cortex: fleet history, signed model updates, federated learning rounds (names stay home), suggestions from the AI assistant (they wait for your OK), staged firmware rollouts (off unless firmware is 1), area outages (AIGW holds its fixes while the ISP's network is down), fleet learning (only if the home shares: coarse, noised counts of how fixes went)",
   "exec": "ag-bridge",
-  "caps": ["devices.read", "decision.propose", "model.offer", "fed.train", "firmware.install", "area.notice"],
+  "caps": ["devices.read", "decision.propose", "model.offer", "fed.train", "firmware.install", "area.notice", "fleet.share"],
   "needs": ["bin:curl", "config:url", "config:token"],
   "budget": { "ram_kb": 8192, "cpu_pct": 5 },
   "hosts": ["openwrt", "linux"],
@@ -18,7 +18,8 @@
     "fed": "1",
     "alert_names": "1",
     "firmware": "0",
-    "area": "1"
+    "area": "1",
+    "fleet": "1"
   },
   "card": {
     "title": "Cortex",

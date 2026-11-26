@@ -1,6 +1,6 @@
 # The home Wi-Fi model
 
-*v0.52.0, `AIGW_FEATURE_HOMEMODEL` (needs `COVERAGE`).* A small model of the
+*v0.53.0, `AIGW_FEATURE_HOMEMODEL` (needs `COVERAGE`).* A small model of the
 home's Wi-Fi, learned on the gateway with no floor plan, and "what if"
 predictions from it: what an extender, moving the gateway or another band
 would fix, before anyone buys anything.
@@ -144,7 +144,7 @@ This is how the model is checked on real homes, one extender at a time.
 
 It learns from coverage advice's looks, so `coverage.enabled` must be 1 too.
 
-## Data model (1.23)
+## Data model (1.24)
 
 `Device.X_AIGW_.HomeModel.`: `Enable`, `Status` (Learning, Ready, Disabled),
 `Places`, `Problems`, `AccessPoints`, `BestOption`, `ExtenderHelps` (Unknown,
