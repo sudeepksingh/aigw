@@ -47,10 +47,17 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `FASTPATH` | Kernel fast path (flowtable) | | under 4 KB |
 | `REMOTE` | Remote access over WireGuard | | 8 KB (and the `aigw-remote` package) |
 | `KEYS` | Per-device Wi-Fi keys | | 8 KB |
+| `HOMEMODEL` | The home Wi-Fi model: places, and what an extender or a move would fix ([home-model.md](home-model.md)) | `COVERAGE` | HOMEMODEL_KB |
+| `SENSING` | Wi-Fi sensing, opt-in: presence, movement per zone, a care check-in ([wifi-sensing.md](wifi-sensing.md)) | | SENSING_KB |
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions
-smart queueing, the mesh and area outages when they are built.
+smart queueing, the mesh and area outages when they are built. Wi-Fi sensing names its zones by
+the home model's places when that is built (and by its own `sensing.zone` setting otherwise).
+The home model holds back the ISP's mesh Wi-Fi signal (`OFFERS`) when a free change would do.
+
+`SENSING` is off at run time even when built: it runs only once the home agrees
+(`agctl sense on --i-agree`).
 
 ## Profiles
 

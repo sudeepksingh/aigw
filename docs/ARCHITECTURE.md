@@ -1211,6 +1211,18 @@ Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
 
 Verified by the full local suite on each profile, every feature built alone with what it needs, and the full build without each feature (each with no warnings).
 
+**As built in v0.52: a model of the home's Wi-Fi, and Wi-Fi sensing.** Two build options, both in the full profile ([home-model.md](home-model.md), [wifi-sensing.md](wifi-sensing.md)).
+
+| Piece | As built |
+|-------|----------|
+| Home model (`HOMEMODEL`, needs `COVERAGE`) | `core/libag/home.c`: coverage advice's looks clustered into the home's places (signatures across access points and bands, at most 8); places next to each other from devices walking between them; per place and band the path loss and a distance-like figure (log-distance, exponent 3), the 2.4 GHz offset, the experience per access point; the last 30 days' coverage problems. `agd/home.c` is fed by `agd/coverage.c` |
+| What if | Extender (near a place with a good link, or about halfway), GatewayUp, GatewayCentral, Band24, Band5: problems fixed of the last 30 days', places it may make weak, a confidence and its limits; ranked by problems fixed, the free one first when AIGW is fairly sure of both. `ExtenderHelps` holds or backs the ISP's `MESH_WIFI` signal. After an extender appears: predicted against measured |
+| Wi-Fi sensing (`SENSING`, opt-in) | `core/libag/sense.c`: per device and band, fresh readings only (the frame counter moved), the spread and change point per 30 s window, a sticky HMM per zone and one for presence, the usual movement per hour (weekdays, weekends) and the check-in. `agd/sense.c`: runs only with `sensing.enabled` and a consent; off keeps nothing, `agctl sense off` forgets; events local, the ISP's only with `share_events`; CSI only through a vendor handler |
+| Where it shows | `agctl home`, `agctl home name`, LuCI's Place button, `agctl sense`; data model 1.23 (`Device.X_AIGW_.HomeModel.` with `Place.{i}.` and `Option.{i}.`, `Device.X_AIGW_.Sensing.`); events `HomeAdvice!`, `PresenceChanged!`, `UnusualInactivity!`; ubus `ag.home`, `ag.sense`; cortex gets the home model's counts and best option, never sensing |
+| Honesty | Sensing's accuracy is measured on a simulated home with whole days held out (`tests/test_sense.c`), not on real labelled activity; `agd --sense-bench` and `aigw-selftest` check its CPU on each router |
+
+FLASH_TABLE
+
 ---
 
 ## 17. Status and risks
