@@ -282,8 +282,9 @@ Installed flash of the full profile (as `aigw-selftest` counts it, OpenWRT
 24.10.8 SDK): x86-64 980 KB, aarch64 972 KB, mipsel 812 KB of the 1024 KB
 budget. Fleet learning adds 28, 32 and 24 KB (v0.48: 952, 940, 788). x86-64
 and aarch64 have 44 and 52 KB left, so later features need room made at build
-level, for example `-ffunction-sections -Wl,--gc-sections` for agd, or
-shipping agctl's help text compressed, before anything is dropped.
+level before anything is dropped: for example one multi-call binary for agd
+and agctl (they share libag, which each links in now), or `-Oz` where the
+toolchain has it.
 
 ## Tests
 

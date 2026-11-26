@@ -388,6 +388,8 @@ echo "   ticket $LT: keeping it on 2.4 GHz proposed as decision $DEC, nothing ap
 FT=0
 if has fleetlearn; then
 echo "== fleet learning: in homes like this, waiting clears hopping far more often than 2.4 GHz: wait first"
+# the laptop's proposal answered first: else the brief's fix for the next ticket is "approve it"
+agctl reject "$DEC" > /dev/null || fail "reject $DEC"
 PYTHONPATH="$REPO/cortex" python3 -m aigw_cortex --data "$T/cx" pubkey > /dev/null 2>&1
 agctl trust "$T/cx/keys/cortex.pub" > /dev/null || fail "trust the test key"
 cat > "$T/fleet.priors" <<'EOF'
@@ -422,7 +424,7 @@ rm -f "$T/models/fleet-priors".*         # the next part is about the rules' own
 fi
 
 echo "== enforce mode (restarted): a TV hopping: AIGW keeps it on 2.4 GHz itself"
-agctl reject "$DEC" > /dev/null || fail "reject $DEC"
+[ "$FT" != 0 ] || agctl reject "$DEC" > /dev/null || fail "reject $DEC"
 stop_agd
 config enforce 1
 start_agd
