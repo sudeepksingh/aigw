@@ -30,12 +30,14 @@ ubus_ready() {
 	while :; do
 		_missing=""
 		for _o; do
-			# published, and its owner answers a call: "method not found" (3) for
-			# this made-up method means agd's loop is running and served it
+			# published, and its owner answers a call: "method not found" for this
+			# made-up method means agd's loop is running and served it. The ubus
+			# command exits with minus the status: 253 (-3) method not found,
+			# 254 (-2) invalid argument; 252 (-4) not found, 249 (-7) timeout
 			"$_ubus" -s "$_sock" -t 2 list "$_o" 2>/dev/null | grep -q . || { _missing="$_missing $_o"; continue; }
 			_rc=0
 			"$_ubus" -s "$_sock" -t 2 call "$_o" aigw_ready_probe > /dev/null 2>&1 || _rc=$?
-			case $_rc in 0 | 2 | 3) ;; *) _missing="$_missing $_o(call: $_rc)" ;; esac
+			case $_rc in 0 | 2 | 3 | 253 | 254) ;; *) _missing="$_missing $_o(call: $_rc)" ;; esac
 		done
 		[ -z "$_missing" ] && return 0
 		_i=$((_i + 1))

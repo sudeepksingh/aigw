@@ -23,7 +23,8 @@ PIDS=""
 LOADED=0
 cleanup() {
 	for p in $PIDS; do kill "$p" 2>/dev/null || true; done
-	for f in "$T"/*.pid; do [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null || true; done
+	# hostapd's pidfiles are where aigw-ap keeps them ($T/run)
+	for f in "$T"/*.pid "$T"/run/*.pid; do [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null || true; done
 	ip netns del "$NC" 2>/dev/null || true
 	ip link del "$BR" 2>/dev/null || true
 	sleep 0.5
@@ -454,16 +455,22 @@ grep -A3 "^$AP_H " "$T/report.txt" | grep -Eq "channel trials kept [1-9], switch
 	fail "agctl wifi --report should show trials kept and switched back on $AP_H"
 grep -q "devices kept on 2.4 GHz 1" "$T/report.txt" || fail "agctl wifi --report should count the device kept on 2.4 GHz"
 "$BIN/agctl/agctl" dm get "Device.X_AIGW_.WiFiHealth.$N.Stats.Day." > "$T/stats.txt"
-KEPT=$(sed -n 's/.*Stats\.Day\.ChannelTrialsKept = //p' "$T/stats.txt")
 grep -Eq "Stats.Day.ChannelTrialsKept = [1-9]" "$T/stats.txt" && grep -Eq "Stats.Day.ChannelTrialsTried = [1-9]" "$T/stats.txt" &&
-	grep -Eq "Stats.Day.CongestionFound = [2-9]" "$T/stats.txt" && grep -q "Stats.Day.Fixes = $KEPT$" "$T/stats.txt" &&
-	grep -Eq "Stats.Day.LossBeforePercent = [1-9]" "$T/stats.txt" ||
+	grep -Eq "Stats.Day.CongestionFound = [2-9]" "$T/stats.txt" && grep -Eq "Stats.Day.LossBeforePercent = [1-9]" "$T/stats.txt" ||
 	fail "the data model's Stats.Day: $(cat "$T/stats.txt")"
-# from the problem to each fix that stayed: at least the trial's own 40 s
-# (heal_trial), also when the verdict read Good again before it was judged;
-# the same number as agd's report
-TTF=$(sed -n 's/.*Stats\.Day\.MeanTimeToFix = //p' "$T/stats.txt")
-[ -n "$TTF" ] && [ "$TTF" -ge 40 ] || fail "Stats.Day.MeanTimeToFix should be at least the 40 s trial: $(cat "$T/stats.txt")"
+# fixes are the kept trials and the band rules (stay24 counts on the access point
+# the client was on when it was set: either one, by timing). From the problem to
+# each kept trial: at least the trial's own 40 s (heal_trial), also when the
+# verdict read Good again before it was judged (a band rule may count 0 s)
+python3 - "$T/stats.txt" <<'EOF' || fail "Stats.Day fixes and time to fix: $(cat "$T/stats.txt")"
+import re, sys
+v = {k: int(x) for k, x in re.findall(r"Stats\.Day\.(\w+) = (\d+)", open(sys.argv[1]).read())}
+fixes, kept = v["Fixes"], v["ChannelTrialsKept"]
+ok = fixes == kept + v["BandRules"] and fixes > 0
+# MeanTimeToFix is the integer mean: the sum is at least fixes x mean, under fixes x (mean + 1)
+ok = ok and fixes * (v["MeanTimeToFix"] + 1) > 40 * kept
+sys.exit(0 if ok else 1)
+EOF
 # the seconds in each verdict grow every 10 s look: compared with agd's own
 # report read right after, not as fixed numbers (one look may fall between)
 "$BIN/agctl/agctl" -j wifi > "$T/heal-now.json"
