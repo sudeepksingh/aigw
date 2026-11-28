@@ -100,6 +100,19 @@ if(AIGW_FEATURE_COVERAGE AND AIGW_FEATURE_PROACTIVE)
   add_test(NAME coverage_placement COMMAND test_coverage)
 endif()
 
+if(AIGW_FEATURE_HOMEMODEL)
+  add_executable(test_home test_home.c)
+  target_link_libraries(test_home ag)
+  add_test(NAME home_model COMMAND test_home)
+endif()
+
+# a simulated home, whole days held out: the accuracy docs/wifi-sensing.md states
+if(AIGW_FEATURE_SENSING)
+  add_executable(test_sense test_sense.c)
+  target_link_libraries(test_sense ag m)
+  add_test(NAME wifi_sensing COMMAND test_sense)
+endif()
+
 if(AIGW_FEATURE_PROVEN)
   add_executable(test_repair test_repair.c)
   target_link_libraries(test_repair ag m)

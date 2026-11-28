@@ -173,6 +173,13 @@ static void judge(long now)
 	in.line_mbps = line_mbps(&in.line_sold);
 	in.name = name_cb;
 	in.sqm_on = sqm_on();
+	{
+		static char why[200];
+		int h = home_extender_helps(why, sizeof(why));     /* the home model: is an extender worth selling */
+
+		in.extender = h < 0 ? 0 : h ? 1 : -1;
+		in.extender_why = why;
+	}
 	/* proven repair: the week's fixes AIGW made itself, proven to have helped (all; Wi-Fi's own) */
 	repair_week(0, &in.proven_fixes, &in.proven_judged);
 	repair_week(1, &in.wifi_fixes, &in.wifi_judged);

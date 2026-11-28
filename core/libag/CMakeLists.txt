@@ -15,6 +15,8 @@ aigw_feature_sources(AG_SOURCES BRIEF brief.c)
 aigw_feature_sources(AG_SOURCES PROACTIVE proactive.c)
 aigw_feature_sources(AG_SOURCES SNI sni.c)
 aigw_feature_sources(AG_SOURCES FLEETLEARN fleet.c)
+aigw_feature_sources(AG_SOURCES HOMEMODEL home.c)
+aigw_feature_sources(AG_SOURCES SENSING sense.c)
 aigw_feature_sources(AG_SOURCES PROVEN repair.c)
 
 add_library(ag STATIC ${AG_SOURCES})

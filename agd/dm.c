@@ -45,7 +45,7 @@
 #include "ag/why.h"
 #include "agd.h"
 
-#define DM_VERSION "1.24"
+#define DM_VERSION "1.25"
 #define LIST_MAX   512
 #define IMAP_MAX   1024
 #define VAL_MAX    700
@@ -161,6 +161,9 @@ enum { TB_NONE = -1, TB_HOST, TB_ALERT, TB_DECISION, TB_SSID, TB_RADIO, TB_AP, T
 #if AIGW_FEATURE_COVERAGE
        TB_SPOT,
 #endif
+#if AIGW_FEATURE_HOMEMODEL
+       TB_PLACE, TB_OPTION,
+#endif
 #if AIGW_FEATURE_PROVEN
        TB_RECEIPT, TB_RSTAT,
 #endif
@@ -250,6 +253,10 @@ static struct {
 #if AIGW_FEATURE_COVERAGE
 	[TB_SPOT]     = { "Device.X_AIGW_.Coverage.Spot.{i}.", coverage_spot_ids },
 #endif
+#if AIGW_FEATURE_HOMEMODEL
+	[TB_PLACE]    = { "Device.X_AIGW_.HomeModel.Place.{i}.", home_place_ids },
+	[TB_OPTION]   = { "Device.X_AIGW_.HomeModel.Option.{i}.", home_option_ids },
+#endif
 #if AIGW_FEATURE_PROVEN
 	[TB_RECEIPT]  = { "Device.X_AIGW_.Repair.Receipt.{i}.", repair_ids },
 	[TB_RSTAT]    = { "Device.X_AIGW_.Repair.Stats.{i}.", repair_stat_ids },
@@ -313,6 +320,12 @@ static int resolve(int table, uint32_t inst, struct ictx *c)
 #if AIGW_FEATURE_COVERAGE
 	case TB_SPOT:
 		return coverage_spot_field(inst, "Devices", tmp, sizeof(tmp));
+#endif
+#if AIGW_FEATURE_HOMEMODEL
+	case TB_PLACE:
+		return home_place_field(inst, "Samples", tmp, sizeof(tmp));
+	case TB_OPTION:
+		return home_option_field(inst, "Fixed", tmp, sizeof(tmp));
 #endif
 #if AIGW_FEATURE_PROVEN
 	case TB_RECEIPT:
@@ -1056,6 +1069,16 @@ MST(g_ms_read, "ReadTime")
 GET(g_cov) { const char *d = strrchr(c->ppath, '.'); return coverage_field(d ? d + 1 : c->ppath, buf, n); }
 GET(g_cov_spot) { const char *d = strrchr(c->ppath, '.'); return coverage_spot_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
 #endif
+#if AIGW_FEATURE_HOMEMODEL
+/* the home Wi-Fi model (Device.X_AIGW_.HomeModel.): by the parameter's own name; places and options too */
+GET(g_hm) { const char *d = strrchr(c->ppath, '.'); return home_field(d ? d + 1 : c->ppath, buf, n); }
+GET(g_hm_place) { const char *d = strrchr(c->ppath, '.'); return home_place_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
+GET(g_hm_opt) { const char *d = strrchr(c->ppath, '.'); return home_option_field(c->inst, d ? d + 1 : c->ppath, buf, n); }
+#endif
+#if AIGW_FEATURE_SENSING
+/* Wi-Fi sensing (Device.X_AIGW_.Sensing.): read-only (the home turns it on, never the ISP); coarse values only */
+GET(g_sn) { const char *d = strrchr(c->ppath, '.'); return sense_field(d ? d + 1 : c->ppath, buf, n); }
+#endif
 
 #if AIGW_FEATURE_AREA
 /* area outages (Device.X_AIGW_.AreaOutage.): cortex found many homes of this uplink down at once */
@@ -1605,6 +1628,53 @@ static struct dm_param {
 	{ CV "Spot.{i}.Signal", T_INT, 0, TB_SPOT, g_cov_spot, NULL },
 	{ CV "Spot.{i}.HeardBestBy", T_STR, 0, TB_SPOT, g_cov_spot, NULL },
 #undef CV
+#endif
+#if AIGW_FEATURE_HOMEMODEL
+#define HM "Device.X_AIGW_.HomeModel."
+	{ HM "Enable", T_BOOL, 0, TB_NONE, g_hm, NULL },
+	{ HM "Status", T_STR, N, TB_NONE, g_hm, NULL },
+	{ HM "Places", T_UINT, 0, TB_NONE, g_hm, NULL },
+	{ HM "Problems", T_UINT, 0, TB_NONE, g_hm, NULL },
+	{ HM "AccessPoints", T_UINT, 0, TB_NONE, g_hm, NULL },
+	{ HM "BestOption", T_STR, N, TB_NONE, g_hm, NULL },
+	{ HM "ExtenderHelps", T_STR, N, TB_NONE, g_hm, NULL },
+	{ HM "Advice", T_STR, 0, TB_NONE, g_hm, NULL },
+	{ HM "Proof", T_STR, 0, TB_NONE, g_hm, NULL },
+	{ HM "PlaceNumberOfEntries", T_UINT, 0, TB_NONE, g_hm, NULL },
+	{ HM "OptionNumberOfEntries", T_UINT, 0, TB_NONE, g_hm, NULL },
+	{ HM "Place.{i}.Name", T_STR, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.Where", T_STR, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.Samples", T_UINT, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.Signal", T_INT, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.PathLoss24", T_UINT, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.PathLoss5", T_UINT, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.DistanceLike", T_UINT, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.Band24Offset", T_INT, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.Problems", T_UINT, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.BestBand", T_STR, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Place.{i}.NextTo", T_STR, 0, TB_PLACE, g_hm_place, NULL },
+	{ HM "Option.{i}.Kind", T_STR, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.Cost", T_STR, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.Place", T_UINT, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.Near", T_UINT, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.GainDb", T_INT, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.PlusMinusDb", T_UINT, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.Fixed", T_UINT, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.Of", T_UINT, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.MayTurnWeak", T_UINT, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.Confidence", T_STR, 0, TB_OPTION, g_hm_opt, NULL },
+	{ HM "Option.{i}.Summary", T_STR, 0, TB_OPTION, g_hm_opt, NULL },
+#undef HM
+#endif
+#if AIGW_FEATURE_SENSING
+#define SN "Device.X_AIGW_.Sensing."
+	{ SN "Enable", T_BOOL, 0, TB_NONE, g_sn, NULL },
+	{ SN "Status", T_STR, N, TB_NONE, g_sn, NULL },
+	{ SN "ShareEvents", T_BOOL, 0, TB_NONE, g_sn, NULL },
+	{ SN "Presence", T_STR, N, TB_NONE, g_sn, NULL },
+	{ SN "PresenceSince", T_TIME, 0, TB_NONE, g_sn, NULL },
+	{ SN "Activity", T_STR, N, TB_NONE, g_sn, NULL },
+#undef SN
 #endif
 #if AIGW_FEATURE_FLEETLEARN
 #define FLP "Device.X_AIGW_.FleetLearning."
@@ -2463,6 +2533,12 @@ enum {
 #if AIGW_FEATURE_WIFI_HEAL
 	EVT_CHANPLAN,
 #endif
+#if AIGW_FEATURE_HOMEMODEL
+	EVT_HOME,
+#endif
+#if AIGW_FEATURE_SENSING
+	EVT_PRESENCE, EVT_INACTIVE,
+#endif
 #if AIGW_FEATURE_FLEETLEARN
 	EVT_FLEET_PRIORS,
 	EVT_FLEET_CHOICE,
@@ -2521,6 +2597,13 @@ static struct {
 #endif
 #if AIGW_FEATURE_WIFI_HEAL
 	[EVT_CHANPLAN] = { "Device.X_AIGW_.ChannelPlan!", "Radio,FromChannel,ToChannel,State,Reason,Before,After" },
+#endif
+#if AIGW_FEATURE_HOMEMODEL
+	[EVT_HOME] = { "Device.X_AIGW_.HomeAdvice!", "Kind,Fixed,Of,GainDb,Confidence,Summary" },
+#endif
+#if AIGW_FEATURE_SENSING
+	[EVT_PRESENCE] = { "Device.X_AIGW_.PresenceChanged!", "Presence,Since,Reason" },
+	[EVT_INACTIVE] = { "Device.X_AIGW_.UnusualInactivity!", "State,Since,QuietMinutes,UsualMinutes,Summary" },
 #endif
 #if AIGW_FEATURE_FLEETLEARN
 	[EVT_FLEET_PRIORS] = { "Device.X_AIGW_.FleetPriorsReceived!", "Version,Buckets,Normals,Homes" },
@@ -3159,6 +3242,37 @@ void dm_on_offer(const char *code, const char *kind, const char *product, const 
 			     NULL };
 
 	emit(events[EVT_OFFER].path, kv);           /* OfferFound! */
+}
+#endif
+
+#if AIGW_FEATURE_HOMEMODEL
+/* home.c: a new best what-if option, or an extender's prediction measured (HomeAdvice!), without names */
+void dm_on_home(const char *kind, const char *fixed, const char *of, const char *gain, const char *confidence,
+		const char *summary)
+{
+	const char *kv[] = { "Kind", kind, "Fixed", fixed, "Of", of, "GainDb", gain, "Confidence", confidence,
+			     "Summary", summary, NULL };
+
+	emit(events[EVT_HOME].path, kv);            /* HomeAdvice! */
+}
+#endif
+
+#if AIGW_FEATURE_SENSING
+/* sense.c, only with sensing.share_events: someone home or not (PresenceChanged!), no zones, no devices */
+void dm_on_presence(const char *presence, const char *since, const char *reason)
+{
+	const char *kv[] = { "Presence", presence, "Since", since, "Reason", reason, NULL };
+
+	emit(events[EVT_PRESENCE].path, kv);        /* PresenceChanged! */
+}
+
+/* ... and the check-in: no movement when there usually is (UnusualInactivity!: Started, Ended) */
+void dm_on_inactivity(const char *state, const char *since, const char *quiet, const char *usual, const char *summary)
+{
+	const char *kv[] = { "State", state, "Since", since, "QuietMinutes", quiet, "UsualMinutes", usual,
+			     "Summary", summary, NULL };
+
+	emit(events[EVT_INACTIVE].path, kv);        /* UnusualInactivity! */
 }
 #endif
 

@@ -95,6 +95,8 @@ echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
 if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys proven; then   # the full and max builds: every command and event
 NEV=18; has fleetlearn && NEV=20     # Repair!, RepairUndone!; FleetPriorsReceived!, FleetChoice!
+has homemodel && NEV=$((NEV + 1))      # HomeAdvice!
+has sensing && NEV=$((NEV + 2))        # PresenceChanged!, UnusualInactivity!
 js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 16 and len(d['events']) == $NEV and
          [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()', 'Device.X_AIGW_.Diagnose()',
           'Device.X_AIGW_.SupportBrief()', 'Device.IP.Diagnostics.IPPing()', 'Device.IP.Diagnostics.TraceRoute()', 'Device.IP.Diagnostics.DownloadDiagnostics()',
@@ -148,7 +150,7 @@ agctl version | grep -qx "features: ${F:-the core only}" || fail "agctl version:
 # the profile and its flash budget (aigw-selftest's): 2048 KB with a feature only max has, else 1024
 P=$("$BIN/agd/agd" --profile)
 case $P in minimal\ 1024|small\ 1024|full\ 1024|max\ 2048|custom\ 1024|custom\ 2048) ;; *) fail "agd --profile: $P" ;; esac
-if has fleetlearn; then [ "${P##* }" = 2048 ] || fail "fleet learning is in max: budget 2048 ($P)"
+if has fleetlearn || has homemodel || has sensing; then [ "${P##* }" = 2048 ] || fail "a feature only max has: budget 2048 ($P)"
 else [ "${P##* }" = 1024 ] || fail "without max's features: budget 1024 ($P)"; fi
 agctl version | grep -qx "profile: ${P% *} (flash budget ${P##* } KB)" || fail "agctl version's profile: $(agctl version)"
 echo "   profile ${P% *}, flash budget ${P##* } KB"

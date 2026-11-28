@@ -26,6 +26,8 @@
 #define AG_EV_UPGRADE "ag.upgrade" /* a firmware upgrade: watched, kept, worse, rolled back */
 #define AG_EV_CALL "ag.call"       /* a call or game noticed, and over (with how it went) */
 #define AG_EV_TICKET "ag.ticket"   /* proactive care, before the call: a ticket raised, fixed, over */
+#define AG_EV_HOME "ag.home"       /* the home Wi-Fi model: a new best option, an extender's prediction measured */
+#define AG_EV_SENSE "ag.sense"     /* Wi-Fi sensing (opt-in): presence changed, unusual inactivity; stays local */
 #define AG_EV_MESH "ag.mesh"       /* mesh Wi-Fi: the controller found or lost, a device moved, a backhaul, a trial */
 #define AG_EV_FLEET "ag.fleet"     /* fleet learning: priors received, a summary shared, a choice the fleet changed */
 #define AG_EV_REPAIR "ag.repair"   /* proven repair: a fix predicted, judged (helped, no change, worse), undone */
@@ -217,7 +219,7 @@ struct ag_config {
 	int pro_max_per_day;      /* new tickets to the ISP in 24 hours */
 	/* smarter mesh Wi-Fi over a standard EasyMesh controller (agd/mesh.c) */
 	int mesh;                 /* read the controller's Data Elements, decide, act through the controller */
-	char unbuilt[320];        /* sections of features this build doesn't have, ignored: "mesh (AIGW_FEATURE_MESH), ..." */
+	char unbuilt[400];        /* sections of features this build doesn't have, ignored: "mesh (AIGW_FEATURE_MESH), ..." */
 	char mesh_handler[128];   /* the controller's handler; "" the platform's (MESH_HANDLER) */
 	char mesh_source[256];    /* read this Data Elements snapshot (JSON or path=value) instead; "" the handler */
 	int mesh_poll;            /* s between reads */
@@ -236,6 +238,20 @@ struct ag_config {
 	int cov_interval;         /* s between looks (60) */
 	int cov_learn;            /* looks at a device before it is judged (60) */
 	int cov_share;            /* cortex gets the verdict and counts (never names) */
+	/* the home Wi-Fi model (agd/home.c) */
+	int home;                 /* learn the home's places and predict what an extender or a move would fix */
+	int home_learn;           /* looks before the model is Ready (120) */
+	int home_share;           /* cortex gets the best option's kind and counts (never names) */
+	/* Wi-Fi sensing (agd/sense.c): opt-in, nothing runs or is kept unless enabled and consent are set */
+	int sense;                /* sensing.enabled: off (0) by default */
+	char sense_consent[128];  /* who agreed, and when; empty: sensing does not run */
+	char sense_zones[512];    /* "<MAC>=<zone> ..." where devices stay (without the home model's names) */
+	char sense_personal[256]; /* MACs of people's own devices (besides phones and watches by type) */
+	int sense_share;          /* the ISP gets coarse events (PresenceChanged!, UnusualInactivity!): off (0) */
+	int sense_checkin;        /* the "activity as usual today" check-in: off (0) */
+	int sense_checkin_min;    /* ... minutes of usual movement missed before it says so (45) */
+	int sense_window;         /* looks (agd's 5 s poll) in a window (6) */
+	char sense_csi[128];      /* a vendor handler that reads CSI motion scores; "" none */
 	/* proven self-repair (agd/repair.c) */
 	int repair;               /* every fix predicted, measured and judged, with a receipt */
 	int repair_window;        /* s a fix without a trial of its own is measured (600) */

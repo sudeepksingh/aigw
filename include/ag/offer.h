@@ -87,6 +87,9 @@ struct offer_in {
 	float line_mbps;                /* the line's speed: sold, else tested; 0 not known */
 	int line_sold;                  /* ... it is what was sold (care.speed_mbps) */
 	int sqm_on;                     /* AIGW runs smart queueing already: no SMART_QUEUE */
+	/* the home Wi-Fi model (ag/home.h): an extender would help (1), would not (-1: no MESH_WIFI), not known (0) */
+	int extender;
+	const char *extender_why;       /* ... in words, no names: added to the evidence */
 	/* proven repair, the window's fixes AIGW made itself: helped of those judged (all; Wi-Fi's own) */
 	unsigned proven_fixes, proven_judged, wifi_fixes, wifi_judged;
 	/* a device's name, else NULL (only for the words that stay home) */

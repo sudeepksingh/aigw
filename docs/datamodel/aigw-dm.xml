@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.24. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.25. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-24" file="aigw-dm-1-24.xml">
+             spec="urn:aigw-os:aigw-dm-1-25" file="aigw-dm-1-25.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.24">
+  <model name="AIGW-OS:1.25">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -262,6 +262,26 @@
         <parameter name="Before"><syntax><string/></syntax></parameter>
         <parameter name="After"><syntax><string/></syntax></parameter>
       </event>
+      <event name="HomeAdvice!">
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="Fixed"><syntax><string/></syntax></parameter>
+        <parameter name="Of"><syntax><string/></syntax></parameter>
+        <parameter name="GainDb"><syntax><string/></syntax></parameter>
+        <parameter name="Confidence"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="PresenceChanged!">
+        <parameter name="Presence"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+        <parameter name="Reason"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="UnusualInactivity!">
+        <parameter name="State"><syntax><string/></syntax></parameter>
+        <parameter name="Since"><syntax><string/></syntax></parameter>
+        <parameter name="QuietMinutes"><syntax><string/></syntax></parameter>
+        <parameter name="UsualMinutes"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+      </event>
       <event name="FleetPriorsReceived!">
         <parameter name="Version"><syntax><string/></syntax></parameter>
         <parameter name="Buckets"><syntax><string/></syntax></parameter>
@@ -516,6 +536,19 @@
       <parameter name="ChoicesChanged" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="LastChoice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
+    <object name="Device.X_AIGW_.HomeModel." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Places" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Problems" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="AccessPoints" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="BestOption" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="ExtenderHelps" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="Advice" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Proof" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="PlaceNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="OptionNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
     <object name="Device.X_AIGW_.LastDiagnosis." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Time" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="Host" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -631,6 +664,14 @@
       <parameter name="LatencyBeforeMs" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="LatencyAfterMs" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
       <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.Sensing." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="ShareEvents" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Presence" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="PresenceSince" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Activity" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Timeline." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
@@ -914,6 +955,10 @@
         </output>
       </command>
     </object>
+    <object name="Device.X_AIGW_.HomeModel.Option." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.HomeModel.Place." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
     <object name="Device.X_AIGW_.Offers.LineRepair." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Active" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
@@ -1052,6 +1097,32 @@
       <parameter name="Shared" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
       <parameter name="Signal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
       <parameter name="HeardBestBy" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.HomeModel.Option.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="OptionNumberOfEntries">
+      <parameter name="Kind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Cost" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Place" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Near" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="GainDb" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="PlusMinusDb" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Fixed" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Of" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MayTurnWeak" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.HomeModel.Place.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="PlaceNumberOfEntries">
+      <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Where" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Samples" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Signal" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="PathLoss24" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="PathLoss5" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="DistanceLike" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Band24Offset" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="Problems" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="BestBand" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="NextTo" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Proactive.Ticket.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="TicketNumberOfEntries">
       <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>

@@ -133,6 +133,19 @@ int main(void)
 	CHECK(strstr(r.o[OF_MESH].evidence, "2 devices") && !strstr(r.o[OF_MESH].evidence, "laptop"),
 	      "the evidence counts devices, without names");
 	CHECK(!strcmp(r.o[OF_MESH].named, "laptop 4 h a day, TV 2 h a day"), "at home, by name: %s", r.o[OF_MESH].named);
+	/* the home model (v0.52): a free change would do as much: no sale; an extender would help: said so */
+	in.extender = -1;
+	in.extender_why = "the home model expects a free change to fix as many coverage problems as an extender";
+	offer_judge(&in, &p, &r);
+	CHECK(!r.o[OF_MESH].active && strstr(r.o[OF_MESH].evidence, "Held: the home model"),
+	      "the home model says a free change does as much: MESH_WIFI held");
+	in.extender = 1;
+	in.extender_why = "the home model expects an extender to fix 9 of the last 30 days' 12 coverage problems";
+	offer_judge(&in, &p, &r);
+	CHECK(r.o[OF_MESH].active && strstr(r.o[OF_MESH].evidence, "Before you buy: the home model expects an extender"),
+	      "the home model says an extender helps: in the evidence");
+	in.extender = 0;
+	in.extender_why = NULL;
 	/* ... one device, but it keeps dropping off */
 	quiet();
 	for (i = 0; i < 3; i++) {

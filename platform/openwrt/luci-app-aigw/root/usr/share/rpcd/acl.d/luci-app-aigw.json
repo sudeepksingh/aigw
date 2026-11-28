@@ -18,6 +18,7 @@
 		"write": {
 			"ubus": {
 				"ag.decision": [ "request", "approve", "reject", "revert" ],
+				"ag": [ "home" ],
 				"ag.device": [ "zone" ],
 				"ag.plugin": [ "set" ],
 				"ag.model": [ "rollback" ],

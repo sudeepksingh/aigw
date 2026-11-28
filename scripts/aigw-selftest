@@ -147,6 +147,13 @@ if [ -n "$AGD" ] && [ -n "$AGDNS" ]; then
 	if [ $total -le $BUDGET_RAM ]; then pass ram-total "$total KB with $np plug-in process(es) (budget $BUDGET_RAM)"
 	else fail ram-total "$total KB with $np plug-in process(es), over the budget of $BUDGET_RAM"; fi
 fi
+# Wi-Fi sensing (when built): what its model costs on this CPU, a day of looks at 16 devices (budget 50 us a look)
+if agd --features 2>/dev/null | tr ',' '\n' | grep -qx sensing; then
+	SB=$(agd --sense-bench 2>/dev/null)
+	us=$(echo "$SB" | sed -n 's/^sense-bench: \([0-9]*\)\.[0-9]* us a look.*/\1/p')
+	if [ -n "$us" ] && [ "$us" -lt 50 ]; then pass sense-cpu "${SB#sense-bench: } (budget 50 us a look)"
+	else fail sense-cpu "${SB:-agd --sense-bench gave nothing} (budget 50 us a look)"; fi
+fi
 files=""
 for b in agd agdns agctl aigw-nft aigw-remote aigw-selftest; do
 	f=$(command -v $b 2>/dev/null) && files="$files $f"

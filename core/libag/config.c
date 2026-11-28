@@ -128,6 +128,7 @@ static const struct { const char *section, *feature; int built; } feature_sectio
 	{ "proactive", "PROACTIVE", AIGW_FEATURE_PROACTIVE }, { "mesh", "MESH", AIGW_FEATURE_MESH },
 	{ "coverage", "COVERAGE", AIGW_FEATURE_COVERAGE }, { "plugins", "PLUGINS", AIGW_FEATURE_PLUGINS },
 	{ "remote", "REMOTE", AIGW_FEATURE_REMOTE }, { "fleet", "FLEETLEARN", AIGW_FEATURE_FLEETLEARN }, { "repair", "PROVEN", AIGW_FEATURE_PROVEN },
+	{ "home", "HOMEMODEL", AIGW_FEATURE_HOMEMODEL }, { "sensing", "SENSING", AIGW_FEATURE_SENSING },
 };
 
 /* fleet.line: the kinds of line the fleet's buckets know */
@@ -279,6 +280,11 @@ void ag_config_load(struct ag_config *c)
 	c->cov_interval = 60;
 	c->cov_learn = 60;
 	c->cov_share = 1;
+	c->home = 1;
+	c->home_learn = 120;
+	c->home_share = 1;
+	c->sense_checkin_min = 45;
+	c->sense_window = 6;
 	c->repair = AIGW_FEATURE_PROVEN;
 	c->repair_window = 600;
 	c->repair_settle = 60;
@@ -751,6 +757,39 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "coverage", "share");
 		if (v)
 			c->cov_share = atoi(v) != 0;
+#if AIGW_FEATURE_HOMEMODEL
+		v = opt(ctx, p, "home", "enabled");
+		if (v)
+			c->home = atoi(v) != 0;
+		v = opt(ctx, p, "home", "learn");
+		if (v && atoi(v) >= 4)
+			c->home_learn = atoi(v);
+		v = opt(ctx, p, "home", "share");
+		if (v)
+			c->home_share = atoi(v) != 0;
+#endif
+#if AIGW_FEATURE_SENSING
+		v = opt(ctx, p, "sensing", "enabled");
+		if (v)
+			c->sense = atoi(v) != 0;
+		copy(c->sense_consent, sizeof(c->sense_consent), opt(ctx, p, "sensing", "consent"));
+		read_list_sep(ctx, uci_lookup_section(ctx, p, "sensing"), "zone", c->sense_zones, sizeof(c->sense_zones), " ");
+		read_list_sep(ctx, uci_lookup_section(ctx, p, "sensing"), "personal", c->sense_personal,
+			      sizeof(c->sense_personal), " ");
+		v = opt(ctx, p, "sensing", "share_events");
+		if (v)
+			c->sense_share = atoi(v) != 0;
+		v = opt(ctx, p, "sensing", "checkin");
+		if (v)
+			c->sense_checkin = atoi(v) != 0;
+		v = opt(ctx, p, "sensing", "checkin_minutes");
+		if (v && atoi(v) >= 5 && atoi(v) <= 720)
+			c->sense_checkin_min = atoi(v);
+		v = opt(ctx, p, "sensing", "window");
+		if (v && atoi(v) >= 3 && atoi(v) <= 16)
+			c->sense_window = atoi(v);
+		copy(c->sense_csi, sizeof(c->sense_csi), opt(ctx, p, "sensing", "csi_handler"));
+#endif
 		v = opt(ctx, p, "repair", "enabled");
 		if (v)
 			c->repair = atoi(v) != 0;

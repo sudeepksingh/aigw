@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.51.1
+PKG_VERSION:=0.53.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -151,7 +151,7 @@ define Package/aigw-demo/description
 endef
 
 # the features (cmake/features.cmake, docs/features.md): make menuconfig, Network > aigw
-AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS PROVEN
+AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS PROVEN HOMEMODEL SENSING
 PKG_CONFIG_DEPENDS:=$(foreach f,$(AIGW_FEATURES),CONFIG_AIGW_FEATURE_$(f))
 
 define Package/aigw/config
@@ -262,6 +262,34 @@ define Package/aigw/config
   config AIGW_FEATURE_KEYS
     bool "Per-device Wi-Fi keys" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_HOMEMODEL
+    bool "The home Wi-Fi model, what an extender or a move would fix" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_COVERAGE
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_CUSTOM
+    help
+      Learns the home's Wi-Fi from coverage advice's looks, with no floor
+      plan: places, path loss, the last 30 days' problems. Predicts what an
+      extender, moving the gateway or another band would fix, with a
+      confidence, and checks an extender's prediction once one is added.
+      Decides whether the ISP's mesh Wi-Fi signal is worth sending. Only
+      predicts; changes nothing. agctl home, Device.X_AIGW_.HomeModel.
+      About 28 KB of flash on x86-64, 28 KB on aarch64, 24 KB on mipsel.
+      In the max profile only (since v0.53.0), not in full or small: new
+      features come in max first, and full keeps its 1024 KB with headroom.
+      See docs/home-model.md.
+  config AIGW_FEATURE_SENSING
+    bool "Wi-Fi sensing, presence, movement and a care check-in (opt-in)" if AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_CUSTOM
+    help
+      Someone home or not, movement per zone, and "activity as usual today"
+      from the signals the access point already gets (no monitor mode; CSI
+      only through a vendor handler). Off at run time until the home agrees
+      (agctl sense on --i-agree); stays on the gateway unless
+      sensing.share_events. agctl sense, Device.X_AIGW_.Sensing.
+      About 12 KB of flash on x86-64, 16 KB on aarch64, 12 KB on mipsel.
+      In the max profile only (since v0.53.0), not in full or small: new
+      features come in max first, and full keeps its 1024 KB with headroom.
+      See docs/wifi-sensing.md.
   config AIGW_FEATURE_PROVEN
     bool "Proven self-repair: every fix predicted, measured, undone if it didn't help" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_CARE

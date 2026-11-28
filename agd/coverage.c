@@ -151,6 +151,7 @@ static void sample(long now)
 		measured(d, &s);
 		if (d)
 			done[d - devs] = 1;
+		home_on_look(ms.mac, &s, d && d->wifi_dual);
 		if ((c = slot(ms.mac, 1)))
 			cov_add(c, &s, &P);
 	}
@@ -165,6 +166,7 @@ static void sample(long now)
 		s.dbm = (int)(d->wifi_sig_avg < 0 ? d->wifi_sig_avg - 0.5 : d->wifi_signal);
 		s.retry_pct = -1;
 		measured(d, &s);
+		home_on_look(d->mac, &s, d->wifi_dual);
 		if ((c = slot(d->mac, 1)))
 			cov_add(c, &s, &P);
 	}
@@ -240,6 +242,15 @@ int coverage_words(const char *mac, char *advice, size_t an, char *line, size_t 
 		i = -1;                 /* not known yet, or fine: the home's */
 	if (advice)
 		cov_advice(&R, i, &NM, advice, an);
+	/* the home's advice: what the home model predicts the fixes would do (before you buy) */
+	if (advice && i < 0 && advice[0] && (R.verdict == CV_EXTENDER || R.verdict == CV_MOVE_DEVICE)) {
+		char h[600];
+		size_t l = strlen(advice);
+
+		home_advice_line(h, sizeof(h));
+		if (*h && l + 20 < an)
+			snprintf(advice + l, an - l, " The home model: %s", h);
+	}
 	if (line && (i >= 0 || R.worst >= 0))
 		cov_dev_words(&R, i >= 0 ? i : R.worst, &NM, line, ln);
 	if (note)
@@ -489,6 +500,7 @@ static void on_timer(struct uloop_timeout *t)
 {
 	sample((long)ag_wall_s());
 	judge();
+	home_tick();                    /* the home model learns from the same looks */
 	uloop_timeout_set(t, (cfg.cov_interval > 0 ? cfg.cov_interval : 60) * 1000);
 }
 

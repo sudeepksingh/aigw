@@ -7,6 +7,10 @@
 var callDevices = rpc.declare({ object: 'ag.device', method: 'list', expect: { devices: [] } });
 var callRequest = rpc.declare({ object: 'ag.decision', method: 'request', params: [ 'action', 'target', 'ttl' ] });
 var callZone = rpc.declare({ object: 'ag.device', method: 'zone', params: [ 'device', 'zone' ] });
+var callStatus = rpc.declare({ object: 'ag', method: 'status' });
+/* the home Wi-Fi model (docs/home-model.md): name the place a device is at, e.g. "bedroom" */
+var callPlace = rpc.declare({ object: 'ag', method: 'home', params: [ 'name', 'zone' ] });
+var homeModel = false;
 
 /* text, never markup: host names and vendor strings come from the network */
 function T(s) {
@@ -32,7 +36,30 @@ function done(res, what) {
 
 return view.extend({
 	load: function() {
-		return callDevices();
+		return callStatus().then(function(st) {
+			homeModel = String((st && st.features) || '').split(',').indexOf('homemodel') >= 0;
+		}, function() {}).then(function() { return callDevices(); });
+	},
+
+	setPlace: function(d) {
+		var input = E('input', { 'class': 'cbi-input-text', 'value': '', 'placeholder': _('bedroom') });
+
+		ui.showModal(T(_('Where is %s?').format(d.hostname || d.mac || d.ip)), [
+			E('p', {}, T(_('Name the place this device is at now. The home model then says "in the bedroom" instead of "where this device is". The name stays on the gateway.'))),
+			input,
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn', 'click': ui.hideModal }, T(_('Cancel'))), ' ',
+				E('button', { 'class': 'btn cbi-button-action', 'click': function() {
+					return callPlace(d.mac || d.ip, input.value.trim()).then(function(res) {
+						ui.hideModal();
+						if (res && res.error)
+							ui.addNotification(null, E('p', {}, T(res.error)), 'danger');
+						else
+							ui.addNotification(null, E('p', {}, T(_('Place %d named.').format((res && res.named) || 0))), 'info');
+					});
+				} }, T(_('Save')))
+			])
+		]);
 	},
 
 	act: function(action, d) {
@@ -77,7 +104,10 @@ return view.extend({
 					E('button', { 'class': 'btn cbi-button-negative', 'title': _('Cut it off from everything but the gateway'),
 						'click': ui.createHandlerFn(self, 'act', 'quarantine', d) }, T(_('Quarantine'))), ' ',
 					E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(self, 'act', 'priority', d) }, T(_('Prioritize'))), ' ',
-					E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(self, 'setZone', d) }, T(_('Zone')))
+					E('button', { 'class': 'btn cbi-button', 'click': ui.createHandlerFn(self, 'setZone', d) }, T(_('Zone'))),
+					homeModel && w.connected ? ' ' : '',
+					homeModel && w.connected ? E('button', { 'class': 'btn cbi-button', 'title': _('Name the place it is at now (the home model)'),
+						'click': ui.createHandlerFn(self, 'setPlace', d) }, T(_('Place'))) : ''
 				])
 			]);
 		});

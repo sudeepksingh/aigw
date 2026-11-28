@@ -43,6 +43,8 @@ set(AIGW_FEATURE_TABLE
   "FASTPATH|Kernel fast path (flowtable)||full"
   "REMOTE|Remote access over WireGuard||full"
   "KEYS|Per-device Wi-Fi keys||full"
+  "HOMEMODEL|The home Wi-Fi model, what an extender or a move would fix|COVERAGE"
+  "SENSING|Wi-Fi sensing, presence, movement and a care check-in (opt-in)"
   "PROVEN|Proven self-repair: every fix predicted, measured, and undone when it didn't help|CARE|small"
 )
 

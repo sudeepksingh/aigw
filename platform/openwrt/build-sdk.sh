@@ -97,6 +97,13 @@ PROFILE=${AIGW_PROFILE:-full}
 case $PROFILE in full|max|small|minimal) ;; *) die "AIGW_PROFILE is full, max, small or minimal" ;; esac
 [ -f .config ] && sed -i '/^CONFIG_AIGW_PROFILE_/d; /^# CONFIG_AIGW_PROFILE_/d; /CONFIG_AIGW_FEATURE_/d' .config
 echo "CONFIG_AIGW_PROFILE_$(echo "$PROFILE" | tr a-z A-Z)=y" >> .config
+# after a profile without plug-ins, defconfig doesn't select their packages again by itself
+if [ "$PROFILE" = full ]; then
+	for p in aigw-mqtt aigw-bridge aigw-remote; do
+		sed -i "/CONFIG_PACKAGE_$p[ =]/d" .config
+		echo "CONFIG_PACKAGE_$p=m" >> .config
+	done
+fi
 make defconfig > /dev/null 2>&1
 grep -q "^CONFIG_AIGW_PROFILE_$(echo "$PROFILE" | tr a-z A-Z)=y" .config || die "the $PROFILE profile did not take (make defconfig)"
 # a profile without plug-ins makes no aigw-mqtt: none left from the last build either

@@ -57,6 +57,27 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.53:** **A model of the home's Wi-Fi, and Wi-Fi sensing.** The gateway
+> learns the home's places from its devices' signals, with no floor plan:
+> which are near, which are far, which lie next to which, and the last 30 days'
+> coverage problems. Then it predicts, before anyone buys anything: "an
+> extender near the office would raise the bedroom by about 5 dB and fix 9 of
+> the 12 problems", "keeping the devices there on 2.4 GHz fixes all 12, for
+> free". An extender is offered only when nothing free does as much, and once
+> one is added AIGW measures what it really changed. **Wi-Fi sensing** (opt-in,
+> off until the home agrees) tells from the same signals whether someone is
+> home, where something moves, and whether today's activity is as usual: a
+> check-in for someone who lives alone. It stays on the gateway; the ISP gets
+> only "home / away" and "unusual inactivity", and only if the home allows it.
+> Accuracy is stated on a simulated home with whole days held out, and is not
+> yet validated on real, labelled activity. `agctl home`, `agctl sense`, data
+> model 1.25; two new build options (`HOMEMODEL`, `SENSING`), both in the
+> **max** profile only, not in full, small or minimal. Installed flash
+> (`aigw-selftest`, KB, x86-64/aarch64/mipsel): max 1012/1004/836 of 2048 (the
+> home model adds 28/28/24, sensing 12/16/12), full 944/936/780 of 1024. See
+> [docs/home-model.md](docs/home-model.md) and
+> [docs/wifi-sensing.md](docs/wifi-sensing.md).
+>
 > **v0.51.1:** **A max profile, and room in full.** Profiles are now minimal <
 > small < full < max. **Full** (the default) keeps its 1024 KB of flash with
 > headroom; **max** has every feature, within 2048 KB, for routers with 16 MB of

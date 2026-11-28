@@ -526,6 +526,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
 | *measured v0.51.1, installed (SDK packages)* | *full 944 KB x86-64, 932 KB aarch64, 780 KB mipsel; max 972 / 956 / 800 (budget 2048); small 652 / 664 / 560; minimal 356 / 352 / 308* | — |
+| *measured v0.53, installed (SDK 24.10.8, `flash-kb.py`)* | *full 944 KB x86-64, 936 KB aarch64, 780 KB mipsel; max 1012 / 1004 / 836 (budget 2048), with the home model and sensing* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |
@@ -1247,6 +1248,27 @@ Installed flash, OpenWRT 24.10.8 SDK, as `aigw-selftest` counts it (budget 1024 
 | minimal | 392 KB (+0) | | |
 
 Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-test.sh`, the full local suite on the full, small and minimal profiles, `PROVEN` built alone with `CARE` and `TR143`, and the full build without it (no warnings).
+
+**As built in v0.53: a model of the home's Wi-Fi, and Wi-Fi sensing.** Two build options, both in the max profile only, not in full ([home-model.md](home-model.md), [wifi-sensing.md](wifi-sensing.md)).
+
+| Piece | As built |
+|-------|----------|
+| Home model (`HOMEMODEL`, needs `COVERAGE`) | `core/libag/home.c`: coverage advice's looks clustered into the home's places (signatures across access points and bands, at most 8); places next to each other from devices walking between them; per place and band the path loss and a distance-like figure (log-distance, exponent 3), the 2.4 GHz offset, the experience per access point; the last 30 days' coverage problems. `agd/home.c` is fed by `agd/coverage.c` |
+| What if | Extender (near a place with a good link, or about halfway), GatewayUp, GatewayCentral, Band24, Band5: problems fixed of the last 30 days', places it may make weak, a confidence and its limits; ranked by problems fixed, the free one first when AIGW is fairly sure of both. `ExtenderHelps` holds or backs the ISP's `MESH_WIFI` signal. After an extender appears: predicted against measured |
+| Wi-Fi sensing (`SENSING`, opt-in) | `core/libag/sense.c`: per device and band, fresh readings only (the frame counter moved), the spread and change point per 30 s window, a sticky HMM per zone and one for presence, the usual movement per hour (weekdays, weekends) and the check-in. `agd/sense.c`: runs only with `sensing.enabled` and a consent; off keeps nothing, `agctl sense off` forgets; events local, the ISP's only with `share_events`; CSI only through a vendor handler |
+| Where it shows | `agctl home`, `agctl home name`, LuCI's Place button, `agctl sense`; data model 1.25 (`Device.X_AIGW_.HomeModel.` with `Place.{i}.` and `Option.{i}.`, `Device.X_AIGW_.Sensing.`); events `HomeAdvice!`, `PresenceChanged!`, `UnusualInactivity!`; ubus `ag.home`, `ag.sense`; cortex gets the home model's counts and best option, never sensing |
+| Honesty | Sensing's accuracy is measured on a simulated home with whole days held out (`tests/test_sense.c`), not on real labelled activity; `agd --sense-bench` and `aigw-selftest` check its CPU on each router |
+
+Installed flash, as `aigw-selftest` counts it (max's budget 2048 KB, full's 1024 KB):
+
+| Profile | `x86_64` | `aarch64_cortex-a53` | `mipsel_24kc` |
+|---------|----------|----------------------|---------------|
+| max | 1012 KB | 1004 KB | 836 KB |
+| ... of it `HOMEMODEL` | 28 KB | 28 KB | 24 KB |
+| ... of it `SENSING` | 12 KB | 16 KB | 12 KB |
+| full (without either) | 944 KB | 936 KB | 780 KB |
+
+Small and minimal are unchanged. New features come in max first, and full keeps its 1024 KB with headroom (v0.51.1). A custom build can add either feature to full.
 
 ---
 

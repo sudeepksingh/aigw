@@ -62,24 +62,32 @@ other features need it, they go too. They were measured before agctl became a li
 | `REMOTE` | Remote access over WireGuard | | full | 8 KB (and the `aigw-remote` package) |
 | `KEYS` | Per-device Wi-Fi keys | | full | 8 KB |
 | `PROVEN` | Proven self-repair: every fix predicted, measured, and undone when it didn't help ([proven-repair.md](proven-repair.md)) | `CARE` | small | 44 KB (aarch64 36, mipsel 36) |
+| `HOMEMODEL` | The home Wi-Fi model: places, and what an extender or a move would fix ([home-model.md](home-model.md)) | `COVERAGE` | **max** (since v0.53.0) | 28 KB (aarch64 28, mipsel 24) |
+| `SENSING` | Wi-Fi sensing, opt-in: presence, movement per zone, a care check-in ([wifi-sensing.md](wifi-sensing.md)) | | **max** (since v0.53.0) | 12 KB (aarch64 16, mipsel 12) |
 
 "In" is the smallest profile that has the feature: small's are in full and max too, full's in max.
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions
-smart queueing, the mesh and area outages when they are built.
+smart queueing, the mesh and area outages when they are built. Wi-Fi sensing names its zones by
+the home model's places when that is built (and by its own `sensing.zone` setting otherwise).
+The home model holds back the ISP's mesh Wi-Fi signal (`OFFERS`) when a free change would do.
+
+`SENSING` is off at run time even when built: it runs only once the home agrees
+(`agctl sense on --i-agree`).
 
 ## Profiles
 
 | Profile | Features | Budget | x86-64 | aarch64 | mipsel |
 |---|---|---|---|---|---|
-| `max` | every feature: for 16 MB of flash or more, and a PC | 2048 KB | 972 KB | 956 KB | 800 KB |
-| `full` (default) | all but max's own: today `FLEETLEARN` | 1024 KB | 944 KB | 932 KB | 780 KB |
+| `max` | every feature: for 16 MB of flash or more, and a PC | 2048 KB | 1012 KB | 1004 KB | 836 KB |
+| `full` (default) | all but max's own: today `FLEETLEARN`, `HOMEMODEL`, `SENSING` | 1024 KB | 944 KB | 936 KB | 780 KB |
 | `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `PROVEN` | 1024 KB | 652 KB | 664 KB | 560 KB |
 | `minimal` | the core only | 1024 KB | 356 KB | 352 KB | 308 KB |
 
-Measured in v0.51.1 (OpenWRT 24.10.8 SDK). Full has 80 KB of headroom on x86-64, 92 on aarch64
-and 244 on mipsel. The installed flash is what `aigw-selftest` counts on the router: the programs,
+Max and full were measured in v0.53.0, small and minimal in v0.51.1 (OpenWRT 24.10.8 SDK). Full has
+80 KB of headroom on x86-64, 88 on aarch64 and 244 on mipsel. In v0.53.0 the home model and Wi-Fi
+sensing added 40 / 48 / 36 KB to max (x86-64 / aarch64 / mipsel). The installed flash is what `aigw-selftest` counts on the router: the programs,
 the scripts, the model and the plug-ins. CI's OpenWRT 24.10 jobs print it for every profile against
 its budget, and fail when one is over (`platform/openwrt/flash-kb.py`).
 

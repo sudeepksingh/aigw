@@ -23,6 +23,8 @@ aigw_feature_sources(AGD_SOURCES METER meter.c)
 aigw_feature_sources(AGD_SOURCES FASTPATH fastpath.c)
 aigw_feature_sources(AGD_SOURCES REMOTE remote.c)
 aigw_feature_sources(AGD_SOURCES KEYS keys.c)
+aigw_feature_sources(AGD_SOURCES HOMEMODEL home.c)
+aigw_feature_sources(AGD_SOURCES SENSING sense.c)
 aigw_feature_sources(AGD_SOURCES PROVEN repair.c)
 
 # agctl, the command line, is part of agd: called as "agctl" (a link, agctl/CMakeLists.txt) agd runs it
