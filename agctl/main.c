@@ -3004,7 +3004,8 @@ int main(int argc, char **argv)
 	}
 	cmd = argv[i++];
 	if (!strcmp(cmd, "version")) {
-		printf("agctl %s\nfeatures: %s\n", AG_VERSION, *AG_FEATURES ? AG_FEATURES : "the core only");
+		printf("agctl %s\nfeatures: %s\nprofile: %s (flash budget %d KB)\n", AG_VERSION,
+		       *AG_FEATURES ? AG_FEATURES : "the core only", AG_PROFILE, AG_FLASH_BUDGET);
 		return 0;
 	}
 	if (not_built(cmd, i < argc ? argv[i] : NULL))

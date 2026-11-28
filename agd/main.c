@@ -1577,6 +1577,11 @@ int main(int argc, char **argv)
 		printf("%s\n", AG_FEATURES);   /* the features this build has, comma-separated */
 		return 0;
 	}
+	if (argc > 1 && !strcmp(argv[1], "--profile")) {
+		/* the profile it was built as (custom: its own pick) and the flash it must stay within (aigw-selftest) */
+		printf("%s %d\n", AG_PROFILE, AG_FLASH_BUDGET);
+		return 0;
+	}
 
 	ag_config_load(&cfg);
 	ag_log_init("agd", ag_log_level_parse(cfg.log_level));
