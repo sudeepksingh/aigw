@@ -21,7 +21,7 @@ AIGW OS does that, in two parts:
   confidence high. One ticket for the plant, not 14."* One TMF621 ticket goes to the ISP for the
   plant, and the homes' own line tickets it explains are not sent.
 
-It is the `AREAPREDICT` feature (it needs `CARE`). It only watches, predicts and tells: it
+It is the `AREAPREDICT` feature (it needs `CARE`), in the **max** profile only. It only watches, predicts and tells: it
 never changes anything in the home, and agd's act mode is not involved.
 
 ## On the gateway
@@ -314,15 +314,15 @@ ignore the extra number.
 
 ## Flash
 
-The feature is in the **full** and **small** profiles (the gateway side is small, needs only
-`CARE`, and is what an ISP needs most: a failing cabinet found before the calls), not in
-**minimal**. Installed flash, as `aigw-selftest` counts it (OpenWRT 24.10.8, budget 1024 KB):
+The feature is in the **max** profile only (budget 2048 KB, for routers with 16 MB of flash or
+more and a PC as access point). Full keeps its 1024 KB with headroom, so new features come in
+max first; it joins full only when full still fits. To have it on a smaller router, build the
+custom profile with `AIGW_FEATURE_AREAPREDICT` on (it needs `CARE`). Installed flash, as
+`aigw-selftest` counts it (OpenWRT 24.10.8):
 
 | Profile | x86-64 | aarch64 | mipsel | Added by this feature |
 |---|---|---|---|---|
-| full | 976 KB | 968 KB | 812 KB | +24, +28, +24 KB (agd, agctl, the bridge) |
-| small | 676 KB | 688 KB | 584 KB | +12, +20, +20 KB |
-| minimal | 392 KB | 384 KB | 340 KB | none (not in it) |
+@FLASHROWS@
 
 The `line-stats` handler adds 4 KB more (in /usr/libexec/aigw, not counted). Cortex's part runs at the ISP, not on the gateway.
 

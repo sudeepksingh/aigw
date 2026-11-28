@@ -26,6 +26,8 @@ aigw_feature_sources(AGD_SOURCES REMOTE remote.c)
 aigw_feature_sources(AGD_SOURCES KEYS keys.c)
 aigw_feature_sources(AGD_SOURCES PROVEN repair.c)
 
+# agctl, the command line, is part of agd: called as "agctl" (a link, agctl/CMakeLists.txt) agd runs it
+list(APPEND AGD_SOURCES ${PROJECT_SOURCE_DIR}/agctl/main.c ${PROJECT_SOURCE_DIR}/agctl/selftest.c)
 add_executable(agd ${AGD_SOURCES})
 target_link_libraries(agd ag ${UBUS_LIBRARY} ${BLOBMSG_JSON_LIBRARY} ${UBOX_LIBRARY} ${UCI_LIBRARY}
   ${NFCT_LIBRARY} ${NFNETLINK_LIBRARY} ${CMAKE_DL_LIBS})

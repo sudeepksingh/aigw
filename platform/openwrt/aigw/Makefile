@@ -140,7 +140,7 @@ define Package/aigw-demo
   TITLE:=AIGW OS demo image only: a simulated home and fleet (QEMU virtual machines only)
   # only in the demo image (platform/openwrt/build-demo-image.sh), which adds
   # python3 for cortex and curl for the bridge; never released as a package
-  DEPENDS:=+aigw +aigw-bridge +luci-app-aigw @AIGW_PROFILE_FULL
+  DEPENDS:=+aigw +aigw-bridge +luci-app-aigw @AIGW_PROFILE_MAX
 endef
 
 define Package/aigw-demo/description
@@ -160,10 +160,19 @@ define Package/aigw/config
     prompt "Profile"
     default AIGW_PROFILE_FULL
     help
-      Which features AIGW OS is built with (docs/features.md). A feature that
+      Which features AIGW OS is built with (docs/features.md). Each profile
+      has all of the one before: Minimal < Small < Full < Max. A feature that
       is not built in takes no flash, and its commands say so.
+
+      Full (the default) fits 1024 KB of flash; Max has every feature and
+      fits 2048 KB, for routers with 16 MB of flash or more. A new feature
+      comes in Max first, and joins Full only when Full still fits its
+      1024 KB with headroom on every architecture. aigw-selftest checks the
+      installed profile's budget.
+  config AIGW_PROFILE_MAX
+    bool "Max: every feature (16 MB of flash or more; 2048 KB budget)"
   config AIGW_PROFILE_FULL
-    bool "Full: every feature"
+    bool "Full: the features most routers have room for (1024 KB budget)"
   config AIGW_PROFILE_SMALL
     bool "Small: for 8 or 16 MB of flash (what an ISP needs most)"
   config AIGW_PROFILE_MINIMAL
@@ -173,55 +182,55 @@ define Package/aigw/config
   endchoice
   config AIGW_FEATURE_WIFI_HEAL
     bool "Self-Healing Wi-Fi, band steering, channel healing, neighbour-aware channels" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_MESH
     bool "Smarter mesh Wi-Fi over an EasyMesh controller" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_COVERAGE
     bool "Coverage placement advice" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_WHY
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_TR143
     bool "TR-143 diagnostics (IPPing, TraceRoute, Download, Upload, NSLookup)" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_CARE
     bool "Proactive care, checks, early warning, the experience score, the speed test" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_TR143
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_UPGRADE
     bool "Firmware upgrades that check themselves and roll back" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_CARE
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_WHY
     bool "Why was it slow, the home's timeline" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_OFFERS
     bool "Signals for the ISP (a faster plan, mesh Wi-Fi, and more)" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_WHY && AIGW_FEATURE_CARE
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_SQM
     bool "Self-tuning smart queueing" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_WHY
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_CALLS
     bool "Calls and games first" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_SQM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_BRIEF
     bool "The help-desk brief" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_CARE && AIGW_FEATURE_WHY
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_PROACTIVE
     bool "Proactive care before the call, tickets to the ISP" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_BRIEF
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
   config AIGW_FEATURE_AREA
     bool "Area outages, fixes held while many homes fail at once" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_AREAPREDICT
     bool "Area fault prediction: line health trends, the shared plant found before it fails" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_CARE
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_CUSTOM
     help
       Each of the line's numbers day by day (sync rate, noise margin, optical
       level, FEC and CRC errors, retrains and drops, the next hop's delay and
@@ -230,15 +239,16 @@ define Package/aigw/config
       cortex compares the homes of one cabinet or OLT and predicts a failing
       shared plant days before the first calls: one ticket, not one per home.
       No faster plan is offered on a degrading line. It only watches and tells.
-      Needs CARE. Adds 24 KB of installed flash on x86-64 (aarch64 28,
-      mipsel 24) in the full profile, 12 to 20 KB in the small one.
+      Needs CARE. In the max profile only (since v0.54.0): full has no room
+      for it within 1024 KB. Adds @KB@ of installed flash.
+      See docs/area-prediction.md.
   config AIGW_FEATURE_FED
     bool "Federated learning" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_FLEETLEARN
     bool "Fleet learning: every home teaches the next (about 30 KB)" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_FED
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_CUSTOM
     help
       How fixes went in other homes (counts per fault, fix and coarse
       context, k homes or more, signed by cortex) ranks the fixes AIGW
@@ -247,29 +257,30 @@ define Package/aigw/config
       by itself: act.mode and the policies decide. Sharing this home's
       summary is opt-in (fleet.share). Needs federated learning (FED);
       uses the bridge (PLUGINS) to reach cortex. About 30 KB of flash.
+      In the max profile (since v0.51.1): it needs an ISP-side collector.
       See docs/fleet-learning.md.
   config AIGW_FEATURE_PLUGINS
     bool "Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_SNI
     bool "Connection names from TLS and QUIC handshakes" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_METER
     bool "Per-device traffic meter (eBPF)" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_FASTPATH
     bool "Kernel fast path (flowtable)" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_REMOTE
     bool "Remote access over WireGuard" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_KEYS
     bool "Per-device Wi-Fi keys" if AIGW_PROFILE_CUSTOM
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
   config AIGW_FEATURE_PROVEN
     bool "Proven self-repair: every fix predicted, measured, undone if it didn't help" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_CARE
-    default y if AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM || AIGW_PROFILE_SMALL
     help
       Each fix AIGW takes or proposes (a channel, a device kept on 2.4 GHz,
       smart queueing, a mesh move) gets a receipt: what it predicts, what was
@@ -333,7 +344,8 @@ define Package/aigw/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-dhcp-event $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-selftest $(1)/usr/sbin/
 	$(INSTALL_DATA) ./files/aigw.hotplug-dhcp $(1)/etc/hotplug.d/dhcp/90-aigw
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/agctl $(1)/usr/bin/
+	# agctl is agd called by another name (one copy of the program in flash)
+	$(LN) ../sbin/agd $(1)/usr/bin/agctl
 	$(INSTALL_BIN) ./files/aigw.init $(1)/etc/init.d/aigw
 	$(INSTALL_CONF) $(AIGW_SRC)/config/aigw $(1)/etc/config/aigw
 	$(INSTALL_BIN) ./files/aigw.uci-defaults $(1)/etc/uci-defaults/90-aigw

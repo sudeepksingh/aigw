@@ -3,7 +3,10 @@
 """The installed flash of AIGW OS's packages, as aigw-selftest counts it (agd, agdns, agctl, aigw-nft,
 aigw-remote, aigw-selftest and /usr/share/aigw), from the .ipk files, without a router.
 
-    platform/openwrt/flash-kb.py dist/openwrt [dist/openwrt-small ...]
+    platform/openwrt/flash-kb.py dist/openwrt [dist/openwrt-small dist/openwrt-max ...]
+
+Each line has the profile's budget (1024 KB; max 2048 KB); a profile over it says OVER and the exit code
+is 1.
 
 Each file takes 4 KB blocks. A directory takes one more on ext4 (the x86-64 VM in CI), none on
 initramfs (the aarch64 and mipsel VMs): the numbers are the ones CI's QEMU jobs print.
@@ -39,9 +42,16 @@ def kb(d, arch):
     return sum((s + 4095) // 4096 * 4 for s in files.values()) + (4 * len(dirs) if arch == 'x86_64' else 0)
 
 
+# each profile's flash budget (cmake/features.cmake, docs/features.md)
+BUDGET = {'minimal': 1024, 'small': 1024, 'full': 1024, 'max': 2048}
+
+over = 0
 for root in sys.argv[1:]:
     name = os.path.basename(root.rstrip('/'))
     profile = name.split('-', 1)[1] if '-' in name else 'full'
     for ver in sorted(os.listdir(root)):
         for arch in sorted(os.listdir(os.path.join(root, ver))):
-            print('%-8s %-8s %-20s %5d KB' % (profile, ver, arch, kb(os.path.join(root, ver, arch), arch)))
+            k, b = kb(os.path.join(root, ver, arch), arch), BUDGET.get(profile, 1024)
+            over += k > b
+            print('%-8s %-8s %-20s %5d KB of %4d KB%s' % (profile, ver, arch, k, b, '  OVER' if k > b else ''))
+sys.exit(1 if over else 0)

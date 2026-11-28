@@ -17,7 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         # the features built (docs/features.md): every test runs; one for a feature not built says SKIP
-        profile: [full, small, minimal]
+        profile: [full, max, small, minimal]
     steps:
       - uses: actions/checkout@v5
       - name: Packages
@@ -185,17 +185,30 @@ jobs:
         with:
           name: ${{ steps.name.outputs.name }}
           path: dist/openwrt/
-      - name: "Small and minimal profiles: built, and the installed flash of each (docs/features.md)"
+      # the max profile (every feature): released beside full, the demo image's, installed in QEMU on x86_64
+      - name: "Max profile: built (every feature, for 16 MB of flash or more)"
+        env:
+          VERSION: ${{ matrix.version }}
+          TARGET: ${{ matrix.target }}
+        run: AIGW_PROFILE=max platform/openwrt/build-sdk.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.name }}-max
+          path: dist/openwrt-max/
+      - name: "Small and minimal profiles: built, and the installed flash of every profile against its budget (docs/features.md)"
         if: matrix.version == '24.10'
         env:
           VERSION: ${{ matrix.version }}
           TARGET: ${{ matrix.target }}
         run: |
           for p in small minimal; do AIGW_PROFILE=$p platform/openwrt/build-sdk.sh; done
-          python3 platform/openwrt/flash-kb.py dist/openwrt dist/openwrt-small dist/openwrt-minimal | tee -a "$GITHUB_STEP_SUMMARY"
+          set -o pipefail   # a profile over its budget fails the job
+          python3 platform/openwrt/flash-kb.py dist/openwrt dist/openwrt-max dist/openwrt-small dist/openwrt-minimal | tee -a "$GITHUB_STEP_SUMMARY"
 
   openwrt-qemu:
-    name: OpenWRT 24.10 in QEMU, ${{ matrix.arch }} (install, aigw-selftest --full, LuCI)
+    # the full profile (the default) on each architecture keeps the bare names; the max profile on x86_64
+    # (aigw-selftest checks its own budget, 2048 KB)
+    name: OpenWRT 24.10 in QEMU, ${{ matrix.arch }}${{ matrix.profile && format(' {0} profile', matrix.profile) || '' }} (install, aigw-selftest --full, LuCI)
     # x86_64 also flashes three times (an upgrade from the ACS, one with a copy kept, the copy written back)
     needs: [openwrt]
     runs-on: ubuntu-24.04
@@ -207,6 +220,7 @@ jobs:
           - { arch: x86_64, artifact: aigw-openwrt-24.10-x86-64 }
           - { arch: mipsel_24kc, artifact: aigw-openwrt-24.10-ramips-mt7621 }
           - { arch: aarch64_cortex-a53, artifact: aigw-openwrt-24.10-mediatek-filogic }
+          - { arch: x86_64, artifact: aigw-openwrt-24.10-x86-64-max, profile: max }
     steps:
       - uses: actions/checkout@v5
       - name: Packages
@@ -230,7 +244,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: qemu-console-log-${{ matrix.arch }}
+          name: qemu-console-log-${{ matrix.arch }}${{ matrix.profile && format('-{0}', matrix.profile) || '' }}
           path: dist/openwrt/qemu-*.log
 
   upgrade:
@@ -307,9 +321,10 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # the demo image shows every feature: the max profile's packages (aigw-demo comes only with it)
       - uses: actions/download-artifact@v4
         with:
-          name: aigw-openwrt-24.10-x86-64
+          name: aigw-openwrt-24.10-x86-64-max
           path: dist/openwrt/
       - name: Build the demo image (OpenWRT's ImageBuilder)
         run: VERSION=24.10 platform/openwrt/build-demo-image.sh
@@ -342,11 +357,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         # architecture-independent packages (e.g. aigw-remote_*_all.ipk) come from
         # every target with the same name: upload one of each. aigw-demo is only for
-        # the demo image (attached, with its checksum and scripts/try-aigw.sh)
+        # the demo image (attached, with its checksum and scripts/try-aigw.sh).
+        # The full profile's packages keep their names. Of the max profile only the
+        # aigw package differs (the other packages are the same in every profile):
+        # one more file per target, named aigw-max_* (it installs as the aigw package)
         run: |
           mkdir -p up
-          find dist -type f \( -name '*.ipk' -o -name '*.apk' \) ! -name 'aigw-demo[_-]*' | sort | while read -r f; do
+          find dist -type f \( -name '*.ipk' -o -name '*.apk' \) ! -name 'aigw-demo[_-]*' ! -path '*-max/*' | sort | while read -r f; do
             [ -e "up/$(basename "$f")" ] || cp "$f" up/
+          done
+          find dist -path '*-max/*' -type f \( -name 'aigw_*.ipk' -o -name 'aigw-[0-9]*.apk' \) | sort | while read -r f; do
+            n=$(basename "$f")
+            [ -e "up/aigw-max${n#aigw}" ] || cp "$f" "up/aigw-max${n#aigw}"
           done
           cp dist/demo-image/aigw-os-demo-x86-64.img.gz dist/demo-image/aigw-os-demo-x86-64.img.gz.sha256 \
             scripts/try-aigw.sh up/

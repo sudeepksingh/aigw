@@ -63,9 +63,23 @@ illustrated version.
 > Cortex compares the homes of one cabinet or OLT and tells one home's line from
 > the shared plant: "the plant serving 14 of 20 homes is degrading; first calls
 > likely in about 3 days". One TMF621 ticket for the plant, not 14; no faster plan
-> sold on a degrading line. In `agctl line`, data model 1.25
+> sold on a degrading line. In the max profile only (feature `AREAPREDICT`;
+> full has no room for it). In `agctl line`, data model 1.25
 > (`Device.X_AIGW_.LineHealth.`), `python3 -m aigw_cortex predict`; measured on
 > simulated fleets with known faults; see [docs/area-prediction.md](docs/area-prediction.md).
+>
+> **v0.51.1:** **A max profile, and room in full.** Profiles are now minimal <
+> small < full < max. **Full** (the default) keeps its 1024 KB of flash with
+> headroom; **max** has every feature, within 2048 KB, for routers with 16 MB of
+> flash or more and for a PC as access point (`install.sh` builds max). Fleet
+> learning moves to max (it needs an ISP-side collector): an upgrade of the full
+> packages leaves it out, and the max package keeps it. New features come in
+> max first and join full only when they fit. `agctl` is now a link to `agd`,
+> one program in flash, which saved 36 to 56 KB everywhere. Releases add one file
+> per target, `aigw-max_*` (max's `aigw` package). Installed flash (KB,
+> x86-64/aarch64/mipsel): full 944/932/780, max 972/956/800, small 652/664/560,
+> minimal 356/352/308. `agd --profile` and `aigw-selftest` check the installed
+> profile's budget. See [docs/features.md](docs/features.md).
 >
 > **v0.51:** **Proven self-repair.** Every fix AIGW takes or proposes now says
 > what it expects ("OnePlus: loss 26% -> under 5% within 10 min"), is measured
@@ -79,7 +93,7 @@ illustrated version.
 > confidence gate (off by default) lets an ISP allow acting only for kinds of fix
 > proven here; "fixed by AIGW" now counts only proven fixes. Feature `PROVEN`, in
 > the full and small profiles, 40 KB. Installed flash (KB, x86-64/aarch64/mipsel):
-> full 992/980/820, small 708/708/600; see
+> full 1024/1008/848 (measured after the rebase on v0.50), small 708/712/604; see
 > [docs/proven-repair.md](docs/proven-repair.md).
 >
 > **v0.50:** **Every home teaches the next.** Fleet learning: how a fix went in
