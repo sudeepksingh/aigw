@@ -203,8 +203,12 @@ For the ISP, devices are named by kind ("a TV") and places by number, unless
 
 ## Size
 
-Installed flash it adds to the full profile: 28 KB on x86-64, 32 KB on
-aarch64, 28 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them).
-6 KB of RAM for the model, and about 12 KB in the state file.
-In the **full** profile only: it needs coverage advice, which the small profile
-leaves out.
+In the **max** profile only (2048 KB of flash), not in full or small. New
+features come in max first, and full keeps its 1024 KB with headroom. A custom
+build can add it to full (`-DAIGW_FEATURE_HOMEMODEL=ON`, or "Custom" in
+`make menuconfig`). Its flash budget is then max's, 2048 KB. It needs coverage
+advice, which the small profile leaves out.
+
+Installed flash it adds to the max profile: 28 KB on x86-64, 28 KB on
+aarch64, 24 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them; v0.53.0).
+It uses 6 KB of RAM for the model and about 12 KB in the state file.

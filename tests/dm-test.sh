@@ -93,8 +93,8 @@ js() { python3 -c "import json,sys; d=json.load(sys.stdin); $1"; }
 
 echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
-if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys proven; then   # the full build: every command and event, and the published file
-NEV=18; has fleetlearn && NEV=$((NEV + 2))     # Repair!, RepairUndone!; FleetPriorsReceived!, FleetChoice!
+if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys proven; then   # the full and max builds: every command and event
+NEV=18; has fleetlearn && NEV=20     # Repair!, RepairUndone!; FleetPriorsReceived!, FleetChoice!
 has homemodel && NEV=$((NEV + 1))      # HomeAdvice!
 has sensing && NEV=$((NEV + 2))        # PresenceChanged!, UnusualInactivity!
 js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 16 and len(d['events']) == $NEV and
@@ -112,7 +112,8 @@ names = {o.get("name") + p.get("name") for o in root.iter("object") for p in o.f
 missing = [p["path"] for p in s["params"] if p["path"] not in names]
 sys.exit("missing in XML: %s" % missing[:5] if missing else 0)
 EOF
-if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys proven; then
+# the published file has every feature's data model: the max profile's
+if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed fleetlearn plugins sni meter fastpath remote keys proven; then
 [ "${AIGW_UPDATE_DM_XML:-0}" = 1 ] && cp "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml"   # after changing the data model
 cmp -s "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml" ||
 	fail "docs/datamodel/aigw-dm.xml is out of date: agctl -j dm schema | scripts/dm-xml > docs/datamodel/aigw-dm.xml"
@@ -146,6 +147,13 @@ echo "== the features built in (docs/features.md): said the same everywhere; a m
 F=$("$BIN/agd/agd" --features)
 [ "$(agctl dm get Device.X_AIGW_.Features | sed 's/^[^=]*= *//')" = "$F" ] || fail "Device.X_AIGW_.Features: $(agctl dm get Device.X_AIGW_.Features), agd --features: $F"
 agctl version | grep -qx "features: ${F:-the core only}" || fail "agctl version: $(agctl version)"
+# the profile and its flash budget (aigw-selftest's): 2048 KB with a feature only max has, else 1024
+P=$("$BIN/agd/agd" --profile)
+case $P in minimal\ 1024|small\ 1024|full\ 1024|max\ 2048|custom\ 1024|custom\ 2048) ;; *) fail "agd --profile: $P" ;; esac
+if has fleetlearn || has homemodel || has sensing; then [ "${P##* }" = 2048 ] || fail "a feature only max has: budget 2048 ($P)"
+else [ "${P##* }" = 1024 ] || fail "without max's features: budget 1024 ($P)"; fi
+agctl version | grep -qx "profile: ${P% *} (flash budget ${P##* } KB)" || fail "agctl version's profile: $(agctl version)"
+echo "   profile ${P% *}, flash budget ${P##* } KB"
 if ! has mesh; then
 	agctl mesh > "$T/nb.out" 2>&1 && fail "agctl mesh without mesh Wi-Fi built in"
 	grep -q 'agctl mesh: not built in (AIGW_FEATURE_MESH)' "$T/nb.out" || fail "agctl mesh: $(cat "$T/nb.out")"

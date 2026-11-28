@@ -271,16 +271,21 @@ same key replaces the earlier one, so a receipt corrects what act.c guessed.
 Network > aigw > AIGW OS features. It needs `FED` (federated learning: the
 same channel and signed-update path); it reaches cortex through the bridge
 (`PLUGINS`), and uses proactive care (`PROACTIVE`) and early warning (`CARE`)
-when they are built. It is in the **full** profile only: the small profile has
-neither `FED` nor the bridge. Without it, `agctl fleet` says
+when they are built. Since v0.51.1 it is in the **max** profile (every feature,
+2048 KB of flash; [features.md](features.md)), not full: it needs an ISP-side
+collector (cortex) anyway, and full keeps its 1024 KB with headroom. A full
+build with `-DAIGW_FEATURE_FLEETLEARN=ON` (or Custom in menuconfig) is max.
+Without it, `agctl fleet` says
 `not built in (AIGW_FEATURE_FLEETLEARN)`, the data model has no
 `FleetLearning.` object, and a `fleet` config section is ignored.
 
 ### Flash
 
-Installed flash of the full profile (as `aigw-selftest` counts it, OpenWRT
-24.10.8 SDK): x86-64 980 KB, aarch64 972 KB, mipsel 812 KB of the 1024 KB
-budget. Fleet learning adds 28, 32 and 24 KB (v0.48: 952, 940, 788). x86-64
+As measured in v0.50 (OpenWRT 24.10.8 SDK, as `aigw-selftest` counts it): the
+full profile, with fleet learning then, was x86-64 980 KB, aarch64 972 KB,
+mipsel 812 KB of the 1024 KB budget. Fleet learning adds 28, 32 and 24 KB
+(v0.48: 952, 940, 788). Today's figures per profile are in
+[features.md](features.md). At the time, x86-64
 and aarch64 have 44 and 52 KB left, so later features need room made at build
 level before anything is dropped: for example one multi-call binary for agd
 and agctl (they share libag, which each links in now), or `-Oz` where the

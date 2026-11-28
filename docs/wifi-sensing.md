@@ -201,7 +201,10 @@ model's place names when that is built too.
 
 ## Size
 
-Installed flash it adds to the full profile: 16 KB on x86-64, 20 KB on
-aarch64, 12 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them).
-In the **full** profile only: it is an opt-in service, not
-what an ISP needs most on 8 or 16 MB of flash.
+In the **max** profile only (2048 KB of flash), not in full or small. New
+features come in max first, and full keeps its 1024 KB with headroom. A custom
+build can add it to full (`-DAIGW_FEATURE_SENSING=ON`, or "Custom" in
+`make menuconfig`). Its flash budget is then max's, 2048 KB.
+
+Installed flash it adds to the max profile: 12 KB on x86-64, 16 KB on
+aarch64, 12 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them; v0.53.0).

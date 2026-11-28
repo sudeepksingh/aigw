@@ -524,9 +524,9 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `agdns` | ~150 KB | ~3 MB |
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
-| *measured v0.53, installed (SDK 24.10.8, `flash-kb.py`)* | *full 1064 KB x86-64, 1060 KB aarch64, 888 KB mipsel: over the budget on x86-64 and aarch64; small 708 / 708 / 600; minimal 392 / 384 / 340* | — |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
-| *measured v0.51, installed (SDK packages)* | *full 992 KB x86-64, 980 KB aarch64, 820 KB mipsel; small 708 / 708 / 600; minimal 392 x86-64* | — |
+| *measured v0.51.1, installed (SDK packages)* | *full 944 KB x86-64, 932 KB aarch64, 780 KB mipsel; max 972 / 956 / 800 (budget 2048); small 652 / 664 / 560; minimal 356 / 352 / 308* | — |
+| *measured v0.53, installed (SDK 24.10.8, `flash-kb.py`)* | *full 944 KB x86-64, 936 KB aarch64, 780 KB mipsel; max 1012 / 1004 / 836 (budget 2048), with the home model and sensing* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |
@@ -1249,7 +1249,7 @@ Installed flash, OpenWRT 24.10.8 SDK, as `aigw-selftest` counts it (budget 1024 
 
 Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-test.sh`, the full local suite on the full, small and minimal profiles, `PROVEN` built alone with `CARE` and `TR143`, and the full build without it (no warnings).
 
-**As built in v0.53: a model of the home's Wi-Fi, and Wi-Fi sensing.** Two build options, both in the full profile ([home-model.md](home-model.md), [wifi-sensing.md](wifi-sensing.md)).
+**As built in v0.53: a model of the home's Wi-Fi, and Wi-Fi sensing.** Two build options, both in the max profile only, not in full ([home-model.md](home-model.md), [wifi-sensing.md](wifi-sensing.md)).
 
 | Piece | As built |
 |-------|----------|
@@ -1259,17 +1259,16 @@ Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-t
 | Where it shows | `agctl home`, `agctl home name`, LuCI's Place button, `agctl sense`; data model 1.25 (`Device.X_AIGW_.HomeModel.` with `Place.{i}.` and `Option.{i}.`, `Device.X_AIGW_.Sensing.`); events `HomeAdvice!`, `PresenceChanged!`, `UnusualInactivity!`; ubus `ag.home`, `ag.sense`; cortex gets the home model's counts and best option, never sensing |
 | Honesty | Sensing's accuracy is measured on a simulated home with whole days held out (`tests/test_sense.c`), not on real labelled activity; `agd --sense-bench` and `aigw-selftest` check its CPU on each router |
 
-Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
+Installed flash, as `aigw-selftest` counts it (max's budget 2048 KB, full's 1024 KB):
 
 | Profile | `x86_64` | `aarch64_cortex-a53` | `mipsel_24kc` |
 |---------|----------|----------------------|---------------|
-| full | 1064 KB | 1060 KB | 888 KB |
-| ... of it `HOMEMODEL` | 28 KB | 32 KB | 28 KB |
-| ... of it `SENSING` | 16 KB | 20 KB | 12 KB |
-| small | 708 KB | 708 KB | 600 KB |
-| minimal | 392 KB | 384 KB | 340 KB |
+| max | 1012 KB | 1004 KB | 836 KB |
+| ... of it `HOMEMODEL` | 28 KB | 28 KB | 24 KB |
+| ... of it `SENSING` | 12 KB | 16 KB | 12 KB |
+| full (without either) | 944 KB | 936 KB | 780 KB |
 
-Without these two features the full profile (v0.51) is 1024 / 1012 / 848 KB: with them it is 40 KB over the budget on x86-64 and 36 KB on aarch64. Which features the full profile keeps, or the budget, is the maintainers' decision.
+Small and minimal are unchanged. New features come in max first, and full keeps its 1024 KB with headroom (v0.51.1). A custom build can add either feature to full.
 
 ---
 

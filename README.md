@@ -71,11 +71,25 @@ illustrated version.
 > only "home / away" and "unusual inactivity", and only if the home allows it.
 > Accuracy is stated on a simulated home with whole days held out, and is not
 > yet validated on real, labelled activity. `agctl home`, `agctl sense`, data
-> model 1.25; two new build options (`HOMEMODEL`, `SENSING`). Installed flash
-> (`aigw-selftest`, KB, x86-64/aarch64/mipsel): full 1064/1060/888, **over the
-> 1024 KB budget on x86-64 and aarch64** (the home model adds 28/32/28, sensing
-> 16/20/12; small and minimal unchanged); see [docs/home-model.md](docs/home-model.md) and
+> model 1.25; two new build options (`HOMEMODEL`, `SENSING`), both in the
+> **max** profile only, not in full, small or minimal. Installed flash
+> (`aigw-selftest`, KB, x86-64/aarch64/mipsel): max 1012/1004/836 of 2048 (the
+> home model adds 28/28/24, sensing 12/16/12), full 944/936/780 of 1024. See
+> [docs/home-model.md](docs/home-model.md) and
 > [docs/wifi-sensing.md](docs/wifi-sensing.md).
+>
+> **v0.51.1:** **A max profile, and room in full.** Profiles are now minimal <
+> small < full < max. **Full** (the default) keeps its 1024 KB of flash with
+> headroom; **max** has every feature, within 2048 KB, for routers with 16 MB of
+> flash or more and for a PC as access point (`install.sh` builds max). Fleet
+> learning moves to max (it needs an ISP-side collector): an upgrade of the full
+> packages leaves it out, and the max package keeps it. New features come in
+> max first and join full only when they fit. `agctl` is now a link to `agd`,
+> one program in flash, which saved 36 to 56 KB everywhere. Releases add one file
+> per target, `aigw-max_*` (max's `aigw` package). Installed flash (KB,
+> x86-64/aarch64/mipsel): full 944/932/780, max 972/956/800, small 652/664/560,
+> minimal 356/352/308. `agd --profile` and `aigw-selftest` check the installed
+> profile's budget. See [docs/features.md](docs/features.md).
 >
 > **v0.51:** **Proven self-repair.** Every fix AIGW takes or proposes now says
 > what it expects ("OnePlus: loss 26% -> under 5% within 10 min"), is measured
@@ -89,7 +103,7 @@ illustrated version.
 > confidence gate (off by default) lets an ISP allow acting only for kinds of fix
 > proven here; "fixed by AIGW" now counts only proven fixes. Feature `PROVEN`, in
 > the full and small profiles, 40 KB. Installed flash (KB, x86-64/aarch64/mipsel):
-> full 992/980/820, small 708/708/600; see
+> full 1024/1008/848 (measured after the rebase on v0.50), small 708/712/604; see
 > [docs/proven-repair.md](docs/proven-repair.md).
 >
 > **v0.50:** **Every home teaches the next.** Fleet learning: how a fix went in

@@ -45,7 +45,9 @@ if [ "${AIGW_CWMP:-0}" = 1 ]; then
 fi
 
 step "Building AIGW"
-cmake -S "$REPO" -B "$BUILD" -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release $USP_OPT >/dev/null
+# a PC has the room: the max profile, every feature (AIGW_PROFILE=full or small for another, docs/features.md)
+cmake -S "$REPO" -B "$BUILD" -DCMAKE_INSTALL_PREFIX="$PREFIX" -DCMAKE_BUILD_TYPE=Release \
+	-DAIGW_PROFILE="${AIGW_PROFILE:-max}" $USP_OPT >/dev/null
 cmake --build "$BUILD" -j "$(nproc)" >/dev/null
 (cd "$BUILD" && ctest --output-on-failure) >/dev/null || die "unit tests failed (run: cd $BUILD && ctest --output-on-failure)"
 cmake --install "$BUILD" >/dev/null
