@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.51.2
+PKG_VERSION:=0.52.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -151,7 +151,7 @@ define Package/aigw-demo/description
 endef
 
 # the features (cmake/features.cmake, docs/features.md): make menuconfig, Network > aigw
-AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS PROVEN
+AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS APPQOE BRIEF PROACTIVE AREA FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS PROVEN
 PKG_CONFIG_DEPENDS:=$(foreach f,$(AIGW_FEATURES),CONFIG_AIGW_FEATURE_$(f))
 
 define Package/aigw/config
@@ -216,6 +216,22 @@ define Package/aigw/config
     bool "Calls and games first" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_SQM
     default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_APPQOE
+    bool "Per-app experience: how each call, stream and game went, and why (about 40 KB)" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_WHY
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_CUSTOM
+    help
+      Tells video calls, voice calls, screen shares, streams, cloud and online
+      games, large downloads, browsing and smart-home devices apart from their
+      connections' traits and server-name families (a rules file an ISP can
+      change, /etc/aigw/apps.rules), estimates how each went in the app's own
+      terms (a call's MOS and freezes, a stream's rebuffering, a game's lag),
+      and explains each bad moment from the timeline: Wi-Fi, the line full,
+      the ISP or the far end. agctl apps, Device.X_AIGW_.AppExperience.,
+      AppMoment!, and the help desk's brief. About 40 KB of flash (48 on aarch64, 36 on mipsel),
+      about 100 KB of memory. In the max profile only (not full, not small):
+      new features join full when it still fits 1024 KB with headroom.
+      See docs/app-experience.md.
   config AIGW_FEATURE_BRIEF
     bool "The help-desk brief" if AIGW_PROFILE_CUSTOM
     depends on AIGW_FEATURE_CARE && AIGW_FEATURE_WHY

@@ -1,0 +1,71 @@
+# AIGW OS per-app experience: how connections are told apart (docs/app-experience.md).
+# An ISP or OEM can change this file (apps.rules) without new code: agctl apps --reload.
+#
+# kind <Kind> <condition>...     the first rule that matches wins, top to bottom
+#   over the connection's last looks (one every apps.poll s):
+#   proto=udp,tcp,quic            quic is UDP to port 443; any when not given
+#   port=3478-3481,5349           the far end's port
+#   down=lo-hi  up=lo-hi          kbit/s, the mean each way
+#   pps=lo-hi                     packets a second, both ways together
+#   pkt=lo-hi                     the mean packet of the busier way, bytes
+#   ratio=lo-hi                   up bytes per 100 down bytes
+#   duty=lo-hi                    % of the looks with traffic
+#   life=lo-hi                    seconds since the connection began
+#   steady=N                      the packet rate's spread at most N%
+#   looks=N                       how many of the last looks (3; at most 6)
+#   named=1                       only when a family below named the server
+#   iot=1                         only on a smart-home device (its type, or the iot zone)
+#   conf=N                        how sure, in %, without a family's name (with one: +25)
+# family <Name> <Kind>[,<Kind>] <server name suffix>...   (Name: _ for a space)
+# browse <N>                      N new web connections a minute from a device is browsing
+#
+# Kinds: VoiceCall VideoCall ScreenShare VideoStreaming CloudGaming OnlineGaming LargeDownload
+#        Browsing SmartHome
+
+# real time, by the ports they use (calls.c's hints), then by their traits alone
+kind ScreenShare proto=udp port=3478-3481,5349,8801-8810,19302-19309,16384-16402,9000 up=300-20000 ratio=250- conf=70
+kind VideoCall proto=udp port=3478-3481,5349,8801-8810,19302-19309,16384-16402,9000 down=200-20000 pps=30- conf=75
+kind VoiceCall proto=udp port=3478-3481,5349,8801-8810,19302-19309,16384-16402,9000 down=6-250 up=6-250 pps=8- conf=75
+kind OnlineGaming proto=udp port=3074,3659,27000-27050,7000-7500,19132-19133 pps=10- down=2-3000 conf=75
+kind CloudGaming proto=udp down=4000-120000 ratio=0-8 pps=300- conf=55
+kind ScreenShare proto=udp up=400-20000 down=0-1500 ratio=300- pps=30- steady=80 conf=50
+kind VideoCall proto=udp down=250-20000 up=40-20000 pps=60- ratio=5-1000 pkt=300- steady=70 conf=55
+kind VoiceCall proto=udp down=8-300 up=8-300 pps=16-260 pkt=40-450 ratio=25-400 steady=60 conf=50
+kind OnlineGaming proto=udp down=2-1500 up=2-800 pps=16-300 pkt=30-700 ratio=10-1000 steady=70 named=1 conf=50
+# the rest: big and steady is a download, big and bursty a stream, a trickle on a smart-home device
+kind LargeDownload proto=tcp,quic down=6000- ratio=0-6 pkt=1000- duty=100- steady=35 looks=4 conf=50
+kind VideoStreaming proto=tcp,quic down=400-120000 ratio=0-8 pkt=700- looks=3 conf=50
+kind SmartHome iot=1 down=0-64 up=0-64 life=60- conf=60
+browse 4
+
+# server-name families (from the name the device looked up, or the TLS/QUIC handshake)
+family Zoom VideoCall,VoiceCall,ScreenShare zoom.us zoom.com zoomgov.com
+family Teams VideoCall,VoiceCall,ScreenShare teams.microsoft.com teams.live.com skype.com lync.com
+family Google_Meet VideoCall,VoiceCall,ScreenShare meet.google.com stun.l.google.com
+family WhatsApp VoiceCall,VideoCall whatsapp.net whatsapp.com
+family FaceTime VideoCall,VoiceCall facetime.apple.com
+family Webex VideoCall,VoiceCall,ScreenShare webex.com
+family Discord VoiceCall,VideoCall,ScreenShare discord.media discord.gg
+family Signal VoiceCall,VideoCall signal.org
+family YouTube VideoStreaming googlevideo.com youtube.com
+family Netflix VideoStreaming nflxvideo.net netflix.com nflxso.net
+family Prime_Video VideoStreaming aiv-cdn.net primevideo.com
+family Disney+ VideoStreaming dssott.com disneyplus.com bamgrid.com
+family Hotstar VideoStreaming hotstar.com hotstarext.com
+family JioCinema VideoStreaming jiocinema.com
+family Twitch VideoStreaming ttvnw.net twitch.tv
+family GeForce_NOW CloudGaming nvidiagrid.net geforcenow.com
+family Xbox_Cloud CloudGaming gssv-play-prod.xboxlive.com xcloud.xboxlive.com
+family Xbox_Live OnlineGaming,LargeDownload xboxlive.com
+family PlayStation OnlineGaming,LargeDownload playstation.net
+family Steam OnlineGaming,LargeDownload steamserver.net valve.net steamcontent.com
+family Riot_Games OnlineGaming riotgames.com
+family Epic_Games OnlineGaming,LargeDownload epicgames.com epicgames.dev
+family Roblox OnlineGaming roblox.com rbxcdn.com
+family Battle.net OnlineGaming,LargeDownload battle.net blizzard.com
+family Windows_Update LargeDownload windowsupdate.com delivery.mp.microsoft.com
+family Apple_Updates LargeDownload swcdn.apple.com updates.cdn-apple.com
+family Tuya SmartHome tuyaus.com tuyaeu.com tuyacn.com tuyain.com
+family Ring SmartHome ring.com
+family Philips_Hue SmartHome meethue.com
+family Nest SmartHome nest.com

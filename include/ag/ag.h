@@ -25,6 +25,7 @@
 #define AG_EV_CARE "ag.care"       /* proactive care: a problem found, reported, over */
 #define AG_EV_UPGRADE "ag.upgrade" /* a firmware upgrade: watched, kept, worse, rolled back */
 #define AG_EV_CALL "ag.call"       /* a call or game noticed, and over (with how it went) */
+#define AG_EV_APP "ag.app"         /* per-app experience: a bad moment (a call froze, a stream buffered), and why */
 #define AG_EV_TICKET "ag.ticket"   /* proactive care, before the call: a ticket raised, fixed, over */
 #define AG_EV_MESH "ag.mesh"       /* mesh Wi-Fi: the controller found or lost, a device moved, a backhaul, a trial */
 #define AG_EV_FLEET "ag.fleet"     /* fleet learning: priors received, a summary shared, a choice the fleet changed */
@@ -197,6 +198,13 @@ struct ag_config {
 	int calls_share;          /* the ISP may see the reports: kinds and numbers, never device or app names */
 	int calls_poll;           /* s between looks at the connections' counters */
 	int calls_min_s;          /* a call or game shorter than this isn't reported */
+	/* per-app experience (agd/appqoe.c) */
+	int apps;                 /* sessions of app kinds recognised, how each went, bad moments explained */
+	int apps_names;           /* server-name families (zoom.us is Zoom) help tell apps apart; 0: traits only */
+	int apps_share;           /* the ISP may see it (data model, AppMoment!): kinds, numbers, causes, never names */
+	int apps_poll;            /* s between looks at the connections' counters */
+	int apps_min_s;           /* a session is scored once it lasted this long */
+	char apps_rules[256];     /* the rules file (kinds, families); missing: the built-in rules */
 	/* signals for the ISP (agd/offers.c) */
 	int offers;               /* a faster plan, mesh Wi-Fi, smart queueing, a customer at risk, a line to repair */
 	int offers_share;         /* the ISP may see them (data model, cortex): counts and words, never names */

@@ -59,7 +59,11 @@ static void usage(void)
 		"                      \"why was it slow?\" afterwards: the home's timeline (the last hour by\n"
 		"                      default) explained, with what happened in order\n"
 		"  brief [device] [now | \"last 2h\" | \"tonight 20:00-22:00\" | --since 19:30] [--no-check]\n"
-		"        [--speed] [--propose]\n"
+		"        [--speed] [--propose]"
+#if AIGW_FEATURE_APPQOE
+		" [--app calls|streaming|gaming|...]"
+#endif
+		"\n"
 		"                      the help desk's answer: the fault in one word, the evidence, what AIGW\n"
 		"                      did, what to tell the customer, a remote fix (--propose: a decision\n"
 		"                      that waits for a yes) and whether a technician should go out\n"
@@ -67,6 +71,11 @@ static void usage(void)
 		"                      everything else slows (bufferbloat), and keeps it only if it helped\n"
 		"  calls               calls and games first: the ones now (first in smart queueing), how\n"
 		"                      the last one went while the line was full, the counts\n"
+#if AIGW_FEATURE_APPQOE
+		"  apps [device] [--app calls|streaming|gaming|downloads|browsing|smart-home] [--reload]\n"
+		"                      per-app experience: how each call, stream and game went (scores by\n"
+		"                      kind), its bad moments (a call froze, a stream buffered) and why\n"
+#endif
 		"  mesh [--run]        mesh Wi-Fi over the EasyMesh controller: access points, their backhaul,\n"
 		"                      each device's access point and link, the channel plan, AIGW's moves\n"
 		"  mesh steer <device> <BSSID> [time]   move a device to another access point of the mesh\n"
@@ -2471,6 +2480,84 @@ static void show_calls(struct ubus_request *req, int type, struct blob_attr *msg
 }
 #endif
 
+#if AIGW_FEATURE_APPQOE
+/* agctl apps: per-app experience: the scores, sessions now, bad moments and why, recent sessions */
+static void show_apps(struct ubus_request *req, int type, struct blob_attr *msg)
+{
+	struct blob_attr *s, *r = field(msg, "rules"), *c = field(msg, "cost");
+	char since[32], until[32];
+	size_t rem;
+	int n = 0;
+
+	(void)req;
+	(void)type;
+	if (json_out)
+		return print_json(msg);
+	if (*fstr(msg, "error"))
+		printf("agctl apps: %s\n", fstr(msg, "error"));
+	if (!fnum(msg, "enabled")) {
+		printf("Per-app experience is off (apps.enabled in /etc/config/aigw).\n");
+		return;
+	}
+	if (!fnum(msg, "flows")) {
+		printf("Per-app experience needs the flow sensor (flow.enabled), which is off.\n");
+		return;
+	}
+	printf("Per-app experience: %s; server names %s; the ISP %s\n", fstr(msg, "status"),
+	       fnum(msg, "names") ? "help tell apps apart (families only, never a name kept)" : "not used (apps.names 0)",
+	       fnum(msg, "shared") ? "sees kinds, numbers and causes, never names" : "sees nothing (apps.share 0)");
+	if (r)
+		printf("  rules     %llu kinds, %llu families, %s%s%s\n", (unsigned long long)fnum(r, "kinds"),
+		       (unsigned long long)fnum(r, "families"), *fstr(r, "file") ? fstr(r, "file") : "built in",
+		       *fstr(r, "error") ? "; skipped: " : "", fstr(r, "error"));
+	printf("  scores    ");
+	blobmsg_for_each_attr(s, field(msg, "scores"), rem) {
+		int sc = (int32_t)fnum(s, "score");
+
+		if (!fnum(s, "minutes"))
+			continue;
+		if (sc >= 0)
+			printf("%s%s %d%% (%llu min)", n++ ? ", " : "", fstr(s, "words"), sc, (unsigned long long)fnum(s, "minutes"));
+		else
+			printf("%s%s learning (%llu min)", n++ ? ", " : "", fstr(s, "words"), (unsigned long long)fnum(s, "minutes"));
+	}
+	printf("%s\n", n ? " over 7 days" : "none yet: nothing used long enough");
+	n = 0;
+	blobmsg_for_each_attr(s, field(msg, "live"), rem) {
+		clock_of(fnum(s, "since"), since, sizeof(since));
+		printf("  now       %s on %s%s%s%s since %s, %llu min%s%s%s%s\n", fstr(s, "words"), fstr(s, "device"),
+		       *fstr(s, "app") ? " (" : "", fstr(s, "app"), *fstr(s, "app") ? ")" : "", since,
+		       (unsigned long long)fnum(s, "minutes"), *fstr(s, "now") ? ", " : "", fstr(s, "now"),
+		       *fstr(s, "mos") ? ", MOS " : "", fstr(s, "mos"));
+		n++;
+	}
+	if (!n)
+		printf("  now       nothing\n");
+	n = 0;
+	blobmsg_for_each_attr(s, field(msg, "moments"), rem) {
+		printf("  %s %s (confidence %llu%%)\n", n++ ? "         " : "moments  ", fstr(s, "summary"),
+		       (unsigned long long)fnum(s, "confidence"));
+	}
+	if (!n)
+		printf("  moments   none\n");
+	n = 0;
+	blobmsg_for_each_attr(s, field(msg, "sessions"), rem) {
+		if (n >= 5)
+			break;
+		clock_of(fnum(s, "start"), since, sizeof(since));
+		clock_of(fnum(s, "end"), until, sizeof(until));
+		printf("  %s %s on %s%s%s%s, %s-%s, %llu min, %llu bad\n", n++ ? "         " : "sessions ", fstr(s, "words"),
+		       fstr(s, "device"), *fstr(s, "app") ? " (" : "", fstr(s, "app"), *fstr(s, "app") ? ")" : "", since, until,
+		       (unsigned long long)fnum(s, "minutes"), (unsigned long long)fnum(s, "bad_minutes"));
+	}
+	if (c)
+		printf("  cost      %llu of %llu connections watched, %llu sessions, %llu KB of memory, %llu us a look\n",
+		       (unsigned long long)fnum(c, "connections"), (unsigned long long)fnum(c, "connections_max"),
+		       (unsigned long long)fnum(c, "sessions"), (unsigned long long)fnum(c, "ram_bytes") / 1024,
+		       (unsigned long long)fnum(c, "look_us"));
+}
+#endif
+
 #if AIGW_FEATURE_WIFI_HEAL
 /* an hour's value from an array of 24 (-1: not known) */
 static int hour_val(struct blob_attr *arr, int h)
@@ -2949,6 +3036,7 @@ static const struct { const char *cmd, *sub, *feature; int built; } features[] =
 	{ "upgrade", NULL, "UPGRADE", AIGW_FEATURE_UPGRADE },
 	{ "sqm", NULL, "SQM", AIGW_FEATURE_SQM },
 	{ "calls", NULL, "CALLS", AIGW_FEATURE_CALLS },
+	{ "apps", NULL, "APPQOE", AIGW_FEATURE_APPQOE },
 	{ "channels", NULL, "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
 	{ "channel", NULL, "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
 	{ "wifi", "report", "WIFI_HEAL", AIGW_FEATURE_WIFI_HEAL },
@@ -3125,6 +3213,27 @@ int agctl_main(int argc, char **argv)
 	} else if (!strcmp(cmd, "calls")) {
 		rc = call("ag", "calls", NULL, show_calls);
 #endif
+#if AIGW_FEATURE_APPQOE
+	} else if (!strcmp(cmd, "apps")) {
+		blob_buf_init(&args, 0);
+		for (; i < argc; i++) {
+			if (!strcmp(argv[i], "--reload"))
+				blobmsg_add_u8(&args, "reload", 1);
+			else if (!strcmp(argv[i], "--app") && i + 1 < argc)
+				blobmsg_add_string(&args, "app", argv[++i]);
+			else if (!strcmp(argv[i], "--limit") && i + 1 < argc)
+				blobmsg_add_u32(&args, "limit", (uint32_t)atoi(argv[++i]));
+			else if (argv[i][0] != '-')
+				blobmsg_add_string(&args, "device", argv[i]);
+			else {
+				fprintf(stderr, "agctl: usage: agctl apps [device] [--app calls|streaming|gaming|...] [--limit N] [--reload]\n");
+				blob_buf_free(&args);
+				return 1;
+			}
+		}
+		rc = call("ag", "apps", args.head, show_apps);
+		blob_buf_free(&args);
+#endif
 #if AIGW_FEATURE_WIFI_HEAL
 	} else if (!strcmp(cmd, "channels")) {
 		rc = call("ag", "channels", NULL, show_channels);
@@ -3165,14 +3274,16 @@ int agctl_main(int argc, char **argv)
 #if AIGW_FEATURE_BRIEF
 	} else if (!strcmp(cmd, "brief")) {
 		char period[96] = "";
-		const char *host = NULL;
+		const char *host = NULL, *app = NULL;
 		int check = 1, speed = 0, propose = 0;
 		size_t pl = 0;
 
 		for (; i < argc; i++) {
 			const char *o = argv[i];
 
-			if (!strcmp(o, "--no-check"))
+			if (!strcmp(o, "--app") && i + 1 < argc)
+				app = argv[++i];        /* "my calls drop": calls, streaming, gaming, ... */
+			else if (!strcmp(o, "--no-check"))
 				check = 0;
 			else if (!strcmp(o, "--speed"))
 				speed = 1;
@@ -3199,6 +3310,8 @@ int agctl_main(int argc, char **argv)
 			blobmsg_add_u8(&args, "speed", 1);
 		if (propose)
 			blobmsg_add_u8(&args, "propose", 1);
+		if (app)
+			blobmsg_add_string(&args, "app", app);
 		call_timeout = 150 * 1000;              /* a fresh check, and the speed test */
 		rc = call("ag", "brief", args.head, show_brief);
 		blob_buf_free(&args);

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AIGW OS data model 1.24. Made by scripts/dm-xml from agd's schema; do not edit. -->
+<!-- AIGW OS data model 1.25. Made by scripts/dm-xml from agd's schema; do not edit. -->
 <dm:document xmlns:dm="urn:broadband-forum-org:cwmp:datamodel-1-10"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-             spec="urn:aigw-os:aigw-dm-1-24" file="aigw-dm-1-24.xml">
+             spec="urn:aigw-os:aigw-dm-1-25" file="aigw-dm-1-25.xml">
   <description>AIGW OS, the AI-powered operating system for home gateways: devices, alerts and decisions, served alike over USP (TR-369) and TR-069. Vendor extensions use the X_AIGW_ prefix; an ISP or OEM sets its own with mgmt.vendor_prefix.</description>
-  <model name="AIGW-OS:1.24">
+  <model name="AIGW-OS:1.25">
     <object name="Device." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.DNS." access="readOnly" minEntries="1" maxEntries="1">
@@ -104,6 +104,7 @@
           <parameter name="Fresh"><syntax><string/></syntax></parameter>
           <parameter name="SpeedTest"><syntax><string/></syntax></parameter>
           <parameter name="Propose"><syntax><string/></syntax></parameter>
+          <parameter name="App"><syntax><string/></syntax></parameter>
         </input>
         <output>
           <parameter name="Fault"><syntax><string/></syntax></parameter>
@@ -207,6 +208,17 @@
         <parameter name="JitterMs"><syntax><string/></syntax></parameter>
         <parameter name="LossPercent"><syntax><string/></syntax></parameter>
         <parameter name="Prioritized"><syntax><string/></syntax></parameter>
+        <parameter name="Summary"><syntax><string/></syntax></parameter>
+      </event>
+      <event name="AppMoment!">
+        <parameter name="Moment"><syntax><string/></syntax></parameter>
+        <parameter name="Kind"><syntax><string/></syntax></parameter>
+        <parameter name="What"><syntax><string/></syntax></parameter>
+        <parameter name="Seconds"><syntax><string/></syntax></parameter>
+        <parameter name="Confidence"><syntax><string/></syntax></parameter>
+        <parameter name="Cause"><syntax><string/></syntax></parameter>
+        <parameter name="CauseCode"><syntax><string/></syntax></parameter>
+        <parameter name="Time"><syntax><string/></syntax></parameter>
         <parameter name="Summary"><syntax><string/></syntax></parameter>
       </event>
       <event name="AreaOutage!">
@@ -448,6 +460,19 @@
     <object name="Device.WiFi.SSID." access="readOnly" minEntries="1" maxEntries="1">
     </object>
     <object name="Device.X_AIGW_.Alert." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.AppExperience." access="readOnly" minEntries="1" maxEntries="1">
+      <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="ServerNames" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Shared" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="Status" access="readOnly" activeNotify="normal"><syntax><string/></syntax></parameter>
+      <parameter name="ActiveSessions" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Sessions" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="BadMoments" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Score" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="LastMoment" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="KindNumberOfEntries" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="MomentNumberOfEntries" access="readOnly" activeNotify="normal"><syntax><unsignedInt/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.AreaOutage." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Enable" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
@@ -831,6 +856,10 @@
       <parameter name="LastSeen" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
       <parameter name="Count" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
     </object>
+    <object name="Device.X_AIGW_.AppExperience.Kind." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
+    <object name="Device.X_AIGW_.AppExperience.Moment." access="readOnly" minEntries="1" maxEntries="1">
+    </object>
     <object name="Device.X_AIGW_.CallsFirst.Last." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="Kind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="Start" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
@@ -974,6 +1003,25 @@
       <parameter name="ModesSupported" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="ModeEnabled" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
       <parameter name="KeyPassphrase" access="readWrite" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.AppExperience.Kind.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="KindNumberOfEntries">
+      <parameter name="Name" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Score" access="readOnly" activeNotify="canDeny"><syntax><int/></syntax></parameter>
+      <parameter name="Minutes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="BadMinutes" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Sessions" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+    </object>
+    <object name="Device.X_AIGW_.AppExperience.Moment.{i}." access="readOnly" minEntries="0" maxEntries="unbounded" numEntriesParameter="MomentNumberOfEntries">
+      <parameter name="Time" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Kind" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="What" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Seconds" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Confidence" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>
+      <parameter name="Cause" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="CauseCode" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
+      <parameter name="Fixed" access="readOnly" activeNotify="canDeny"><syntax><boolean/></syntax></parameter>
+      <parameter name="FixTime" access="readOnly" activeNotify="canDeny"><syntax><dateTime/></syntax></parameter>
+      <parameter name="Summary" access="readOnly" activeNotify="canDeny"><syntax><string/></syntax></parameter>
     </object>
     <object name="Device.X_AIGW_.Care.Stats.Day." access="readOnly" minEntries="1" maxEntries="1">
       <parameter name="ExperienceScore" access="readOnly" activeNotify="canDeny"><syntax><unsignedInt/></syntax></parameter>

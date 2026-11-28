@@ -69,6 +69,13 @@ if(AIGW_FEATURE_CALLS)
   add_test(NAME calls_first COMMAND test_calls)
 endif()
 
+if(AIGW_FEATURE_APPQOE)
+  add_executable(test_appqoe test_appqoe.c)
+  target_link_libraries(test_appqoe ag)
+  add_test(NAME app_experience COMMAND test_appqoe ${PROJECT_SOURCE_DIR}/config/apps.rules)
+  set_tests_properties(app_experience PROPERTIES ENVIRONMENT "TZ=UTC")
+endif()
+
 if(AIGW_FEATURE_BRIEF)
   add_executable(test_brief test_brief.c)
   target_link_libraries(test_brief ag)

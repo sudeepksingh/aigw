@@ -526,6 +526,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
 | *measured v0.51.1, installed (SDK packages)* | *full 944 KB x86-64, 932 KB aarch64, 780 KB mipsel; max 972 / 956 / 800 (budget 2048); small 652 / 664 / 560; minimal 356 / 352 / 308* | — |
+| *measured v0.52, installed (SDK packages)* | *full and small as v0.51.1; max 1012 / 1004 / 836 (per-app experience, in max only)* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |
@@ -1247,6 +1248,17 @@ Installed flash, OpenWRT 24.10.8 SDK, as `aigw-selftest` counts it (budget 1024 
 | minimal | 392 KB (+0) | | |
 
 Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-test.sh`, the full local suite on the full, small and minimal profiles, `PROVEN` built alone with `CARE` and `TR143`, and the full build without it (no warnings).
+
+**As built in v0.52: per-app experience.** How each call, stream and game went, in the app's own terms, and why ([app-experience.md](app-experience.md)). Feature `APPQOE`, needs `WHY`; in the max profile only.
+
+| Piece | As built |
+|-------|----------|
+| The rules (`core/libag/appqoe.c`, `include/ag/appqoe.h`) | Pure. A rules file (`config/apps.rules` = the built-in rules; `/etc/aigw/apps.rules` replaces it): `kind` lines over a connection's last looks (protocol, port, rate each way, packets a second, packet size, up/down ratio, duty, spread, age), first match wins; `family` lines (server-name suffixes, longest wins); `browse`. The quality of a minute per kind: E-model MOS and freezes for calls, a drain model for streams (rebuffering past a 10 s buffer, lower resolution), lag for games. The cause from the timeline's code, else the moment's own evidence, else the far end. Words for the home and the ISP |
+| The sessions (`agd/appqoe.c`) | Every look (`flow.c`'s dump, `apps.poll`): each TCP/UDP connection's counters, its kind (sticky), a device's connections of a kind are a session; stalls from looks far below the usual rate between usual ones. Every `why.interval`: the minute judged with the timeline's sample and Self-Healing Wi-Fi's look at the device; bad minutes in a row are a moment; closed: `why_ask` for the device then, the cause, the timeline (`WE_APP`), `ag.app`, `AppMoment!`; later, what AIGW did next (`why_events`) and the sessions since. Scores per group over 7 days. Fixed memory, about 100 KB |
+| Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.25) |
+| Privacy | Kind and family name only; names to the ISP only with `brief.names`; `apps.share 0` hides it from the ISP (also from `WhySlow()`), `apps.names 0` uses no server names |
+
+Installed flash, against v0.51.1 built the same way: in the max profile only, max x86-64 1012 KB, aarch64 1004 KB, mipsel 836 KB of 2048 (+40, +48, +36 KB); full (944 / 932 / 780) and small as in v0.51.1.
 
 ---
 

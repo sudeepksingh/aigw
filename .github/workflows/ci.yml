@@ -92,6 +92,10 @@ jobs:
           (sudo modprobe sch_netem && sudo modprobe ifb && sudo modprobe cls_flower && sudo modprobe act_skbedit) ||
             (sudo apt-get update -q && sudo apt-get install -y -q "linux-modules-extra-$(uname -r)") || true
           sudo AIGW_REQUIRE_CALLS=1 PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/calls-test.sh build
+      - name: "Per-app experience test (a video call that freezes and turns choppy, a Netflix stream: kinds, causes, privacy)"
+        run: |
+          sudo modprobe sch_netem || (sudo apt-get update -q && sudo apt-get install -y -q "linux-modules-extra-$(uname -r)") || true
+          sudo AIGW_REQUIRE_APPS=1 PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/apps-test.sh build
       - name: USP test (a USP controller over MQTT, OB-USP-Agent, the aigw-usp plug-in)
         run: sudo AIGW_REQUIRE_USP=1 AIGW_OBUSPA="$OBUSPA_SRC/obuspa" PATH="/usr/local/bin:/usr/local/sbin:$PATH" tests/usp-test.sh build
       - name: TR-069 test (an ACS over HTTP, icwmp, the aigw-cwmp-dm data model daemon)

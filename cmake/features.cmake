@@ -32,6 +32,7 @@ set(AIGW_FEATURE_TABLE
   "OFFERS|Signals for the ISP (a faster plan, mesh Wi-Fi, and more)|WHY,CARE|full"
   "SQM|Self-tuning smart queueing|WHY|small"
   "CALLS|Calls and games first|SQM|full"
+  "APPQOE|Per-app experience: how each call, stream and game went, and why|WHY"
   "BRIEF|The help-desk brief|CARE,WHY|small"
   "PROACTIVE|Proactive care before the call, tickets to the ISP|BRIEF|small"
   "AREA|Area outages, fixes held while many homes fail at once||full"

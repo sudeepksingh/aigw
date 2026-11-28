@@ -774,6 +774,11 @@ int why_field(const char *f, char *buf, size_t n);      /* Device.X_AIGW_.Timeli
 /* a call or game on the timeline (mac: the device); WhySlow() from the ISP with calls.share 0 (dm.c) */
 void why_note_call(const char *mac, int verdict, const char *text);
 void why_hide_calls(int on);
+/* an app's bad moment on the timeline (kind: enum app_kind); WhySlow() from the ISP with apps.share 0 (dm.c) */
+void why_note_app(const char *mac, int kind, const char *text);
+void why_hide_apps(int on);
+struct why_ev;
+int why_events(long from, long to, struct why_ev *out, int max);       /* oldest first */
 #else
 
 #endif
@@ -867,6 +872,56 @@ static inline void calls_save(struct blob_buf *b) { (void)b; }
 static inline void calls_load(struct blob_attr *t) { (void)t; }
 #endif
 
+/* appqoe.c, for the help desk: a period's sessions and bad moments (of a group, a device) */
+#define APPQOE_BRIEF_LINES 3
+struct appqoe_brief {
+	int group;                      /* enum app_group asked about; -1 any */
+	int sessions, troubled;         /* in the period; of them with a bad moment */
+	int moments, far_end, home;     /* bad moments; whose cause was the far end; the home's (Wi-Fi, the line full) */
+	int nline;
+	long t[APPQOE_BRIEF_LINES];
+	char line[APPQOE_BRIEF_LINES][420];    /* newest first, in words */
+	char worst_code[20];            /* the newest moment with a cause in the home or the line: its code; "" */
+	long worst_since, worst_until;
+	int worst;                      /* ... its line */
+	char scores[200];               /* "calls 98%, streaming 100%" (7 days); "" */
+};
+#if AIGW_FEATURE_APPQOE
+/* appqoe.c: per-app experience (ag/appqoe.h) */
+void appqoe_init(void);                 /* after the state */
+void appqoe_reload(void);               /* the rules file again */
+void appqoe_counters(uint32_t id, const char *client, const char *domain, uint8_t proto, uint16_t dport, uint64_t up_b,
+		     uint64_t down_b, uint64_t up_pk, uint64_t down_pk);
+void appqoe_flow_new(const char *client, uint8_t proto, uint16_t dport);
+void appqoe_flow_end(uint32_t id);
+void appqoe_dump_done(void);
+void appqoe_blob(struct blob_buf *b, const char *host, int group, int limit);
+int appqoe_score(int group);            /* 7 days, %; -1 not known */
+int appqoe_scores_words(char *buf, size_t n);
+int appqoe_brief(long from, long to, const char *mac, int group, int names, struct appqoe_brief *o);
+int appqoe_field(const char *f, char *buf, size_t n);  /* Device.X_AIGW_.AppExperience.; -1 unknown */
+int appqoe_kind_ids(uint32_t *out, int max);
+int appqoe_kind_field(uint32_t inst, const char *f, char *buf, size_t n);
+int appqoe_moment_ids(uint32_t *out, int max);
+int appqoe_moment_field(uint32_t inst, const char *f, char *buf, size_t n);
+void appqoe_save(struct blob_buf *b);
+void appqoe_load(struct blob_attr *t);
+/* dm.c: AppMoment! (no names) */
+void dm_on_app(uint32_t moment, const char *kind, const char *what, int seconds, int conf, const char *cause,
+	       const char *code, long t, const char *summary);
+#else
+static inline void appqoe_counters(uint32_t id, const char *client, const char *domain, uint8_t proto, uint16_t dport,
+				   uint64_t up_b, uint64_t down_b, uint64_t up_pk, uint64_t down_pk)
+{ (void)id; (void)client; (void)domain; (void)proto; (void)dport; (void)up_b; (void)down_b; (void)up_pk; (void)down_pk; }
+static inline void appqoe_flow_new(const char *client, uint8_t proto, uint16_t dport) { (void)client; (void)proto; (void)dport; }
+static inline void appqoe_flow_end(uint32_t id) { (void)id; }
+static inline void appqoe_dump_done(void) { }
+static inline int appqoe_brief(long from, long to, const char *mac, int group, int names, struct appqoe_brief *o)
+{ (void)from; (void)to; (void)mac; (void)group; (void)names; o->nline = 0; return -1; }
+static inline void appqoe_save(struct blob_buf *b) { (void)b; }
+static inline void appqoe_load(struct blob_attr *t) { (void)t; }
+#endif
+
 #if AIGW_FEATURE_SQM
 /* sqm.c: smart queueing proposed on the line as it is now (waits for a yes) */
 int sqm_propose(const char *origin, const char *reason, uint32_t *id, char *err, size_t en);
@@ -886,6 +941,8 @@ struct brief_ask {
 	int propose;                    /* a remote fix becomes a proposed decision (never applied) */
 	int names;                      /* devices by name; 0 by kind (the ISP, unless brief.names) */
 	int hide_calls;                 /* calls.share 0 and the ISP asks */
+	char app[16];                   /* the app asked about ("calls": "my calls drop"); "" any (ag/appqoe.h) */
+	int hide_apps;                  /* apps.share 0 and the ISP asks */
 	char who[48];                   /* who asks: "you", "usp", "acs", ... */
 };
 struct brief_meta {

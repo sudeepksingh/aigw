@@ -564,6 +564,7 @@ int dev_state_save(void)
 	proactive_save(&b);
 	sqm_save(&b);
 	calls_save(&b);
+	appqoe_save(&b);
 	mesh_save(&b);
 	chan_save(&b);
 	coverage_save(&b);
@@ -680,6 +681,8 @@ int dev_state_load(void)
 			sqm_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "calls"))
 			calls_load(cur);
+		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "apps"))
+			appqoe_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "mesh"))
 			mesh_load(cur);
 		if (blobmsg_type(cur) == BLOBMSG_TYPE_TABLE && !strcmp(blobmsg_name(cur), "chanplan"))

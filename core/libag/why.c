@@ -159,7 +159,7 @@ const char *why_kind_name(int kind)
 {
 	static const char *const n[] = {
 		"start", "join", "leave", "roam", "steer", "weak", "signal-ok", "health", "channel", "decision",
-		"care", "speed", "upgrade", "call", "mesh", "plan", "repair",
+		"care", "speed", "upgrade", "call", "mesh", "plan", "repair", "app",
 	};
 
 	return kind >= 0 && kind < WE_N ? n[kind] : "?";
@@ -907,6 +907,8 @@ static int ev_in_story(const struct why_in *in, const struct why_ev *e)
 	case WE_WEAK:
 	case WE_SIGNAL_OK:
 		return in->host && !memcmp(e->mac, in->host, 6);
+	case WE_APP:                    /* a device's own moments; all of them for the home */
+		return !in->host || !memcmp(e->mac, in->host, 6);
 	case WE_DECISION:
 		return !in->host || mac_zero(e->mac) || !memcmp(e->mac, in->host, 6) || (e->flag & WF_WIFI);
 	}

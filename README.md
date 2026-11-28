@@ -57,6 +57,20 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.52:** **Per-app experience: "my video call froze".** The gateway tells
+> video calls, voice calls, screen shares, streams, cloud and online games,
+> large downloads, browsing and smart-home devices apart from their
+> connections' traits and server-name families (a rules file an ISP can change
+> without new code), estimates how each went in the app's own terms (a call's
+> E-model MOS and freezes, a stream's rebuffering, a game's lag spikes), and
+> explains each bad moment: "The video call on laptop (Zoom) at 10:02 froze for
+> about 8 s: the 2.4 GHz Wi-Fi channel was congested; then at 10:04 AIGW moved
+> 2.4 GHz (wlan0) from channel 11 to 6, and the 3 calls since were fine." Or,
+> with evidence, the far end. Scores per kind of app, `agctl apps`, the
+> timeline, the help desk (`agctl brief --app calls`), `Device.X_AIGW_.AppExperience.`
+> and `AppMoment!` (data model 1.25). Only kinds and family names are kept,
+> never a server name or a URL. Feature `APPQOE`, in the max profile only
+> (40 KB on x86-64, 48 on aarch64, 36 on mipsel); see [docs/app-experience.md](docs/app-experience.md).
 > **v0.51.1:** **A max profile, and room in full.** Profiles are now minimal <
 > small < full < max. **Full** (the default) keeps its 1024 KB of flash with
 > headroom; **max** has every feature, within 2048 KB, for routers with 16 MB of

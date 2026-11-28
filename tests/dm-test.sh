@@ -95,6 +95,7 @@ echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
 if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys proven; then   # the full and max builds: every command and event
 NEV=18; has fleetlearn && NEV=20     # Repair!, RepairUndone!; FleetPriorsReceived!, FleetChoice!
+has appqoe && NEV=$((NEV + 1))       # AppMoment!
 js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 16 and len(d['events']) == $NEV and
          [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()', 'Device.X_AIGW_.Diagnose()',
           'Device.X_AIGW_.SupportBrief()', 'Device.IP.Diagnostics.IPPing()', 'Device.IP.Diagnostics.TraceRoute()', 'Device.IP.Diagnostics.DownloadDiagnostics()',

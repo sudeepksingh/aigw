@@ -50,6 +50,7 @@ other features need it, they go too. They were measured before agctl became a li
 | `OFFERS` | Signals for the ISP (a faster plan, mesh Wi-Fi, and more) | `WHY`, `CARE` | full | 16 KB |
 | `SQM` | Self-tuning smart queueing | `WHY` | small | 32 KB with `CALLS` (about 12 on its own) |
 | `CALLS` | Calls and games first | `SQM` | full | 20 KB |
+| `APPQOE` | Per-app experience: how each call, stream and game went, and why ([app-experience.md](app-experience.md)) | `WHY` | **max** | 40 KB (aarch64 48, mipsel 36) |
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | small | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | small | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | full | 8 KB |
@@ -67,14 +68,15 @@ other features need it, they go too. They were measured before agctl became a li
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions
-smart queueing, the mesh and area outages when they are built.
+smart queueing, the mesh and area outages when they are built. Per-app experience uses Self-Healing
+Wi-Fi's look at each device, and feeds the help-desk brief, when they are built.
 
 ## Profiles
 
 | Profile | Features | Budget | x86-64 | aarch64 | mipsel |
 |---|---|---|---|---|---|
-| `max` | every feature: for 16 MB of flash or more, and a PC | 2048 KB | 972 KB | 956 KB | 800 KB |
-| `full` (default) | all but max's own: today `FLEETLEARN` | 1024 KB | 944 KB | 932 KB | 780 KB |
+| `max` | every feature: for 16 MB of flash or more, and a PC | 2048 KB | 1012 KB | 1004 KB | 836 KB |
+| `full` (default) | all but max's own: today `FLEETLEARN` and `APPQOE` | 1024 KB | 944 KB | 932 KB | 780 KB |
 | `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `PROVEN` | 1024 KB | 652 KB | 664 KB | 560 KB |
 | `minimal` | the core only | 1024 KB | 356 KB | 352 KB | 308 KB |
 

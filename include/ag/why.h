@@ -83,6 +83,7 @@ enum why_kind {
 	WE_MESH,                        /* mesh Wi-Fi: a device moved between access points, a backhaul, a trial's verdict */
 	WE_PLAN,                        /* neighbour-aware channels: a planned move proposed, its trial's verdict */
 	WE_REPAIR,                      /* proven repair: a fix judged (helped, no change, worse), undone; a shadow's verdict */
+	WE_APP,                         /* per-app experience: a bad moment (a call froze); flag: enum app_kind (ag/appqoe.h) */
 	WE_N
 };
 

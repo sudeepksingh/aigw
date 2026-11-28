@@ -35,6 +35,9 @@
 #include "ag/dns.h"
 #include "ag/domfeat.h"
 #include "ag/qr.h"
+#if AIGW_FEATURE_APPQOE
+#include "ag/appqoe.h"
+#endif
 
 #define DNSLOG_MAX 512
 #define POLL_MS    5000
@@ -1237,11 +1240,44 @@ static int m_calls(struct ubus_context *ctx, struct ubus_object *obj, struct ubu
 }
 #endif
 
+#if AIGW_FEATURE_APPQOE
+/* ag apps {device, app, limit, reload}: per-app experience: sessions now, bad moments and why, scores. At home: names */
+enum { AP_DEVICE, AP_APP, AP_LIMIT, AP_RELOAD, __AP_MAX };
+static const struct blobmsg_policy apps_policy[__AP_MAX] = {
+	[AP_DEVICE] = { "device", BLOBMSG_TYPE_STRING },
+	[AP_APP] = { "app", BLOBMSG_TYPE_STRING },
+	[AP_LIMIT] = { "limit", BLOBMSG_TYPE_INT32 },
+	[AP_RELOAD] = { "reload", BLOBMSG_TYPE_BOOL },
+};
+
+static int m_apps(struct ubus_context *ctx, struct ubus_object *obj, struct ubus_request_data *req,
+		  const char *method, struct blob_attr *msg)
+{
+	struct blob_attr *tb[__AP_MAX];
+	int group = -1, limit = 10;
+
+	(void)obj;
+	(void)method;
+	blobmsg_parse(apps_policy, __AP_MAX, tb, blob_data(msg), blob_len(msg));
+	blob_buf_init(&b, 0);
+	if (tb[AP_RELOAD] && blobmsg_get_bool(tb[AP_RELOAD]))
+		appqoe_reload();
+	if (tb[AP_APP] && *blobmsg_get_string(tb[AP_APP]) && (group = app_group_by_name(blobmsg_get_string(tb[AP_APP]))) < 0)
+		blobmsg_add_string(&b, "error", "app is calls, streaming, gaming, downloads, browsing or smart-home");
+	if (tb[AP_LIMIT])
+		limit = (int)blobmsg_get_u32(tb[AP_LIMIT]);
+	appqoe_blob(&b, tb[AP_DEVICE] ? blobmsg_get_string(tb[AP_DEVICE]) : NULL, group, limit > 0 && limit <= 50 ? limit : 10);
+	ubus_send_reply(ctx, req, b.head);
+	return 0;
+}
+#endif
+
 #if AIGW_FEATURE_BRIEF
 /* ag brief {period | from, to, host, check, speed, propose}: the help desk's answer about a
    period (deferred: a fresh check takes a few seconds). At home: devices by name */
-enum { BR_PERIOD, BR_FROM, BR_TO, BR_HOST, BR_CHECK, BR_SPEED, BR_PROPOSE, __BR_MAX };
+enum { BR_PERIOD, BR_FROM, BR_TO, BR_HOST, BR_CHECK, BR_SPEED, BR_PROPOSE, BR_APP, __BR_MAX };
 static const struct blobmsg_policy brief_policy[__BR_MAX] = {
+	[BR_APP] = { "app", BLOBMSG_TYPE_STRING },
 	[BR_PERIOD] = { "period", BLOBMSG_TYPE_STRING },
 	[BR_FROM] = { "from", BLOBMSG_TYPE_UNSPEC },
 	[BR_TO] = { "to", BLOBMSG_TYPE_UNSPEC },
@@ -1288,6 +1324,18 @@ static int m_brief(struct ubus_context *ctx, struct ubus_object *obj, struct ubu
 	a.check = tb[BR_CHECK] ? blobmsg_get_bool(tb[BR_CHECK]) : 1;
 	a.speed = tb[BR_SPEED] && blobmsg_get_bool(tb[BR_SPEED]);
 	a.propose = tb[BR_PROPOSE] && blobmsg_get_bool(tb[BR_PROPOSE]);
+	if (tb[BR_APP]) {
+#if AIGW_FEATURE_APPQOE
+		if (*blobmsg_get_string(tb[BR_APP]) && app_group_by_name(blobmsg_get_string(tb[BR_APP])) < 0) {
+			snprintf(err, sizeof(err), "app is calls, streaming, gaming, downloads, browsing or smart-home");
+			goto refuse;
+		}
+		snprintf(a.app, sizeof(a.app), "%s", blobmsg_get_string(tb[BR_APP]));
+#else
+		snprintf(err, sizeof(err), "per-app experience is not built in (AIGW_FEATURE_APPQOE)");
+		goto refuse;
+#endif
+	}
 	a.names = 1;
 	snprintf(a.who, sizeof(a.who), "you");
 	if (!(q = calloc(1, sizeof(*q))))
@@ -1465,6 +1513,9 @@ static struct ubus_method ag_methods[] = {
 #if AIGW_FEATURE_CALLS
 	UBUS_METHOD_NOARG("calls", m_calls),
 #endif
+#if AIGW_FEATURE_APPQOE
+	UBUS_METHOD("apps", m_apps, apps_policy),
+#endif
 };
 static struct ubus_object_type ag_type = UBUS_OBJECT_TYPE("ag", ag_methods);
 static struct ubus_object ag_obj = {
@@ -1640,6 +1691,9 @@ int main(int argc, char **argv)
 #endif
 #if AIGW_FEATURE_CALLS
 	calls_init();                   /* calls and games first, inside it */
+#endif
+#if AIGW_FEATURE_APPQOE
+	appqoe_init();                  /* per-app experience: after the state and the timeline */
 #endif
 #if AIGW_FEATURE_PROACTIVE
 	proactive_init();               /* before the call: after care, the timeline, SQM and calls */

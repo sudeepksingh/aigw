@@ -170,13 +170,41 @@ void why_note_call(const char *mac, int verdict, const char *text)
 	note(WE_CALL, mac && *mac ? mac : NULL, verdict, 0, "%s", text);
 }
 
-static int hide_calls;
+static int hide_calls, hide_apps;
 
 /* dm.c: the ISP asks (WhySlow()) and calls.share is 0: the calls stay out of the story */
 void why_hide_calls(int on)
 {
 	hide_calls = on;
 }
+
+#if AIGW_FEATURE_APPQOE
+/* appqoe.c: a bad moment of an app (flag: its kind); dm.c: apps.share 0 keeps them out of the ISP's story */
+void why_note_app(const char *mac, int kind, const char *text)
+{
+	note(WE_APP, mac && *mac ? mac : NULL, kind, 0, "%s", text);
+}
+
+void why_hide_apps(int on)
+{
+	hide_apps = on;
+}
+
+/* appqoe.c: the events with from <= t < to, oldest first; how many */
+int why_events(long from, long to, struct why_ev *out, int max)
+{
+	unsigned k;
+	int n = 0;
+
+	for (k = 0; k < ev_n && n < max; k++) {
+		const struct why_ev *e = &evs[(ev_head + EV_MAX - ev_n + k) % EV_MAX];
+
+		if ((long)e->t >= from && (long)e->t < to)
+			out[n++] = *e;
+	}
+	return n;
+}
+#endif
 
 /* a radio's slot (names kept for the whole timeline); -1 when all four are taken */
 static int radio_slot(const char *iface)
@@ -986,7 +1014,8 @@ static int events_of(long from, long to, const uint8_t *host, struct why_ev *out
 	for (k = 0; k < ev_n && n < max; k++) {
 		const struct why_ev *e = &evs[(ev_head + EV_MAX - ev_n + k) % EV_MAX];
 
-		if ((long)e->t >= from - 600 && (long)e->t < to && !(hide_calls && e->kind == WE_CALL))
+		if ((long)e->t >= from - 600 && (long)e->t < to && !(hide_calls && e->kind == WE_CALL) &&
+		    !(hide_apps && e->kind == WE_APP))
 			out[n++] = *e;
 	}
 	return n;
