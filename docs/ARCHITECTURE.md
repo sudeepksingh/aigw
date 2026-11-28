@@ -1257,7 +1257,7 @@ Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-t
 | Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.25) |
 | Privacy | Kind and family name only; names to the ISP only with `brief.names`; `apps.share 0` hides it from the ISP (also from `WhySlow()`), `apps.names 0` uses no server names |
 
-Installed flash, full profile (budget 1024 KB): x86-64 1000 KB, aarch64 988 KB, mipsel 828 KB (+48, +48, +40 KB); small 704, 712, 604 KB.
+Installed flash (budget 1024 KB), against v0.51 built the same way: full x86-64 1068 KB, aarch64 1056 KB, mipsel 888 KB (+44, +48, +40 KB; over the budget on x86-64 and aarch64); small 744, 756, 640 KB.
 
 ---
 

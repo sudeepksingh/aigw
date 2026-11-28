@@ -70,7 +70,7 @@ illustrated version.
 > timeline, the help desk (`agctl brief --app calls`), `Device.X_AIGW_.AppExperience.`
 > and `AppMoment!` (data model 1.25). Only kinds and family names are kept,
 > never a server name or a URL. Feature `APPQOE` (full and small profiles,
-> 48 KB, 40 on mipsel); see [docs/app-experience.md](docs/app-experience.md).
+> 44 KB on x86-64, 48 on aarch64, 40 on mipsel); see [docs/app-experience.md](docs/app-experience.md).
 >
 > **v0.51:** **Proven self-repair.** Every fix AIGW takes or proposes now says
 > what it expects ("OnePlus: loss 26% -> under 5% within 10 min"), is measured

@@ -231,10 +231,10 @@ Measured by `tests/test_appqoe.c` and shown by `agctl apps` (`cost`):
   cause (once per moment) is the heaviest step, about 1 ms here.
 - **Memory**: about 100 KB, fixed (160 connections with 6 looks each, 32 sessions, 32 moments,
   48 sessions ended, 8 days, the rules, and the buffers for a moment's cause).
-- **Flash**: the feature adds 48 KB on x86-64 and aarch64 and 40 KB on mipsel (installed, as
-  `aigw-selftest` counts it; OpenWRT 24.10.8 SDK, against v0.48 built the same way). The full
-  profile is 1000 / 988 / 828 KB (x86-64 / aarch64 / mipsel) of the 1024 KB budget; the small
-  profile 704 / 712 / 604 KB. See [features.md](features.md).
+- **Flash**: the feature adds 44 KB on x86-64, 48 KB on aarch64 and 40 KB on mipsel (installed, as
+  `aigw-selftest` counts it; OpenWRT 24.10.8 SDK, against v0.51 built the same way). The full
+  profile is 1068 / 1056 / 888 KB (x86-64 / aarch64 / mipsel): over the 1024 KB budget on x86-64
+  and aarch64, where v0.51 alone is 1024 / 1008 KB; the small profile 744 / 756 / 640 KB. See [features.md](features.md).
 
 ## Tests
 
