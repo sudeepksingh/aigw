@@ -23,7 +23,8 @@ PIDS=""
 LOADED=0
 cleanup() {
 	for p in $PIDS; do kill "$p" 2>/dev/null || true; done
-	for f in "$T"/*.pid; do [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null || true; done
+	# hostapd's pidfiles are where aigw-ap keeps them ($T/run)
+	for f in "$T"/*.pid "$T"/run/*.pid; do [ -f "$f" ] && kill "$(cat "$f")" 2>/dev/null || true; done
 	ip netns del "$NC" 2>/dev/null || true
 	ip link del "$BR" 2>/dev/null || true
 	sleep 0.5
@@ -55,11 +56,17 @@ ifof() { ls "/sys/class/ieee80211/$1/device/net" | head -1; }
 AP5=$(ifof "$1") AP24=$(ifof "$2") STA=$(ifof "$3") STAPHY=$3
 echo "== radios: $AP5 (5 GHz), $AP24 (2.4 GHz), $STA (client)"
 # the kernel reads the regulatory database once; a freshly installed one
-# (wireless-regdb) needs a reload before a country can be set
-iw reg reload 2>/dev/null || true
-iw reg set US 2>/dev/null || true
+# (wireless-regdb) needs a reload before a country can be set. The country is
+# global: AIGW_HWSIM_COUNTRY (one with channels 1, 6, 11, 36, 44 and no DFS
+# there) lets a machine that also runs a real access point keep its own; left
+# alone when already set
+CC=${AIGW_HWSIM_COUNTRY:-US}
+if ! iw reg get | grep -q "^country $CC"; then
+	iw reg reload 2>/dev/null || true
+	iw reg set "$CC" 2>/dev/null || true
+fi
 n=0
-until iw reg get | grep -q '^country US'; do
+until iw reg get | grep -q "^country $CC"; do
 	n=$((n + 1))
 	if [ $n -gt 10 ]; then
 		iw reg get | head -3
@@ -70,7 +77,7 @@ done
 echo "   regulatory: $(iw reg get | grep -m1 '^country')"
 
 echo "== access points from aigw-ap's own configs, in one bridge"
-printf 'SSID=AIGW-HWSIM\nPASSPHRASE=hwsim-test-pass\nCOUNTRY=US\n' > "$T/pc-ap.conf"
+printf 'SSID=AIGW-HWSIM\nPASSPHRASE=hwsim-test-pass\nCOUNTRY=%s\n' "$CC" > "$T/pc-ap.conf"
 export AIGW_PCAP_CONF="$T/pc-ap.conf" AIGW_RUN="$T/run" AIGW_WIFI_KEYS="$T/wifi-keys"
 AP="sh $REPO/platform/pc-ap/aigw-ap"
 ip link add "$BR" type bridge
@@ -192,7 +199,13 @@ sleep 0.5
 # DNS server (below) within its first minute, long before its own section
 "${UBUS:-$(command -v ubus || echo /usr/local/bin/ubus)}" -s "$AIGW_UBUS" listen ag.dm.event > "$T/all-events.log" 2>&1 & PIDS="$PIDS $!"
 sleep 0.2
+# after every (re)start: nothing is asked before agd answers on ubus
+agd_up() {
+	ubus_ready "$AIGW_UBUS" 30 ag ag.device ag.decision ag.wifi ag.dm ||
+		{ kill -0 "$AGD" 2>/dev/null || echo "   (agd $AGD has exited)" >&2; fail "agd did not answer on ubus within 30 s of starting"; }
+}
 "$BIN/agd/agd" > "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
+agd_up
 
 echo "== agd steers the client to 5 GHz"
 i=0
@@ -442,17 +455,45 @@ grep -A3 "^$AP_H " "$T/report.txt" | grep -Eq "channel trials kept [1-9], switch
 	fail "agctl wifi --report should show trials kept and switched back on $AP_H"
 grep -q "devices kept on 2.4 GHz 1" "$T/report.txt" || fail "agctl wifi --report should count the device kept on 2.4 GHz"
 "$BIN/agctl/agctl" dm get "Device.X_AIGW_.WiFiHealth.$N.Stats.Day." > "$T/stats.txt"
-KEPT=$(sed -n 's/.*Stats\.Day\.ChannelTrialsKept = //p' "$T/stats.txt")
 grep -Eq "Stats.Day.ChannelTrialsKept = [1-9]" "$T/stats.txt" && grep -Eq "Stats.Day.ChannelTrialsTried = [1-9]" "$T/stats.txt" &&
-	grep -Eq "Stats.Day.CongestionFound = [2-9]" "$T/stats.txt" && grep -q "Stats.Day.Fixes = $KEPT$" "$T/stats.txt" &&
-	grep -Eq "Stats.Day.LossBeforePercent = [1-9]" "$T/stats.txt" && grep -Eq "Stats.Day.MeanTimeToFix = [1-9]" "$T/stats.txt" ||
+	grep -Eq "Stats.Day.CongestionFound = [2-9]" "$T/stats.txt" && grep -Eq "Stats.Day.LossBeforePercent = [1-9]" "$T/stats.txt" ||
 	fail "the data model's Stats.Day: $(cat "$T/stats.txt")"
+# fixes are the kept trials and the band rules (stay24 counts on the access point
+# the client was on when it was set: either one, by timing). From the problem to
+# each kept trial: at least the trial's own 40 s (heal_trial), also when the
+# verdict read Good again before it was judged (a band rule may count 0 s)
+python3 - "$T/stats.txt" <<'EOF' || fail "Stats.Day fixes and time to fix: $(cat "$T/stats.txt")"
+import re, sys
+v = {k: int(x) for k, x in re.findall(r"Stats\.Day\.(\w+) = (\d+)", open(sys.argv[1]).read())}
+fixes, kept = v["Fixes"], v["ChannelTrialsKept"]
+ok = fixes == kept + v["BandRules"] and fixes > 0
+# MeanTimeToFix is the integer mean: the sum is at least fixes x mean, under fixes x (mean + 1)
+ok = ok and fixes * (v["MeanTimeToFix"] + 1) > 40 * kept
+sys.exit(0 if ok else 1)
+EOF
+# the seconds in each verdict grow every 10 s look: compared with agd's own
+# report read right after, not as fixed numbers (one look may fall between)
+"$BIN/agctl/agctl" -j wifi > "$T/heal-now.json"
+python3 - "$T/stats.txt" "$T/heal-now.json" "$AP_H" <<'EOF' || fail "Stats.Day should be what agd reports: $(cat "$T/stats.txt")"
+import json, re, sys
+v = {k: int(x) for k, x in re.findall(r"Stats\.Day\.(\w+) = (\d+)", open(sys.argv[1]).read())}
+r = [a for a in json.load(open(sys.argv[2]))["radios"] if a["iface"] == sys.argv[3]][0]["health"]["report"]["day"]
+look = 10
+ok = v["MeanTimeToFix"] == r["time_to_fix_s"] and v["Fixes"] == r["fixes"] and v["ChannelTrialsKept"] == r["trials_kept"]
+for dm, js in (("GoodSeconds", "good_s"), ("DegradedSeconds", "degraded_s"), ("PoorSeconds", "poor_s")):
+    ok = ok and 0 <= r[js] - v[dm] <= 2 * look
+total = v["GoodSeconds"] + v["DegradedSeconds"] + v["PoorSeconds"]
+ok = ok and total > 0 and abs(v["GoodPercent"] - round(100 * v["GoodSeconds"] / total)) <= 1
+print("   agd:", {k: r[k] for k in ("good_s", "degraded_s", "poor_s", "time_to_fix_s")})
+sys.exit(0 if ok else 1)
+EOF
 echo "   Stats.Day: $(grep -E 'GoodPercent|ProblemsFound|Fixes|MeanTimeToFix|LossBefore|LossAfter' "$T/stats.txt" | sed 's/.*Stats\.Day\.//' | tr '\n' ' ')"
 # kept across a restart (agd's state file); from here on, a person approves (advise mode)
 sed -i "s/option mode 'enforce'/option mode 'advise'/" "$T/config/aigw"
 kill "$AGD"
 i=0; while kill -0 "$AGD" 2>/dev/null; do i=$((i + 1)); [ $i -gt 20 ] && fail "agd did not stop"; sleep 0.5; done
 "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
+agd_up
 i=0
 until "$BIN/agctl/agctl" wifi --report > "$T/report2.txt" 2>/dev/null &&
 	[ "$(grep -A3 "^$AP_H " "$T/report.txt" | grep -m1 -o 'trials kept [0-9]*, switched back [0-9]*')" = \
@@ -479,11 +520,28 @@ CH3=$(decs | awk '$1 == '"$TID3"' {print $5}' | sed 's/.*://')
 kill "$AGD"
 i=0; while kill -0 "$AGD" 2>/dev/null; do i=$((i + 1)); [ $i -gt 20 ] && fail "agd did not stop"; sleep 0.5; done
 "$BIN/agd/agd" >> "$T/agd.log" 2>&1 & AGD=$!; PIDS="$PIDS $AGD"
+agd_up
 # measured again after the restart, then a person says yes
 wait_health 'Degraded|Poor' Congestion 200 || { tc qdisc del dev "$AP_H" root 2>/dev/null; fail "Congestion again after the restart"; }
 decs | grep -q "^$TID3 proposed " || fail "the proposal #$TID3 should survive the restart"
+TRIALS0=$(grep -c "wifi health: $AP_H trial on channel $CH3 (from $CH1): measuring" "$T/agd.log" || true)
 "$BIN/agctl/agctl" approve "$TID3" > /dev/null || fail "approve #$TID3"
 echo "   trial #$TID3 proposed (channel $CH1 -> $CH3), agd restarted, approved"
+# the new channel is no quieter (busier, even): "before" here is only the few
+# probes since the restart, and the same 30 % on both sides can, by chance, read
+# 53 % before and 21 % after, a gain agd rightly keeps. Busier once the trial has
+# taken its "before" (that log line), so "did not help" is what devices feel.
+i=0
+until [ "$(grep -c "wifi health: $AP_H trial on channel $CH3 (from $CH1): measuring" "$T/agd.log" || true)" -gt "$TRIALS0" ]; do
+	i=$((i + 1))
+	if [ $i -gt 60 ]; then
+		tc qdisc del dev "$AP_H" root 2>/dev/null
+		echo "--- agd"; grep -iE 'wifi health|trial|decision' "$T/agd.log" | tail -n 12
+		fail "trial #$TID3 should start on channel $CH3 once approved"
+	fi
+	sleep 0.5
+done
+tc qdisc change dev "$AP_H" root netem loss 50% || fail "netem 50% on $AP_H"
 i=0
 until decs | grep -Eq "^$TID3 (tried|kept) "; do
 	i=$((i + 1))

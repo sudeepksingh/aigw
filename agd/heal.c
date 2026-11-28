@@ -435,6 +435,8 @@ struct trial {
 	int from, to;                   /* channels */
 	int before_loss, before_rtt;    /* what devices felt before */
 	int before_n, before_lost;      /* ... the probes it was measured on (0: not known) */
+	int64_t problem_since;          /* wall s: when the problem it fixes began (the verdict
+	                                   may read Good again before the trial is judged) */
 	int sure_logged;                /* "not sure yet, measuring longer" said */
 	int64_t fresh_ms;               /* monotonic: the last trial was judged; the verdict counts only
 	                                   probes after it (the window still held the old channel's) */
@@ -551,7 +553,11 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 
 			day->kept++;
 			day->fixes++;
-			day->fix_secs += r->problem_since ? (unsigned)(wall - r->problem_since) : 0;
+			{       /* from the problem to the fix: also when Good came back during the trial */
+				int64_t ps = t->problem_since ? t->problem_since : r->problem_since;
+
+				day->fix_secs += ps && wall > ps ? (unsigned)(wall - ps) : 0;
+			}
 			day->loss_before += (unsigned)bl;
 			day->loss_after += (unsigned)after.loss_pct;
 			day->rtt_before += br > 0 ? (unsigned)br : 0;
@@ -617,6 +623,7 @@ static void trial_step(int a, const struct wifi_ap *ap, struct heal_radio *r, co
 			t->id = id;
 			t->to = ap->channel;
 			t->sure_logged = 0;
+			t->problem_since = r->problem_since;
 			t->before_n = t->before_lost = 0;
 			if (now_res->measured) {
 				t->before_loss = now_res->loss_pct;
