@@ -35,7 +35,8 @@ The core is always built. It is what makes AIGW OS a managed gateway:
 
 Sizes are for x86-64. They are agd, agctl, agdns and the plug-ins, stripped, in 4 KB blocks,
 built as OpenWRT's SDK builds them. "Off saves" is what turning the feature off saves; when
-other features need it, they go too. The core alone is 316 KB of programs; everything is 872 KB.
+other features need it, they go too. They were measured before agctl became a link to agd
+(v0.51.1), which made every build smaller; the profiles' totals below are today's.
 
 | Feature | What it is | Needs | In | Off saves |
 |---|---|---|---|---|
@@ -70,15 +71,20 @@ smart queueing, the mesh and area outages when they are built.
 
 ## Profiles
 
-| Profile | Features | Installed flash (`aigw-selftest`) |
-|---|---|---|
-| `full` | all | x86-64 992 KB, aarch64 980 KB, mipsel 820 KB |
-| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `PROVEN` | x86-64 708 KB, aarch64 708 KB, mipsel 600 KB |
-| `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
+| Profile | Features | Budget | x86-64 | aarch64 | mipsel |
+|---|---|---|---|---|---|
+| `max` | every feature: for 16 MB of flash or more, and a PC | 2048 KB | 972 KB | 956 KB | 800 KB |
+| `full` (default) | all but max's own: today `FLEETLEARN` | 1024 KB | 944 KB | 932 KB | 780 KB |
+| `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `PROVEN` | 1024 KB | 652 KB | 664 KB | 560 KB |
+| `minimal` | the core only | 1024 KB | 356 KB | 352 KB | 308 KB |
 
-The installed flash is what `aigw-selftest` counts on the router: the programs, the scripts,
-the model and the plug-ins. CI's OpenWRT jobs print it for each profile
-(`platform/openwrt/flash-kb.py`).
+Measured in v0.51.1 (OpenWRT 24.10.8 SDK). Full has 80 KB of headroom on x86-64, 92 on aarch64
+and 244 on mipsel. The installed flash is what `aigw-selftest` counts on the router: the programs,
+the scripts, the model and the plug-ins. CI's OpenWRT 24.10 jobs print it for every profile against
+its budget, and fail when one is over (`platform/openwrt/flash-kb.py`).
+
+`agctl` is a link to `agd` (since v0.51.1): one program, so libag and the libraries are in flash
+once. That saved 36 to 56 KB in every profile on every architecture.
 
 ## How to pick
 
