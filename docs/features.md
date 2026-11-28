@@ -4,8 +4,20 @@ AIGW OS is one code base. Whoever builds it, an ISP, a router maker or you, pick
 features it has. A feature that is not built in takes no flash. New features come as
 options too, so they don't grow every image.
 
-The **full** build has every feature. It is the default, and it behaves exactly as AIGW OS
-always has.
+Four profiles, each with all of the one before: **minimal** < **small** < **full** < **max**.
+
+- **full** is the default. It is what most routers have room for, and it stays within 1024 KB
+  of installed flash on every architecture.
+- **max** has every feature, within 2048 KB, for routers with 16 MB of flash or more (most
+  current OpenWRT routers) and for a PC as access point (`platform/pc-ap/install.sh` builds max).
+
+### The rule for new features
+
+A new feature goes into **max**. It joins **full** only when full still fits its 1024 KB, with
+headroom, on every architecture CI measures. It joins **small** only when an ISP needs it on the
+smallest routers. In `cmake/features.cmake`, a feature's last column names the smallest profile it
+is in; leaving it empty means max. A feature leaving full for max is said in the release notes,
+and an upgrade of the full packages loses its data model (the upgrade test knows which ones).
 
 ## The core
 
@@ -25,30 +37,32 @@ Sizes are for x86-64. They are agd, agctl, agdns and the plug-ins, stripped, in 
 built as OpenWRT's SDK builds them. "Off saves" is what turning the feature off saves; when
 other features need it, they go too. The core alone is 316 KB of programs; everything is 872 KB.
 
-| Feature | What it is | Needs | Off saves |
-|---|---|---|---|
-| `WIFI_HEAL` | Self-Healing Wi-Fi, band steering, channel healing, neighbour-aware channels | | 60 KB |
-| `MESH` | Smarter mesh Wi-Fi over an EasyMesh controller ([mesh.md](mesh.md)) | | 52 KB |
-| `COVERAGE` | Coverage placement advice ([coverage.md](coverage.md)) | `WHY` | 20 KB |
-| `TR143` | TR-143 diagnostics: IPPing, TraceRoute, Download, Upload, NSLookup | | 168 KB with what needs it (about 36 on its own) |
-| `CARE` | Proactive care: checks, early warning, the experience score, the speed test | `TR143` | 132 KB with what needs it (about 40 on its own) |
-| `UPGRADE` | Firmware upgrades that check themselves and roll back | `CARE` | 24 KB |
-| `WHY` | Why was it slow: the home's timeline | | 152 KB with what needs it (about 32 on its own) |
-| `OFFERS` | Signals for the ISP (a faster plan, mesh Wi-Fi, and more) | `WHY`, `CARE` | 16 KB |
-| `SQM` | Self-tuning smart queueing | `WHY` | 32 KB with `CALLS` (about 12 on its own) |
-| `CALLS` | Calls and games first | `SQM` | 20 KB |
-| `BRIEF` | The help-desk brief | `CARE`, `WHY` | 52 KB with `PROACTIVE` (about 24 on its own) |
-| `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | 28 KB |
-| `AREA` | Area outages: fixes held while many homes fail at once | | 8 KB |
-| `FED` | Federated learning | | 16 KB (with `FLEETLEARN`, which needs it, 44 KB) |
-| `FLEETLEARN` | Fleet learning: fixes ranked by the fleet's outcomes, warnings from day one ([fleet-learning.md](fleet-learning.md)) | `FED` | 28 KB |
-| `PLUGINS` | Plug-ins and skills: MQTT, Home Assistant, the bridge to cortex | | 104 KB |
-| `SNI` | Connection names from TLS and QUIC handshakes | | 8 KB |
-| `METER` | Per-device traffic meter (eBPF) | | 4 KB |
-| `FASTPATH` | Kernel fast path (flowtable) | | under 4 KB |
-| `REMOTE` | Remote access over WireGuard | | 8 KB (and the `aigw-remote` package) |
-| `KEYS` | Per-device Wi-Fi keys | | 8 KB |
-| `PROVEN` | Proven self-repair: every fix predicted, measured, and undone when it didn't help ([proven-repair.md](proven-repair.md)) | `CARE` | 40 KB (aarch64 40, mipsel 32) |
+| Feature | What it is | Needs | In | Off saves |
+|---|---|---|---|---|
+| `WIFI_HEAL` | Self-Healing Wi-Fi, band steering, channel healing, neighbour-aware channels | | small | 60 KB |
+| `MESH` | Smarter mesh Wi-Fi over an EasyMesh controller ([mesh.md](mesh.md)) | | full | 52 KB |
+| `COVERAGE` | Coverage placement advice ([coverage.md](coverage.md)) | `WHY` | full | 20 KB |
+| `TR143` | TR-143 diagnostics: IPPing, TraceRoute, Download, Upload, NSLookup | | small | 168 KB with what needs it (about 36 on its own) |
+| `CARE` | Proactive care: checks, early warning, the experience score, the speed test | `TR143` | small | 132 KB with what needs it (about 40 on its own) |
+| `UPGRADE` | Firmware upgrades that check themselves and roll back | `CARE` | small | 24 KB |
+| `WHY` | Why was it slow: the home's timeline | | small | 152 KB with what needs it (about 32 on its own) |
+| `OFFERS` | Signals for the ISP (a faster plan, mesh Wi-Fi, and more) | `WHY`, `CARE` | full | 16 KB |
+| `SQM` | Self-tuning smart queueing | `WHY` | small | 32 KB with `CALLS` (about 12 on its own) |
+| `CALLS` | Calls and games first | `SQM` | full | 20 KB |
+| `BRIEF` | The help-desk brief | `CARE`, `WHY` | small | 52 KB with `PROACTIVE` (about 24 on its own) |
+| `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | small | 28 KB |
+| `AREA` | Area outages: fixes held while many homes fail at once | | full | 8 KB |
+| `FED` | Federated learning | | full | 16 KB (with `FLEETLEARN`, which needs it, 44 KB) |
+| `FLEETLEARN` | Fleet learning: fixes ranked by the fleet's outcomes, warnings from day one ([fleet-learning.md](fleet-learning.md)); it needs an ISP-side collector | `FED` | **max** (since v0.51.1) | 28 KB |
+| `PLUGINS` | Plug-ins and skills: MQTT, Home Assistant, the bridge to cortex | | full | 104 KB |
+| `SNI` | Connection names from TLS and QUIC handshakes | | full | 8 KB |
+| `METER` | Per-device traffic meter (eBPF) | | full | 4 KB |
+| `FASTPATH` | Kernel fast path (flowtable) | | full | under 4 KB |
+| `REMOTE` | Remote access over WireGuard | | full | 8 KB (and the `aigw-remote` package) |
+| `KEYS` | Per-device Wi-Fi keys | | full | 8 KB |
+| `PROVEN` | Proven self-repair: every fix predicted, measured, and undone when it didn't help ([proven-repair.md](proven-repair.md)) | `CARE` | small | 44 KB (aarch64 36, mipsel 36) |
+
+"In" is the smallest profile that has the feature: small's are in full and max too, full's in max.
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions
@@ -71,8 +85,9 @@ the model and the plug-ins. CI's OpenWRT jobs print it for each profile
 **CMake** (a PC, or your own build system):
 
 ```sh
-cmake -S . -B build -DAIGW_PROFILE=small                    # a profile
+cmake -S . -B build -DAIGW_PROFILE=max                      # a profile: minimal, small, full (default), max
 cmake -S . -B build -DAIGW_FEATURE_MESH=OFF                 # full, without mesh Wi-Fi
+cmake -S . -B build -DAIGW_FEATURE_FLEETLEARN=ON            # full, with fleet learning (that is max)
 cmake -S . -B build -DAIGW_PROFILE=minimal -DAIGW_FEATURE_TR143=ON   # the core and TR-143
 ```
 
@@ -84,8 +99,15 @@ A feature that needs one that is off stops the build, and says which one to turn
 takes a profile too:
 
 ```sh
-AIGW_PROFILE=small platform/openwrt/build-sdk.sh    # packages in dist/openwrt-small/
+AIGW_PROFILE=max platform/openwrt/build-sdk.sh      # packages in dist/openwrt-max/
 ```
+
+**Releases** have the full profile's packages under their usual names, and, for each target, the
+max profile's `aigw` package as `aigw-max_<version>_<arch>.ipk` (`.apk` on 25.12): the other
+packages (LuCI, the bridge, MQTT, USP, TR-069) are the same in every profile. That is one file
+more per target, four in all. It installs as the `aigw` package, in place of full's (the same
+version: `opkg install --force-reinstall ./aigw-max_*.ipk`; full's back the same way). The demo
+image is built from max.
 
 Only the files of the features built are shipped. For example, `aigw-sqm` comes with smart
 queueing, the mesh handler with mesh Wi-Fi, and the Wi-Fi keys and remote access page in LuCI
@@ -95,6 +117,9 @@ with either of them. The `aigw-mqtt` and `aigw-bridge` packages need `PLUGINS`, 
 ## What a build says about itself
 
 - `agd --features` and `agctl version` list the features built in.
+- `agd --profile` and `agctl version` say the profile (`custom` when the features are not exactly
+  a profile's) and its flash budget: that of the smallest profile with everything built (a custom
+  build with a max feature has 2048 KB). `aigw-selftest` checks the installed flash against it.
 - `Device.X_AIGW_.Features` (data model 1.22 and later) has the same list, so the ISP and cortex know
   what each gateway can do.
 - A command of a feature that is not built in says so: `agctl mesh: not built in
@@ -106,7 +131,10 @@ with either of them. The `aigw-mqtt` and `aigw-bridge` packages need `PLUGINS`, 
 
 ## Adding a feature
 
-1. Add a row to `AIGW_FEATURE_TABLE` in `cmake/features.cmake`: the name, what it is, what it needs.
+1. Add a row to `AIGW_FEATURE_TABLE` in `cmake/features.cmake`: the name, what it is, what it needs, and
+   no profile (it is in max). In `platform/openwrt/aigw/Makefile`, its Kconfig option defaults to y only
+   with `AIGW_PROFILE_MAX || AIGW_PROFILE_CUSTOM`, and its help says its KB. Moving it into full later
+   is a change of its own, with CI's flash table showing headroom on every architecture.
 2. List its sources with `aigw_feature_sources()` in `agd/CMakeLists.txt` and `core/libag/CMakeLists.txt`.
 3. In `agd/agd.h`, put its functions inside `#if AIGW_FEATURE_<NAME>`. Under `#else`, add small inline stubs
    only for what the core or an optional partner calls.
@@ -114,4 +142,4 @@ with either of them. The `aigw-mqtt` and `aigw-bridge` packages need `PLUGINS`, 
    `#if`, and add its commands to agctl's `features[]` table.
 5. Give its shell test `needs "$BIN" <name>` (`tests/feature-lib.sh`), and its unit test an `if()` in
    `tests/CMakeLists.txt`.
-6. Build the minimal profile and the full one minus your feature: both build with no warnings.
+6. Build the minimal profile, the full one, and max minus your feature: all build with no warnings.
