@@ -525,7 +525,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
-| *measured v0.51, installed (SDK packages)* | *full 992 KB x86-64, 980 KB aarch64, 820 KB mipsel; small 708 / 708 / 600; minimal 392 x86-64* | — |
+| *measured v0.51.1, installed (SDK packages)* | *full 944 KB x86-64, 932 KB aarch64, 780 KB mipsel; max 972 / 956 / 800 (budget 2048); small 652 / 664 / 560; minimal 356 / 352 / 308* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |

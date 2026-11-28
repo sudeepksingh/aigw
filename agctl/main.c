@@ -2988,7 +2988,10 @@ static int not_built(const char *cmd, const char *sub)
 	return 0;
 }
 
-int main(int argc, char **argv)
+/* agctl is a link to agd: agd's main() runs this when it is called as "agctl" (agd/main.c) */
+int agctl_main(int argc, char **argv);
+
+int agctl_main(int argc, char **argv)
 {
 	struct blob_buf args = { 0 };
 	const char *cmd;
@@ -3004,7 +3007,8 @@ int main(int argc, char **argv)
 	}
 	cmd = argv[i++];
 	if (!strcmp(cmd, "version")) {
-		printf("agctl %s\nfeatures: %s\n", AG_VERSION, *AG_FEATURES ? AG_FEATURES : "the core only");
+		printf("agctl %s\nfeatures: %s\nprofile: %s (flash budget %d KB)\n", AG_VERSION,
+		       *AG_FEATURES ? AG_FEATURES : "the core only", AG_PROFILE, AG_FLASH_BUDGET);
 		return 0;
 	}
 	if (not_built(cmd, i < argc ? argv[i] : NULL))
