@@ -327,7 +327,8 @@ define Package/aigw/install
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-dhcp-event $(1)/usr/sbin/
 	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/sbin/aigw-selftest $(1)/usr/sbin/
 	$(INSTALL_DATA) ./files/aigw.hotplug-dhcp $(1)/etc/hotplug.d/dhcp/90-aigw
-	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/agctl $(1)/usr/bin/
+	# agctl is agd called by another name (one copy of the program in flash)
+	$(LN) ../sbin/agd $(1)/usr/bin/agctl
 	$(INSTALL_BIN) ./files/aigw.init $(1)/etc/init.d/aigw
 	$(INSTALL_CONF) $(AIGW_SRC)/config/aigw $(1)/etc/config/aigw
 	$(INSTALL_BIN) ./files/aigw.uci-defaults $(1)/etc/uci-defaults/90-aigw

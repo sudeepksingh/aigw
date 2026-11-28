@@ -2988,7 +2988,10 @@ static int not_built(const char *cmd, const char *sub)
 	return 0;
 }
 
-int main(int argc, char **argv)
+/* agctl is a link to agd: agd's main() runs this when it is called as "agctl" (agd/main.c) */
+int agctl_main(int argc, char **argv);
+
+int agctl_main(int argc, char **argv)
 {
 	struct blob_buf args = { 0 };
 	const char *cmd;

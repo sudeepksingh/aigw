@@ -1567,8 +1567,17 @@ static void save_cb(struct uloop_timeout *t)
 	uloop_timeout_set(t, cfg.state_interval * 1000);
 }
 
+/* agctl is the same program (a link to agd, which saves its own copy of libag in flash): run as
+   "agctl", it is the command line (agctl/main.c), nothing of agd */
+int agctl_main(int argc, char **argv);
+
 int main(int argc, char **argv)
 {
+	const char *self = argc > 0 && argv[0] ? strrchr(argv[0], '/') : NULL;
+
+	self = self ? self + 1 : argc > 0 && argv[0] ? argv[0] : "";
+	if (!strcmp(self, "agctl"))
+		return agctl_main(argc, argv);
 	if (argc > 1 && (!strcmp(argv[1], "-v") || !strcmp(argv[1], "--version"))) {
 		printf("agd %s\n", AG_VERSION);
 		return 0;
