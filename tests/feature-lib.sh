@@ -18,6 +18,35 @@ has() {
 	return 0
 }
 
+# After agd (re)starts: wait until its ubus objects are published and answer,
+# before a test asks it anything. 0 when all answer within <seconds>; else 1,
+# with what was missing on stderr.
+#   ubus_ready <ubus socket> <seconds> ag ag.wifi ag.decision ag.dm
+ubus_ready() {
+	_sock=$1 _secs=$2
+	shift 2
+	_ubus=${UBUS:-$(command -v ubus || echo /usr/local/bin/ubus)}
+	_i=0
+	while :; do
+		_missing=""
+		for _o; do
+			# published, and its owner answers a call: "method not found" (3) for
+			# this made-up method means agd's loop is running and served it
+			"$_ubus" -s "$_sock" -t 2 list "$_o" 2>/dev/null | grep -q . || { _missing="$_missing $_o"; continue; }
+			_rc=0
+			"$_ubus" -s "$_sock" -t 2 call "$_o" aigw_ready_probe > /dev/null 2>&1 || _rc=$?
+			case $_rc in 0 | 2 | 3) ;; *) _missing="$_missing $_o(call: $_rc)" ;; esac
+		done
+		[ -z "$_missing" ] && return 0
+		_i=$((_i + 1))
+		if [ $_i -gt $((_secs * 4)) ]; then
+			echo "ubus_ready: after ${_secs} s, not answering on $_sock:$_missing" >&2
+			return 1
+		fi
+		sleep 0.25
+	done
+}
+
 needs() {   # needs <build dir> <feature>...
 	features_of "$1"
 	shift
