@@ -50,7 +50,7 @@ other features need it, they go too. The core alone is 316 KB of programs; every
 | `KEYS` | Per-device Wi-Fi keys | | 8 KB |
 | `PROVEN` | Proven self-repair: every fix predicted, measured, and undone when it didn't help ([proven-repair.md](proven-repair.md)) | `CARE` | 40 KB (aarch64 40, mipsel 32) |
 | `HOMEMODEL` | The home Wi-Fi model: places, and what an extender or a move would fix ([home-model.md](home-model.md)) | `COVERAGE` | 28 KB |
-| `SENSING` | Wi-Fi sensing, opt-in: presence, movement per zone, a care check-in ([wifi-sensing.md](wifi-sensing.md)) | | 12 KB |
+| `SENSING` | Wi-Fi sensing, opt-in: presence, movement per zone, a care check-in ([wifi-sensing.md](wifi-sensing.md)) | | 16 KB |
 
 Some features work better together without needing each other. Coverage advice uses the mesh
 when it is built, and Self-Healing Wi-Fi's loss when that is built. The help-desk brief mentions
@@ -65,7 +65,7 @@ The home model holds back the ISP's mesh Wi-Fi signal (`OFFERS`) when a free cha
 
 | Profile | Features | Installed flash (`aigw-selftest`) |
 |---|---|---|
-| `full` | all | x86-64 992 KB, aarch64 980 KB, mipsel 820 KB |
+| `full` | all | x86-64 1064 KB, aarch64 1060 KB, mipsel 888 KB (over the 1024 KB budget on x86-64 and aarch64) |
 | `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `PROVEN` | x86-64 708 KB, aarch64 708 KB, mipsel 600 KB |
 | `minimal` | the core only | x86-64 392 KB, aarch64 384 KB, mipsel 340 KB |
 

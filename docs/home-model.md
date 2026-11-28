@@ -204,7 +204,7 @@ For the ISP, devices are named by kind ("a TV") and places by number, unless
 ## Size
 
 Installed flash it adds to the full profile: 28 KB on x86-64, 32 KB on
-aarch64, 24 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them).
+aarch64, 28 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them).
 6 KB of RAM for the model, and about 12 KB in the state file.
 In the **full** profile only: it needs coverage advice, which the small profile
 leaves out.

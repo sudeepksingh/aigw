@@ -176,7 +176,8 @@ stillness to be called empty.
 On this PC: 0.1-0.7 us a look, 2.2 KB of state. `agd --sense-bench` measures
 the same on any router, and `aigw-selftest` checks it (budget 50 us a look):
 at agd's rate, 32 devices take well under 0.1% of one CPU. The QEMU CI jobs run
-it on x86-64, aarch64 and mipsel.
+it on each architecture: x86-64 0.33 us a look, aarch64 2.39, mipsel 2.58
+(emulated CPUs; 2.0-2.2 KB of state), under 0.002% of a CPU for 32 devices.
 
 ## Tests
 
@@ -200,7 +201,7 @@ model's place names when that is built too.
 
 ## Size
 
-Installed flash it adds to the full profile: 12 KB on x86-64, 16 KB on
+Installed flash it adds to the full profile: 16 KB on x86-64, 20 KB on
 aarch64, 12 KB on mipsel (4 KB blocks, as `aigw-selftest` counts them).
 In the **full** profile only: it is an opt-in service, not
 what an ISP needs most on 8 or 16 MB of flash.

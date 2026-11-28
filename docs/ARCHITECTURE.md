@@ -524,7 +524,7 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `agdns` | ~150 KB | ~3 MB |
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
-| *measured v0.53, installed (SDK 24.10.8, `flash-kb.py`)* | *full 996 KB x86-64, 988 KB aarch64, 828 KB mipsel; small 664 / 668 / 568; minimal 392 / 384 / 340* | — |
+| *measured v0.53, installed (SDK 24.10.8, `flash-kb.py`)* | *full 1064 KB x86-64, 1060 KB aarch64, 888 KB mipsel: over the budget on x86-64 and aarch64; small 708 / 708 / 600; minimal 392 / 384 / 340* | — |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
 | *measured v0.51, installed (SDK packages)* | *full 992 KB x86-64, 980 KB aarch64, 820 KB mipsel; small 708 / 708 / 600; minimal 392 x86-64* | — |
 | models | ~300 KB | ~0.5 MB |
@@ -1263,13 +1263,13 @@ Installed flash, as `aigw-selftest` counts it (budget 1024 KB):
 
 | Profile | `x86_64` | `aarch64_cortex-a53` | `mipsel_24kc` |
 |---------|----------|----------------------|---------------|
-| full | 996 KB | 988 KB | 828 KB |
-| ... of it `HOMEMODEL` | 28 KB | 32 KB | 24 KB |
-| ... of it `SENSING` | 12 KB | 16 KB | 12 KB |
-| small | 664 KB | 668 KB | 568 KB |
+| full | 1064 KB | 1060 KB | 888 KB |
+| ... of it `HOMEMODEL` | 28 KB | 32 KB | 28 KB |
+| ... of it `SENSING` | 16 KB | 20 KB | 12 KB |
+| small | 708 KB | 708 KB | 600 KB |
 | minimal | 392 KB | 384 KB | 340 KB |
 
-The full profile has 28 KB left on x86-64 and 36 KB on aarch64.
+Without these two features the full profile (v0.51) is 1024 / 1012 / 848 KB: with them it is 40 KB over the budget on x86-64 and 36 KB on aarch64. Which features the full profile keeps, or the budget, is the maintainers' decision.
 
 ---
 
