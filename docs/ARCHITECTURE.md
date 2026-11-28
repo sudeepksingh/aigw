@@ -525,7 +525,8 @@ plug-in/skill marketplace revenue share · OEM/operator licensing and certificat
 | `ag-bridge` (optional) | ~60 KB | ~1 MB |
 | *measured v0.10, idle (QEMU)* | *476 KB* | *2.5 MB* |
 | *measured v0.48, installed (QEMU)* | *full 952 KB x86-64, 940 KB aarch64, 788 KB mipsel; small 664 / 668 / 564; minimal 392 / 384 / 340* | — |
-| *measured v0.51, installed (SDK packages)* | *full 992 KB x86-64, 980 KB aarch64, 820 KB mipsel; small 708 / 708 / 600; minimal 392 x86-64* | — |
+| *measured v0.51.1, installed (SDK packages)* | *full 944 KB x86-64, 932 KB aarch64, 780 KB mipsel; max 972 / 956 / 800 (budget 2048); small 652 / 664 / 560; minimal 356 / 352 / 308* | — |
+| *measured v0.52, installed (SDK packages)* | *full and small as v0.51.1; max 1012 / 1004 / 836 (per-app experience, in max only)* | — |
 | models | ~300 KB | ~0.5 MB |
 | plug-in headroom | — | ~1.5 MB |
 | **Total** | **< 1 MB** | **< 16 MB** |
@@ -1248,7 +1249,7 @@ Installed flash, OpenWRT 24.10.8 SDK, as `aigw-selftest` counts it (budget 1024 
 
 Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-test.sh`, the full local suite on the full, small and minimal profiles, `PROVEN` built alone with `CARE` and `TR143`, and the full build without it (no warnings).
 
-**As built in v0.52: per-app experience.** How each call, stream and game went, in the app's own terms, and why ([app-experience.md](app-experience.md)). Feature `APPQOE`, needs `WHY`; in the full and small profiles.
+**As built in v0.52: per-app experience.** How each call, stream and game went, in the app's own terms, and why ([app-experience.md](app-experience.md)). Feature `APPQOE`, needs `WHY`; in the max profile only.
 
 | Piece | As built |
 |-------|----------|
@@ -1257,7 +1258,7 @@ Verified by `tests/test_repair.c`, `tests/repair-test.sh` and `tests/proactive-t
 | Surfaces | `agctl apps`, `ag apps`, `agctl brief --app` / `SupportBrief(App)`, the brief's evidence and verdict (a moment's home or line cause; `OUTSIDE_SERVICE` when most were the far end's), `Device.X_AIGW_.AppExperience.` with `Kind.{i}.` and `Moment.{i}.` (1.25) |
 | Privacy | Kind and family name only; names to the ISP only with `brief.names`; `apps.share 0` hides it from the ISP (also from `WhySlow()`), `apps.names 0` uses no server names |
 
-Installed flash (budget 1024 KB), against v0.51 built the same way: full x86-64 1068 KB, aarch64 1056 KB, mipsel 888 KB (+44, +48, +40 KB; over the budget on x86-64 and aarch64); small 744, 756, 640 KB.
+Installed flash, against v0.51.1 built the same way: in the max profile only, max x86-64 1012 KB, aarch64 1004 KB, mipsel 836 KB of 2048 (+40, +48, +36 KB); full (944 / 932 / 780) and small as in v0.51.1.
 
 ---
 

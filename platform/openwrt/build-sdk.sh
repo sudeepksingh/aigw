@@ -70,6 +70,9 @@ grep -E "^src-[a-z-]+ (--[^ ]+ )*($FEEDS) " feeds.conf.default > feeds.conf || {
 echo "src-link aigw $REPO/platform/openwrt" >> feeds.conf
 
 echo "==> feeds"
+# the package index is cached in tmp/: a Kconfig option added since the last build (a feature, a
+# profile) would be missing from .config, and the profile's packages with it
+rm -rf tmp
 LOG="$CACHE/feeds-$VERSION.log"
 # the release feeds are pinned, so fetch them once; refresh only aigw after that
 UPDATE="aigw"
@@ -88,9 +91,10 @@ if ! { ./scripts/feeds update $UPDATE && ./scripts/feeds install $DEPS $PKGS; } 
 fi
 
 echo "==> building"
-# the features (docs/features.md): AIGW_PROFILE=full (default), small or minimal, as make menuconfig's profile
+# the features (docs/features.md): AIGW_PROFILE=full (default), max, small or minimal, as make menuconfig's
+# profile; packages of a profile other than full in dist/openwrt-<profile>/
 PROFILE=${AIGW_PROFILE:-full}
-case $PROFILE in full|small|minimal) ;; *) die "AIGW_PROFILE is full, small or minimal" ;; esac
+case $PROFILE in full|max|small|minimal) ;; *) die "AIGW_PROFILE is full, max, small or minimal" ;; esac
 [ -f .config ] && sed -i '/^CONFIG_AIGW_PROFILE_/d; /^# CONFIG_AIGW_PROFILE_/d; /CONFIG_AIGW_FEATURE_/d' .config
 echo "CONFIG_AIGW_PROFILE_$(echo "$PROFILE" | tr a-z A-Z)=y" >> .config
 make defconfig > /dev/null 2>&1

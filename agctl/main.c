@@ -59,7 +59,11 @@ static void usage(void)
 		"                      \"why was it slow?\" afterwards: the home's timeline (the last hour by\n"
 		"                      default) explained, with what happened in order\n"
 		"  brief [device] [now | \"last 2h\" | \"tonight 20:00-22:00\" | --since 19:30] [--no-check]\n"
-		"        [--speed] [--propose] [--app calls|streaming|gaming|...]\n"
+		"        [--speed] [--propose]"
+#if AIGW_FEATURE_APPQOE
+		" [--app calls|streaming|gaming|...]"
+#endif
+		"\n"
 		"                      the help desk's answer: the fault in one word, the evidence, what AIGW\n"
 		"                      did, what to tell the customer, a remote fix (--propose: a decision\n"
 		"                      that waits for a yes) and whether a technician should go out\n"
@@ -67,9 +71,11 @@ static void usage(void)
 		"                      everything else slows (bufferbloat), and keeps it only if it helped\n"
 		"  calls               calls and games first: the ones now (first in smart queueing), how\n"
 		"                      the last one went while the line was full, the counts\n"
+#if AIGW_FEATURE_APPQOE
 		"  apps [device] [--app calls|streaming|gaming|downloads|browsing|smart-home] [--reload]\n"
 		"                      per-app experience: how each call, stream and game went (scores by\n"
 		"                      kind), its bad moments (a call froze, a stream buffered) and why\n"
+#endif
 		"  mesh [--run]        mesh Wi-Fi over the EasyMesh controller: access points, their backhaul,\n"
 		"                      each device's access point and link, the channel plan, AIGW's moves\n"
 		"  mesh steer <device> <BSSID> [time]   move a device to another access point of the mesh\n"
@@ -3070,7 +3076,10 @@ static int not_built(const char *cmd, const char *sub)
 	return 0;
 }
 
-int main(int argc, char **argv)
+/* agctl is a link to agd: agd's main() runs this when it is called as "agctl" (agd/main.c) */
+int agctl_main(int argc, char **argv);
+
+int agctl_main(int argc, char **argv)
 {
 	struct blob_buf args = { 0 };
 	const char *cmd;
@@ -3086,7 +3095,8 @@ int main(int argc, char **argv)
 	}
 	cmd = argv[i++];
 	if (!strcmp(cmd, "version")) {
-		printf("agctl %s\nfeatures: %s\n", AG_VERSION, *AG_FEATURES ? AG_FEATURES : "the core only");
+		printf("agctl %s\nfeatures: %s\nprofile: %s (flash budget %d KB)\n", AG_VERSION,
+		       *AG_FEATURES ? AG_FEATURES : "the core only", AG_PROFILE, AG_FLASH_BUDGET);
 		return 0;
 	}
 	if (not_built(cmd, i < argc ? argv[i] : NULL))

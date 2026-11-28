@@ -18,8 +18,11 @@ Per-app experience: Active; server names help tell apps apart (families only, ne
 ```
 
 It is a compile-time feature, `AIGW_FEATURE_APPQOE` ([features.md](features.md)), that needs
-the timeline (`WHY`). It is in the **full** and the **small** profile: the small profile is
-"what an ISP needs most", and these are the calls an ISP's help desk gets most.
+the timeline (`WHY`). It is in the **max** profile only, not in full or small: new features come
+in max first and join full only when full still fits its 1024 KB of flash with headroom on every
+architecture. A custom build can have it with any profile's features (`-DAIGW_FEATURE_APPQOE=ON`,
+or the OpenWRT menu's custom profile). Without it, `agctl apps` says
+"not built in (AIGW_FEATURE_APPQOE)".
 
 ## How it works
 
@@ -231,10 +234,11 @@ Measured by `tests/test_appqoe.c` and shown by `agctl apps` (`cost`):
   cause (once per moment) is the heaviest step, about 1 ms here.
 - **Memory**: about 100 KB, fixed (160 connections with 6 looks each, 32 sessions, 32 moments,
   48 sessions ended, 8 days, the rules, and the buffers for a moment's cause).
-- **Flash**: the feature adds 44 KB on x86-64, 48 KB on aarch64 and 40 KB on mipsel (installed, as
-  `aigw-selftest` counts it; OpenWRT 24.10.8 SDK, against v0.51 built the same way). The full
-  profile is 1068 / 1056 / 888 KB (x86-64 / aarch64 / mipsel): over the 1024 KB budget on x86-64
-  and aarch64, where v0.51 alone is 1024 / 1008 KB; the small profile 744 / 756 / 640 KB. See [features.md](features.md).
+- **Flash**: the feature adds 40 KB on x86-64, 48 KB on aarch64 and 36 KB on mipsel (installed, as
+  `aigw-selftest` counts it; OpenWRT 24.10.8 SDK, against v0.51.1 built the same way). It is in the
+  max profile only: max is 1012 / 1004 / 836 KB (x86-64 / aarch64 / mipsel) of its 2048 KB budget;
+  full (944 / 932 / 780 KB) and small (652 KB on x86-64) are as in v0.51.1, since nothing of the
+  feature is built without it. See [features.md](features.md).
 
 ## Tests
 

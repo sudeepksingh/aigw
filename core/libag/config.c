@@ -637,6 +637,7 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "calls", "min_s");
 		if (v && atoi(v) >= 0 && atoi(v) <= 86400)
 			c->calls_min_s = atoi(v);
+#if AIGW_FEATURE_APPQOE
 		v = opt(ctx, p, "apps", "enabled");
 		if (v)
 			c->apps = atoi(v) != 0;
@@ -655,6 +656,7 @@ void ag_config_load(struct ag_config *c)
 		v = opt(ctx, p, "apps", "rules");
 		if (v)
 			copy(c->apps_rules, sizeof(c->apps_rules), v);
+#endif
 		v = opt(ctx, p, "fleet", "enabled");
 		if (v)
 			c->fleet = atoi(v) != 0;

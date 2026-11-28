@@ -178,6 +178,7 @@ void why_hide_calls(int on)
 	hide_calls = on;
 }
 
+#if AIGW_FEATURE_APPQOE
 /* appqoe.c: a bad moment of an app (flag: its kind); dm.c: apps.share 0 keeps them out of the ISP's story */
 void why_note_app(const char *mac, int kind, const char *text)
 {
@@ -203,6 +204,7 @@ int why_events(long from, long to, struct why_ev *out, int max)
 	}
 	return n;
 }
+#endif
 
 /* a radio's slot (names kept for the whole timeline); -1 when all four are taken */
 static int radio_slot(const char *iface)

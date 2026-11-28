@@ -164,6 +164,20 @@ MIGRATIONS = [
 ]
 
 
+# features that left the full profile for max (docs/features.md): (the version, a pattern of their data
+# model paths). An upgrade of the full packages from before it loses those paths on purpose
+MOVED_TO_MAX = [
+    ((0, 51, 1), re.compile(r"^Device\.X_[A-Z0-9-]+_\.(FleetLearning\.|FleetPriorsReceived!|FleetChoice!)")),
+]
+
+
+def version3(v):
+    try:
+        return tuple(int(x) for x in str(v).split("-")[0].split(".")[:3])
+    except ValueError:
+        return (0, 0, 0)
+
+
 def version(v):
     try:
         return tuple(int(x) for x in str(v).split("-")[0].split(".")[:2])
@@ -211,6 +225,11 @@ def compare(before, after, to_version, what, pc=False):
     out.append((cb > 0 and ca >= cb, "care history", f"{ca} checks kept (before: {cb})"))
     vb, va = dm(before.get("dm.txt")), dm(after.get("dm.txt"))
     pb, pa = dm_paths(vb), dm_paths(va)
+    for since, pat in MOVED_TO_MAX:
+        moved = {p for p in pb - pa if pat.match(p)}
+        if moved and version3(to_version) >= since:
+            out.append((True, "moved to max", f"{len(moved)} paths of a feature now in the max profile, as intended"))
+            pb -= moved
     out.append((len(pb) > 50 and pb <= pa, "data model",
                 f"{len(pa)} paths, all {len(pb)} of before kept" if pb <= pa else f"lost {sorted(pb - pa)[:8]}"))
     for k in ("Device.X_EXAMPLE-COM_.Mode", "Device.DeviceInfo.Manufacturer"):
