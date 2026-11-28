@@ -322,9 +322,10 @@ custom profile with `AIGW_FEATURE_AREAPREDICT` on (it needs `CARE`). Installed f
 
 | Profile | x86-64 | aarch64 | mipsel | Added by this feature |
 |---|---|---|---|---|
-| max | 992 KB of 2048 | | | +20 KB (agd and the bridge) |
-| full | 948 KB of 1024 | | | +4 KB with the feature off: the saved early-warning level (the -1 fix), the `line` settings, the offers' line repair |
-| small, minimal | | | | not in them |
+| max (of 2048 KB) | 992 KB | 984 KB | 820 KB | +20, +28, +20 KB (agd and the bridge) |
+| full (of 1024 KB) | 948 KB | 940 KB | 780 KB | +4, +8, +0 KB with the feature off: the saved early-warning level (the -1 fix), the `line` settings, the offers' line repair |
+| small | 652 KB | 664 KB | 560 KB | none (not in it) |
+| minimal | 356 KB | 352 KB | 308 KB | none (not in it) |
 
 The `line-stats` handler adds 4 KB more (in /usr/libexec/aigw, not counted). Cortex's part runs at the ISP, not on the gateway.
 
