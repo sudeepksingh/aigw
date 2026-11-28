@@ -246,6 +246,11 @@ struct ag_config {
 	int repair_gate_rate;     /* ... a fix rate of at least this % (80) */
 	int repair_gate_trials;   /* ... over at least this many judged trials in 30 days (10) */
 	int repair_tick;          /* s between measurements (10) */
+	/* line health and area fault prediction (agd/line.c) */
+	int line;                 /* learn the line's trends, day by day */
+	int line_interval;        /* s between looks at the line's own numbers (900) */
+	int line_share;           /* cortex gets the line health vector (the line's physics only) */
+	char line_handler[128];   /* the WAN's numbers; "" the platform's (line-stats) */
 	char mgmt_prefix[32];     /* vendor prefix of AIGW's own names (X_<OUI or domain>_); empty: X_AIGW_ */
 	char mgmt_manufacturer[64]; /* DeviceInfo.Manufacturer, ModelName, ProductClass (an OEM's); empty: AIGW OS */
 	char mgmt_model[64];

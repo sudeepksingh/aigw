@@ -35,6 +35,7 @@ set(AIGW_FEATURE_TABLE
   "BRIEF|The help-desk brief|CARE,WHY|small"
   "PROACTIVE|Proactive care before the call, tickets to the ISP|BRIEF|small"
   "AREA|Area outages, fixes held while many homes fail at once||full"
+  "AREAPREDICT|Area fault prediction: line health trends, the shared plant found before it fails|CARE"
   "FED|Federated learning||full"
   "FLEETLEARN|Fleet learning, every home teaches the next (fixes ranked by the fleet's outcomes, warnings from day one)|FED"
   "PLUGINS|Plug-ins and skills (MQTT, Home Assistant, the bridge to cortex)||full"

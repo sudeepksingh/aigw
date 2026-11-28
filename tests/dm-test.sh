@@ -95,6 +95,7 @@ echo "== schema, and the published data model file"
 agctl -j dm schema > "$T/schema.json"
 if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed plugins sni meter fastpath remote keys proven; then   # the full and max builds: every command and event
 NEV=18; has fleetlearn && NEV=20     # Repair!, RepairUndone!; FleetPriorsReceived!, FleetChoice!
+has areapredict && NEV=$((NEV + 2))     # LineDegrading!, LineDegradingCleared!
 js "sys.exit(0 if len(d['params']) >= 50 and len(d['commands']) == 16 and len(d['events']) == $NEV and
          [c['path'] for c in d['commands'] if c['async']] == ['Device.DeviceInfo.FirmwareImage.{i}.Download()', 'Device.DeviceInfo.FirmwareImage.{i}.Activate()', 'Device.X_AIGW_.Diagnose()',
           'Device.X_AIGW_.SupportBrief()', 'Device.IP.Diagnostics.IPPing()', 'Device.IP.Diagnostics.TraceRoute()', 'Device.IP.Diagnostics.DownloadDiagnostics()',
@@ -111,7 +112,7 @@ missing = [p["path"] for p in s["params"] if p["path"] not in names]
 sys.exit("missing in XML: %s" % missing[:5] if missing else 0)
 EOF
 # the published file has every feature's data model: the max profile's
-if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed fleetlearn plugins sni meter fastpath remote keys proven; then
+if has wifi-heal mesh coverage tr143 care upgrade why offers sqm calls brief proactive area fed fleetlearn plugins sni meter fastpath remote keys proven areapredict; then
 [ "${AIGW_UPDATE_DM_XML:-0}" = 1 ] && cp "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml"   # after changing the data model
 cmp -s "$T/dm.xml" "$REPO/docs/datamodel/aigw-dm.xml" ||
 	fail "docs/datamodel/aigw-dm.xml is out of date: agctl -j dm schema | scripts/dm-xml > docs/datamodel/aigw-dm.xml"

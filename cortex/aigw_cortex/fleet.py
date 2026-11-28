@@ -41,7 +41,7 @@ import statistics
 import time
 from collections import Counter
 
-from . import brief, channels, coverage, mesh, outage, proactive, rollout, tickets
+from . import areapredict, brief, channels, coverage, mesh, outage, proactive, rollout, tickets
 
 GOOD, FAIR = 95, 80
 SILENT_S = 86400
@@ -90,11 +90,16 @@ def outages(store, since, ids, now=None):
     return out
 
 
-def signals(store, ids, names, groups, limit=30):
+UPSELL_HELD = ("PLAN_UPGRADE", "SMART_QUEUE")      # v0.54: not sold on a line that is degrading
+
+
+def signals(store, ids, names, groups, limit=30, degrading=None):
     """Each home's open signals for the ISP (v0.32): how many homes, by product, and
     the list in the order a team would call: repairs, homes at risk, then sales by
-    confidence."""
-    rows = store.offers_open(ids)
+    confidence. v0.54: a faster plan or smart queueing is held for a home whose line
+    degrades (a predicted plant or line fault): a repair first, not a sale."""
+    degrading = degrading or set()
+    rows = [r for r in store.offers_open(ids) if not (r["gateway"] in degrading and r["code"] in UPSELL_HELD)]
     by = Counter(r["product"] or r["code"] for r in rows)
     high = Counter(r["product"] or r["code"] for r in rows if r["confidence"] == "high")
     homes = {r["gateway"] for r in rows}
@@ -160,6 +165,11 @@ def report(store, days=7, group=None, now=None):
         if g["last_seen"] and now - g["last_seen"] > SILENT_S:
             attention.append({"home": g["name"], "group": g["grp"] or "", "why": "silent", "last_seen": g["last_seen"]})
 
+    # v0.54: shared plants and lines predicted to fail (areapredict.py), among these homes
+    pred = areapredict.summary(store, now)
+    pred["open"] = [p for p in pred["open"] if any(m["gateway"] in ids for m in p["members"])]
+    pred["lines"] = [x for x in pred["lines"] if x["gateway"] in ids]
+    degrading = {m["gateway"] for p in pred["open"] for m in p["members"]} | {x["gateway"] for x in pred["lines"]}
     return tickets.attach(store, {
         "period": {"days": days, "from": time.strftime("%Y-%m-%d", time.gmtime(first * 86400)),
                    "to": time.strftime("%Y-%m-%d", time.gmtime(today * 86400)), "group": group},
@@ -187,7 +197,9 @@ def report(store, days=7, group=None, now=None):
                   "tests": fleet["speed_tests"], "tests_below_line_speed": fleet["speed_low"],
                   "homes_below_line_speed": sum(1 for h in homes.values() if h["speed_low"])},
         "outages": found,
-        "signals": signals(store, ids, names, groups),
+        "signals": dict(signals(store, ids, names, groups, degrading=degrading), held_degrading=len(
+            {r["gateway"] for r in store.offers_open(ids) if r["gateway"] in degrading and r["code"] in UPSELL_HELD})),
+        "predictions": pred,
         "rollouts": [r for r in rollout.summaries(store, since=first * 86400, now=now)
                      if group is None or r["group"] == group],
         "help_desk": brief.fleet(store, first * 86400, ids),
@@ -228,7 +240,8 @@ def text(r, now=None):
            f": {h['reporting']} of {h['total']} homes reporting" + (f", {h['silent']} silent" if h["silent"] else "")]
     if e["mean"] is None:
         out.append("  no care data yet (the bridges report proactive care from AIGW OS 0.29 on)")
-        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) + mesh.fleet_lines(r) +
+        return "\n".join(out + _rollouts(r) + brief.fleet_lines(r) + proactive.fleet_lines(r) +
+                         areapredict.fleet_lines(r) + mesh.fleet_lines(r) +
                          channels.fleet_lines(r) +
                          coverage.fleet_lines(r) + tickets.fleet_lines(r))
     change = ""
@@ -273,6 +286,10 @@ def text(r, now=None):
     out += _rollouts(r)
     out += brief.fleet_lines(r)
     out += proactive.fleet_lines(r)
+    out += areapredict.fleet_lines(r)
+    if (r.get("signals") or {}).get("held_degrading"):
+        out.append(f"               {r['signals']['held_degrading']} home(s)' faster-plan or smart-queueing signal "
+                   "held: their line is degrading (a repair first)")
     out += mesh.fleet_lines(r)
     out += channels.fleet_lines(r)
     out += coverage.fleet_lines(r)

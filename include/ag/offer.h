@@ -21,7 +21,8 @@
  *   RETENTION_RISK  a bad week: the experience below 90%, 5 points down on
  *                   the week before, or many problems: call before they do
  *   LINE_REPAIR     the nightly speed test below the line's speed on 2 nights
- *                   or more: the ISP owes a repair (and no upsell meanwhile)
+ *                   or more, or (v0.54) the line's own numbers degrading day by
+ *                   day: the ISP owes a repair (and no faster plan meanwhile)
  *
  * Pure (no I/O): agd (agd/offers.c) counts each day; this judges the days.
  * Unit test: tests/test_offer.c.
@@ -89,6 +90,8 @@ struct offer_in {
 	int sqm_on;                     /* AIGW runs smart queueing already: no SMART_QUEUE */
 	/* proven repair, the window's fixes AIGW made itself: helped of those judged (all; Wi-Fi's own) */
 	unsigned proven_fixes, proven_judged, wifi_fixes, wifi_judged;
+	/* v0.54: the line degrades (line health, ag/line.h): its words, else NULL. A repair, not a sale */
+	const char *line_degrading;
 	/* a device's name, else NULL (only for the words that stay home) */
 	const char *(*name)(const uint8_t mac[6], void *ctx);
 	void *ctx;

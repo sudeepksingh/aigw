@@ -57,6 +57,17 @@ Read the design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) · or open
 [docs/architecture.html](docs/architecture.html) in a browser for the
 illustrated version.
 
+> **v0.54:** **Area fault prediction.** Each gateway learns which way its line's
+> numbers are going (sync rate, noise margin, optical level, FEC and CRC errors,
+> drops, the next hop, the speed test) and when one would be a fault at that rate.
+> Cortex compares the homes of one cabinet or OLT and tells one home's line from
+> the shared plant: "the plant serving 14 of 20 homes is degrading; first calls
+> likely in about 3 days". One TMF621 ticket for the plant, not 14; no faster plan
+> sold on a degrading line. In the max profile only (feature `AREAPREDICT`;
+> full has no room for it). In `agctl line`, data model 1.25
+> (`Device.X_AIGW_.LineHealth.`), `python3 -m aigw_cortex predict`; measured on
+> simulated fleets with known faults; see [docs/area-prediction.md](docs/area-prediction.md).
+>
 > **v0.51.1:** **A max profile, and room in full.** Profiles are now minimal <
 > small < full < max. **Full** (the default) keeps its 1024 KB of flash with
 > headroom; **max** has every feature, within 2048 KB, for routers with 16 MB of

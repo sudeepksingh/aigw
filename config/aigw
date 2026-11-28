@@ -394,6 +394,23 @@ config repair 'repair'
 	option gate_fix_rate '80'
 	option gate_trials '10'
 
+config line 'line'
+	# line health and area fault prediction (agctl line, Device.X_AIGW_.LineHealth.,
+	# docs/area-prediction.md): each of the line's numbers day by day (sync rate,
+	# noise margin, optical level, FEC and CRC errors, retrains and drops, the next
+	# hop's delay and loss, the speed test), which way it goes and when it would be a
+	# fault. Cortex compares the homes of one cabinet or OLT: this line, or the shared
+	# plant. It only watches and tells: nothing is changed
+	option enabled '1'
+	# a look at the line's own numbers every interval s
+	option interval '900'
+	# cortex gets the line health vector: the line's numbers and trends only (no
+	# devices, no addresses, no traffic)
+	option share '1'
+	# the WAN's numbers: a program that prints one JSON line; default the
+	# platform's line-stats (OpenWRT: the DSL daemon, an SFP's optical level)
+	# option handler '/usr/libexec/aigw/line-stats'
+
 config usp 'usp'
 	# the ISP's MQTT broker and controller (aigw-usp); TLS by default
 	# option broker 'usp.example.net'

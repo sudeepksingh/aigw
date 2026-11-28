@@ -53,6 +53,7 @@ other features need it, they go too. They were measured before agctl became a li
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | small | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | small | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | full | 8 KB |
+| `AREAPREDICT` | Area fault prediction: line health trends, the shared plant found before it fails ([area-prediction.md](area-prediction.md)) | `CARE` | **max** (since v0.54.0) | 20 KB (aarch64 28, mipsel 20) |
 | `FED` | Federated learning | | full | 16 KB (with `FLEETLEARN`, which needs it, 44 KB) |
 | `FLEETLEARN` | Fleet learning: fixes ranked by the fleet's outcomes, warnings from day one ([fleet-learning.md](fleet-learning.md)); it needs an ISP-side collector | `FED` | **max** (since v0.51.1) | 28 KB |
 | `PLUGINS` | Plug-ins and skills: MQTT, Home Assistant, the bridge to cortex | | full | 104 KB |
@@ -73,12 +74,12 @@ smart queueing, the mesh and area outages when they are built.
 
 | Profile | Features | Budget | x86-64 | aarch64 | mipsel |
 |---|---|---|---|---|---|
-| `max` | every feature: for 16 MB of flash or more, and a PC | 2048 KB | 972 KB | 956 KB | 800 KB |
-| `full` (default) | all but max's own: today `FLEETLEARN` | 1024 KB | 944 KB | 932 KB | 780 KB |
+| `max` | every feature: for 16 MB of flash or more, and a PC | 2048 KB | 992 KB | 984 KB | 820 KB |
+| `full` (default) | all but max's own: today `FLEETLEARN`, `AREAPREDICT` | 1024 KB | 948 KB | 940 KB | 780 KB |
 | `small` | for 8 or 16 MB of flash: `WIFI_HEAL`, `TR143`, `CARE`, `UPGRADE`, `WHY`, `BRIEF`, `PROACTIVE`, `SQM`, `PROVEN` | 1024 KB | 652 KB | 664 KB | 560 KB |
 | `minimal` | the core only | 1024 KB | 356 KB | 352 KB | 308 KB |
 
-Measured in v0.51.1 (OpenWRT 24.10.8 SDK). Full has 80 KB of headroom on x86-64, 92 on aarch64
+Measured in v0.54.0 (OpenWRT 24.10.8 SDK). Full has 76 KB of headroom on x86-64, 84 on aarch64
 and 244 on mipsel. The installed flash is what `aigw-selftest` counts on the router: the programs,
 the scripts, the model and the plug-ins. CI's OpenWRT 24.10 jobs print it for every profile against
 its budget, and fail when one is over (`platform/openwrt/flash-kb.py`).

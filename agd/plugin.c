@@ -45,6 +45,9 @@
  *                                                   (capability firmware.install): agd's own
  *                                                   Download path, into the image not running,
  *                                                   activated, then checked like any upgrade
+ *                    {"line": {plant, node, kind, homes, of, metric, calls_in, confidence, ticket, words,
+ *                              hold_s, id}}            cortex's word on the shared plant (capability
+ *                                                   line.notice): shown on the gateway, never acted on
  *                    {"area": {incident, kind, since, homes, of, confidence, uplink, hold_s, id}}
  *                                                   an area outage cortex found (capability
  *                                                   area.notice): AIGW holds its own fixes
@@ -176,7 +179,7 @@ static int priv_cap(const char *cap)
 {
 	return !strcmp(cap, "decision.request") || !strcmp(cap, "devices.read") || !strcmp(cap, "model.offer") ||
 	       !strcmp(cap, "fed.train") || !strcmp(cap, "firmware.install") || !strcmp(cap, "area.notice") ||
-	       !strcmp(cap, "fleet.share");
+	       !strcmp(cap, "fleet.share") || !strcmp(cap, "line.notice");
 }
 
 static void state_dir(const struct plugin *p, char *out, size_t n)
@@ -650,6 +653,29 @@ static void on_area(struct plugin *p, struct blob_attr *a)
 	blob_buf_free(&d);
 }
 
+/* cortex's word on the shared plant (the bridge passes on its answer): shown, never acted on */
+static void on_line(struct plugin *p, struct blob_attr *a)
+{
+	struct blob_buf d = { 0 };
+	char err[200] = "";
+	int rc = -1;
+
+	if (!has_cap(p, "line.notice"))
+		snprintf(err, sizeof(err), "plug-in %s may not tell of the line (capability line.notice%s)", p->name,
+			 trusted(p) ? " not in its manifest" : " needs: agctl plugin allow");
+	else
+		rc = line_notice(a, err, sizeof(err));
+	if (!get(a, "id")) {
+		if (rc)
+			AG_INFO("plug-in %s: line notice refused: %s", p->name, err);
+		return;
+	}
+	blob_buf_init(&d, 0);
+	blobmsg_add_u8(&d, "ok", rc == 0);
+	reply(p, (int)gnum(a, "id", 0), &d, rc == 0 ? NULL : err);
+	blob_buf_free(&d);
+}
+
 static void on_query(struct plugin *p, const char *what, int id)
 {
 	struct blob_buf d = { 0 };
@@ -693,6 +719,13 @@ static void on_query(struct plugin *p, const char *what, int id)
 		coverage_report_blob(&d);       /* coverage advice: the verdict and counts, spots by kind: no names */
 	} else if (!strcmp(what, "repair")) {
 		repair_report_blob(&d);         /* proven repair: the fix rate by fault and kind of fix: counts, no names */
+#if AIGW_FEATURE_AREAPREDICT
+	} else if (!strcmp(what, "line")) {
+		void *t = blobmsg_open_table(&d, "line");       /* the line health vector: the line's physics only */
+
+		line_blob(&d, 1);
+		blobmsg_close_table(&d, t);
+#endif
 	} else if (!has_cap(p, "devices.read")) {
 		blob_buf_free(&d);
 		reply(p, id, NULL, trusted(p) ? "capability devices.read not in the manifest" :
@@ -768,6 +801,8 @@ static void handle_line(struct plugin *p, char *line)
 			on_firmware(p, body);
 		else if (!strcmp(key, "area") && body)
 			on_area(p, body);
+		else if (!strcmp(key, "line") && body)
+			on_line(p, body);
 		else if (!strcmp(key, "log") && blobmsg_type(cur) == BLOBMSG_TYPE_STRING)
 			AG_INFO("plug-in %s: %.300s", p->name, blobmsg_get_string(cur));
 		else
@@ -1311,7 +1346,7 @@ static int load_manifest(struct plugin *p, char *err, size_t n)
 		    strcmp(p->caps[i], "devices.read") && strcmp(p->caps[i], "alert.raise") &&
 		    strcmp(p->caps[i], "model.offer") && strcmp(p->caps[i], "fed.train") &&
 		    strcmp(p->caps[i], "firmware.install") && strcmp(p->caps[i], "area.notice") &&
-		    strcmp(p->caps[i], "fleet.share")) {
+		    strcmp(p->caps[i], "fleet.share") && strcmp(p->caps[i], "line.notice")) {
 			snprintf(err, n, "unknown capability '%s'", p->caps[i]);
 			goto out;
 		}

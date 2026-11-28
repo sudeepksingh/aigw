@@ -307,6 +307,14 @@ static void retain_and_repair(const struct offer_in *in, const struct offer_para
 		snprintf(f->evidence, sizeof(f->evidence),
 			 "%u of the last %u nightly speed tests were far below the line's speed: the line needs repair "
 			 "before anything is sold on it.", now.speed_low, now.speed_tests);
+	} else if (in->line_degrading && *in->line_degrading) {
+		*repair = 1;
+		f->active = 1;
+		f->days = f->of_days = 1;
+		f->since = in->today * 86400;
+		f->confidence = OC_MEDIUM;
+		snprintf(f->evidence, sizeof(f->evidence), "The line degrades day by day: %s It needs a repair before "
+			 "anything is sold on it.", in->line_degrading);
 	}
 	if (dn < p->min_days || !now.watched_secs)
 		return;

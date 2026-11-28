@@ -236,6 +236,39 @@ function renderMesh(r) {
     ], m.hurting, (h) => openGateway(h.home)) : el("p", { class: "muted" }, "No extender hurts more than it helps."));
 }
 
+// v0.54: area fault prediction (areapredict.py): the shared plant degrading before it fails
+function renderPredictions(r) {
+  const p = r.predictions || {};
+  const open = p.open || [], lines = p.lines || [], l3 = p.last_30_days || {};
+  if (!open.length && !lines.length && !l3.plants) {
+    $("predictions").replaceChildren(el("p", { class: "empty" },
+      "No line degrading. Gateways send their line health from AIGW OS 0.54 on, after 5 days of learning."));
+    return;
+  }
+  const calls = (d) => (d === 0 ? "now" : d > 0 ? `in about ${plural(d, "day")}` : "not known");
+  $("predictions").replaceChildren(
+    el("div", { class: "tiles" },
+      tile("Plants degrading", n(open.length), `${open.reduce((a, x) => a + x.homes, 0)} homes in them`),
+      tile("Lines on their own", n(lines.length), "this home's line, not the plant"),
+      tile("Fixed before failing", n(l3.recovered || 0), `last 30 days; calls likely avoided: ${l3.calls_likely_avoided || 0}`),
+      tile("Warned ahead", l3.median_lead_days !== null && l3.median_lead_days !== undefined ? `${l3.median_lead_days} d` : "–",
+        "median, before the first fault")),
+    open.length ? table([
+      { title: "Rank", cell: (x) => String(x.score) },
+      { title: "Plant", cell: (x) => x.node },
+      { title: "Homes", cell: (x) => `${x.homes} of ${x.homes_in_node}` },
+      { title: "What", cell: (x) => (x.signature || []).join(", ") || x.metric },
+      { title: "Since", cell: (x) => x.onset_day },
+      { title: "First calls", cell: (x) => calls(x.calls_in) },
+      { title: "Confidence", cell: (x) => el("span", { class: `badge ${x.confidence === "high" ? "bad" : "warn"}` }, x.confidence) },
+      { title: "ISP ticket", cell: (x) => ispBadge(x.isp_ticket) },
+    ], open) : el("p", { class: "muted" }, "No shared plant degrading."),
+    lines.length ? table([
+      { title: "Home", cell: (x) => x.home },
+      { title: "Line", cell: (x) => x.words || "" },
+    ], lines.slice(0, 20), (x) => openGateway(x.home)) : el("p", { class: "muted" }, "No line degrading on its own."));
+}
+
 // v0.46: Wi-Fi coverage (coverage.py): the homes that need an extender (a sales lead), and those that don't
 function renderCoverage(r) {
   const c = r.coverage || {};
@@ -503,6 +536,7 @@ async function load() {
     renderProactive(r);
     renderMesh(r);
     renderCoverage(r);
+    renderPredictions(r);
     renderIspTickets(r);
     renderSignals(r);
     renderQueueing(r);

@@ -1540,6 +1540,16 @@ agctl plugin add ag-sensor-zigbee</code></pre>
       <tr><td>Installed flash</td><td>Feature <code>PROVEN</code>, full and small profiles: full 992, 980, 820 KB; small 708, 708, 600 KB (x86-64, aarch64, mipsel).</td></tr>
     </tbody>
   </table></div>
+  <h3 style="margin-top:18px">As built in v0.54: area fault prediction</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Piece</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td>Line health, on the gateway</td><td>Each of the line&rsquo;s numbers day by day (sync rate, noise margin, optical level, FEC and CRC errors, retrains and drops, the next hop&rsquo;s delay and loss, the speed test), from a vendor-neutral WAN handler and proactive care: a robust trend (Theil-Sen, Kendall&rsquo;s test), a change point, the days until it is a fault, a confidence. <code>agctl line</code>, <code>Device.X_AIGW_.LineHealth.</code> (data model 1.24), <code>LineDegrading!</code>. A compact vector of the line&rsquo;s physics goes to cortex.</td></tr>
+      <tr><td>The shared plant, in cortex</td><td>The homes of one cabinet, OLT or area degrading on the same number from the same days, far beyond chance (a binomial tail against the fleet&rsquo;s base rate), pooling early signs no single home could prove: &ldquo;the plant serving 14 of 20 homes is degrading; first calls likely in about 3 days&rdquo;. Ranked by homes &times; urgency; one TMF621 ticket for the plant, the homes&rsquo; own line tickets not sent; no faster plan sold on a degrading line. See <a href="area-prediction.md">area-prediction.md</a>.</td></tr>
+      <tr><td>Installed flash</td><td>Feature <code>AREAPREDICT</code>, max profile only (2048 KB budget): max 992, 984, 820 KB (x86-64, aarch64, mipsel; this feature +20, +28, +20); full 948, 940, 780 KB (+4, +8, +0 with the feature off).</td></tr>
+      <tr><td>Measured</td><td>Simulated fleets of 60 homes on 3 cabinets with known faults and noise: every plant fault found, no false plants, warned a median 5 days before the first call; 117 ISP tickets instead of 606.</td></tr>
+    </tbody>
+  </table></div>
 </section>
 
 <!-- 17 --><section id="risks">

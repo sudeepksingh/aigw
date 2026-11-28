@@ -20,6 +20,9 @@ leaves a home for it):
   ISP tickets    (v0.42) each outage's and proactive ticket's ticket in the ISP's own
                  system (TMF621 or webhooks, tickets.py): synced, retrying, failed;
                  GET /api/tickets?open=1
+  faults coming  (v0.54, areapredict.py) shared plant whose homes' lines degrade together,
+                 found before it fails, ranked; lines degrading on their own;
+                 GET /api/predictions
   ISP signals    a faster plan, mesh Wi-Fi, smart queueing, homes at risk, line repairs
   coverage       (v0.46) the homes that need an extender: a weak spot two or more devices share
                  (coverage.py), and those where moving one device is enough
@@ -403,6 +406,14 @@ def make_handler(store, token, local, log=True):
                 if path == "/api/tickets":       # v0.42: the ISP's tickets, their sync state (tickets.py)
                     open_only = (qs.get("open") or ["0"])[0] in ("1", "true")
                     return self.send_json(200, dict(tickets.state(store), list=tickets.listing(store, open_only)))
+                if path == "/api/predictions":   # v0.54: the shared plant degrading (areapredict.py)
+                    from . import areapredict
+                    areapredict.update(store)
+                    r = areapredict.summary(store)
+                    isp = tickets.isp_of(store)
+                    for p in r["open"]:
+                        p["isp_ticket"] = isp.get(f"plant:{p['id']}")
+                    return self.send_json(200, r)
                 if path == "/api/proactive":
                     open_only = (qs.get("open") or ["0"])[0] in ("1", "true")
                     return self.send_json(200, proactive.summary(store, None, open_only))

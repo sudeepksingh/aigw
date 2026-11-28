@@ -236,7 +236,8 @@ static int candidate(const struct care_learn *L, int m, int hour, long day, long
 	if (M->cusum >= p->h[m] && M->recent >= eff) {
 		c->kind = CW_SHIFT;
 		c->predict = -1;
-		c->current = m == CM_SPEED ? mean - M->recent : mean + M->recent;
+		/* the value as measured lately, not the normal less the excess: the normal has moved since */
+		c->current = M->level > 0 ? M->level : 0;
 		c->strength = M->cusum / p->h[m];
 		return 1;
 	}
@@ -307,6 +308,10 @@ int care_learn_step(struct care_learn *L, const struct care_sample *s, int hour,
 				if (M->cusum > 3 * p->h[m])
 					M->cusum = 3 * p->h[m];
 				/* a check every 10 min is smoothed; the speed, tested once a night, is the last test's */
+				if (M->level == 0 && M->recent == 0)
+					M->level = x;
+				else
+					M->level += (m == CM_SPEED ? 1.0f : 0.25f) * (x - M->level);
 				M->recent += (m == CM_SPEED ? 1.0f : 0.25f) * (excess - M->recent);
 			}
 			slot = (int)(day % CARE_TREND_DAYS);

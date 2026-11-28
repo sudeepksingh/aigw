@@ -154,6 +154,9 @@ struct care_mstate {
 	float cusum;            /* shift: how much worse than normal, accumulated (deviations) */
 	float recent;           /* how much worse than normal lately (raw units, smoothed) */
 	struct care_mday days[CARE_TREND_DAYS];
+	/* v0.54: the value itself lately (smoothed like recent): what a shift's warning says it is now. Before, that
+	   was the normal less recent, and the normal had learned the bad value meanwhile ("-1 Mbit/s") */
+	float level;
 };
 
 struct care_sample {

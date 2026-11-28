@@ -24,6 +24,10 @@ Two ways out, either or both, off unless the configuration file turns them on:
 Events: outage.opened, outage.updated, outage.resolved, proactive.opened,
 proactive.updated, proactive.resolved. Which proactive tickets: those the gateway
 told the ISP (Raised, Proposed: "told_isp", the default) or all of them ("all").
+v0.54 (areapredict.py): plant.* (on by default), a shared plant predicted to fail: one
+ticket for its homes, and while it is open their own line tickets (proactive care's on
+the line, and line.*) are not sent: the plant's ticket says how many it explains;
+line.* (when listed in events), a home's line degrading on its own.
 
 Durable: what is to be sent is a row in cortex.db (ticket_outbox) before anything
 is sent, so it survives a restart; each (ticket, target) goes in order, with
@@ -54,7 +58,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from . import __version__, outage, proactive
+from . import __version__, areapredict, outage, proactive
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS ticket_meta (k TEXT PRIMARY KEY, v TEXT);
@@ -70,7 +74,9 @@ CREATE TABLE IF NOT EXISTS ticket_outbox (
 CREATE INDEX IF NOT EXISTS ticket_outbox_q ON ticket_outbox (state, key, target, id);
 """
 EVENTS = ("outage.opened", "outage.updated", "outage.resolved",
-          "proactive.opened", "proactive.updated", "proactive.resolved")
+          "proactive.opened", "proactive.updated", "proactive.resolved",
+          "plant.opened", "plant.updated", "plant.resolved", "line.opened", "line.updated", "line.resolved")
+KINDS = ("outage", "proactive", "plant", "line")
 OP = {"opened": "create", "updated": "update", "resolved": "resolve", "reopened": "reopen"}
 TMF = "tmf621"
 LOOKBACK = outage.LOOKBACK
@@ -78,8 +84,10 @@ KEEP_DAYS = 31
 ISP_CLOSED = ("resolved", "closed", "cancelled", "rejected")
 SEVERITY = {"outage.DOWN": "Critical", "outage.LOSS": "Major", "outage.DNS": "Major", "outage.SLOW": "Minor",
             "proactive.problem": "Major", "proactive.warning": "Minor", "proactive.info": "Warning",
-            "proactive.ok": "Warning"}
-TICKET_TYPE = {"outage": "AreaOutage", "proactive": "ProactiveCare"}
+            "proactive.ok": "Warning", "plant.high": "Major", "plant.medium": "Minor", "line.Fault": "Major",
+            "line.Drifting": "Minor", "line.Stepped": "Minor"}
+TICKET_TYPE = {"outage": "AreaOutage", "proactive": "ProactiveCare", "plant": "PredictedPlantFault",
+               "line": "PredictedLineFault"}
 AUTHOR = "AIGW OS cortex"
 MAX_ENTITIES = 50
 RETRY = {"base_s": 10, "max_s": 3600, "max_attempts": 30}
@@ -140,14 +148,14 @@ def check_config(c):
     if not isinstance(c, dict):
         raise ValueError("the ticketing configuration is a JSON object")
     out = {"enabled": bool(c.get("enabled")), "dry_run": bool(c.get("dry_run")),
-           "events": [str(e) for e in c.get("events", ["outage", "proactive"])],
+           "events": [str(e) for e in c.get("events", ["outage", "proactive", "plant"])],
            "proactive": str(c.get("proactive", "told_isp")),
            "interval_s": max(5, int(c.get("interval_s", 30))),
            "retry": dict(RETRY, **{k: int(v) for k, v in (c.get("retry") or {}).items() if k in RETRY}),
            "tmf621": None, "webhooks": []}
     for e in out["events"]:
-        if e not in ("outage", "proactive") and e not in EVENTS:
-            raise ValueError(f"events: {e} is none of outage, proactive, " + ", ".join(EVENTS))
+        if e not in KINDS and e not in EVENTS:
+            raise ValueError(f"events: {e} is none of {', '.join(KINDS)}, " + ", ".join(EVENTS))
     if out["proactive"] not in ("told_isp", "all"):
         raise ValueError("proactive: told_isp or all")
     allow_http = bool(c.get("allow_http"))
@@ -487,6 +495,25 @@ def _fp(d, keys):
 
 
 OUTAGE_FP = ("kind", "homes", "homes_in_area", "still_affected", "confidence", "state")
+PLANT_FP = ("state", "metric", "homes", "calls_in", "confidence", "explains", "outcome")
+LINE_FP = ("trend", "days_left", "conf", "open", "plant")
+
+
+def plant_doc(p, explains=0):
+    keep = ("id", "node", "metric", "signature", "state", "homes", "homes_in_node", "onset_day", "calls_in",
+            "confidence", "p", "score", "words", "outcome", "lead_days", "opened")
+    d = {k: p.get(k) for k in keep}
+    d["affected"] = [{"gateway": m["gateway"], "home": m["home"], "state": m.get("state"),
+                      "days_left": m.get("days_left")} for m in p.get("members") or []][:MAX_ENTITIES]
+    d["explains"] = explains
+    return d
+
+
+def external_of(store, key):
+    """The externalId of a ticket cortex keeps for key ("plant:3"); "" none."""
+    _table(store)
+    r = store.q("SELECT external_id FROM isp_tickets WHERE key = ?", (key,))
+    return r[0]["external_id"] if r else ""
 PRO_FP = ("status", "severity", "summary", "evidence", "next_step", "customer_note", "devices", "points", "open")
 
 
@@ -541,6 +568,37 @@ def tmf_body(t, tk, gws, now):
                  _note("aigw-next-step", "The fault is in the access network behind this uplink, not in the homes: "
                                          "no visits to the homes. AIGW holds its own fixes in them until it is over, "
                                          "and the help desk's brief says there is a known outage.", now, v)]
+        desc = d.get("words") or name
+    elif tk["kind"] == "plant":
+        sev = t["severity"].get("plant." + str(d.get("confidence")), "Minor")
+        name = (f"Predicted plant fault {d['id']} on {d['node']}: {d['homes']} of {d['homes_in_node']} homes' lines "
+                f"degrading")
+        ents = [_related_entity(t, d["node"], d["node"], "plant", "Resource", v)]
+        ents += [_gw_entity(t, h["gateway"], gws) for h in d.get("affected") or []]
+        calls = d.get("calls_in")
+        notes = [_note("aigw-brief", d.get("words") or name, d.get("opened") or now, v),
+                 _note("aigw-evidence", f"{d['homes']} of {d['homes_in_node']} homes on {d['node']} degrade on "
+                                        f"{d.get('metric')} ({', '.join(d.get('signature') or [])}) since about "
+                                        f"{d.get('onset_day')}; by chance alone p = {float(d.get('p') or 0):.1g}; "
+                                        f"confidence {d.get('confidence')}.", now, v),
+                 _note("aigw-next-step", "Inspect the shared plant (the cabinet, joint, card or feeder serving these "
+                                         "homes) before it fails" + (f": first calls likely in about {calls} days."
+                                                                     if calls and calls > 0 else ".") +
+                       " No visits to the homes.", now, v)]
+        if d.get("explains"):
+            notes.append(_note("aigw-suppressed", f"This ticket explains {d['explains']} of the homes' own line "
+                                                  "tickets: they were not sent.", now, v))
+        desc = d.get("words") or name
+    elif tk["kind"] == "line":
+        sev = t["severity"].get("line." + str(d.get("trend")), "Minor")
+        home = (gws.get(tk["gateway"]) or {}).get("name", tk["gateway"])
+        name = f"Predicted line fault at {home}: {d.get('metric')} {str(d.get('trend', '')).lower()}"
+        ents = [_gw_entity(t, tk["gateway"], gws)]
+        if d.get("node"):
+            ents.append(_related_entity(t, d["node"], d["node"], "plant", "Resource", v))
+        notes = [_note("aigw-brief", d.get("words") or name, d.get("opened") or now, v),
+                 _note("aigw-next-step", "This home's own line (its drop cable, its wiring, its port), not the "
+                                         "shared plant: the other homes on its node are fine.", now, v)]
         desc = d.get("words") or name
     else:
         sev = t["severity"].get("proactive." + str(d.get("severity")), "Minor")
@@ -668,15 +726,60 @@ def scan(store, cfg, now=None):
                              _fp(doc, OUTAGE_FP), inc["state"] == "open", since, now)
                 if ev:
                     seen[ev] = seen.get(ev, 0) + 1
+        explained = areapredict.explained(store) if _wanted(cfg, "plant") else {}
+        explains = {}
         if _wanted(cfg, "proactive"):
-            _scan_proactive(store, cfg, since, now, seen)
+            _scan_proactive(store, cfg, since, now, seen, explained, explains)
+        if _wanted(cfg, "line"):
+            _scan_lines(store, cfg, since, now, seen, explained, explains)
+        if _wanted(cfg, "plant"):
+            for p in areapredict.predictions(store, since=now - LOOKBACK):
+                doc = plant_doc(p, explains.get(p["id"], 0))
+                ev = _upsert(store, cfg, f"plant:{p['id']}", "plant", str(p["id"]), "", doc, _fp(doc, PLANT_FP),
+                             p["state"] == "open", since, now)
+                if ev:
+                    seen[ev] = seen.get(ev, 0) + 1
         store.x("DELETE FROM ticket_outbox WHERE state != 'queued' AND done < ?", (now - KEEP_DAYS * 86400,))
         store.x("DELETE FROM isp_tickets WHERE state != 'open' AND updated < ? AND key NOT IN "
                 "(SELECT key FROM ticket_outbox WHERE state = 'queued')", (now - KEEP_DAYS * 86400,))
     return seen
 
 
-def _scan_proactive(store, cfg, since, now, seen):
+LINE_CODES = set(outage.KIND_OF) - {"SILENT"}
+
+
+def _scan_lines(store, cfg, since, now, seen, explained, explains):
+    """A home's line degrading on its own (areapredict.py): a ticket when worth one, never for a home a plant explains."""
+    tracked = {r["key"]: r for r in store.q("SELECT key, state, gateway, doc FROM isp_tickets WHERE kind = 'line'")}
+    present = set()
+    for x in areapredict.lines(store, open_only=True):
+        key = f"line:{x['gateway']}:{x['metric']}:{x['onset']}"
+        if x["gateway"] in explained:
+            explains[explained[x["gateway"]]] = explains.get(explained[x["gateway"]], 0) + 1
+            continue
+        if not areapredict.ticketable(x) and key not in tracked:
+            continue
+        present.add(key)
+        doc = {k: x.get(k) for k in ("gateway", "home", "metric", "trend", "days_left", "conf", "words", "onset",
+                                     "opened")}
+        doc.update(open=True, plant=0)
+        ev = _upsert(store, cfg, key, "line", key[5:], x["gateway"], doc, _fp(doc, LINE_FP), True, since, now)
+        if ev:
+            seen[ev] = seen.get(ev, 0) + 1
+    for key, r in tracked.items():
+        if r["state"] != "open" or key in present:
+            continue
+        doc = dict(json.loads(r["doc"]), open=False, plant=explained.get(r["gateway"], 0))
+        if doc["plant"]:                    # it turned out to be the plant's: resolved, counted on the plant's
+            explains[doc["plant"]] = explains.get(doc["plant"], 0) + 1
+        ev = _upsert(store, cfg, key, "line", key[5:], r["gateway"], doc, _fp(doc, LINE_FP), False, since, now)
+        if ev:
+            seen[ev] = seen.get(ev, 0) + 1
+
+
+def _scan_proactive(store, cfg, since, now, seen, explained=None, explains=None):
+    explained = explained or {}
+    explains = explains if explains is not None else {}
     homes = outage._homes(store)
     tracked = {r["key"]: r for r in store.q("SELECT key, state, gateway FROM isp_tickets WHERE kind = 'proactive'")}
     present, reporting = set(), set()
@@ -693,6 +796,11 @@ def _scan_proactive(store, cfg, since, now, seen):
             present.add(key)
             told = bool(t.get("told_isp")) or t.get("status") in ("Raised", "Proposed")
             if key not in tracked and cfg["proactive"] == "told_isp" and not told:
+                continue
+            # v0.54: a line ticket of a home a predicted plant fault explains: the plant's one ticket covers it
+            if key not in tracked and g["id"] in explained and (t.get("fault") == "LINE" or t.get("code") in LINE_CODES):
+                pid = explained[g["id"]]
+                explains[pid] = explains.get(pid, 0) + 1
                 continue
             doc = proactive._ticket(t)
             doc["uplink"] = (homes.get(g["id"]) or {}).get("uplink", "")
@@ -758,6 +866,13 @@ def _resolve_body(t, tk, now):
     if tk["kind"] == "outage":
         why = (f"Over: {d.get('homes')} homes behind {d.get('uplink')}, recovered by {iso(d.get('end') or now)}"
                if not d.get("declared") else f"Ended by the operator at {iso(d.get('end') or now)}")
+    elif tk["kind"] == "plant":
+        why = ("The homes' lines are steady again" if d.get("outcome") == "recovered" else
+               "No longer predicted (it failed: see the homes' and the area's tickets)" if d.get("outcome") == "failed"
+               else "No longer predicted")
+    elif tk["kind"] == "line":
+        why = (f"Explained by the shared plant now (predicted plant fault {d['plant']}): one ticket for its homes"
+               if d.get("plant") else "The line is steady again, or no longer reported")
     else:
         st = d.get("status")
         why = {"Fixed": "Fixed by AIGW on the gateway", "Resolved": "Over on the gateway (the ISP had been told)",
@@ -1036,6 +1151,8 @@ def attach(store, r):
     isp = isp_of(store)
     for o in r.get("outages") or []:
         o["isp_ticket"] = isp.get(f"outage:{o.get('id')}")
+    for p in (r.get("predictions") or {}).get("open") or []:
+        p["isp_ticket"] = isp.get(f"plant:{p.get('id')}")
     ids = {g["name"]: g["id"] for g in store.gateways()}
     for t in (r.get("proactive") or {}).get("open_tickets") or []:
         t["isp_ticket"] = isp.get(proactive_key(ids.get(t.get("home"), ""), t))

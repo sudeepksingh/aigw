@@ -37,6 +37,7 @@ static long judged_at;
 static long told[OF_N];                 /* the signal's since, when it was told (0: not active) */
 static int loaded;
 static int untold;                      /* a signal started while agd wasn't on ubus yet */
+static int judged_line;                 /* the line was degrading when last judged */
 
 static struct {
 	uint8_t mac[6];
@@ -176,6 +177,12 @@ static void judge(long now)
 	/* proven repair: the week's fixes AIGW made itself, proven to have helped (all; Wi-Fi's own) */
 	repair_week(0, &in.proven_fixes, &in.proven_judged);
 	repair_week(1, &in.wifi_fixes, &in.wifi_judged);
+	{
+		static char lw[300];
+
+		in.line_degrading = line_degrading(lw, sizeof(lw)) ? lw : NULL;  /* a repair, not a faster plan */
+		judged_line = in.line_degrading != NULL;
+	}
 	offer_params_default(&p);
 	offer_judge(&in, &p, &res);
 	judged_at = now;
@@ -205,14 +212,15 @@ void offers_tick(void)
 {
 	long now = (long)ag_wall_s();
 
+	/* the line starting or ending to degrade is judged at once: no faster plan on it meanwhile */
 	if (cfg.offers && (!judged_at || now - judged_at >= JUDGE_S || now / 86400 != judged_at / 86400 ||
-			   (untold && agd_connected())))
+			   (untold && agd_connected()) || line_degrading(NULL, 0) != judged_line))
 		judge(now);
 }
 
 static void fresh(void)
 {
-	if (cfg.offers && (!judged_at || (long)ag_wall_s() - judged_at >= 60))
+	if (cfg.offers && (!judged_at || (long)ag_wall_s() - judged_at >= 60 || line_degrading(NULL, 0) != judged_line))
 		judge((long)ag_wall_s());
 }
 

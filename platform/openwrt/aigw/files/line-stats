@@ -1,0 +1,51 @@
+#!/bin/sh
+# AIGW OS line handler: the WAN's own numbers, as one JSON line (docs/area-prediction.md).
+#
+#   line-stats stats   {"tech": "dsl", "down_kbps": 99800, "up_kbps": 39900, "margin_db": 9.4,
+#                       "fec": 1234, "crc": 12, "uptime_s": 86400}
+#
+# Every key is optional; agd reads what is there. Counters (fec, crc, resyncs) are totals
+# since the line or the modem started; agd takes the differences. An OEM replaces this with
+# its own (line.handler) for a modem this doesn't know: a DOCSIS cable modem's downstream
+# SNR and codeword errors, a PON ONT's optical level and its errors, as TR-181 has them.
+#
+# Here, vendor-neutral sources only:
+#   DSL   OpenWRT's DSL daemon: ubus call dsl metrics (Device.DSL.Line: DownstreamCurrRate,
+#         DownstreamNoiseMargin; Stats: FECErrors, CRCErrors; a retrain resets the uptime)
+#   SFP   an ONT or SFP module on the WAN port: ethtool -m (its receive power, dBm:
+#         Device.Optical.Interface.OpticalSignalLevel)
+#   else  {"tech": "ethernet"}: agd counts the WAN's carrier drops itself
+[ "$1" = stats ] || { echo '{"error": "usage: line-stats stats"}'; exit 2; }
+
+out=""
+add() {         # add <key> <number>: only a number
+	case "$2" in
+	''|*[!0-9.eE+-]*|*[eE]*[eE]*) return ;;
+	esac
+	out="$out, \"$1\": $2"
+}
+
+if command -v ubus >/dev/null 2>&1 && m=$(ubus call dsl metrics 2>/dev/null) && [ -n "$m" ]; then
+	j() { echo "$m" | jsonfilter -e "$1" 2>/dev/null; }
+	if [ "$(j '@.up')" = true ]; then
+		r=$(j '@.downstream.data_rate'); [ -n "$r" ] && add down_kbps "$((r / 1000))"
+		r=$(j '@.upstream.data_rate'); [ -n "$r" ] && add up_kbps "$((r / 1000))"
+		add margin_db "$(j '@.downstream.snr')"
+		add uptime_s "$(j '@.uptime')"
+	fi
+	add fec "$(j '@.errors.near.fecs')"
+	add crc "$(j '@.errors.near.crc_p')"
+	echo "{\"tech\": \"dsl\"$out}"
+	exit 0
+fi
+
+dev=$(ip -4 route show default 2>/dev/null | sed -n 's/.* dev \([^ ]*\).*/\1/p' | head -n 1)
+if [ -n "$dev" ] && command -v ethtool >/dev/null 2>&1; then
+	rx=$(ethtool -m "$dev" 2>/dev/null | sed -n 's/.*[Rr]eceiver signal average optical power.*\/ *\(-\{0,1\}[0-9.]*\) dBm.*/\1/p' | head -n 1)
+	if [ -n "$rx" ]; then
+		add rx_dbm "$rx"
+		echo "{\"tech\": \"pon\"$out}"
+		exit 0
+	fi
+fi
+echo '{"tech": "ethernet"}'

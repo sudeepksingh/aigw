@@ -177,7 +177,7 @@ echo "== the gateway checks in: state, not traffic"
 cx_wait 15 "s.gateway('home')['last_seen'] > 0" "no report reached cortex"
 cx_wait 10 "any(d.get('hostname') == 'smoke-host' for d in s.snapshot('home').get('devices', []))" \
 	"report lacks the device list"
-cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care', 'upgrade', 'brief', 'interval', 'proactive', 'channels', 'coverage', 'repair'}" \
+cx_wait 5 "set(s.snapshot('home')) <= {'bridge', 'status', 'models', 'alerts', 'decisions', 'devices', 'care', 'upgrade', 'brief', 'interval', 'proactive', 'channels', 'coverage', 'repair', 'line'}" \
 	"report carries more than state"
 
 echo "== the help desk: the gateway's brief of the last hour reaches cortex (device kinds, not names)"

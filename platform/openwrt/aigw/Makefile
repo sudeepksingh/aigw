@@ -12,7 +12,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=aigw
-PKG_VERSION:=0.51.1
+PKG_VERSION:=0.54.0
 PKG_RELEASE:=1
 
 PKG_LICENSE:=Apache-2.0
@@ -151,7 +151,7 @@ define Package/aigw-demo/description
 endef
 
 # the features (cmake/features.cmake, docs/features.md): make menuconfig, Network > aigw
-AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS PROVEN
+AIGW_FEATURES:=WIFI_HEAL MESH COVERAGE TR143 CARE UPGRADE WHY OFFERS SQM CALLS BRIEF PROACTIVE AREA AREAPREDICT FED FLEETLEARN PLUGINS SNI METER FASTPATH REMOTE KEYS PROVEN
 PKG_CONFIG_DEPENDS:=$(foreach f,$(AIGW_FEATURES),CONFIG_AIGW_FEATURE_$(f))
 
 define Package/aigw/config
@@ -227,6 +227,22 @@ define Package/aigw/config
   config AIGW_FEATURE_AREA
     bool "Area outages, fixes held while many homes fail at once" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
+  config AIGW_FEATURE_AREAPREDICT
+    bool "Area fault prediction: line health trends, the shared plant found before it fails" if AIGW_PROFILE_CUSTOM
+    depends on AIGW_FEATURE_CARE
+    default y if AIGW_PROFILE_MAX || AIGW_PROFILE_CUSTOM
+    help
+      Each of the line's numbers day by day (sync rate, noise margin, optical
+      level, FEC and CRC errors, retrains and drops, the next hop's delay and
+      loss, the speed test): which way it goes and when it would be a fault
+      (agctl line, Device.X_AIGW_.LineHealth., LineDegrading!). The ISP's
+      cortex compares the homes of one cabinet or OLT and predicts a failing
+      shared plant days before the first calls: one ticket, not one per home.
+      No faster plan is offered on a degrading line. It only watches and tells.
+      Needs CARE. In the max profile only (since v0.54.0): full has no room
+      for it within 1024 KB. Adds 20 KB of installed flash on x86-64
+      (aarch64 28, mipsel 20).
+      See docs/area-prediction.md.
   config AIGW_FEATURE_FED
     bool "Federated learning" if AIGW_PROFILE_CUSTOM
     default y if AIGW_PROFILE_MAX || AIGW_PROFILE_FULL || AIGW_PROFILE_CUSTOM
@@ -317,6 +333,8 @@ define Package/aigw/install
 	$(if $(CONFIG_AIGW_FEATURE_PLUGINS),$(INSTALL_DIR) $(1)/usr/share/aigw/plugins/iot-guard)
 	$(if $(CONFIG_AIGW_FEATURE_PLUGINS),$(INSTALL_DATA) $(PKG_INSTALL_DIR)/usr/share/aigw/plugins/iot-guard/manifest.json \
 		$(1)/usr/share/aigw/plugins/iot-guard/)
+	# the WAN's own numbers for line health (an OEM's modem may have its own: line.handler)
+	$(if $(CONFIG_AIGW_FEATURE_AREAPREDICT),$(INSTALL_BIN) ./files/line-stats $(1)/usr/libexec/aigw/line-stats)
 	# per-device Wi-Fi keys, your plug-ins, trusted keys, model updates and
 	# device history survive a firmware upgrade
 	echo /etc/aigw/ > $(1)/lib/upgrade/keep.d/aigw

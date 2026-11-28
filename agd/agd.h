@@ -946,6 +946,33 @@ static inline void area_held_words(char *buf, size_t n) { if (n) buf[0] = '\0'; 
 static inline void area_status_blob(struct blob_buf *b) { (void)b; }
 #endif
 
+#if AIGW_FEATURE_AREAPREDICT
+/* line.c: line health, each metric's trend, and cortex's word on the shared plant (ag/line.h) */
+void line_init(void);
+int line_look_now(void);                /* look at the line now (agctl line --look); -1 off */
+void line_on_check(float gw_ms, float gw_loss_pct);     /* care.c: a check's next hop (-1: not measured) */
+void line_on_speed(float mbps);         /* care.c: a speed test */
+void line_take(const char *json, long now);     /* the handler's answer (NULL none) */
+int line_notice(struct blob_attr *a, char *err, size_t en);    /* cortex: {plant, homes, ...}; plant 0 none */
+int line_degrading(char *words, size_t n);      /* 1: the line is degrading (medium confidence or more), in words */
+void line_blob(struct blob_buf *b, int isp);    /* isp: the compact line health vector, nothing unless line.share */
+int line_field(const char *f, char *buf, size_t n);    /* Device.X_AIGW_.LineHealth.; -1 unknown */
+int line_metric_ids(uint32_t *out, int max);
+int line_metric_field(uint32_t inst, const char *f, char *buf, size_t n);
+void line_save(struct blob_buf *b);
+void line_load(struct blob_attr *t);
+/* dm.c: LineDegrading! (started 1) or LineDegradingCleared! (0) */
+void dm_on_line(int started);
+#else
+static inline void line_on_check(float gw_ms, float gw_loss_pct) { (void)gw_ms; (void)gw_loss_pct; }
+static inline void line_on_speed(float mbps) { (void)mbps; }
+static inline int line_notice(struct blob_attr *a, char *err, size_t en)
+{ (void)a; snprintf(err, en, "area fault prediction is not built in (AIGW_FEATURE_AREAPREDICT)"); return -1; }
+static inline int line_degrading(char *words, size_t n) { (void)words; (void)n; return 0; }
+static inline void line_save(struct blob_buf *b) { (void)b; }
+static inline void line_load(struct blob_attr *t) { (void)t; }
+#endif
+
 #if AIGW_FEATURE_BRIEF
 /* brief.c, for proactive care: a brief from what is known (no fresh check, the ISP's names rule) */
 int brief_quick(long from, long to, const char *host, struct brief *out);

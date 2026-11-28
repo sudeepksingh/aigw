@@ -2,7 +2,8 @@
 """The cortex HTTP API that gateways' bridges talk to.
 
     POST /v1/report              gateway state: status, devices, alerts, decisions, models;
-                                 the answer's "area" says whether it is in an area outage (outage.py)
+                                 the answer's "area" says whether it is in an area outage (outage.py),
+                                 "line" whether the plant serving it degrades with others (areapredict.py)
     GET  /v1/models              newest signed model (and list, e.g. threat-intel) per name
     GET  /v1/models/<file>       a model (.agm) or list (.list), or its signature (.sig)
     GET  /v1/proposals           suggestions waiting for this gateway (sent once)
@@ -28,7 +29,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from . import fed, fleetlearn, outage, rollout, tickets
+from . import areapredict, fed, fleetlearn, outage, rollout, tickets
 
 MAX_BODY = 4 * 1024 * 1024
 FILE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]{0,80}\.(agm|list|adapter|priors)(\.sig)?$")
@@ -131,8 +132,10 @@ def make_handler(store, log=True, fed_settings=None, tickets_cfg=None, kick=None
                 if kick:
                     kick()                  # v0.42: news for the ISP's tickets goes out soon, not at the next look
                 # v0.39: in an area outage the gateway holds its own fixes (agd/area.c); incident 0: none
+                # v0.54: the shared plant serving it degrades with others (agd/line.c shows it); plant 0: none
                 return self.send_json(200, {"ok": True, "gateway": gw["name"], "labels": learned,
-                                            "area": outage.notice(store, gw["id"])})
+                                            "area": outage.notice(store, gw["id"]),
+                                            "line": areapredict.notice(store, gw["id"])})
             if path == "/v1/fed/update":
                 code, answer = fed.accept(store, fs, gw["id"], body)
                 return self.send_json(code, answer)
@@ -181,8 +184,15 @@ def serve(store, listen="127.0.0.1", port=8790, cert=None, key=None, log=True, f
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
         scheme = "https"
     def rollouts():                 # a wave whose homes went quiet still times out
+        n = 0
         while True:
             time.sleep(60)
+            n += 1
+            if n % 30 == 0:
+                try:
+                    areapredict.update(store)       # v0.54: homes that stopped reporting age out of the plant
+                except Exception as e:  # noqa: BLE001 - keep serving
+                    sys.stderr.write(f"predictions: {e}\n")
             try:
                 rollout.step_all(store)
             except Exception as e:  # noqa: BLE001 - keep serving

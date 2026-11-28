@@ -23,6 +23,9 @@ NAS, a cloud VM. Gateways work fully without it. With it:
   the homes to call first, staged rollouts (pause and abort), ISP signals,
   smart queueing and each gateway. `python3 -m aigw_cortex dashboard`
   ([docs/dashboard.md](../docs/dashboard.md)).
+- **Area fault prediction** (v0.54): the homes of one cabinet or OLT whose lines degrade
+  together, found days before the first calls; one ticket for the plant (`predict`,
+  `predict simulate`, `predict backtest`; [docs/area-prediction.md](../docs/area-prediction.md)).
 - **The ISP's ticketing** (v0.42): area outages and proactive tickets as
   TM Forum TMF621 trouble tickets (created, updated, resolved; the ISP's
   resolve comes back through the hub) or signed webhooks, from a durable
@@ -146,6 +149,7 @@ key run the plug-in with its privileged capabilities, without
 | `model_status` | published models and what each gateway runs |
 | `list_proposals` | suggestions sent and how each was taken |
 | `fleet_report` | the ISP's fleet report (days, group): scores, causes, problems fixed and reported, early warnings, speeds, outages, homes needing attention |
+| `plant_predictions` | (v0.54) shared plant degrading before it fails: the node, metric, homes, first calls in days, confidence, rank, its ISP ticket; lines degrading on their own |
 | `isp_tickets` | (v0.42) the ISP's own tickets for outages and proactive tickets: on or off, sync state, the ISP's id and status, errors |
 | `propose_action` | **the only write tool.** quarantine, priority, deprioritize, throttle, disconnect or block, with a reason. It travels to the gateway with the next check-in and waits there as a proposal (`agctl decisions`, then `agctl approve <id>`), even in enforce mode. The gateway's guardrails (protected devices, time limits) apply as for any request. |
 
