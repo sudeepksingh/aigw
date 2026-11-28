@@ -53,7 +53,7 @@ other features need it, they go too. They were measured before agctl became a li
 | `BRIEF` | The help-desk brief | `CARE`, `WHY` | small | 52 KB with `PROACTIVE` (about 24 on its own) |
 | `PROACTIVE` | Proactive care before the call: tickets to the ISP | `BRIEF` | small | 28 KB |
 | `AREA` | Area outages: fixes held while many homes fail at once | | full | 8 KB |
-| `AREAPREDICT` | Area fault prediction: line health trends, the shared plant found before it fails ([area-prediction.md](area-prediction.md)) | `CARE` | **max** (since v0.54.0) | @KB@ |
+| `AREAPREDICT` | Area fault prediction: line health trends, the shared plant found before it fails ([area-prediction.md](area-prediction.md)) | `CARE` | **max** (since v0.54.0) | 20 KB |
 | `FED` | Federated learning | | full | 16 KB (with `FLEETLEARN`, which needs it, 44 KB) |
 | `FLEETLEARN` | Fleet learning: fixes ranked by the fleet's outcomes, warnings from day one ([fleet-learning.md](fleet-learning.md)); it needs an ISP-side collector | `FED` | **max** (since v0.51.1) | 28 KB |
 | `PLUGINS` | Plug-ins and skills: MQTT, Home Assistant, the bridge to cortex | | full | 104 KB |

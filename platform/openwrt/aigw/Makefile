@@ -240,7 +240,7 @@ define Package/aigw/config
       shared plant days before the first calls: one ticket, not one per home.
       No faster plan is offered on a degrading line. It only watches and tells.
       Needs CARE. In the max profile only (since v0.54.0): full has no room
-      for it within 1024 KB. Adds @KB@ of installed flash.
+      for it within 1024 KB. Adds 20 KB of installed flash on x86-64.
       See docs/area-prediction.md.
   config AIGW_FEATURE_FED
     bool "Federated learning" if AIGW_PROFILE_CUSTOM
